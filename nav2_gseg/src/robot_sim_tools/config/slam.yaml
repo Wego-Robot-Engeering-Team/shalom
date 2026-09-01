@@ -1,0 +1,27 @@
+slam_toolbox:
+  ros__parameters:
+    use_sim_time: true
+    mode: mapping
+    map_frame: map
+    odom_frame: odom
+    base_frame: husky/base_link
+    scan_topic: /obstacle_scan
+
+    # The input scan contains only points classified as obstacles. This keeps
+    # the ground out of the occupancy map while retaining walls and objects.
+    resolution: 0.10
+    min_laser_range: 0.25
+    max_laser_range: 30.0
+    map_update_interval: 1.0
+    minimum_time_interval: 0.1
+    transform_publish_period: 0.05
+    transform_timeout: 0.5
+    tf_buffer_duration: 30.0
+
+    use_scan_matching: true
+    do_loop_closing: true
+    minimum_travel_distance: 0.20
+    minimum_travel_heading: 0.20
+    scan_buffer_size: 10
+    scan_buffer_maximum_scan_distance: 30.0
+    enable_interactive_mode: false
