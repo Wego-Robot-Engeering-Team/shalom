@@ -1,5 +1,7 @@
 #include "theme/Tokens.h"
 
+#include <QtMath>
+
 namespace gcs::theme {
 
 const Colors kDark{
@@ -54,6 +56,26 @@ const Colors &setTheme(const QString &name)
 const Colors &toggleTheme()
 {
     return setTheme(g_current->isDark() ? QStringLiteral("light") : QStringLiteral("dark"));
+}
+
+namespace {
+double g_uiScale = 1.0;
+}
+
+double uiScale()
+{
+    return g_uiScale;
+}
+
+void setUiScale(double scale)
+{
+    g_uiScale = qBound(0.8, scale, 1.6);
+}
+
+int scaled(int basePoints)
+{
+    // 반올림해서 정수로 만든다. 소수점 폰트 크기는 QSS 에서 무시된다.
+    return qMax(7, int(qRound(basePoints * g_uiScale)));
 }
 
 QString monoFamily()
