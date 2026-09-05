@@ -1,0 +1,13 @@
+# 빌드 산출물
+build/
+log/
+install/
+
+# Python 프로토타입
+.venv/
+__pycache__/
+*.pyc
+
+# 에디터 / OS
+.DS_Store
+compile_commands.json
