@@ -1,6 +1,7 @@
 #include "sim/SimRobot.h"
 
 #include <QRandomGenerator>
+#include <QTimer>
 #include <QtMath>
 
 #include "RobotDef.h"
@@ -119,11 +120,31 @@ QList<QVariantMap> buildTags(const QList<QVariantMap> &waypoints)
 
 // ============================ SimRobot ============================
 
-SimRobot::SimRobot(QObject *parent) : QObject(parent)
+SimRobot::SimRobot(QObject *parent) : gcs::robot::RobotLink(parent)
 {
     joints_ = {robot::kArmHome.begin(), robot::kArmHome.end()};
     jointTarget_ = joints_;
     waypoints_ = buildWaypoints();
+
+    timer_ = new QTimer(this);
+    timer_->setInterval(50);   // 20 Hz — 수동 조작 발행 주기와 맞춘다.
+    connect(timer_, &QTimer::timeout, this, [this] { emit telemetry(step(0.05)); });
+}
+
+void SimRobot::start()
+{
+    timer_->start();
+    emit connectionChanged(true);
+}
+
+void SimRobot::stop()
+{
+    timer_->stop();
+}
+
+QString SimRobot::describe() const
+{
+    return QStringLiteral("시뮬레이터");
 }
 
 void SimRobot::setWaypoints(const QList<QVariantMap> &waypoints)
@@ -455,6 +476,9 @@ Telemetry SimRobot::step(double dt)
     tm.joints = joints_;
     tm.estop = estop_;
     tm.navStatus = navStatus_;
+    // 시뮬레이터에는 잃을 링크가 없으므로 위치는 항상 신선하다.
+    tm.poseFresh = true;
+    tm.localizationOk = true;
 
     // 계획 경로: 현재 위치에서 남은 포인트들
     if (mission_ == MissionState::Running) {

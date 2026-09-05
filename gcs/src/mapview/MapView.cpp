@@ -308,6 +308,19 @@ void MapView::drawForeground(QPainter *p, const QRectF &)
     p->resetTransform();   // 화면 좌표로 그린다
     p->setRenderHint(QPainter::Antialiasing);
 
+    // 맵이 없으면 빈 흰 판만 남아 고장처럼 보인다. 상태를 글로 알린다.
+    if (!info_) {
+        const Colors &C = colors();
+        QFont f;
+        f.setPointSize(12);
+        p->setFont(f);
+        p->setPen(QColor(C.textMute));
+        p->drawText(viewport()->rect(), Qt::AlignCenter,
+                    QStringLiteral("지도가 없습니다\n브릿지에서 맵을 수신하면 표시됩니다"));
+        p->restore();
+        return;
+    }
+
     if (dragging_) {
         const QPointF o = mapFromScene(dragOrigin_);
         const QPointF c = mapFromScene(dragCurrent_);

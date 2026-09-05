@@ -29,6 +29,10 @@ inline constexpr auto kPreview = "capture/preview";   ///< binary, on capture
 /// only way to tell whether an inspection run is actually finished.
 inline constexpr auto kCaptureSpool = "state/capture_spool";
 
+/// Sensor and link health. Staleness is judged by the bridge against each
+/// sensor's expected rate, not by a fixed timeout here (protocol section 9.2).
+inline constexpr auto kHealth = "state/health";
+
 // ---- Commands, sent by the control station -------------------------------
 inline constexpr auto kCmdEstop = "cmd/estop";                  ///< engage only
 inline constexpr auto kCmdEstopRelease = "cmd/estop_release";   ///< manual release only
