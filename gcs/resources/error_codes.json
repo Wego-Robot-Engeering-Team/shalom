@@ -1,0 +1,675 @@
+{
+  "version": 1,
+  "note": "SHALOM 관제 코드 카탈로그. 단일 출처(single source of truth)다. UI 사전, 브릿지 에러 코드, 납품 문서「비상대응 매뉴얼」이 모두 이 파일에서 나온다. 손으로 문서를 따로 쓰지 말 것 — 반드시 어긋난다.",
+  "severities": [
+    "info",
+    "ok",
+    "warn",
+    "error",
+    "critical"
+  ],
+  "codes": [
+    {
+      "code": "E_VERSION",
+      "severity": "critical",
+      "category": "protocol",
+      "channel": "-",
+      "title": "프로토콜 버전 불일치",
+      "cause": "관제 UI와 로봇측 브릿지의 프로토콜 버전이 다릅니다. 한쪽만 업데이트된 상태입니다.",
+      "actions": [
+        "양쪽 소프트웨어 버전을 확인하십시오",
+        "같은 납품 버전으로 맞춘 뒤 재기동하십시오",
+        "버전이 어긋난 채로 운용하지 마십시오"
+      ]
+    },
+    {
+      "code": "E_UNKNOWN_CHANNEL",
+      "severity": "warn",
+      "category": "protocol",
+      "channel": "-",
+      "title": "미지원 채널",
+      "cause": "상대가 알지 못하는 채널로 통신을 시도했습니다. 부분 업데이트 상태일 수 있습니다.",
+      "actions": [
+        "양쪽 버전을 확인하십시오",
+        "반복되면 로그를 내보내 개발사에 전달하십시오"
+      ]
+    },
+    {
+      "code": "E_BAD_PAYLOAD",
+      "severity": "error",
+      "category": "protocol",
+      "channel": "-",
+      "title": "잘못된 명령 내용",
+      "cause": "명령에 필요한 값이 빠졌거나 형식이 맞지 않습니다.",
+      "actions": [
+        "입력값을 확인하고 다시 시도하십시오",
+        "반복되면 로그를 내보내 개발사에 전달하십시오"
+      ]
+    },
+    {
+      "code": "E_ESTOP_ENGAGED",
+      "severity": "warn",
+      "category": "protocol",
+      "channel": "cmd/estop",
+      "title": "E-Stop 발동 중이라 명령이 거부됨",
+      "cause": "비상정지가 걸린 상태에서는 이동·로봇팔 명령이 모두 거부됩니다.",
+      "actions": [
+        "로봇 주변 안전을 확인하십시오",
+        "E-Stop 버튼을 눌러 해제하십시오(수동 확인 필요)",
+        "해제 후에도 자율주행은 자동 재개되지 않습니다 — 재개 버튼을 누르십시오"
+      ]
+    },
+    {
+      "code": "E_MODE",
+      "severity": "warn",
+      "category": "protocol",
+      "channel": "cmd/mode",
+      "title": "현재 모드에서 허용되지 않는 명령",
+      "cause": "수동 모드에서 자율주행 명령을 보냈거나, 그 반대입니다.",
+      "actions": [
+        "상단 자율/수동 전환 버튼으로 모드를 맞추십시오"
+      ]
+    },
+    {
+      "code": "E_BUSY",
+      "severity": "info",
+      "category": "protocol",
+      "channel": "-",
+      "title": "선행 동작 진행 중",
+      "cause": "이전 명령이 아직 끝나지 않았습니다.",
+      "actions": [
+        "동작이 끝날 때까지 기다리십시오",
+        "중단하려면 정지 버튼을 누르십시오"
+      ]
+    },
+    {
+      "code": "E_UNREACHABLE",
+      "severity": "error",
+      "category": "protocol",
+      "channel": "cmd/arm/ee_goal",
+      "title": "도달 불가 — 경로/자세 계획 실패",
+      "cause": "지정한 목표에 대한 역기구학 해가 없거나 경로 계획에 실패했습니다. 작업 공간을 벗어났거나 장애물에 막혔습니다.",
+      "actions": [
+        "목표 위치를 로봇 쪽으로 조금 당겨 다시 시도하십시오",
+        "로봇팔을 홈 자세로 보낸 뒤 재시도하십시오",
+        "주변 장애물을 확인하십시오"
+      ]
+    },
+    {
+      "code": "E_LIMIT",
+      "severity": "error",
+      "category": "protocol",
+      "channel": "cmd/arm/joint_goal",
+      "title": "한계 초과 — 관절·속도·작업공간",
+      "cause": "명령값이 FR3의 관절 한계나 속도 한계를 넘었습니다.",
+      "actions": [
+        "슬라이더 값을 한계 범위 안으로 조정하십시오",
+        "관절 표시줄에서 한계 근접(주황색) 축을 확인하십시오"
+      ]
+    },
+    {
+      "code": "E_HARDWARE",
+      "severity": "critical",
+      "category": "protocol",
+      "channel": "-",
+      "title": "하드웨어 응답 없음",
+      "cause": "B2 또는 로봇팔 컨트롤러가 명령에 응답하지 않습니다.",
+      "actions": [
+        "즉시 E-Stop을 발동하고 접근하지 마십시오",
+        "로봇 전원 및 케이블 연결을 확인하십시오",
+        "복구되지 않으면 개발사에 연락하십시오"
+      ]
+    },
+    {
+      "code": "LINK_LOST",
+      "severity": "error",
+      "category": "transport",
+      "channel": "-",
+      "title": "브릿지 연결 끊김",
+      "cause": "관제 PC와 로봇 간 TCP 연결이 끊겼습니다. 무선 구간 품질 저하 또는 로봇측 소프트웨어 종료입니다.",
+      "actions": [
+        "3초 후 로봇은 자동으로 정지합니다 — 이는 정상 안전 동작입니다",
+        "관제 PC가 자동 재연결을 시도합니다",
+        "재연결 후에도 자율주행은 수동 재개가 필요합니다"
+      ]
+    },
+    {
+      "code": "LINK_RESTORED",
+      "severity": "ok",
+      "category": "transport",
+      "channel": "-",
+      "title": "브릿지 재연결됨",
+      "cause": "연결이 복구되었습니다.",
+      "actions": [
+        "로봇 위치와 상태를 확인하십시오",
+        "이상이 없으면 재개 버튼으로 자율주행을 다시 시작하십시오"
+      ]
+    },
+    {
+      "code": "LINK_DEGRADED",
+      "severity": "warn",
+      "category": "transport",
+      "channel": "state/system",
+      "title": "링크 품질 저하",
+      "cause": "왕복 지연(RTT)이 임계를 넘었습니다. 무선 간섭이나 거리 때문입니다.",
+      "actions": [
+        "로봇 위치와 AP 사이 장애물을 확인하십시오",
+        "지속되면 촬영 작업을 일시정지하십시오"
+      ]
+    },
+    {
+      "code": "FRAME_BAD_MAGIC",
+      "severity": "critical",
+      "category": "transport",
+      "channel": "-",
+      "title": "프레임 정합 손상",
+      "cause": "수신 스트림의 프레임 경계가 어긋났습니다. 소프트웨어 결함이거나 중간 장비의 데이터 변조입니다.",
+      "actions": [
+        "연결이 자동으로 끊기고 재연결됩니다",
+        "반복되면 즉시 운용을 중단하고 로그를 내보내십시오",
+        "네트워크 중간 장비(프록시·방화벽)를 점검하십시오"
+      ]
+    },
+    {
+      "code": "FRAME_TOO_LARGE",
+      "severity": "error",
+      "category": "transport",
+      "channel": "-",
+      "title": "프레임 크기 초과",
+      "cause": "선언된 프레임 길이가 상한(32 MiB)을 넘었습니다.",
+      "actions": [
+        "연결이 자동으로 끊깁니다",
+        "반복되면 로그를 내보내 개발사에 전달하십시오"
+      ]
+    },
+    {
+      "code": "HEARTBEAT_TIMEOUT",
+      "severity": "warn",
+      "category": "transport",
+      "channel": "-",
+      "title": "하트비트 소실",
+      "cause": "상대의 하트비트가 규정 시간 안에 도착하지 않았습니다. 링크 단절의 전조입니다.",
+      "actions": [
+        "링크 상태를 주시하십시오",
+        "3초 이상 지속되면 로봇이 자동 정지합니다"
+      ]
+    },
+    {
+      "code": "ESTOP_ENGAGED",
+      "severity": "critical",
+      "category": "safety",
+      "channel": "cmd/estop",
+      "title": "E-Stop 발동",
+      "cause": "관제 UI 또는 하드웨어 비상정지가 발동되었습니다.",
+      "actions": [
+        "로봇이 1초 이내 정지합니다",
+        "주변 안전을 확보하기 전에 접근하지 마십시오",
+        "해제는 수동 확인을 거쳐야 하며 자동 해제되지 않습니다"
+      ]
+    },
+    {
+      "code": "ESTOP_RELEASED",
+      "severity": "warn",
+      "category": "safety",
+      "channel": "cmd/estop_release",
+      "title": "E-Stop 해제",
+      "cause": "운용자가 수동으로 비상정지를 해제했습니다.",
+      "actions": [
+        "해제 후 로봇은 수동 모드로 진입합니다",
+        "자율주행은 명시적 재개 명령이 필요합니다"
+      ]
+    },
+    {
+      "code": "HUMAN_DETECTED",
+      "severity": "warn",
+      "category": "safety",
+      "channel": "evt/log",
+      "title": "사람 접근 감지 — 일시정지",
+      "cause": "LiDAR·카메라가 안전거리 내 사람을 감지했습니다. 경고음과 함께 로봇이 일시정지했습니다.",
+      "actions": [
+        "작업 구역에서 인원을 이격시키십시오(1m 이상)",
+        "이격 확인 후 자동 재개되거나, 관제에서 수동 재개하십시오"
+      ]
+    },
+    {
+      "code": "HUMAN_CLEARED",
+      "severity": "ok",
+      "category": "safety",
+      "channel": "evt/log",
+      "title": "안전거리 확보됨",
+      "cause": "감지된 인원이 안전거리 밖으로 이격되었습니다.",
+      "actions": [
+        "설정에 따라 자동 재개되거나 수동 재개가 필요합니다"
+      ]
+    },
+    {
+      "code": "OBSTACLE_UNKNOWN",
+      "severity": "warn",
+      "category": "safety",
+      "channel": "evt/log",
+      "title": "지도상 미등록 물체 접근",
+      "cause": "SLAM 지도에 없는 장애물이 경로상에 있습니다.",
+      "actions": [
+        "로봇이 30cm/s로 감속하고 우회 경로를 탐색합니다",
+        "물체를 치울 수 있으면 치우십시오",
+        "임의로 돌파를 지시하지 마십시오"
+      ]
+    },
+    {
+      "code": "SAFE_SLOW",
+      "severity": "info",
+      "category": "safety",
+      "channel": "evt/log",
+      "title": "안전 감속 (30cm/s)",
+      "cause": "미등록 장애물 근접으로 이동 속력을 낮췄습니다.",
+      "actions": [
+        "정상 안전 동작입니다. 별도 조치가 필요하지 않습니다"
+      ]
+    },
+    {
+      "code": "DETOUR_FAILED",
+      "severity": "error",
+      "category": "safety",
+      "channel": "state/nav",
+      "title": "우회 경로 없음 — 정지",
+      "cause": "장애물을 피할 경로를 찾지 못해 로봇이 정지했습니다.",
+      "actions": [
+        "경로상 장애물을 제거하십시오",
+        "제거 후 재개 명령을 내리십시오",
+        "수동 지시 없이 임의 돌파는 금지입니다"
+      ]
+    },
+    {
+      "code": "COMM_TIMEOUT_STOP",
+      "severity": "critical",
+      "category": "safety",
+      "channel": "-",
+      "title": "통신 두절 3초 — 자동 정지",
+      "cause": "관제와의 통신이 3초 이상 끊겨 안전 노드가 로봇을 정지시켰습니다.",
+      "actions": [
+        "정상 안전 동작입니다",
+        "통신 복구 후 로봇 상태를 확인하십시오",
+        "자율주행은 수동 재개가 필요합니다"
+      ]
+    },
+    {
+      "code": "MODE_MANUAL",
+      "severity": "warn",
+      "category": "safety",
+      "channel": "cmd/mode",
+      "title": "수동 모드 전환 — 자율주행 중단",
+      "cause": "운용자가 수동 모드로 전환했습니다. 수동 명령이 자율주행보다 우선합니다.",
+      "actions": [
+        "자율주행이 즉시 중단됩니다",
+        "복귀하려면 자율 모드로 전환 후 재개 명령을 내리십시오"
+      ]
+    },
+    {
+      "code": "MODE_AUTO",
+      "severity": "info",
+      "category": "safety",
+      "channel": "cmd/mode",
+      "title": "자율 모드 전환",
+      "cause": "운용자가 자율 모드로 전환했습니다.",
+      "actions": [
+        "미션은 자동으로 시작되지 않습니다 — 시작/재개 버튼을 누르십시오"
+      ]
+    },
+    {
+      "code": "MISSION_START",
+      "severity": "ok",
+      "category": "mission",
+      "channel": "cmd/mission/start",
+      "title": "자율주행 시작",
+      "cause": "점검 시퀀스를 시작했습니다.",
+      "actions": []
+    },
+    {
+      "code": "MISSION_PAUSE",
+      "severity": "warn",
+      "category": "mission",
+      "channel": "cmd/mission/pause",
+      "title": "미션 일시정지",
+      "cause": "운용자 또는 안전 조건에 의해 일시정지되었습니다.",
+      "actions": [
+        "재개 버튼으로 이어서 진행합니다"
+      ]
+    },
+    {
+      "code": "MISSION_RESUME",
+      "severity": "ok",
+      "category": "mission",
+      "channel": "cmd/mission/resume",
+      "title": "미션 재개",
+      "cause": "운용자가 명시적으로 재개했습니다.",
+      "actions": []
+    },
+    {
+      "code": "MISSION_STOP",
+      "severity": "warn",
+      "category": "mission",
+      "channel": "cmd/mission/stop",
+      "title": "미션 정지",
+      "cause": "운용자가 미션을 중단했습니다.",
+      "actions": [
+        "다시 시작하면 처음 또는 지정 인덱스부터 진행합니다"
+      ]
+    },
+    {
+      "code": "CAR_START",
+      "severity": "info",
+      "category": "mission",
+      "channel": "state/mission",
+      "title": "량 점검 시작",
+      "cause": "해당 량의 첫 포인트에 진입했습니다.",
+      "actions": [
+        "1량 촬영 완료 시간(7분) 측정 시작점입니다"
+      ]
+    },
+    {
+      "code": "CAR_COMPLETE",
+      "severity": "ok",
+      "category": "mission",
+      "channel": "state/mission",
+      "title": "량 점검 완료",
+      "cause": "해당 량의 마지막 촬영이 끝났습니다.",
+      "actions": [
+        "1량 촬영 완료 시간(7분) 측정 종료점입니다 — 측정 보고서가 이 구간으로 산출됩니다"
+      ]
+    },
+    {
+      "code": "WAYPOINT_REACHED",
+      "severity": "ok",
+      "category": "mission",
+      "channel": "state/nav",
+      "title": "점검포인트 도달",
+      "cause": "목표 포인트에 도달했습니다.",
+      "actions": []
+    },
+    {
+      "code": "WAYPOINT_SKIPPED",
+      "severity": "warn",
+      "category": "mission",
+      "channel": "state/mission",
+      "title": "점검포인트 건너뜀",
+      "cause": "반복 실패로 해당 포인트를 건너뛰었습니다.",
+      "actions": [
+        "건너뛴 포인트를 기록하고 수동 촬영 여부를 판단하십시오",
+        "원인 코드를 함께 확인하십시오"
+      ]
+    },
+    {
+      "code": "TAG_ACQUIRED",
+      "severity": "ok",
+      "category": "perception",
+      "channel": "state/apriltag",
+      "title": "Apriltag 인식",
+      "cause": "마커를 인식해 위치 보정을 수행했습니다.",
+      "actions": []
+    },
+    {
+      "code": "TAG_LOST",
+      "severity": "error",
+      "category": "perception",
+      "channel": "state/apriltag",
+      "title": "Apriltag 인식 실패",
+      "cause": "카메라 시야에 마커가 없거나, 조명 부족·표면 오염·각도 문제로 검출되지 않았습니다.",
+      "actions": [
+        "마커 표면의 오염·손상을 확인하십시오",
+        "수동 모드로 20cm 후진 후 재시도하십시오",
+        "3회 실패 시 해당 포인트를 건너뛰고 관리자에게 통보하십시오"
+      ]
+    },
+    {
+      "code": "TAG_RETRY",
+      "severity": "warn",
+      "category": "perception",
+      "channel": "state/apriltag",
+      "title": "Apriltag 재인식 시도",
+      "cause": "1차 인식에 실패해 복구 동작을 수행 중입니다.",
+      "actions": [
+        "잠시 대기하십시오"
+      ]
+    },
+    {
+      "code": "VISION_FINE_OK",
+      "severity": "ok",
+      "category": "perception",
+      "channel": "evt/log",
+      "title": "비전 정밀 보정 성공",
+      "cause": "열차 구조물 인식으로 2차 미세 보정을 완료했습니다.",
+      "actions": []
+    },
+    {
+      "code": "VISION_FINE_FAIL",
+      "severity": "error",
+      "category": "perception",
+      "channel": "evt/log",
+      "title": "비전 정밀 보정 실패",
+      "cause": "열차 구조물(전면부 번호, 연결기 등)을 인식하지 못했습니다. 정차 위치 편차가 예상 범위를 벗어났을 수 있습니다.",
+      "actions": [
+        "열차 정차 위치를 확인하십시오",
+        "기준 Apriltag가 가려지지 않았는지 확인하십시오",
+        "보정 없이 촬영하면 정밀도 기준을 만족하지 못합니다"
+      ]
+    },
+    {
+      "code": "LOCALIZATION_DEGRADED",
+      "severity": "warn",
+      "category": "perception",
+      "channel": "state/pose",
+      "title": "위치 추정 신뢰도 저하",
+      "cause": "센서 퓨전 위치 추정의 공분산이 커졌습니다. 특징이 부족한 구간이거나 센서 이상입니다.",
+      "actions": [
+        "로봇 위치를 지도와 대조해 확인하십시오",
+        "크게 어긋났으면 정지 후 Apriltag 재인식 위치로 이동하십시오"
+      ]
+    },
+    {
+      "code": "ARM_SINGULAR",
+      "severity": "warn",
+      "category": "arm",
+      "channel": "state/arm",
+      "title": "로봇팔 특이자세 근접",
+      "cause": "조작성 지수가 임계 이하로 떨어졌습니다. 팔이 뻗어 있거나 손목 축이 정렬된 상태입니다.",
+      "actions": [
+        "팔꿈치(J4)를 접어 자세를 바꾸십시오",
+        "프리셋(홈/촬영대기)으로 이동한 뒤 다시 접근하십시오",
+        "이 상태에서 데카르트 이동은 급격한 관절 속도를 유발합니다"
+      ]
+    },
+    {
+      "code": "ARM_LIMIT",
+      "severity": "warn",
+      "category": "arm",
+      "channel": "state/arm",
+      "title": "관절 한계 근접",
+      "cause": "일부 축이 관절 가동 범위 끝에 접근했습니다.",
+      "actions": [
+        "관절 표시줄에서 주황색으로 바뀐 축을 확인하십시오",
+        "해당 축을 중앙 쪽으로 되돌리십시오"
+      ]
+    },
+    {
+      "code": "ARM_PLAN_FAIL",
+      "severity": "error",
+      "category": "arm",
+      "channel": "cmd/arm/ee_goal",
+      "title": "로봇팔 경로 계획 실패",
+      "cause": "MoveIt2가 충돌 없는 경로를 찾지 못했습니다.",
+      "actions": [
+        "목표 자세를 조금 바꿔 재시도하십시오",
+        "홈 자세로 보낸 뒤 다시 시도하십시오",
+        "주변 구조물과의 간섭을 확인하십시오"
+      ]
+    },
+    {
+      "code": "ARM_REFLEX",
+      "severity": "critical",
+      "category": "arm",
+      "channel": "state/arm",
+      "title": "로봇팔 리플렉스 정지",
+      "cause": "FR3 컨트롤러가 한계 위반이나 충돌을 감지해 스스로 정지했습니다.",
+      "actions": [
+        "로봇팔에 접근하기 전 E-Stop을 확인하십시오",
+        "충돌 흔적과 대상물 손상을 점검하십시오",
+        "오류 복구 후 홈 자세로 복귀시키십시오"
+      ]
+    },
+    {
+      "code": "ARM_PRESET",
+      "severity": "info",
+      "category": "arm",
+      "channel": "cmd/arm/preset",
+      "title": "로봇팔 프리셋 이동",
+      "cause": "사전 정의 자세로 이동합니다.",
+      "actions": []
+    },
+    {
+      "code": "CAPTURE_OK",
+      "severity": "ok",
+      "category": "capture",
+      "channel": "cmd/capture/trigger",
+      "title": "촬영 완료",
+      "cause": "정지 상태에서 촬영하고 메타데이터를 기록했습니다.",
+      "actions": []
+    },
+    {
+      "code": "CAPTURE_FAIL",
+      "severity": "error",
+      "category": "capture",
+      "channel": "cmd/capture/trigger",
+      "title": "촬영 실패",
+      "cause": "카메라가 응답하지 않거나 영상 취득에 실패했습니다.",
+      "actions": [
+        "카메라 연결과 전원을 확인하십시오",
+        "수동 촬영 버튼으로 재시도하십시오"
+      ]
+    },
+    {
+      "code": "CAPTURE_MOTION",
+      "severity": "error",
+      "category": "capture",
+      "channel": "cmd/capture/trigger",
+      "title": "이동 중 촬영 시도 — 거부",
+      "cause": "로봇 또는 로봇팔이 정지하지 않은 상태에서 촬영이 요청되었습니다. 동적 촬영은 허용되지 않습니다.",
+      "actions": [
+        "정지 상태를 확인한 뒤 다시 촬영하십시오"
+      ]
+    },
+    {
+      "code": "NAS_WRITE_FAIL",
+      "severity": "error",
+      "category": "capture",
+      "channel": "-",
+      "title": "NAS 저장 실패",
+      "cause": "촬영 데이터를 내부망 NAS에 저장하지 못했습니다.",
+      "actions": [
+        "NAS 연결과 여유 용량을 확인하십시오",
+        "데이터는 로봇 로컬에 임시 보관됩니다 — 복구 후 재전송하십시오"
+      ]
+    },
+    {
+      "code": "METADATA_INCOMPLETE",
+      "severity": "warn",
+      "category": "capture",
+      "channel": "-",
+      "title": "메타데이터 누락",
+      "cause": "차량번호·량번호·포인트ID 중 필수 항목이 비어 있습니다.",
+      "actions": [
+        "촬영 제어 패널에서 누락 항목을 입력하십시오",
+        "누락 상태로 저장된 파일은 검수에서 제외될 수 있습니다"
+      ]
+    },
+    {
+      "code": "SPOOL_FULL",
+      "severity": "critical",
+      "category": "capture",
+      "channel": "state/capture_spool",
+      "title": "촬영 스풀 용량 부족 — 촬영 중단",
+      "cause": "로봇 로컬 스풀 디스크의 여유 공간이 임계 이하입니다. NAS 업로드가 밀렸을 가능성이 높습니다.",
+      "actions": [
+        "NAS 연결 상태를 확인하십시오",
+        "업로드가 재개되면 자동으로 해소됩니다",
+        "촬영 데이터는 덮어쓰지 않습니다 — 공간 확보 전까지 촬영이 중단됩니다"
+      ]
+    },
+    {
+      "code": "NAS_OFFLINE",
+      "severity": "error",
+      "category": "capture",
+      "channel": "state/capture_spool",
+      "title": "NAS 연결 끊김 — 로컬 스풀에 보관 중",
+      "cause": "NAS에 접속할 수 없습니다. 촬영은 계속되며 데이터는 로봇 로컬에 쌓입니다.",
+      "actions": [
+        "NAS 전원과 내부망 연결을 확인하십시오",
+        "스풀 잔여 용량을 주시하십시오",
+        "복구되면 밀린 파일이 자동으로 업로드됩니다"
+      ]
+    },
+    {
+      "code": "UPLOAD_RETRY",
+      "severity": "warn",
+      "category": "capture",
+      "channel": "state/capture_spool",
+      "title": "업로드 재시도",
+      "cause": "NAS 전송이 실패해 재시도 중입니다. 무선 구간 품질 저하가 흔한 원인입니다.",
+      "actions": [
+        "반복되면 링크 품질과 NAS 부하를 확인하십시오"
+      ]
+    },
+    {
+      "code": "UPLOAD_COMPLETE",
+      "severity": "ok",
+      "category": "capture",
+      "channel": "state/capture_spool",
+      "title": "촬영 데이터 업로드 완료",
+      "cause": "스풀의 모든 촬영 파일이 NAS에 저장되고 체크섬 검증까지 끝났습니다.",
+      "actions": []
+    },
+    {
+      "code": "BATTERY_LOW",
+      "severity": "warn",
+      "category": "power",
+      "channel": "state/battery",
+      "title": "배터리 부족",
+      "cause": "배터리 잔량이 설정 임계 이하로 떨어졌습니다.",
+      "actions": [
+        "남은 점검 구간을 확인하십시오",
+        "임계 이하에서는 충전 스테이션 복귀가 자동 실행됩니다"
+      ]
+    },
+    {
+      "code": "BATTERY_CRITICAL",
+      "severity": "critical",
+      "category": "power",
+      "channel": "state/battery",
+      "title": "배터리 위험 수준",
+      "cause": "즉시 복귀가 필요한 수준입니다.",
+      "actions": [
+        "진행 중인 촬영을 중단하십시오",
+        "충전 스테이션 복귀를 실행하십시오"
+      ]
+    },
+    {
+      "code": "RETURN_TO_DOCK",
+      "severity": "info",
+      "category": "power",
+      "channel": "state/mission",
+      "title": "충전 스테이션 복귀",
+      "cause": "점검 완료 또는 배터리 부족으로 복귀 중입니다.",
+      "actions": [
+        "복귀 경로상 장애물이 없는지 확인하십시오"
+      ]
+    },
+    {
+      "code": "DOCKED",
+      "severity": "ok",
+      "category": "power",
+      "channel": "state/mission",
+      "title": "충전 스테이션 도킹 완료",
+      "cause": "복귀와 충전 연결이 완료되었습니다.",
+      "actions": []
+    }
+  ]
+}
