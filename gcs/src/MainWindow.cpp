@@ -20,6 +20,7 @@
 #include "Config.h"
 #include "diag/LogStore.h"
 #include "mapview/MapRender.h"
+#include "net/BridgeClient.h"
 #include "mapview/MapView.h"
 #include "panels/ArmPanel.h"
 #include "panels/DiagnosticsPanel.h"
@@ -41,19 +42,22 @@ namespace gcs::ui {
 using namespace gcs::theme;
 using gcs::map::MapMode;
 using gcs::map::MapView;
-using gcs::sim::DriveMode;
-using gcs::sim::MissionState;
+using gcs::robot::DriveMode;
+using gcs::robot::MissionState;
+using gcs::robot::Telemetry;
 
 // ============================ MainWindow ============================
 
-MainWindow::MainWindow(bool simMode, QWidget *parent)
-    : QMainWindow(parent), simMode_(simMode)
+MainWindow::MainWindow(gcs::robot::RobotLink *link, QWidget *parent)
+    : QMainWindow(parent), robot_(link)
 {
+    Q_ASSERT(robot_);
+    robot_->setParent(this);
+
     setWindowTitle(QStringLiteral("SHALOM 관제 · 철도차량 하부 점검시스템"));
     resize(1720, 990);
 
     log_ = new diag::LogStore(this);
-    robot_ = new sim::SimRobot(this);
 
     auto *root = new QWidget;
     root->setObjectName(QStringLiteral("Root"));
@@ -103,8 +107,7 @@ MainWindow::MainWindow(bool simMode, QWidget *parent)
     root->installEventFilter(this);
 
     wireSignals();
-    if (simMode_)
-        startSimulation();
+    startSession();
 }
 
 QWidget *MainWindow::buildTopBar()
@@ -310,11 +313,50 @@ void MainWindow::openSettings()
 void MainWindow::wireSignals()
 {
     connect(nav_, &NavRail::navigated, this, &MainWindow::navigate);
+    connect(robot_, &robot::RobotLink::telemetry, this, &MainWindow::onTelemetry);
+    if (auto *bridge = qobject_cast<net::BridgeClient *>(robot_)) {
+        connect(bridge, &net::BridgeClient::mapReceived, this,
+                [this](const QByteArray &png, const QJsonObject &meta) {
+                    QImage img;
+                    if (!img.loadFromData(png, "PNG")) {
+                        log_->note(diag::Severity::Error,
+                                   QStringLiteral("맵 이미지를 해석하지 못했습니다"));
+                        return;
+                    }
+                    const auto info = gcs::map::MapInfo::create(
+                        meta.value(QStringLiteral("width")).toInt(),
+                        meta.value(QStringLiteral("height")).toInt(),
+                        meta.value(QStringLiteral("resolution")).toDouble(),
+                        meta.value(QStringLiteral("origin")).toObject()
+                            .value(QStringLiteral("x")).toDouble(),
+                        meta.value(QStringLiteral("origin")).toObject()
+                            .value(QStringLiteral("y")).toDouble(),
+                        0.0, meta.value(QStringLiteral("map_id")).toString());
+                    if (!info) {
+                        log_->note(diag::Severity::Error,
+                                   QStringLiteral("맵 메타데이터가 올바르지 않습니다"));
+                        return;
+                    }
+                    map_->view()->setMap(*info, img);
+                    map_->setMapLabel(info->mapId,
+                                      QStringLiteral("%1×%2 m")
+                                          .arg(info->extentXMeters(), 0, 'f', 0)
+                                          .arg(info->extentYMeters(), 0, 'f', 0));
+                    log_->note(diag::Severity::Ok, QStringLiteral("맵 수신"),
+                               QJsonObject{{"map_id", info->mapId}});
+                });
+    }
+
+    connect(robot_, &robot::RobotLink::connectionChanged, this, [this](bool ok) {
+        status_->setConnected(ok);
+        linkBadge_->set(ok ? robot_->describe() : QStringLiteral("연결 끊김"),
+                        ok ? QStringLiteral("warn") : QStringLiteral("danger"));
+    });
 
     // 미션 상태와 로봇 이벤트의 진실 원천은 로봇쪽이다. UI 는 따라간다.
-    connect(robot_, &sim::SimRobot::missionStateChanged,
+    connect(robot_, &robot::RobotLink::missionStateChanged,
             this, &MainWindow::onMissionStateChanged);
-    connect(robot_, &sim::SimRobot::robotEvent, this,
+    connect(robot_, &robot::RobotLink::robotEvent, this,
             [this](const QString &code, const QVariantMap &detail) {
                 log_->log(code, QJsonObject::fromVariantMap(detail));
             });
@@ -406,7 +448,7 @@ void MainWindow::wireSignals()
 
     // 20 Hz 로 흘려보낸다. 시뮬레이터가 데드맨을 그대로 구현하므로,
     // 발행이 멈추면 로봇도 멈춘다.
-    connect(teleop_, &TeleopPanel::cmdVel, robot_, &sim::SimRobot::setCmdVel);
+    connect(teleop_, &TeleopPanel::cmdVel, robot_, &robot::RobotLink::setCmdVel);
 
     connect(arm_, &ArmPanel::presetRequested, this, [this](const QString &name) {
         arm_->applyPresetToSliders(name);
@@ -667,16 +709,23 @@ void MainWindow::applyTheme(const QString &name)
 
 // ================= 데모 =================
 
-void MainWindow::startSimulation()
+void MainWindow::startSession()
 {
-    mapData_ = sim::buildMap();
-    map_->view()->setMap(mapData_.info,
-                         gcs::map::occupancyToImage(mapData_.grid, mapData_.info.width,
-                                                    mapData_.info.height));
-    map_->setMapLabel(mapData_.info.mapId,
-                      QStringLiteral("%1×%2 m")
-                          .arg(mapData_.info.extentXMeters(), 0, 'f', 0)
-                          .arg(mapData_.info.extentYMeters(), 0, 'f', 0));
+    auto *sim = qobject_cast<sim::SimRobot *>(robot_);
+    if (sim) {
+        // 시뮬레이터는 맵을 자체 생성한다. 브릿지 연결 시에는 map/occupancy
+        // 채널로 도착할 때까지 지도가 비어 있다.
+        mapData_ = sim::buildMap();
+        map_->view()->setMap(mapData_.info,
+                             gcs::map::occupancyToImage(mapData_.grid, mapData_.info.width,
+                                                        mapData_.info.height));
+        map_->setMapLabel(mapData_.info.mapId,
+                          QStringLiteral("%1×%2 m")
+                              .arg(mapData_.info.extentXMeters(), 0, 'f', 0)
+                              .arg(mapData_.info.extentYMeters(), 0, 'f', 0));
+    } else {
+        map_->setMapLabel(QStringLiteral("맵 수신 대기"), QString());
+    }
 
     const auto wps = robot_->waypoints();
     waypoints_->setWaypoints(wps);
@@ -689,8 +738,10 @@ void MainWindow::startSimulation()
     locations_->setDock(dock_);
     locations_->setHome({});
 
-    status_->setConnected(true);
-    linkBadge_->set(QStringLiteral("시뮬레이터"), QStringLiteral("warn"));
+    status_->setConnected(robot_->isConnected());
+    linkBadge_->set(robot_->describe(),
+                    robot_->isConnected() ? QStringLiteral("warn")
+                                          : QStringLiteral("danger"));
 
     auto &session = auth::Session::instance();
     if (session.isSignedIn()) {
@@ -704,23 +755,27 @@ void MainWindow::startSimulation()
     nav_->setCurrent(NavItem::Drive);
     navigate(NavItem::Drive);
 
-    log_->note(diag::Severity::Ok, QStringLiteral("SLAM 맵 로드 완료"),
-               QJsonObject{{"map_id", mapData_.info.mapId}});
-    log_->note(diag::Severity::Info,
-               QStringLiteral("브릿지 미연결 — 내장 시뮬레이터로 구동 중"));
+    if (sim) {
+        log_->note(diag::Severity::Ok, QStringLiteral("SLAM 맵 로드 완료"),
+                   QJsonObject{{"map_id", mapData_.info.mapId}});
+        log_->note(diag::Severity::Info,
+                   QStringLiteral("브릿지 미연결 — 내장 시뮬레이터로 구동 중"));
+    } else {
+        log_->note(diag::Severity::Info,
+                   QStringLiteral("브릿지 연결 시도 — %1").arg(robot_->describe()));
+    }
 
-    timer_ = new QTimer(this);
-    timer_->setInterval(50);           // 20 Hz. 수동 조작 발행 주기와 맞춘다.
-    connect(timer_, &QTimer::timeout, this, &MainWindow::tick);
-    timer_->start();
+    // 텔레메트리 주기는 링크가 정한다. 창이 자체 타이머를 돌리면
+    // 시뮬레이터와 브릿지에서 갱신 속도가 달라진다.
+    if (sim)
+        sim->start();
 }
 
-void MainWindow::tick()
+void MainWindow::onTelemetry(const Telemetry &tm)
 {
-    const sim::Telemetry tm = robot_->step(0.05);
     auto *view = map_->view();
 
-    view->setRobotPose(tm.x, tm.y, tm.theta);
+    view->setRobotPose(tm.x, tm.y, tm.theta, !tm.poseFresh);
     view->setTrail(tm.trail);
     view->setPlan(tm.plan);
     view->setTagsSeen(tm.seenTags);
@@ -753,8 +808,8 @@ void MainWindow::tick()
     snapshot_.y = tm.y;
     snapshot_.theta = tm.theta;
     snapshot_.speed = tm.speed;
-    snapshot_.poseFresh = true;
-    snapshot_.localizationOk = true;
+    snapshot_.poseFresh = tm.poseFresh;
+    snapshot_.localizationOk = tm.localizationOk;
     snapshot_.visibleTagId = tm.seenTags.isEmpty() ? -1 : *tm.seenTags.cbegin();
     locations_->setSnapshot(snapshot_);
 

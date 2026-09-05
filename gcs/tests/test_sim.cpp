@@ -17,6 +17,9 @@
 #include "sim/SimRobot.h"
 
 using namespace gcs::sim;
+using gcs::robot::DriveMode;
+using gcs::robot::MissionState;
+using gcs::robot::Telemetry;
 
 namespace {
 

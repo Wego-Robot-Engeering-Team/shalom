@@ -23,6 +23,7 @@
 
 #include <QMainWindow>
 
+#include "robot/RobotLink.h"
 #include "sim/SimRobot.h"
 #include "panels/LocationPanel.h"
 #include "widgets/MapCard.h"
@@ -58,7 +59,9 @@ class WaypointPanel;
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
-    explicit MainWindow(bool simMode = true, QWidget *parent = nullptr);
+    /// Takes ownership of `link`. Passing the simulator or the real bridge
+    /// client is the only difference between offline and live operation.
+    explicit MainWindow(gcs::robot::RobotLink *link, QWidget *parent = nullptr);
 
     /// Rebuilds the stylesheet and repaints everything that draws itself.
     void applyTheme(const QString &name);
@@ -94,15 +97,15 @@ private:
     /// Writes a log entry tagged with the signed-in operator, so the event log
     /// works as the audit trail the warranty period relies on.
     void logAction(const QString &code, QVariantMap detail = {});
-    void onMissionStateChanged(gcs::sim::MissionState state);
+    void onMissionStateChanged(gcs::robot::MissionState state);
+    void onTelemetry(const gcs::robot::Telemetry &tm);
 
     /// Records the current robot pose as a location of the given kind, after
     /// validating it. Rejections and low-confidence captures are logged with
     /// their reason so a bad waypoint can be traced later.
     void captureLocation(const QString &kind);
 
-    void startSimulation();
-    void tick();
+    void startSession();
 
     gcs::diag::LogStore *log_ = nullptr;
 
@@ -137,14 +140,12 @@ private:
     QVariantMap dock_;
     QVariantMap home_;
 
-    bool simMode_ = true;
     bool didInitialFit_ = false;
 
-    /// Stands in for the bridge until BridgeClient exists. Commands go here
-    /// and telemetry comes back, so the whole interface is exercised for real.
-    gcs::sim::SimRobot *robot_ = nullptr;
+    /// Either the built-in simulator or the real bridge client. The window
+    /// deliberately does not know which: everything goes through the interface.
+    gcs::robot::RobotLink *robot_ = nullptr;
     gcs::sim::MapData mapData_;
-    QTimer *timer_ = nullptr;
 };
 
 }  // namespace gcs::ui

@@ -14,6 +14,22 @@ endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network Svg)
 
+# ---------------------------------------------------------------------------
+# 로그인 요구 여부
+#
+# 개발 중에는 매번 로그인하는 것이 번거로우므로 끌 수 있게 한다. 다만 런타임
+# 플래그가 아니라 빌드 옵션으로 둔다 — 실행 인자로 끌 수 있으면 납품 빌드에서도
+# 꺼진 채 나갈 수 있고, 그 사실을 아무도 눈치채지 못한다.
+#
+# 납품 빌드는 반드시 ON 으로 구성한다(기본값).
+# ---------------------------------------------------------------------------
+option(GCS_REQUIRE_LOGIN "기동 시 조작자 로그인을 요구한다 (납품 빌드는 반드시 ON)" ON)
+if(NOT GCS_REQUIRE_LOGIN)
+    message(WARNING
+        "GCS_REQUIRE_LOGIN=OFF — 로그인을 생략하는 개발 빌드입니다. "
+        "납품 빌드에 사용하지 마십시오.")
+endif()
+
 if(MSVC)
     add_compile_options(/W4 /permissive-)
 else()
@@ -35,6 +51,7 @@ add_library(gcs_core
     src/theme/Style.cpp
     src/net/Framing.cpp
     src/net/Envelope.cpp
+    src/net/BridgeClient.cpp
     src/mapview/MapInfo.cpp
     src/diag/CodeCatalog.cpp
     src/diag/LogStore.cpp
@@ -49,6 +66,7 @@ add_library(gcs_core
     src/mapview/MapItems.cpp
     src/mapview/MapView.cpp
     src/mapview/MapRender.cpp
+    src/robot/RobotLink.cpp
     src/sim/SimRobot.cpp
     src/panels/StatusPanel.cpp
     src/panels/TeleopPanel.cpp
@@ -89,6 +107,8 @@ add_executable(shalom_gcs
     src/main.cpp
 )
 target_link_libraries(shalom_gcs PRIVATE gcs_core)
+target_compile_definitions(shalom_gcs PRIVATE
+    GCS_REQUIRE_LOGIN=$<BOOL:${GCS_REQUIRE_LOGIN}>)
 
 # ---------------------------------------------------------------------------
 # 테스트
@@ -125,6 +145,8 @@ if(GCS_BUILD_TESTS)
     gcs_add_test(test_sim)
     gcs_add_test(test_capture)
     gcs_add_test(test_session)
+
+    gcs_add_test(test_bridge)
 
     gcs_add_test(test_docs)
     # 명세서 경로를 알려준다. 문서와 코드의 드리프트를 잡는 검사다.
