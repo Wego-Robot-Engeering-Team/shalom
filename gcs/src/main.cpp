@@ -10,6 +10,8 @@
 
 #include "Config.h"
 #include "MainWindow.h"
+#include "net/BridgeClient.h"
+#include "sim/SimRobot.h"
 #include "auth/Session.h"
 #include "theme/Style.h"
 #include "theme/Tokens.h"
@@ -111,16 +113,34 @@ int main(int argc, char *argv[])
     }
 
     // 조작자 확인. 여기서 입력한 이름이 이후 모든 권한 동작의 이력에 남는다.
-    // --no-login 은 개발·캡처 전용이며 납품 빌드에서 제거한다.
-    if (!args.contains(QStringLiteral("--no-login"))) {
+    //
+    // 로그인 생략은 빌드 옵션(GCS_REQUIRE_LOGIN=OFF)으로만 가능하다. 실행 인자로
+    // 끌 수 있게 두면 납품 빌드에서도 꺼진 채 나갈 수 있고, 아무도 눈치채지 못한다.
+    // --no-login 은 요구가 켜져 있을 때는 무시된다(스크린샷 경로용 잔재 방지).
+#if GCS_REQUIRE_LOGIN
+    {
         gcs::ui::WelcomeDialog welcome;
         if (welcome.exec() != QDialog::Accepted)
             return 0;
     }
+#else
+    // 개발 빌드. 권한 동작 이력이 비지 않도록 자리표시 조작자로 서명해 둔다.
+    gcs::auth::Session::instance().signInAsDeveloper();
+#endif
 
-    // --live 는 브릿지에 접속한다. 아직 BridgeClient 가 없으므로 현재는
-    // 내장 시뮬레이터만 동작한다.
-    gcs::ui::MainWindow window(!args.contains(QStringLiteral("--live")));
+    // --live 는 실제 브릿지에, 그 외에는 내장 시뮬레이터에 붙는다.
+    // 창은 어느 쪽인지 알지 못한다 — 둘 다 RobotLink 를 구현한다.
+    gcs::robot::RobotLink *link = nullptr;
+    if (args.contains(QStringLiteral("--live"))) {
+        auto *bridge = new gcs::net::BridgeClient(cfg.bridgeHost(),
+                                                  quint16(cfg.bridgePort()));
+        bridge->connectToBridge();
+        link = bridge;
+    } else {
+        link = new gcs::sim::SimRobot;
+    }
+
+    gcs::ui::MainWindow window(link);
     window.show();
 
     const int viewIdx = args.indexOf(QStringLiteral("--view"));

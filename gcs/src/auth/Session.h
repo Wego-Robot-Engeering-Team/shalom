@@ -54,6 +54,12 @@ public:
                 QString *err = nullptr);
     void signOut();
 
+    /// Signs in a placeholder administrator for builds configured without the
+    /// login requirement. Kept separate from signIn() so that it is obvious in
+    /// the log that no real operator was identified, and so the shipped build
+    /// has no code path that reaches it.
+    void signInAsDeveloper();
+
     bool isSignedIn() const { return signedIn_; }
     Role role() const { return role_; }
     QString displayName() const { return displayName_; }

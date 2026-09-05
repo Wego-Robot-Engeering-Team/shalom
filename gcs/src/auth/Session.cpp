@@ -161,6 +161,17 @@ bool Session::signIn(const QString &displayName, Role role, const QString &passw
     return true;
 }
 
+void Session::signInAsDeveloper()
+{
+    signedIn_ = true;
+    role_ = Role::Admin;
+    // 이력에 실제 조작자가 아님이 드러나야 한다. "관리자" 같은 그럴듯한 이름을
+    // 쓰면 나중에 로그를 읽는 사람이 진짜 사람인 줄 안다.
+    displayName_ = QStringLiteral("개발 빌드");
+    signedInAt_ = QDateTime::currentDateTime();
+    emit signedInChanged();
+}
+
 void Session::signOut()
 {
     signedIn_ = false;

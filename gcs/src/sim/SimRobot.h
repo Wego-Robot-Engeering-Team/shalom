@@ -18,13 +18,12 @@
 // dynamics has to be validated against the actual robot regardless.
 
 #include <QList>
-#include <QObject>
-#include <QPointF>
-#include <QSet>
 #include <QVariantMap>
 
 #include "mapview/MapInfo.h"
-#include "panels/DiagnosticsPanel.h"
+#include "robot/RobotLink.h"
+
+class QTimer;
 
 namespace gcs::sim {
 
@@ -38,82 +37,70 @@ MapData buildMap();
 QList<QVariantMap> buildWaypoints();
 QList<QVariantMap> buildTags(const QList<QVariantMap> &waypoints);
 
-enum class DriveMode { Auto, Manual };
-enum class MissionState { Idle, Running, Paused };
+using gcs::robot::DriveMode;
+using gcs::robot::MissionState;
+using gcs::robot::Telemetry;
 
-/// A single simulation frame, shaped like the telemetry the UI consumes.
-struct Telemetry {
-    double x = 0, y = 0, theta = 0;
-    double speed = 0;              ///< m/s, magnitude
-    QList<QPointF> trail;
-    QList<QPointF> plan;
-    double soc = 0;
-    QList<double> joints;
-    double manipulability = 0;
-    double sigmaMin = 0;
-    QSet<int> seenTags;
-    double cpu = 0, mem = 0, cpuTemp = 0, gpuTemp = 0, rtt = 0;
-    bool estop = false;
-    QString navStatus;             ///< "idle" | "driving" | "arrived" | "blocked"
-
-    QList<gcs::ui::SensorHealth> sensors;
-    gcs::ui::LinkHealth link;
-    bool nasOnline = true;
-    int pendingUploads = 0;
-    double spoolFreeMb = 0;
-};
-
-class SimRobot : public QObject {
+/// In-process stand-in for the robot.
+///
+/// Implements the same interface as the real bridge client, so MainWindow does
+/// not know which one it has. Its test suite is therefore also the acceptance
+/// criteria for BridgeClient.
+class SimRobot : public gcs::robot::RobotLink {
     Q_OBJECT
 public:
     explicit SimRobot(QObject *parent = nullptr);
+
+    /// Starts emitting telemetry at 20 Hz, matching the manual jog publish
+    /// rate so a held control produces one command per simulated step.
+    void start();
+    void stop();
 
     // ---- commands, mirroring the protocol -------------------------------
 
     /// Manual jog. Ignored unless in manual mode and not stopped. Latched to
     /// zero if not refreshed within the deadman window, exactly as the bridge
     /// does (protocol section 3.1).
-    void setCmdVel(double vx, double vy, double wz);
+    void setCmdVel(double vx, double vy, double wz) override;
 
-    void requestGoal(double x, double y, double theta);
-    void cancelNav();
+    void requestGoal(double x, double y, double theta) override;
+    void cancelNav() override;
 
-    void missionStart();
-    void missionPause();
-    void missionResume();
-    void missionStop();
+    void missionStart() override;
+    void missionPause() override;
+    void missionResume() override;
+    void missionStop() override;
 
-    void engageEstop();
+    void engageEstop() override;
 
     /// Release is a separate call and never happens implicitly: the statement
     /// of work forbids automatic release (2.2.5).
-    void releaseEstop();
+    void releaseEstop() override;
 
-    void setMode(DriveMode mode);
-    void setArmJointGoal(const QList<double> &q);
-    void setArmPreset(const QString &name);
-    void stopArm();
+    void setMode(DriveMode mode) override;
+    void setArmJointGoal(const QList<double> &q) override;
+    void setArmPreset(const QString &name) override;
+    void stopArm() override;
 
     // ---- state ----------------------------------------------------------
-    bool estopEngaged() const { return estop_; }
-    DriveMode mode() const { return mode_; }
-    MissionState missionState() const { return mission_; }
+    bool estopEngaged() const override { return estop_; }
+    DriveMode mode() const override { return mode_; }
+    MissionState missionState() const override { return mission_; }
 
-    const QList<QVariantMap> &waypoints() const { return waypoints_; }
-    void setWaypoints(const QList<QVariantMap> &waypoints);
+    QList<QVariantMap> waypoints() const override { return waypoints_; }
+    void setWaypoints(const QList<QVariantMap> &waypoints) override;
+
+    /// Always connected: there is no link to lose.
+    bool isConnected() const override { return true; }
+
+    /// Defined in the implementation because the text is localised and public
+    /// headers are kept in English.
+    QString describe() const override;
 
     /// Advances the simulation by dt seconds and returns the new telemetry.
+    /// Exposed so tests can drive it deterministically instead of waiting on
+    /// a timer.
     Telemetry step(double dt);
-
-signals:
-    /// Emitted for events the operator should see in the log, using catalog
-    /// codes so the UI does not have to invent messages.
-    ///
-    /// Named robotEvent rather than event: a signal called `event` on a QObject
-    /// hides the virtual QObject::event(QEvent *), which is a subtle way to
-    /// break event delivery.
-    void robotEvent(const QString &code, const QVariantMap &detail);
-    void missionStateChanged(gcs::sim::MissionState state);
 
 private:
     bool driveToward(double dt, double tx, double ty, bool alignHeading, double targetTheta);
@@ -150,6 +137,8 @@ private:
     int seqGaps_ = 0;
     int pendingUploads_ = 0;
     double uploadTimer_ = 0.0;
+
+    QTimer *timer_ = nullptr;
 
     bool estop_ = false;
     DriveMode mode_ = DriveMode::Auto;
