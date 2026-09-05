@@ -2,23 +2,35 @@
 
 // Main control station window.
 //
-//   +- top bar: brand, link and mission badges, mode switch, emergency stop -+
-//   +-----------+--------------------------------+-------------------------+
-//   | status    |  map view (with overlay tools)  |  waypoint sequence      |
-//   | manual    |                                 |  arm control            |
-//   | event log |                                 |                         |
-//   +-----------+--------------------------------+-------------------------+
+//  +---------------------------------------------------------------+
+//  | title bar: brand, badges, mode switch, emergency stop          |
+//  +------+--------------------------------+-----------------------+
+//  | nav  |                                |  context column       |
+//  |      |          map (always)          |  (the nav switches    |
+//  | ...  |                                |   only this)          |
+//  |      +--------------------------------+-----------------------+
+//  | 87%  |  event log (always)                                    |
+//  +------+--------------------------------------------------------+
 //
-// The window owns the log store and routes panel signals into it, so that
-// every operator action and every rejected command lands in the same history
-// that gets exported for support.
+// What stays on screen in every mode: the map, the emergency stop, the battery
+// and pose summary, and the event log. Losing sight of where the robot is
+// while adjusting something else is how incidents happen, so navigation only
+// swaps the context column.
+//
+// The manual jog controls appear only in manual mode. They are meaningless
+// while the robot is driving itself, and showing disabled controls just spends
+// screen space.
 
 #include <QMainWindow>
 
-#include "Demo.h"
+#include "sim/SimRobot.h"
+#include "panels/LocationPanel.h"
+#include "widgets/MapCard.h"
+#include "widgets/NavRail.h"
 
 class QLabel;
 class QPushButton;
+class QStackedWidget;
 class QTimer;
 
 namespace gcs::diag {
@@ -35,42 +47,25 @@ class AlertFrame;
 class ArmPanel;
 class Badge;
 class EStopButton;
+class DiagnosticsPanel;
 class EventLogPanel;
+class SettingsDialog;
+class MapCard;
 class StatusPanel;
 class TeleopPanel;
 class WaypointPanel;
 
-/// Map view plus the controls that float on top of it.
-class MapCard : public QWidget {
-    Q_OBJECT
-public:
-    explicit MapCard(QWidget *parent = nullptr);
-
-    gcs::map::MapView *view() const { return view_; }
-    QPushButton *goalButton() const { return goal_; }
-    QPushButton *waypointButton() const { return waypoint_; }
-    void setMapLabel(const QString &mapId, const QString &extent);
-
-protected:
-    void resizeEvent(QResizeEvent *) override;
-
-private:
-    gcs::map::MapView *view_ = nullptr;
-    QWidget *toolbar_ = nullptr;
-    QPushButton *goal_ = nullptr;
-    QPushButton *waypoint_ = nullptr;
-    QPushButton *fit_ = nullptr;
-    QLabel *mapLabel_ = nullptr;
-    QLabel *readout_ = nullptr;
-};
-
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
-    explicit MainWindow(bool demoMode = true, QWidget *parent = nullptr);
+    explicit MainWindow(bool simMode = true, QWidget *parent = nullptr);
 
     /// Rebuilds the stylesheet and repaints everything that draws itself.
     void applyTheme(const QString &name);
+
+    /// Selects the context column. Public so that a screenshot run can target
+    /// a specific view.
+    void showView(NavItem item);
 
 protected:
     bool eventFilter(QObject *obj, QEvent *ev) override;
@@ -82,24 +77,48 @@ protected:
 
 private:
     QWidget *buildTopBar();
-    QWidget *buildLeftColumn();
-    QWidget *buildRightColumn();
+    QWidget *buildContextColumn();
+    QWidget *buildDriveContext();
+    QWidget *buildLocationsContext();
+    QWidget *buildArmContext();
+    QWidget *buildCaptureContext();
+    QWidget *buildDiagnosticsContext();
     void wireSignals();
 
     void engageEstop();
     void releaseEstop();
     void setMode(const QString &mode);
-    void startDemo();
-    void demoTick();
+    void navigate(NavItem item);
+    void openSettings();
+
+    /// Writes a log entry tagged with the signed-in operator, so the event log
+    /// works as the audit trail the warranty period relies on.
+    void logAction(const QString &code, QVariantMap detail = {});
+    void onMissionStateChanged(gcs::sim::MissionState state);
+
+    /// Records the current robot pose as a location of the given kind, after
+    /// validating it. Rejections and low-confidence captures are logged with
+    /// their reason so a bad waypoint can be traced later.
+    void captureLocation(const QString &kind);
+
+    void startSimulation();
+    void tick();
 
     gcs::diag::LogStore *log_ = nullptr;
 
+    NavRail *nav_ = nullptr;
+    QStackedWidget *context_ = nullptr;
     MapCard *map_ = nullptr;
+
     StatusPanel *status_ = nullptr;
     TeleopPanel *teleop_ = nullptr;
+    QWidget *teleopHost_ = nullptr;
     EventLogPanel *events_ = nullptr;
     WaypointPanel *waypoints_ = nullptr;
     ArmPanel *arm_ = nullptr;
+    LocationPanel *locations_ = nullptr;
+    DiagnosticsPanel *diagnostics_ = nullptr;
+    SettingsDialog *settings_ = nullptr;
 
     EStopButton *estop_ = nullptr;
     AlertFrame *alert_ = nullptr;
@@ -108,11 +127,23 @@ private:
     QPushButton *autoBtn_ = nullptr;
     QPushButton *manualBtn_ = nullptr;
     QPushButton *themeBtn_ = nullptr;
+    QPushButton *settingsBtn_ = nullptr;
+    Badge *userBadge_ = nullptr;
 
-    bool demoMode_ = true;
+    /// What the map click should produce once placed: empty means a goal pose.
+    QString pendingPlacementKind_;
+
+    RobotSnapshot snapshot_;
+    QVariantMap dock_;
+    QVariantMap home_;
+
+    bool simMode_ = true;
     bool didInitialFit_ = false;
-    std::unique_ptr<gcs::demo::Feed> feed_;
-    gcs::demo::MapData mapData_;
+
+    /// Stands in for the bridge until BridgeClient exists. Commands go here
+    /// and telemetry comes back, so the whole interface is exercised for real.
+    gcs::sim::SimRobot *robot_ = nullptr;
+    gcs::sim::MapData mapData_;
     QTimer *timer_ = nullptr;
 };
 

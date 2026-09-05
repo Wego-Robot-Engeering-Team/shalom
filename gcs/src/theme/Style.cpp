@@ -83,6 +83,12 @@ QMessageBox { background: @surface; }
     border-radius: @rLg;
 }
 
+#NavRail {
+    background: @surface;
+    border: 1px solid @border;
+    border-radius: @rLg;
+}
+
 #CardHeader {
     background: transparent;
     border: none;
@@ -176,6 +182,35 @@ QSlider::handle:horizontal:disabled   { border-color: @textMute; }
 QSlider[warn="true"]::sub-page:horizontal { background: @warning; }
 QSlider[warn="true"]::handle:horizontal   { border-color: @warning; }
 
+/* ===================== 탭 ===================== */
+/* 탭 본문을 카드처럼 보이게 한다. 기본 스타일에 맡기면 플랫폼마다
+   회색 판이 그려져 창 배경과 어긋난다. */
+QTabWidget::pane {
+    background: @surface;
+    border: 1px solid @border;
+    border-radius: @rLg;
+    top: -1px;
+}
+QTabBar {
+    /* 가운데 정렬은 탭 수가 바뀔 때마다 위치가 흔들려 읽기 나쁘다. */
+    alignment: left;
+    background: transparent;
+}
+QTabBar::tab {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 6px 14px;
+    margin-right: 2px;
+    color: @textMute;
+}
+QTabBar::tab:hover { color: @textDim; }
+QTabBar::tab:selected {
+    color: @accent;
+    border-bottom-color: @accent;
+    font-weight: 600;
+}
+
 /* ===================== 리스트 ===================== */
 QListWidget, QTreeWidget, QTableWidget { background: transparent; border: none; }
 QListWidget::item { border: none; }
@@ -257,11 +292,13 @@ QString buildQss(const Colors *pal)
         {QStringLiteral("@ui"), QString::fromLatin1(type::ui)},
         {QStringLiteral("@mono"), QString::fromLatin1(type::mono)},
 
-        {QStringLiteral("@fsXs"), px(type::xs)},
-        {QStringLiteral("@fsSm"), px(type::sm)},
-        {QStringLiteral("@fsMd"), px(type::md)},
-        {QStringLiteral("@fsLg"), px(type::lg)},
-        {QStringLiteral("@fsXl"), px(type::xl)},
+        // 폰트 크기만 UI 배율을 탄다. 간격·라운드까지 키우면 패널이
+        // 화면을 넘어가 스크롤 없이는 조작할 수 없게 된다.
+        {QStringLiteral("@fsXs"), px(scaled(type::xs))},
+        {QStringLiteral("@fsSm"), px(scaled(type::sm))},
+        {QStringLiteral("@fsMd"), px(scaled(type::md))},
+        {QStringLiteral("@fsLg"), px(scaled(type::lg))},
+        {QStringLiteral("@fsXl"), px(scaled(type::xl))},
 
         {QStringLiteral("@rSm"), px(metrics::rSm)},
         {QStringLiteral("@rMd"), px(metrics::rMd)},

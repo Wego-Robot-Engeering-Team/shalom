@@ -13,6 +13,7 @@
 #include "RobotDef.h"
 #include "theme/Tokens.h"
 #include "widgets/Gauges.h"
+#include "widgets/Robot3DView.h"
 #include "widgets/Primitives.h"
 
 namespace gcs::ui {
@@ -59,12 +60,29 @@ ArmPanel::ArmPanel(QWidget *parent) : QWidget(parent)
     card_->body()->addLayout(gaugeRow);
     card_->body()->addWidget(new HLine);
 
+    build3DSection();
+    card_->body()->addWidget(new HLine);
     buildJointSection();
     card_->body()->addWidget(new HLine);
     buildEeSection();
     card_->body()->addWidget(new HLine);
     buildPresetSection();
     card_->body()->addStretch(1);
+}
+
+void ArmPanel::build3DSection()
+{
+    auto *head = new QHBoxLayout;
+    head->addWidget(sectionLabel(QStringLiteral("현재 자세")));
+    head->addStretch(1);
+    auto *reset = new QPushButton(QStringLiteral("시점 초기화"));
+    reset->setProperty("size", "sm");
+    head->addWidget(reset);
+    card_->body()->addLayout(head);
+
+    view3d_ = new Robot3DView;
+    card_->body()->addWidget(view3d_);
+    connect(reset, &QPushButton::clicked, view3d_, &Robot3DView::resetCamera);
 }
 
 void ArmPanel::buildJointSection()
@@ -196,6 +214,7 @@ void ArmPanel::setArmState(const QList<double> &positions, double manipulability
     actual_ = positions;
     for (int i = 0; i < bars_.size() && i < positions.size(); ++i)
         bars_[i]->setActual(positions.at(i));
+    view3d_->setArmJoints(positions);
 
     const double norm = qBound(0.0, manipulability / kManipNominal, 1.0);
     manip_->setState(norm, QString::number(manipulability, 'f', 4));
@@ -207,6 +226,7 @@ void ArmPanel::setArmState(const QList<double> &positions, double manipulability
         singular_->set(QStringLiteral("주의"), QStringLiteral("warn"));
     else
         singular_->set(QStringLiteral("정상"), QStringLiteral("ok"));
+    view3d_->setSingularWarning(norm <= kManipWarn);
 
     if (moveitState == QLatin1String("planning"))
         state_->set(QStringLiteral("계획 중"), QStringLiteral("info"));

@@ -149,11 +149,13 @@ TCP 는 스트림이라 메시지 경계가 없다. 아래를 **전부** 처리�
 | `state/arm` | 10 Hz | §2.1 |
 | `state/apriltag` | 검출 시 | `tags: [{id, x, y, z, qx,qy,qz,qw, conf}], last_seen_ts` |
 | `state/mission` | 변화 시 | `state, car_no, point_id, index, total` |
-| `state/waypoints` | 변화 시 | `points: [{id,name,x,y,theta,tag_id,status}]` |
+| `state/waypoints` | 변화 시 | `points: [{id,name,x,y,theta,tag_id,status}]` — 점검 시퀀스 |
+| `state/locations` | 변화 시 | `locations: [{id,kind,name,x,y,theta,tag_id}]` — 충전소·시작점 등 고정 위치 |
 | `evt/log` | 이벤트 | `level, code, msg, detail` |
 | `map/occupancy` | 변화 시 | **바이너리**. §2.2 |
 | `capture/preview` | 촬영 시 | **바이너리**. §2.3 |
 | `state/capture_spool` | 변화 시 + 5 s | `pending, uploading, uploaded, failed, bytes_pending, spool_free_mb, nas_online` |
+| `state/health` | 1 Hz | 센서·링크 건강 상태. §9 |
 
 ### 2.1 `state/arm`
 
@@ -209,6 +211,7 @@ header `p`:
 | `cmd/goto` | `{"x":..,"y":..,"theta":..}` | 지도 클릭 목표점 |
 | `cmd/nav_cancel` | `{}` | |
 | `cmd/waypoints/set` | `{"points":[...]}` | 전체 치환. 배열 순서 = 순회 순서 |
+| `cmd/locations/set` | `{"locations":[...]}` | 고정 위치 전체 치환. §8 |
 | `cmd/mission/start` | `{"from_index":0}` | |
 | `cmd/mission/pause` | `{}` | |
 | `cmd/mission/resume` | `{}` | 명시적 재개만. 자동 재개 금지 |
@@ -348,7 +351,117 @@ header `p`:
 - 채널 추가는 마이너 변경(버전 유지). 기존 채널의 필드 삭제/의미 변경은 `v` 증가.
 - 미지원 채널 수신 시 양측 모두 **조용히 무시**한다(전방 호환).
 
-## 8. 오류 코드
+## 8. 위치 등록 (Teach)
+
+점검포인트와 충전 스테이션 같은 위치는 두 방법으로 등록한다.
+
+| 방법 | 용도 | 정확도 |
+|---|---|---|
+| **현재 위치로 등록** | 로봇을 실제로 그 자리에 세운 뒤 저장 | 높음. 도달 가능성이 이미 검증된 자세다 |
+| **지도 클릭** | 대략적인 배치, 사전 계획 | 낮음. 도달 가능 여부를 알 수 없다 |
+
+촬영 포인트는 로봇팔이 대상에 닿는지까지 확인한 뒤 **현재 위치로 등록**하는 것을
+기본 절차로 한다. 지도 클릭은 초안을 잡을 때 쓰고, 현장에서 재교시한다.
+
+### 8.1 위치 종류 (`kind`)
+
+| kind | 설명 | 개수 |
+|---|---|---|
+| `inspection` | 점검포인트. `state/waypoints` 시퀀스를 구성한다 | 다수, 순서 있음 |
+| `dock` | 충전 스테이션. 점검 완료·배터리 부족 시 복귀 목적지 | 1 |
+| `home` | 시작 위치. 기동 시 자기 위치를 확정하는 기준점 (시나리오 1단계) | 1 |
+
+`dock` 과 `home` 은 순회 시퀀스에 들어가지 않으므로 `state/locations` 로 분리한다.
+같은 채널에 섞으면 시퀀스 편집이 충전소를 건드릴 위험이 생긴다.
+
+### 8.2 등록 시 검증 (필수)
+
+현재 위치를 저장하기 전에 **관제 UI가 아래를 확인하고, 실패 시 사유를 보여준다.**
+잘못 저장된 위치는 시운전 때까지 드러나지 않고, 그때는 이미 로봇을 재투입해야 한다.
+
+| 검사 | 실패 시 | 이유 |
+|---|---|---|
+| 로봇 정지 상태 | **차단** | 이동 중 좌표는 뭉개진다. 0.2 m/s 로 움직이면 갱신 주기(10 Hz) 사이에 2 cm 가 어긋난다 |
+| 위치 신선도 | **차단** | 링크가 끊긴 동안의 마지막 좌표를 저장하면 실제와 무관한 값이 남는다 |
+| 위치 추정 신뢰도 | 경고 후 진행 가능 | `LOCALIZATION_DEGRADED` 상태의 좌표는 오차가 크다 |
+| Apriltag 인식 (inspection 만) | 경고 후 진행 가능 | 포인트-마커 연결이 비면 현장에서 2차 보정을 못 한다 |
+
+검증 결과는 `LOC_CAPTURED` / `LOC_CAPTURE_BLOCKED` / `LOC_CAPTURE_DEGRADED`
+코드로 이벤트 로그에 남긴다. 저장된 위치의 출처(`captured_from`: `robot` 또는 `map`)와
+당시 신뢰도를 함께 기록해, 나중에 "이 포인트는 어떻게 잡았나"를 추적할 수 있게 한다.
+
+### 8.3 재교시 (re-teach)
+
+기존 위치를 현재 로봇 자세로 덮어쓰는 동작을 별도로 제공한다. 현장에서 포인트가
+조금씩 어긋나는 것은 정상이며, 매번 삭제 후 재등록하면 순서와 ID 가 흐트러진다.
+재교시는 `id` 를 유지한 채 좌표만 바꾼다.
+
+### 8.4 영속화
+
+위치 정보는 **로봇측이 보관한다.** 관제 PC 가 교체되거나 꺼져도 남아야 하고,
+로봇이 단독으로 복귀 동작을 수행할 수 있어야 하기 때문이다.
+관제 UI 는 `cmd/locations/set` · `cmd/waypoints/set` 으로 전체를 치환하고,
+브릿지가 파일로 저장한 뒤 `state/*` 로 되돌려 발행한다.
+
+## 9. 센서·링크 건강 상태
+
+### 9.1 `state/health` 페이로드
+
+```json
+{
+  "sensors": [
+    {"id":"lidar",     "name":"LiDAR",      "expected_hz":10, "actual_hz":9.8,
+     "last_seen_ms":102, "state":"ok",   "detail":"38.4k pts"},
+    {"id":"imu",       "name":"IMU",        "expected_hz":200,"actual_hz":199.4,
+     "last_seen_ms":5,   "state":"ok"},
+    {"id":"aurora",    "name":"Aurora S",   "expected_hz":20, "actual_hz":0,
+     "last_seen_ms":8400,"state":"lost", "detail":"USB 재연결 필요"},
+    {"id":"cam_body",  "name":"본체 카메라", "expected_hz":15, "actual_hz":14.9, "state":"ok"},
+    {"id":"cam_arm_2d","name":"암 2D",      "expected_hz":15, "actual_hz":7.2,
+     "state":"degraded", "detail":"프레임 드롭"},
+    {"id":"cam_arm_3d","name":"암 3D",      "expected_hz":10, "actual_hz":10.0, "state":"ok"},
+    {"id":"joints_b2", "name":"B2 관절",     "expected_hz":50, "actual_hz":50.0, "state":"ok"},
+    {"id":"joints_fr3","name":"FR3 관절",    "expected_hz":100,"actual_hz":100.0,"state":"ok"}
+  ],
+  "link": {
+    "rtt_ms": 24, "rssi_dbm": -58,
+    "rx_bytes_per_s": 41200, "tx_bytes_per_s": 1800,
+    "seq_gaps": 3, "decode_errors": 0, "reconnects": 1
+  }
+}
+```
+
+`state` 는 `ok` / `degraded` / `lost` / `fault` 중 하나다.
+
+### 9.2 끊김 판정은 기대 주기 대비로 한다
+
+**고정 타임아웃을 쓰지 않는다.** 10 Hz LiDAR 가 1 초간 조용하면 고장이지만,
+1 Hz 배터리 보고가 1 초 조용한 것은 정상이다. 하나의 임계값으로는 둘 다
+제대로 판정할 수 없다.
+
+| 조건 | 판정 |
+|---|---|
+| `last_seen_ms` > 기대 주기 × 5 | `lost` |
+| `last_seen_ms` > 기대 주기 × 3 | `degraded` |
+| `actual_hz` < `expected_hz` × 0.6 | `degraded` |
+| 센서가 오류 플래그를 올림 | `fault` |
+
+판정은 브릿지가 수행해 `state` 로 내려준다. 관제 UI 는 표시만 한다 —
+같은 판정 로직을 양쪽에 두면 반드시 어긋난다.
+
+### 9.3 링크 지표
+
+프레이밍을 자체 구현했으므로(§1.1) 아래 두 값이 특히 중요하다.
+
+- `decode_errors` — 0 이 아니면 프레이밍이나 중간 장비에 문제가 있다.
+  누적값이며, 증가하면 즉시 운용을 멈추고 로그를 내보낸다.
+- `seq_gaps` — `pub` 스트림의 `seq` 불연속 횟수. 손실 허용 채널이므로
+  약간은 정상이지만, 급증은 링크 포화나 브릿지 과부하를 뜻한다.
+
+`rx_bytes_per_s` 는 무선 구간 여유를 판단하는 데 쓴다. 촬영 원본은 이 경로를
+타지 않으므로(§6.1) 여기서 큰 값이 나오면 설정이 잘못된 것이다.
+
+## 10. 오류 코드
 
 | 코드 | 의미 |
 |---|---|

@@ -399,6 +399,48 @@
       ]
     },
     {
+      "code": "LOC_CAPTURED",
+      "severity": "ok",
+      "category": "mission",
+      "channel": "cmd/locations/set",
+      "title": "위치 등록 완료",
+      "cause": "로봇의 현재 자세 또는 지도 클릭 좌표를 위치로 저장했습니다.",
+      "actions": []
+    },
+    {
+      "code": "LOC_CAPTURE_BLOCKED",
+      "severity": "warn",
+      "category": "mission",
+      "channel": "cmd/locations/set",
+      "title": "위치 등록 차단",
+      "cause": "로봇이 이동 중이거나 위치 정보가 오래되어 등록을 거부했습니다. 이 상태로 저장하면 실제와 다른 좌표가 남습니다.",
+      "actions": [
+        "로봇을 완전히 정지시킨 뒤 다시 시도하십시오",
+        "브릿지 연결 상태와 링크 RTT를 확인하십시오"
+      ]
+    },
+    {
+      "code": "LOC_CAPTURE_DEGRADED",
+      "severity": "warn",
+      "category": "mission",
+      "channel": "cmd/locations/set",
+      "title": "위치 등록 — 신뢰도 낮음",
+      "cause": "위치 추정 신뢰도가 낮거나 Apriltag가 보이지 않는 상태에서 저장했습니다.",
+      "actions": [
+        "시운전 전에 해당 포인트를 재교시하십시오",
+        "Apriltag 미연결 포인트는 2차 정밀 보정을 사용할 수 없습니다"
+      ]
+    },
+    {
+      "code": "LOC_RETAUGHT",
+      "severity": "ok",
+      "category": "mission",
+      "channel": "cmd/locations/set",
+      "title": "위치 재교시 완료",
+      "cause": "기존 위치의 좌표를 현재 로봇 자세로 갱신했습니다. ID와 순서는 유지됩니다.",
+      "actions": []
+    },
+    {
       "code": "TAG_ACQUIRED",
       "severity": "ok",
       "category": "perception",
@@ -670,6 +712,18 @@
       "title": "충전 스테이션 도킹 완료",
       "cause": "복귀와 충전 연결이 완료되었습니다.",
       "actions": []
+    },
+    {
+      "code": "ESTOP_RELEASE_DENIED",
+      "severity": "warn",
+      "category": "safety",
+      "channel": "cmd/estop_release",
+      "title": "비상정지 해제 거부 — 인증 실패",
+      "cause": "관리자 비밀번호가 일치하지 않거나 시도 횟수를 초과했습니다.",
+      "actions": [
+        "관리자에게 해제를 요청하십시오",
+        "반복 실패 시 일정 시간 잠금되며, 시도 이력은 로그에 남습니다"
+      ]
     }
   ]
 }
