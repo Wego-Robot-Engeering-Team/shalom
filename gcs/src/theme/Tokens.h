@@ -116,6 +116,16 @@ inline constexpr int xxl = 24;
 extern const Colors kDark;
 extern const Colors kLight;
 
+/// Multiplier applied to every font size when the stylesheet is built.
+/// Control rooms are frequently viewed from further away than a desk, and the
+/// operator is often not the person who set the machine up, so this is a real
+/// operational need rather than a preference.
+double uiScale();
+void setUiScale(double scale);
+
+/// Font size in points after the UI scale is applied.
+int scaled(int basePoints);
+
 /// The active color set. Custom-painted widgets must call this inside their
 /// paint handler (not cache it) so that a theme switch takes effect without
 /// restarting the application.

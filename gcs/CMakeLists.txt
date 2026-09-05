@@ -27,6 +27,10 @@ endif()
 # 경우(과업지시서 4장) BUILD_SHARED_LIBS=ON 으로 공유 라이브러리를 낸다.
 # ---------------------------------------------------------------------------
 add_library(gcs_core
+    src/Config.cpp
+    src/auth/Session.cpp
+    src/views/WelcomeDialog.cpp
+    src/views/SettingsDialog.cpp
     src/theme/Tokens.cpp
     src/theme/Style.cpp
     src/net/Framing.cpp
@@ -36,6 +40,8 @@ add_library(gcs_core
     src/diag/LogStore.cpp
     src/widgets/Primitives.cpp
     src/widgets/BrandMark.cpp
+    src/widgets/NavRail.cpp
+    src/widgets/MapCard.cpp
     src/diag/CodeInfoPopup.cpp
     src/panels/EventLogPanel.cpp
     src/widgets/Gauges.cpp
@@ -43,11 +49,15 @@ add_library(gcs_core
     src/mapview/MapItems.cpp
     src/mapview/MapView.cpp
     src/mapview/MapRender.cpp
-    src/Demo.cpp
+    src/sim/SimRobot.cpp
     src/panels/StatusPanel.cpp
     src/panels/TeleopPanel.cpp
     src/panels/WaypointPanel.cpp
     src/panels/ArmPanel.cpp
+    src/panels/LocationPanel.cpp
+    src/widgets/HealthRow.cpp
+    src/widgets/Robot3DView.cpp
+    src/panels/DiagnosticsPanel.cpp
     src/MainWindow.cpp
 )
 target_include_directories(gcs_core PUBLIC src)
@@ -112,4 +122,11 @@ if(GCS_BUILD_TESTS)
 
     gcs_add_test(test_catalog)
     gcs_add_test(test_theme)
+    gcs_add_test(test_sim)
+    gcs_add_test(test_capture)
+    gcs_add_test(test_session)
+
+    gcs_add_test(test_docs)
+    # 명세서 경로를 알려준다. 문서와 코드의 드리프트를 잡는 검사다.
+    target_compile_definitions(test_docs PRIVATE GCS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 endif()

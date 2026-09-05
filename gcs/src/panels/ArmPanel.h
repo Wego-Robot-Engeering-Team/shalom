@@ -39,6 +39,7 @@ class ArcGauge;
 class Badge;
 class Card;
 class JointBar;
+class Robot3DView;
 
 class ArmPanel : public QWidget {
     Q_OBJECT
@@ -61,6 +62,7 @@ signals:
     void stopRequested();
 
 private:
+    void build3DSection();
     void buildJointSection();
     void buildEeSection();
     void buildPresetSection();
@@ -71,6 +73,7 @@ private:
     Badge *state_ = nullptr;
     Badge *singular_ = nullptr;
     ArcGauge *manip_ = nullptr;
+    Robot3DView *view3d_ = nullptr;
     QLabel *sigma_ = nullptr;
 
     QList<QSlider *> sliders_;
