@@ -28,9 +28,6 @@ public:
     int bridgePort() const;
     void setBridgePort(int port);
 
-    int cameraPort() const;
-    void setCameraPort(int port);
-
     // ---- appearance ------------------------------------------------------
     QString theme() const;              ///< "light" or "dark"
     void setTheme(const QString &name);

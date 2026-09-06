@@ -56,6 +56,8 @@ protected:
     void mousePressEvent(QMouseEvent *) override;
     void mouseMoveEvent(QMouseEvent *) override;
     void wheelEvent(QWheelEvent *) override;
+    void enterEvent(QEnterEvent *) override;
+    void leaveEvent(QEvent *) override;
 
 private:
     /// Forward kinematics: origin of each joint frame plus the flange, in the
@@ -63,6 +65,7 @@ private:
     QList<QVector3D> jointOrigins() const;
 
     QList<double> joints_;
+    bool hovered_ = false;
     bool singularWarn_ = false;
     bool stale_ = false;
 

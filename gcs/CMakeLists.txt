@@ -94,6 +94,7 @@ add_library(gcs_core ${GCS_CORE_TYPE}
     src/robot/RobotLink.cpp
     src/sim/SimRobot.cpp
     src/panels/StatusPanel.cpp
+    src/panels/MissionPanel.cpp
     src/panels/TeleopPanel.cpp
     src/panels/WaypointPanel.cpp
     src/panels/ArmPanel.cpp

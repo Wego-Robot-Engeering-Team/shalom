@@ -358,6 +358,8 @@ void BridgeClient::handlePublish(const Envelope &env)
         telemetry_.joints = q;
         telemetry_.manipulability = p.value(QStringLiteral("manipulability")).toDouble();
         telemetry_.sigmaMin = p.value(QStringLiteral("sigma_min")).toDouble();
+        const QString state = p.value(QStringLiteral("moveit_state")).toString();
+        telemetry_.armState = state.isEmpty() ? QStringLiteral("idle") : state;
     } else if (ch == QLatin1String(gcs::ch::kApriltag)) {
         QSet<int> seen;
         for (const auto &v : p.value(QStringLiteral("tags")).toArray())

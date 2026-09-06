@@ -33,8 +33,7 @@ CaptureCheck LocationPanel::checkCapture(const RobotSnapshot &snap, const QStrin
         return r;
     }
     if (snap.speed > kStationarySpeed) {
-        r.reason = QStringLiteral("로봇이 이동 중입니다 (%1 m/s). 정지 후 등록하십시오.")
-                       .arg(snap.speed, 0, 'f', 2);
+        r.reason = QStringLiteral("로봇이 움직이는 중입니다. 멈춘 뒤에 등록할 수 있습니다.");
         r.code = QStringLiteral("LOC_CAPTURE_BLOCKED");
         return r;
     }
@@ -50,8 +49,8 @@ CaptureCheck LocationPanel::checkCapture(const RobotSnapshot &snap, const QStrin
     if (kind == QLatin1String("inspection") && snap.visibleTagId < 0) {
         // 포인트-마커 연결이 비면 현장에서 2차 정밀 보정을 할 수 없다.
         r.degraded = true;
-        r.reason = QStringLiteral("Apriltag가 보이지 않습니다. 마커 연결 없이 저장하면 "
-                                  "정밀 보정을 사용할 수 없습니다.");
+        r.reason = QStringLiteral("마커가 보이지 않습니다. 이대로 저장하면 나중에 "
+                                  "위치를 정밀하게 맞출 수 없습니다.");
         r.code = QStringLiteral("LOC_CAPTURE_DEGRADED");
         return r;
     }
@@ -77,7 +76,7 @@ LocationPanel::LocationPanel(QWidget *parent) : QWidget(parent)
     auto *addRow = new QHBoxLayout;
     addRow->setSpacing(metrics::s2);
 
-    auto *fromRobot = new QPushButton(QStringLiteral("현재 위치로"));
+    auto *fromRobot = new QPushButton(QStringLiteral("로봇 위치로 추가"));
     fromRobot->setProperty("variant", "primary");
     fromRobot->setToolTip(QStringLiteral(
         "로봇이 서 있는 자세를 그대로 저장합니다.\n"
@@ -85,7 +84,7 @@ LocationPanel::LocationPanel(QWidget *parent) : QWidget(parent)
     connect(fromRobot, &QPushButton::clicked, this,
             [this] { emit captureFromRobot(QStringLiteral("inspection")); });
 
-    auto *fromMap = new QPushButton(QStringLiteral("지도에서"));
+    auto *fromMap = new QPushButton(QStringLiteral("지도에서 추가"));
     fromMap->setToolTip(QStringLiteral(
         "지도를 클릭해 위치를, 드래그해 방향을 지정합니다.\n"
         "도달 가능 여부는 확인되지 않습니다."));
@@ -106,7 +105,7 @@ LocationPanel::LocationPanel(QWidget *parent) : QWidget(parent)
     card_->body()->addWidget(new HLine);
 
     // ---- 고정 위치 ----
-    card_->body()->addWidget(sectionLabel(QStringLiteral("고정 위치")));
+    card_->body()->addWidget(sectionLabel(QStringLiteral("주요 지점")));
     card_->body()->addWidget(buildFixedRow(QStringLiteral("dock"),
                                            QStringLiteral("충전 스테이션")));
     card_->body()->addWidget(buildFixedRow(QStringLiteral("home"),
@@ -136,12 +135,12 @@ QWidget *LocationPanel::buildFixedRow(const QString &kind, const QString &title)
     auto *buttons = new QHBoxLayout;
     buttons->setSpacing(metrics::s2);
 
-    auto *setHere = new QPushButton(QStringLiteral("현재 위치로 설정"));
+    auto *setHere = new QPushButton(QStringLiteral("로봇 위치로 지정"));
     setHere->setProperty("size", "sm");
     connect(setHere, &QPushButton::clicked, this,
             [this, kind] { emit captureFromRobot(kind); });
 
-    auto *fromMap = new QPushButton(QStringLiteral("지도에서"));
+    auto *fromMap = new QPushButton(QStringLiteral("지도에서 지정"));
     fromMap->setProperty("size", "sm");
     connect(fromMap, &QPushButton::clicked, this,
             [this, kind] { emit captureFromMap(kind); });
@@ -183,7 +182,7 @@ void LocationPanel::refreshEnabled()
         hint_->setText(check.reason);
     } else {
         ready_->set(QStringLiteral("등록 가능"), QStringLiteral("ok"));
-        hint_->setText(QStringLiteral("현재 %1, %2   θ %3°")
+        hint_->setText(QStringLiteral("로봇 위치  %1, %2   방향 %3°")
                            .arg(snap_.x, 0, 'f', 2)
                            .arg(snap_.y, 0, 'f', 2)
                            .arg(qRadiansToDegrees(snap_.theta), 0, 'f', 1));

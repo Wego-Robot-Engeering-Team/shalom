@@ -113,9 +113,11 @@ DataPanel::DataPanel(QWidget *parent) : QWidget(parent)
     card_->addHeaderWidget(count_);
     outer->addWidget(card_);
 
+    card_->body()->addWidget(sectionLabel(QStringLiteral("저장 위치")));
+
     auto *head = new QHBoxLayout;
     head->setSpacing(metrics::s2);
-    pathLabel_ = readout(QStringLiteral("경로 미설정"));
+    pathLabel_ = readout(QStringLiteral("설정되지 않았습니다"));
     pathLabel_->setWordWrap(true);
     auto *refresh = new QPushButton(QStringLiteral("새로고침"));
     refresh->setProperty("size", "sm");
@@ -161,6 +163,7 @@ DataPanel::DataPanel(QWidget *parent) : QWidget(parent)
 
     details_ = readout();
     details_->setWordWrap(true);
+    details_->hide();
     detailCard->body()->addWidget(details_);
 
     download_ = new QPushButton(QStringLiteral("내려받기"));
@@ -175,7 +178,7 @@ DataPanel::DataPanel(QWidget *parent) : QWidget(parent)
 void DataPanel::setDirectory(const QString &path)
 {
     directory_ = path;
-    pathLabel_->setText(path.isEmpty() ? QStringLiteral("경로 미설정") : path);
+    pathLabel_->setText(path.isEmpty() ? QStringLiteral("설정되지 않았습니다") : path);
     rescan();
 }
 
@@ -257,7 +260,7 @@ void DataPanel::showRecord(const InspectionRecord &record)
     lines << QStringLiteral("포인트  %1").arg(record.pointId);
     lines << QStringLiteral("촬영  %1")
                  .arg(record.capturedAt.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
-    lines << QStringLiteral("Apriltag  %1")
+    lines << QStringLiteral("마커  %1")
                  .arg(record.tagId >= 0 ? QString::number(record.tagId)
                                         : QStringLiteral("미인식"));
     lines << QStringLiteral("크기  %1").arg(humanSize(record.fileSize));
@@ -266,7 +269,7 @@ void DataPanel::showRecord(const InspectionRecord &record)
         const QJsonObject pose =
             record.sidecar->value(QStringLiteral("robot_pose")).toObject();
         if (!pose.isEmpty()) {
-            lines << QStringLiteral("로봇 위치  %1, %2   θ %3°")
+            lines << QStringLiteral("로봇 위치  %1, %2   방향 %3°")
                          .arg(pose.value(QStringLiteral("x")).toDouble(), 0, 'f', 2)
                          .arg(pose.value(QStringLiteral("y")).toDouble(), 0, 'f', 2)
                          .arg(pose.value(QStringLiteral("theta_deg")).toDouble(), 0, 'f', 1);
@@ -282,6 +285,7 @@ void DataPanel::showRecord(const InspectionRecord &record)
         lines << QStringLiteral("⚠ 누락  %1").arg(missing.join(QStringLiteral(", ")));
 
     details_->setText(lines.join(QLatin1Char('\n')));
+    details_->show();
     download_->setEnabled(true);
 }
 

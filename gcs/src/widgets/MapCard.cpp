@@ -3,6 +3,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QEvent>
 #include <QResizeEvent>
 #include <QVBoxLayout>
 
@@ -44,10 +45,13 @@ MapCard::MapCard(QWidget *parent) : QWidget(parent)
     mapLabel_ = sectionLabel(QStringLiteral("맵 없음"));
     tb->addWidget(mapLabel_);
 
-    readout_ = new QLabel(QStringLiteral("—"), this);
+    readout_ = new QLabel(this);
     readout_->setObjectName(QStringLiteral("MapReadout"));
     readout_->setAlignment(Qt::AlignCenter);
     readout_->setMinimumWidth(150);
+    // 커서가 지도 위에 올라와야 나타난다. 값 없는 상자가 떠 있으면
+    // 고장난 것처럼 보인다.
+    readout_->hide();
 
     hint_ = new QLabel(this);
     hint_->setObjectName(QStringLiteral("MapReadout"));
@@ -57,6 +61,9 @@ MapCard::MapCard(QWidget *parent) : QWidget(parent)
     connect(fit_, &QPushButton::clicked, view_, &MapView::fitMap);
     connect(view_, &MapView::cursorMoved, this, [this](double x, double y) {
         readout_->setText(QStringLiteral("%1, %2").arg(x, 7, 'f', 2).arg(y, 7, 'f', 2));
+        readout_->show();
+        readout_->adjustSize();
+        readout_->move(width() - readout_->width() - metrics::s3, metrics::s3);
     });
 }
 
@@ -78,13 +85,21 @@ void MapCard::setPlacementHint(const QString &text)
     }
 }
 
+void MapCard::leaveEvent(QEvent *ev)
+{
+    readout_->hide();
+    QWidget::leaveEvent(ev);
+}
+
 void MapCard::resizeEvent(QResizeEvent *ev)
 {
     QWidget::resizeEvent(ev);
     toolbar_->adjustSize();
     toolbar_->move(metrics::s3, metrics::s3);
-    readout_->adjustSize();
-    readout_->move(width() - readout_->width() - metrics::s3, metrics::s3);
+    if (readout_->isVisible()) {
+        readout_->adjustSize();
+        readout_->move(width() - readout_->width() - metrics::s3, metrics::s3);
+    }
     if (hint_->isVisible()) {
         hint_->adjustSize();
         hint_->move((width() - hint_->width()) / 2, metrics::s3);

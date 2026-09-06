@@ -73,7 +73,7 @@ CapturePanel::CapturePanel(QWidget *parent) : QWidget(parent)
         connect(e, &QLineEdit::textChanged, this, [this] { refreshDerived(); });
 
     metaCard->body()->addSpacing(metrics::s1);
-    metaCard->body()->addWidget(sectionLabel(QStringLiteral("자동 기입")));
+    metaCard->body()->addWidget(sectionLabel(QStringLiteral("로봇 정보")));
     autoFields_ = readout();
     autoFields_->setWordWrap(true);
     metaCard->body()->addWidget(autoFields_);
@@ -108,12 +108,11 @@ void CapturePanel::setCaptureAllowed(bool allowed, const QString &reason)
     captureButton_->setEnabled(allowed);
     if (allowed) {
         state_->set(QStringLiteral("촬영 가능"), QStringLiteral("ok"));
-        hint_->setText(QStringLiteral(
-            "정지 상태에서만 촬영합니다. 촬영 후 메타데이터를 확인하고 저장하십시오."));
+        hint_->setText(QStringLiteral("정지 상태에서만 촬영합니다."));
     } else {
         state_->set(QStringLiteral("촬영 불가"), QStringLiteral("warn"));
         hint_->setText(reason.isEmpty()
-                           ? QStringLiteral("로봇이 정지한 뒤 촬영할 수 있습니다.")
+                           ? QStringLiteral("로봇이 멈춘 뒤에 촬영할 수 있습니다.")
                            : reason);
     }
 }
@@ -145,7 +144,7 @@ CaptureMetadata CapturePanel::currentMetadata() const
 void CapturePanel::refreshDerived()
 {
     autoFields_->setText(
-        QStringLiteral("좌표  %1, %2   θ %3°\nApriltag  %4")
+        QStringLiteral("위치  %1, %2   방향 %3°\n마커  %4")
             .arg(x_, 0, 'f', 2)
             .arg(y_, 0, 'f', 2)
             .arg(qRadiansToDegrees(theta_), 0, 'f', 1)
@@ -156,7 +155,7 @@ void CapturePanel::refreshDerived()
     // 촬영 전에는 저장할 것이 없다. 메타데이터만 채워도 저장이 열리면
     // 이미지 없는 기록이 생긴다.
     if (!hasCapture_) {
-        fileNamePreview_->setText(QStringLiteral("촬영 후 결정됩니다"));
+        fileNamePreview_->setText(QStringLiteral("촬영 후 표시"));
         saveButton_->setEnabled(false);
         return;
     }

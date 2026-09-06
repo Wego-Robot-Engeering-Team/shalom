@@ -14,6 +14,7 @@
 #include <QTimer>
 #include <QTabWidget>
 #include <QVBoxLayout>
+#include <QtMath>
 
 #include "Config.h"
 #include "RobotDef.h"
@@ -119,8 +120,7 @@ QWidget *SettingsDialog::buildAppearanceTab()
     lay->addLayout(row);
 
     auto *hint = new QLabel(QStringLiteral(
-        "관제실에서 화면을 떨어져 보는 경우에 조정하십시오. "
-        "글자 크기만 바뀌며 패널 간격은 유지됩니다."));
+        "화면을 멀리 두고 보거나 글자가 작게 느껴지면 키우십시오."));
     hint->setObjectName(QStringLiteral("Hint"));
     hint->setWordWrap(true);
     lay->addWidget(hint);
@@ -179,16 +179,12 @@ QWidget *SettingsDialog::buildConnectionTab()
     host_ = new QLineEdit;
     port_ = new QSpinBox;
     port_->setRange(1, 65535);
-    cameraPort_ = new QSpinBox;
-    cameraPort_->setRange(1, 65535);
-
     lay->addWidget(fieldRow(QStringLiteral("로봇 주소"), host_, 96));
     lay->addWidget(fieldRow(QStringLiteral("제어 포트"), port_, 96));
-    lay->addWidget(fieldRow(QStringLiteral("카메라 포트"), cameraPort_, 96));
 
     auto *hint = new QLabel(QStringLiteral(
-        "제어 포트는 raw TCP 단일 연결입니다. 카메라 포트는 별도 HTTP MJPEG 경로이며, "
-        "촬영 원본은 두 경로 모두 타지 않고 로봇에서 NAS로 직접 올라갑니다."));
+        "관제 화면은 이 주소로 로봇과 연결합니다. "
+        "촬영한 사진은 이 경로를 거치지 않고 로봇에서 저장 장치로 바로 올라갑니다."));
     hint->setObjectName(QStringLiteral("Hint"));
     hint->setWordWrap(true);
     lay->addWidget(hint);
@@ -226,8 +222,6 @@ QWidget *SettingsDialog::buildConnectionTab()
             [this] { Config::instance().setBridgeHost(host_->text()); });
     connect(port_, &QSpinBox::valueChanged, this,
             [](int v) { Config::instance().setBridgePort(v); });
-    connect(cameraPort_, &QSpinBox::valueChanged, this,
-            [](int v) { Config::instance().setCameraPort(v); });
 
     lay->addStretch(1);
     return page;
@@ -247,19 +241,20 @@ QWidget *SettingsDialog::buildOperationTab()
     linear_->setSuffix(QStringLiteral(" m/s"));
 
     angular_ = new QDoubleSpinBox;
-    angular_->setRange(0.05, robot::kWzMax);
-    angular_->setSingleStep(0.05);
-    angular_->setDecimals(2);
-    angular_->setSuffix(QStringLiteral(" rad/s"));
+    angular_->setRange(qRadiansToDegrees(0.05), qRadiansToDegrees(robot::kWzMax));
+    angular_->setSingleStep(5.0);
+    angular_->setDecimals(0);
+    angular_->setSuffix(QStringLiteral(" °/s"));
 
     lay->addWidget(sectionLabel(QStringLiteral("수동 조작 기본 속도")));
-    lay->addWidget(fieldRow(QStringLiteral("선속도"), linear_, 72));
-    lay->addWidget(fieldRow(QStringLiteral("각속도"), angular_, 72));
+    lay->addWidget(fieldRow(QStringLiteral("앞뒤 속도"), linear_, 84));
+    lay->addWidget(fieldRow(QStringLiteral("회전 속도"), angular_, 84));
 
     auto *hint = new QLabel(QStringLiteral(
-        "조작 패널을 열 때의 초기 슬라이더 값입니다. 상한은 B2 사양으로 고정됩니다.\n\n"
-        "지도상 미등록 물체 접근 시에는 로봇이 자체적으로 %1 m/s 로 감속하며, "
-        "이 설정은 그 동작에 영향을 주지 않습니다.")
+        "수동 조작 화면을 열 때 처음 적용되는 속도입니다. "
+        "이보다 빠르게는 설정할 수 없습니다.\n\n"
+        "지도에 없는 장애물이 가까워지면 로봇이 스스로 %1 m/s 까지 늦춥니다. "
+        "이 설정과는 관계없이 동작합니다.")
             .arg(robot::kVxCaution, 0, 'f', 2));
     hint->setObjectName(QStringLiteral("Hint"));
     hint->setWordWrap(true);
@@ -267,8 +262,9 @@ QWidget *SettingsDialog::buildOperationTab()
 
     connect(linear_, &QDoubleSpinBox::valueChanged, this,
             [](double v) { Config::instance().setDefaultLinearSpeed(v); });
-    connect(angular_, &QDoubleSpinBox::valueChanged, this,
-            [](double v) { Config::instance().setDefaultAngularSpeed(v); });
+    connect(angular_, &QDoubleSpinBox::valueChanged, this, [](double deg) {
+        Config::instance().setDefaultAngularSpeed(qDegreesToRadians(deg));
+    });
 
     lay->addStretch(1);
     return page;
@@ -298,10 +294,10 @@ QWidget *SettingsDialog::buildStorageTab()
     lay->addWidget(fieldRow(QStringLiteral("저장 장치 경로"), nasPath_, 84));
 
     auto *hint = new QLabel(QStringLiteral(
-        "이력 조회와 내려받기에 쓰이는 경로입니다. 촬영한 사진을 저장 장치로 "
-        "보내는 주체는 로봇이며, 관제 화면은 저장된 결과를 읽기만 합니다.\n\n"
-        "원격 접속에 서면 승인이 필요한 환경이므로, 로그 내보내기가 사실상 "
-        "유일한 원격 진단 수단입니다. 보관 기간을 짧게 두지 마십시오."));
+        "이력 화면에서 사진을 찾고 내려받을 때 쓰는 경로입니다. "
+        "사진을 저장 장치에 올리는 것은 로봇이며, 관제 화면은 읽기만 합니다.\n\n"
+        "문제가 생겼을 때 담당자에게 보낼 수 있는 것은 내보낸 로그뿐입니다. "
+        "보관 기간을 너무 짧게 두지 마십시오."));
     hint->setObjectName(QStringLiteral("Hint"));
     hint->setWordWrap(true);
     lay->addWidget(hint);
@@ -325,8 +321,7 @@ QWidget *SettingsDialog::buildSafetyTab()
     lay->setSpacing(metrics::s2);
 
     auto *intro = new QLabel(QStringLiteral(
-        "아래 값은 로봇측 안전 노드가 강제합니다. 관제에서 변경할 수 없으며, "
-        "변경 가능한 것처럼 보이게 두지 않습니다."));
+        "아래 값은 로봇이 직접 지킵니다. 관제 화면에서는 바꿀 수 없습니다."));
     intro->setObjectName(QStringLiteral("Hint"));
     intro->setWordWrap(true);
     lay->addWidget(intro);
@@ -334,19 +329,19 @@ QWidget *SettingsDialog::buildSafetyTab()
 
     lay->addWidget(readOnlyRow(
         QStringLiteral("비상정지 응답"), QStringLiteral("1 초 이내"),
-        QStringLiteral("SDK2 E-Stop API 와 /cmd_vel 차단을 동시에 적용합니다. "
-                       "최종 권한은 하드웨어 버튼에 있습니다.")));
+        QStringLiteral("정지 명령과 주행 명령 차단이 동시에 걸립니다. "
+                       "최종 권한은 하드웨어 정지 버튼에 있습니다.")));
     lay->addWidget(readOnlyRow(
         QStringLiteral("통신 두절 정지"), QStringLiteral("3 초"),
-        QStringLiteral("관제가 꺼지거나 링크가 끊겨도 로봇이 스스로 정지합니다. "
-                       "재연결 후 자율주행은 자동 재개되지 않습니다.")));
+        QStringLiteral("관제 화면이 꺼지거나 연결이 끊겨도 로봇이 스스로 멈춥니다. "
+                       "다시 연결되어도 자율주행은 자동으로 이어지지 않습니다.")));
     lay->addWidget(readOnlyRow(
-        QStringLiteral("수동 조작 데드맨"), QStringLiteral("300 ms"),
+        QStringLiteral("조작 중단 시 정지"), QStringLiteral("300 ms"),
         QStringLiteral("조작 버튼에서 손을 떼면 로봇이 즉시 멈춥니다. 관제 화면이 멈추거나 "
                        "연결이 끊겨도 마찬가지입니다.")));
     lay->addWidget(readOnlyRow(
         QStringLiteral("비상정지 해제"), QStringLiteral("관리자 인증 필요"),
-        QStringLiteral("자동 해제는 금지되어 있습니다. 발동은 인증 없이 즉시 동작합니다.")));
+        QStringLiteral("스스로 풀리지 않습니다. 반대로 정지시킬 때는 인증 없이 바로 됩니다.")));
 
     lay->addStretch(1);
     return page;
@@ -400,8 +395,8 @@ void SettingsDialog::refreshNetworkInfo()
     subnetWarning_->setVisible(!sameSubnet && !local.isEmpty());
     if (!sameSubnet && !local.isEmpty()) {
         subnetWarning_->setText(
-            QStringLiteral("⚠ 브릿지 주소 %1 이 위 인터페이스 어느 서브넷에도 속하지 "
-                           "않습니다. 라우팅이 없으면 연결되지 않습니다.")
+            QStringLiteral("⚠ 로봇 주소 %1 이 이 PC 의 네트워크 대역에 없습니다. "
+                           "같은 네트워크가 아니면 연결되지 않습니다.")
                 .arg(target.toString()));
     }
 }
@@ -448,16 +443,15 @@ void SettingsDialog::testConnection()
 void SettingsDialog::load()
 {
     auto &cfg = Config::instance();
-    const QSignalBlocker b1(scale_), b2(host_), b3(port_), b4(cameraPort_);
+    const QSignalBlocker b1(scale_), b2(host_), b3(port_);
     const QSignalBlocker b5(linear_), b6(angular_), b7(logDir_), b8(retention_), b9(nasPath_);
 
     scale_->setValue(int(qRound(cfg.uiScale() * 100)));
     scaleValue_->setText(QStringLiteral("%1%").arg(scale_->value()));
     host_->setText(cfg.bridgeHost());
     port_->setValue(cfg.bridgePort());
-    cameraPort_->setValue(cfg.cameraPort());
     linear_->setValue(cfg.defaultLinearSpeed());
-    angular_->setValue(cfg.defaultAngularSpeed());
+    angular_->setValue(qRadiansToDegrees(cfg.defaultAngularSpeed()));
     logDir_->setText(cfg.logDirectory());
     retention_->setValue(cfg.logRetentionDays());
     nasPath_->setText(cfg.nasMountPath());

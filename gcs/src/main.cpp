@@ -168,6 +168,10 @@ int main(int argc, char *argv[])
             window.showView(*it);
     }
 
+    // 수동 모드에서만 나타나는 조작 패널을 확인하기 위한 개발용 옵션.
+    if (args.contains(QStringLiteral("--manual")))
+        window.setDriveMode(QStringLiteral("manual"));
+
     const int shotIdx = args.indexOf(QStringLiteral("--shot"));
     if (shotIdx >= 0 && shotIdx + 1 < args.size())
         captureAndQuit(&window, args.at(shotIdx + 1));
