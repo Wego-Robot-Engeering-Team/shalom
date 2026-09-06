@@ -42,7 +42,7 @@ constexpr int kRoleCode = Qt::UserRole + 2;
 constexpr int kRoleMessage = Qt::UserRole + 3;
 constexpr int kRoleDetail = Qt::UserRole + 4;
 
-constexpr int kRowHeight = 46;
+constexpr int kRowHeight = 50;
 
 /// 상세 JSON 을 한 줄 요약으로 접는다. 중첩 객체는 값이 길어지기만 하고
 /// 한 줄에서는 읽히지 않으므로 건너뛴다.
@@ -63,7 +63,7 @@ QString detailText(const QJsonObject &detail)
     return parts.join(QStringLiteral("   "));
 }
 
-constexpr int kIconSize = 14;
+constexpr int kIconSize = 15;
 constexpr int kRightPad = 8;
 
 QColor severityColor(Severity s)
@@ -116,49 +116,49 @@ public:
         //
         //   ● 오류   MODE_AUTO  (i)              20:47:23
         //     자율 모드 전환                     map_id ...
-        const int top = r.top() + 5;
-        const int bottom = r.top() + 22;
+        const int top = r.top() + 6;
+        const int bottom = r.top() + 25;
 
         p->setPen(Qt::NoPen);
         p->setBrush(sev == Severity::Info ? QColor(C.textMute) : sc);
-        p->drawEllipse(QPointF(r.left() + 12, top + 8), loud ? 4.0 : 3.0, loud ? 4.0 : 3.0);
+        p->drawEllipse(QPointF(r.left() + 12, top + 9), loud ? 4.0 : 3.0, loud ? 4.0 : 3.0);
 
         int x = r.left() + 22;
 
         QFont fl;
-        fl.setPointSize(9);
+        fl.setPointSize(10);
         fl.setWeight(QFont::DemiBold);
         p->setFont(fl);
         p->setPen(sev == Severity::Info ? QColor(C.textMute) : sc);
         const QString level = diag::severityLabel(sev);
         const int levelW = QFontMetrics(fl).horizontalAdvance(level) + 8;
-        p->drawText(QRect(x, top, levelW, 16), Qt::AlignLeft | Qt::AlignVCenter, level);
+        p->drawText(QRect(x, top, levelW, 18), Qt::AlignLeft | Qt::AlignVCenter, level);
         x += levelW;
 
         // 시각은 오른쪽 끝에. 훑을 때 세로로 줄이 맞는 편이 읽기 쉽다.
-        QFont fm = monoFont(9);
+        QFont fm = monoFont(10);
         p->setFont(fm);
         p->setPen(QColor(C.textMute));
         const QString time = idx.data(kRoleTime).toString();
         const int timeW = QFontMetrics(fm).horizontalAdvance(time) + 2;
-        p->drawText(QRect(r.right() - kRightPad - timeW, top, timeW, 16),
+        p->drawText(QRect(r.right() - kRightPad - timeW, top, timeW, 18),
                     Qt::AlignRight | Qt::AlignVCenter, time);
 
         const int firstLineRight = r.right() - kRightPad - timeW - 8;
 
         if (!code.isEmpty()) {
-            QFont fc = monoFont(9);
+            QFont fc = monoFont(10);
             fc.setWeight(QFont::DemiBold);
             p->setFont(fc);
             p->setPen(QColor(C.textDim));
             const int codeW = qMin(QFontMetrics(fc).horizontalAdvance(code) + 8,
                                    qMax(0, firstLineRight - x));
-            p->drawText(QRect(x, top, codeW, 16), Qt::AlignLeft | Qt::AlignVCenter,
+            p->drawText(QRect(x, top, codeW, 18), Qt::AlignLeft | Qt::AlignVCenter,
                         QFontMetrics(fc).elidedText(code, Qt::ElideRight, codeW));
             x += codeW;
 
             // (i) 아이콘 — 코드 바로 옆
-            const QRect ic(x, top + 1, kIconSize, kIconSize);
+            const QRect ic(x, top + 2, kIconSize, kIconSize);
             const bool hot = hoveredIconRow == idx.row();
             p->setPen(QPen(hot ? sc : QColor(C.textMute), 1.2));
             // 삼항으로 QColor 와 Qt::NoBrush 를 섞으면 안 된다.
@@ -168,7 +168,7 @@ public:
             p->drawEllipse(ic);
 
             QFont fi;
-            fi.setPointSize(8);
+            fi.setPointSize(9);
             fi.setWeight(QFont::Bold);
             p->setFont(fi);
             p->setPen(hot ? sc : QColor(C.textMute));
@@ -180,22 +180,22 @@ public:
         const QString detail = idx.data(kRoleDetail).toString();
         const int avail = r.right() - kRightPad - (r.left() + 22);
         if (!detail.isEmpty() && avail > 260) {
-            QFont fd = monoFont(9);
+            QFont fd = monoFont(10);
             const QFontMetrics dm(fd);
             detailW = qMin(dm.horizontalAdvance(detail) + 12, avail / 2);
             p->setFont(fd);
             p->setPen(QColor(C.textMute));
-            p->drawText(QRect(r.right() - kRightPad - detailW, bottom, detailW, 16),
+            p->drawText(QRect(r.right() - kRightPad - detailW, bottom, detailW, 18),
                         Qt::AlignRight | Qt::AlignVCenter,
                         dm.elidedText(detail, Qt::ElideRight, detailW));
         }
 
         QFont ft;
-        ft.setPointSize(10);
+        ft.setPointSize(11);
         ft.setWeight(loud ? QFont::DemiBold : QFont::Normal);
         p->setFont(ft);
         p->setPen(loud ? sc : QColor(C.text));
-        const QRect textRect(r.left() + 22, bottom, avail - detailW, 16);
+        const QRect textRect(r.left() + 22, bottom, avail - detailW, 18);
         if (textRect.width() > 20) {
             p->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
                         QFontMetrics(ft).elidedText(idx.data(kRoleMessage).toString(),
@@ -212,19 +212,19 @@ QRect iconRectFor(const QRect &itemRect, const QString &time, const QString &cod
 {
     if (code.isEmpty())
         return {};
-    QFont fm = monoFont(9);
-    QFont fc = monoFont(9);
+    QFont fm = monoFont(10);
+    QFont fc = monoFont(10);
     fc.setWeight(QFont::DemiBold);
 
     Q_UNUSED(time);
     QFont fl;
-    fl.setPointSize(9);
+    fl.setPointSize(10);
     fl.setWeight(QFont::DemiBold);
 
     int x = itemRect.left() + 22;
     x += QFontMetrics(fl).horizontalAdvance(level) + 8;
     x += QFontMetrics(fc).horizontalAdvance(code) + 8;
-    return QRect(x, itemRect.top() + 6, kIconSize, kIconSize);
+    return QRect(x, itemRect.top() + 8, kIconSize, kIconSize);
 }
 
 /// (i) 아이콘의 호버/클릭을 처리하는 리스트.
