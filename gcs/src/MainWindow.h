@@ -31,6 +31,7 @@
 #include "widgets/Toast.h"
 
 class QLabel;
+class QVBoxLayout;
 class QPushButton;
 class QStackedWidget;
 class QTimer;
@@ -54,6 +55,7 @@ class Badge;
 class BatteryPill;
 class NotificationBell;
 class EStopButton;
+class IconButton;
 class DiagnosticsPanel;
 class EventLogPanel;
 class SettingsDialog;
@@ -119,6 +121,14 @@ private:
     void releaseEstop();
     void setMode(const QString &mode);
     void navigate(NavItem item);
+
+    /// Keeps the event log the same width as the cards above it.
+    ///
+    /// The cards live in a scroll area and the log does not, so whenever the
+    /// column overflows the scroll bar narrows the cards and the log alone
+    /// stays wide. A fixed gutter cannot fix that: it is wrong in whichever
+    /// state it was not measured for.
+    void syncLogGutter();
     void openSettings();
 
     /// Writes a log entry tagged with the signed-in operator, so the event log
@@ -161,6 +171,7 @@ private:
     TeleopPanel *teleop_ = nullptr;
     QWidget *teleopHost_ = nullptr;
     EventLogPanel *events_ = nullptr;
+    QVBoxLayout *eventsLay_ = nullptr;
     WaypointPanel *waypoints_ = nullptr;
     ArmPanel *arm_ = nullptr;
     LocationPanel *locations_ = nullptr;
@@ -176,8 +187,8 @@ private:
     Badge *missionBadge_ = nullptr;
     QPushButton *autoBtn_ = nullptr;
     QPushButton *manualBtn_ = nullptr;
-    QPushButton *themeBtn_ = nullptr;
-    QPushButton *settingsBtn_ = nullptr;
+    IconButton *themeBtn_ = nullptr;
+    IconButton *settingsBtn_ = nullptr;
     Badge *userBadge_ = nullptr;
 
     /// What the map click should produce once placed: empty means a goal pose.

@@ -15,6 +15,7 @@
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QShowEvent>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -45,6 +46,7 @@
 #include "widgets/BrandMark.h"
 #include "widgets/EStopButton.h"
 #include "widgets/Gauges.h"
+#include "widgets/IconButton.h"
 #include "widgets/NotificationCenter.h"
 #include "widgets/MapCard.h"
 #include "widgets/Primitives.h"
@@ -88,6 +90,7 @@ MainWindow::MainWindow(gcs::robot::RobotLink *link, QWidget *parent)
     body->addWidget(nav_);
 
     map_ = new MapCard;
+    map_->addModeButtons(autoBtn_, manualBtn_);
     context_ = qobject_cast<QStackedWidget *>(buildContextColumn());
 
     events_ = new EventLogPanel(log_);
@@ -99,13 +102,14 @@ MainWindow::MainWindow(gcs::robot::RobotLink *link, QWidget *parent)
     //
     // 높이는 조절할 수 있어야 한다. 평소엔 몇 줄만 보다가, 문제가 생기면
     // 끌어올려 넓게 본다.
-    // 컨텍스트 페이지는 스크롤 영역 안에서 오른쪽에 s2 만큼 여백을 둔다
-    // (스크롤바 자리). 로그에는 그 여백이 없어 카드 하나만 더 넓어 보였다.
-    // 같은 여백을 씌워 세로로 줄을 맞춘다.
+    // 컨텍스트 열은 내용이 넘치면 스크롤바가 생기고, 그만큼 카드가
+    // 좁아진다. 로그는 스크롤 영역 밖이라 그 영향을 받지 않아 창을 줄이면
+    // 로그만 넓어 보였다. 고정 여백으로 맞춰 두면 스크롤바가 없을 때
+    // 반대로 어긋나므로, 지금 실제 스크롤바 폭을 그때그때 따라간다.
     auto *eventsHost = new QWidget;
-    auto *eventsLay = new QVBoxLayout(eventsHost);
-    eventsLay->setContentsMargins(0, 0, metrics::s2, 0);
-    eventsLay->addWidget(events_);
+    eventsLay_ = new QVBoxLayout(eventsHost);
+    eventsLay_->setContentsMargins(0, 0, 0, 0);
+    eventsLay_->addWidget(events_);
 
     auto *side = new QSplitter(Qt::Vertical);
     side->setChildrenCollapsible(false);
@@ -185,20 +189,17 @@ QWidget *MainWindow::buildTopBar()
 
     lay->addStretch(1);
 
-    // ---- 무엇을 하는가 ----
-    // 화면에서 비상정지 다음으로 무거운 조작이다. 설정·테마와 같은 모양으로
-    // 늘어놓으면 그 무게가 드러나지 않는다.
-    lay->addWidget(captionLabel(QStringLiteral("주행 모드")), 0, Qt::AlignVCenter);
+    // 주행 모드 버튼은 여기서 만들되 상단 바에 두지 않는다. 지도 툴바로
+    // 보내 로봇이 움직이는 면 위에 얹는다. 설정·테마와 나란히 두면
+    // 화면에서 두 번째로 무거운 조작이 도구처럼 보인다.
     autoBtn_ = new QPushButton(QStringLiteral("자율"));
     manualBtn_ = new QPushButton(QStringLiteral("수동"));
     for (auto *b : {autoBtn_, manualBtn_}) {
         b->setCheckable(true);
-        b->setFixedWidth(76);
-        lay->addWidget(b);
+        b->setProperty("size", "sm");
+        b->setFixedWidth(64);
     }
     autoBtn_->setChecked(true);
-
-    lay->addStretch(1);
 
     // ---- 부수적인 것 ----
     // 테두리 없는 버튼으로 낮춘다. 조작이 아니라 도구다.
@@ -206,18 +207,16 @@ QWidget *MainWindow::buildTopBar()
     userBadge_->hide();
     lay->addWidget(userBadge_);
 
-    settingsBtn_ = new QPushButton(QStringLiteral("설정"));
-    settingsBtn_->setProperty("variant", "ghost");
-    settingsBtn_->setProperty("size", "sm");
-    lay->addWidget(settingsBtn_);
+    settingsBtn_ = new IconButton(IconButton::Glyph::Sliders);
+    settingsBtn_->setToolTip(QStringLiteral("설정"));
+    lay->addWidget(settingsBtn_, 0, Qt::AlignVCenter);
 
-    themeBtn_ = new QPushButton(colors().isDark() ? QStringLiteral("라이트")
-                                                  : QStringLiteral("다크"));
-    themeBtn_->setProperty("variant", "ghost");
-    themeBtn_->setProperty("size", "sm");
-    themeBtn_->setFixedWidth(58);
+    // 라벨은 "지금 상태"가 아니라 "누르면 갈 곳"이다. 다크에서는 해,
+    // 라이트에서는 달을 보여준다.
+    themeBtn_ = new IconButton(colors().isDark() ? IconButton::Glyph::Sun
+                                                 : IconButton::Glyph::Moon);
     themeBtn_->setToolTip(QStringLiteral("다크 / 라이트 전환"));
-    lay->addWidget(themeBtn_);
+    lay->addWidget(themeBtn_, 0, Qt::AlignVCenter);
 
     bell_ = new NotificationBell;
     lay->addWidget(bell_, 0, Qt::AlignVCenter);
@@ -245,6 +244,12 @@ QWidget *MainWindow::buildContextColumn()
     stack->addWidget(buildCaptureContext());
     stack->addWidget(buildDiagnosticsContext());
     stack->addWidget(buildDataContext());
+
+    // 스크롤바가 생기고 사라지는 것을 알아야 아래 로그와 폭을 맞출 수 있다.
+    for (int i = 0; i < stack->count(); ++i)
+        if (auto *area = qobject_cast<QScrollArea *>(stack->widget(i)))
+            area->verticalScrollBar()->installEventFilter(this);
+
     return stack;
 }
 
@@ -252,7 +257,7 @@ QWidget *MainWindow::buildDriveContext()
 {
     auto *inner = new QWidget;
     auto *lay = new QVBoxLayout(inner);
-    lay->setContentsMargins(0, 0, metrics::s2, 0);
+    lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(metrics::s3);
 
     status_ = new StatusPanel;
@@ -289,7 +294,7 @@ QWidget *MainWindow::buildLocationsContext()
 {
     auto *inner = new QWidget;
     auto *lay = new QVBoxLayout(inner);
-    lay->setContentsMargins(0, 0, metrics::s2, 0);
+    lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(metrics::s3);
 
     locations_ = new LocationPanel;
@@ -310,7 +315,7 @@ QWidget *MainWindow::buildArmContext()
 {
     auto *inner = new QWidget;
     auto *lay = new QVBoxLayout(inner);
-    lay->setContentsMargins(0, 0, metrics::s2, 0);
+    lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(metrics::s3);
 
     arm_ = new ArmPanel;
@@ -328,7 +333,7 @@ QWidget *MainWindow::buildCaptureContext()
 {
     auto *inner = new QWidget;
     auto *lay = new QVBoxLayout(inner);
-    lay->setContentsMargins(0, 0, metrics::s2, 0);
+    lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(metrics::s3);
 
     capture_ = new CapturePanel;
@@ -346,7 +351,7 @@ QWidget *MainWindow::buildDiagnosticsContext()
 {
     auto *inner = new QWidget;
     auto *lay = new QVBoxLayout(inner);
-    lay->setContentsMargins(0, 0, metrics::s2, 0);
+    lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(metrics::s3);
 
     diagnostics_ = new DiagnosticsPanel;
@@ -365,7 +370,7 @@ QWidget *MainWindow::buildDataContext()
 {
     auto *inner = new QWidget;
     auto *lay = new QVBoxLayout(inner);
-    lay->setContentsMargins(0, 0, metrics::s2, 0);
+    lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(metrics::s3);
 
     data_ = new DataPanel;
@@ -768,6 +773,18 @@ void MainWindow::showWaypointInfo(const QString &id, const QPoint &globalPos)
 void MainWindow::navigate(NavItem item)
 {
     context_->setCurrentIndex(int(item));
+    syncLogGutter();
+}
+
+void MainWindow::syncLogGutter()
+{
+    int gutter = 0;
+    if (auto *area = qobject_cast<QScrollArea *>(context_->currentWidget())) {
+        if (auto *bar = area->verticalScrollBar(); bar && bar->isVisible())
+            gutter = bar->sizeHint().width();
+    }
+    if (eventsLay_->contentsMargins().right() != gutter)
+        eventsLay_->setContentsMargins(0, 0, gutter, 0);
 }
 
 void MainWindow::showView(NavItem item)
@@ -930,11 +947,15 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *ev)
 {
     if (obj == centralWidget() && ev->type() == QEvent::Resize) {
         alert_->setGeometry(centralWidget()->rect());
-        // 알림을 이벤트 로그 위로 띄운다. 로그 높이는 조작자가 조절하므로
-        // 매번 다시 잰다.
-        // 로그가 오른쪽 열로 옮겨가 더 이상 토스트와 겹치지 않는다.
-        // 토스트는 지도 아래쪽에 그대로 뜬다.
         toasts_->setBottomAnchor(metrics::s3);
+        syncLogGutter();
+    }
+
+    // 스크롤바가 나타나거나 사라지는 순간에도 맞춘다. 창 크기가 그대로여도
+    // 카드가 늘거나 줄면(수동 모드 전환 등) 스크롤바가 생겼다 없어진다.
+    if (ev->type() == QEvent::Show || ev->type() == QEvent::Hide) {
+        if (qobject_cast<QScrollBar *>(obj))
+            syncLogGutter();
     }
     return QMainWindow::eventFilter(obj, ev);
 }
@@ -945,7 +966,7 @@ void MainWindow::applyTheme(const QString &name)
     if (auto *app = qobject_cast<QApplication *>(QApplication::instance()))
         app->setStyleSheet(buildQss());
 
-    themeBtn_->setText(c.isDark() ? QStringLiteral("라이트") : QStringLiteral("다크"));
+    themeBtn_->setGlyph(c.isDark() ? IconButton::Glyph::Sun : IconButton::Glyph::Moon);
 
     // QSS 로 칠해지는 위젯은 스타일시트 재적용만으로 따라온다.
     // 씬 아이템의 펜 색은 아이템에 박혀 있어 별도로 다시 지정해야 한다.
