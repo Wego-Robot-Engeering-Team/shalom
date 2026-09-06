@@ -57,6 +57,10 @@ public:
     /// ones are what the operator needs.
     static constexpr int kMaxKept = 50;
 
+signals:
+    /// The list is opening. The toast host uses this to clear what is floating.
+    void opened();
+
 protected:
     void paintEvent(QPaintEvent *) override;
     void mousePressEvent(QMouseEvent *) override;

@@ -177,7 +177,7 @@ void BatteryPill::paintEvent(QPaintEvent *)
     f.setWeight(QFont::DemiBold);
     p.setFont(f);
     p.setPen(QColor(soc <= low_ ? tone : QColor(C.text)));
-    p.drawText(QRectF(38, 0, width() - 38, height()), Qt::AlignLeft | Qt::AlignVCenter,
+    p.drawText(QRectF(47, 0, width() - 47, height()), Qt::AlignLeft | Qt::AlignVCenter,
                QStringLiteral("%1%").arg(soc, 0, 'f', 0));
 }
 

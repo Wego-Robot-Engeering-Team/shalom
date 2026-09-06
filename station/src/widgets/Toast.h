@@ -67,6 +67,14 @@ public:
     /// Repositions after the host resizes.
     void relayout();
 
+    /// Fades every visible toast out at once.
+    ///
+    /// Called when the operator opens the notification list: they are now
+    /// reading the same messages in a form that stays put, so leaving copies
+    /// floating over the list is just clutter - and the toasts sit directly
+    /// under the bell, on top of where the list opens.
+    void dismissAll();
+
     /// Lifts the stack this far off the bottom of the host.
     void setBottomAnchor(int pixelsFromBottom);
 

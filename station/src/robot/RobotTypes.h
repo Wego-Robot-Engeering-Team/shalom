@@ -40,7 +40,10 @@ struct Telemetry {
     /// tell a wrong badge from a right one.
     QString armState = QStringLiteral("idle");
     QSet<int> seenTags;
-    double cpu = 0, mem = 0, cpuTemp = 0, gpuTemp = 0, rtt = 0;
+    /// Controller load and temperature, in percent and degrees Celsius.
+    /// GPU load matters here: inference runs on it, so a pegged GPU explains a
+    /// slow capture in a way a busy CPU does not.
+    double cpu = 0, gpu = 0, mem = 0, cpuTemp = 0, gpuTemp = 0, rtt = 0;
     bool estop = false;
     QString navStatus;                ///< "idle" | "driving" | "arrived" | "blocked"
 

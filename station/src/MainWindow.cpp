@@ -121,6 +121,7 @@ MainWindow::MainWindow(gcs::robot::RobotLink *link, QWidget *parent)
     // 알림 종 아래에 띄운다. 어차피 종의 목록에 쌓이는 내용이므로,
     // 나온 자리와 쌓이는 자리가 같아야 둘이 같은 것임이 드러난다.
     toasts_->setAnchorWidget(bell_);
+    connect(bell_, &NotificationBell::opened, toasts_, &ToastHost::dismissAll);
     root->installEventFilter(this);
 
     wireSignals();
@@ -139,7 +140,7 @@ QWidget *MainWindow::buildTopBar()
     //   [ 멈춤 ]          비상정지
     auto *bar = new QWidget;
     bar->setObjectName(QStringLiteral("TopBar"));
-    bar->setFixedHeight(76);
+    bar->setFixedHeight(metrics::topBarH);
 
     auto *lay = new QHBoxLayout(bar);
     lay->setContentsMargins(metrics::s4, 0, metrics::s3, 0);
@@ -688,12 +689,9 @@ void MainWindow::onMissionStateChanged(MissionState state)
                               : running ? QStringLiteral("running")
                                         : QStringLiteral("idle"));
 
-    if (!running)
-        missionBadge_->set(QStringLiteral("미션 대기"), QStringLiteral("neutral"));
-    else if (paused)
-        missionBadge_->set(QStringLiteral("일시정지"), QStringLiteral("warn"));
-    else
-        missionBadge_->set(QStringLiteral("자율주행 중"), QStringLiteral("info"));
+    // 상단 바의 미션 배지는 점검 진행 카드와 중복이라 뺐다. 그 배지를
+    // 갱신하던 코드가 남아 널 포인터를 건드렸고, 자율주행을 시작하는 순간
+    // 프로그램이 죽었다.
 }
 
 void MainWindow::onLogAppended(const diag::LogEntry &entry)
@@ -1131,7 +1129,7 @@ void MainWindow::onTelemetry(const Telemetry &tm)
                                     ? QStringLiteral("위치 정보가 오래되었습니다.")
                                     : QStringLiteral("로봇이 움직이는 중입니다. 멈춘 뒤에 촬영할 수 있습니다."));
 
-    diagnostics_->setSystem(tm.cpu, tm.mem, tm.cpuTemp, tm.gpuTemp);
+    diagnostics_->setSystem(tm.cpu, tm.gpu, tm.mem, tm.cpuTemp, tm.gpuTemp);
     diagnostics_->setSensors(tm.sensors);
     diagnostics_->setLink(tm.link);
     diagnostics_->setStorage(tm.nasOnline, tm.pendingUploads, tm.spoolFreeMb);

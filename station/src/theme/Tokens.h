@@ -88,6 +88,12 @@ inline constexpr int rLg = 6;
 
 // Raised alongside the type scale. Left at the old values, the taller text
 // was clipped inside every control.
+/// Top bar height. The navigation rail's brand block matches it so that the
+/// divider under the logo lands in the middle of the gap between the bar and
+/// the body - two columns that start at the same y should also break at the
+/// same y.
+inline constexpr int topBarH = 76;
+
 inline constexpr int rowH = 30;
 inline constexpr int ctlH = 33;
 inline constexpr int ctlHSm = 27;

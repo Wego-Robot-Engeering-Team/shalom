@@ -332,6 +332,7 @@ void BridgeClient::handlePublish(const Envelope &env)
         telemetry_.soc = p.value(QStringLiteral("soc")).toDouble();
     } else if (ch == QLatin1String(gcs::ch::kSystem)) {
         telemetry_.cpu = p.value(QStringLiteral("cpu_pct")).toDouble();
+        telemetry_.gpu = p.value(QStringLiteral("gpu_pct")).toDouble();
         telemetry_.mem = p.value(QStringLiteral("mem_pct")).toDouble();
         telemetry_.cpuTemp = p.value(QStringLiteral("cpu_temp_c")).toDouble();
         telemetry_.gpuTemp = p.value(QStringLiteral("gpu_temp_c")).toDouble();

@@ -625,6 +625,9 @@ Telemetry SimRobot::step(double dt)
 
     auto *rng = QRandomGenerator::global();
     tm.cpu = 34 + 22 * qAbs(std::sin(t_ * 0.3)) + speed_ * 20;
+    // GPU 는 촬영·추론에 붙는다. 주행 중에는 한가하고, 포인트에 머무를 때
+    // 올라가는 것이 실제 모습에 가깝다.
+    tm.gpu = 18 + 46 * qAbs(std::sin(t_ * 0.21)) + (speed_ < 0.05 ? 22 : 0);
     tm.mem = 51 + 8 * qAbs(std::sin(t_ * 0.17));
     tm.cpuTemp = 58 + 14 * qAbs(std::sin(t_ * 0.11));
     tm.gpuTemp = 62 + 16 * qAbs(std::sin(t_ * 0.13));

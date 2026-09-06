@@ -1,6 +1,7 @@
 // Undercarriage inspection control station - application entry point.
 
 #include <QApplication>
+#include <QIcon>
 #include <QDir>
 #include <QFont>
 #include <QFontDatabase>
@@ -76,6 +77,11 @@ int main(int argc, char *argv[])
     // 납품물이 Windows 와 Ubuntu 양쪽에서 같아야 하므로, 한 곳에서 검수한 화면이
     // 다른 곳에서 달라지지 않도록 스타일을 통일한다.
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+
+    // 창·작업 표시줄·독 아이콘. 윈도우 탐색기가 보는 .exe 아이콘은 리소스에
+    // 박혀 있고(resources/brand/app.rc), 이건 실행 중에 보이는 쪽이다.
+    // 리눅스는 .desktop 이 가리키는 PNG 가 런처용, 이것이 창용이다.
+    app.setWindowIcon(QIcon(QStringLiteral(":/brand/logo.svg")));
 
     loadBundledFonts();
     applyUiFont(app);

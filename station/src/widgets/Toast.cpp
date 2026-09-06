@@ -209,6 +209,14 @@ void ToastHost::setAnchorWidget(QWidget *w)
     relayout();
 }
 
+void ToastHost::dismissAll()
+{
+    // dismiss() 가 목록에서 자기를 빼므로 복사본을 두고 돈다.
+    const auto snapshot = toasts_;
+    for (Toast *t : snapshot)
+        t->dismiss();
+}
+
 void ToastHost::relayout()
 {
     if (!host_)

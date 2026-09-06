@@ -150,6 +150,12 @@ if(GCS_WITH_TESTBED)
     target_include_directories(gcs_testbed PUBLIC ../testbed)
     set_target_properties(gcs_testbed PROPERTIES AUTOMOC ON)
 
+    # 브랜드 아이콘 생성기. 로고가 바뀔 때 사람이 한 번 돌리는 도구이고,
+    # 결과물은 저장소에 커밋한다 — 빌드 환경에 SVG 래스터라이저를 요구하지
+    # 않기 위해서다.
+    add_executable(make_brand_icon ../testbed/brand/make_icon.cpp)
+    target_link_libraries(make_brand_icon PRIVATE Qt6::Gui Qt6::Svg)
+
     qt_add_resources(gcs_testbed "testbed_maps"
         PREFIX "/maps"
         BASE ../testbed/maps
@@ -160,8 +166,16 @@ endif()
 # ---------------------------------------------------------------------------
 # 실행 파일
 # ---------------------------------------------------------------------------
+# 윈도우 실행 파일 아이콘. .rc 는 MSVC/MinGW 리소스 컴파일러가 처리하며,
+# 다른 플랫폼에서는 빈 목록이라 무시된다.
+set(GCS_PLATFORM_SOURCES "")
+if(WIN32)
+    list(APPEND GCS_PLATFORM_SOURCES resources/brand/app.rc)
+endif()
+
 add_executable(inspection_gcs
     src/main.cpp
+    ${GCS_PLATFORM_SOURCES}
 )
 target_link_libraries(inspection_gcs PRIVATE gcs_core)
 if(GCS_WITH_TESTBED)
@@ -291,6 +305,18 @@ install(FILES ../protocol/include/inspection/framing.hpp
 #
 # 진단 코드는 바이너리에 내장되지만 사본을 함께 낸다. 비상대응 매뉴얼과
 # 대조하려면 문서로 읽을 수 있어야 한다.
+# 리눅스 런처 등록물. 압축을 풀어 쓰는 구조라 자동 설치는 하지 않고,
+# 필요할 때 관리자가 복사할 수 있게 함께 넣는다.
+if(UNIX AND NOT APPLE)
+    install(FILES resources/brand/inspection-gcs.desktop DESTINATION share/applications)
+    install(FILES resources/brand/app-256.png
+            DESTINATION share/icons/hicolor/256x256/apps
+            RENAME inspection-gcs.png)
+    install(FILES resources/brand/app-48.png
+            DESTINATION share/icons/hicolor/48x48/apps
+            RENAME inspection-gcs.png)
+endif()
+
 install(FILES resources/error_codes.json DESTINATION share/inspection_gcs)
 install(FILES ../docs/bridge_protocol.md DESTINATION share/inspection_gcs)
 
