@@ -1,4 +1,4 @@
-# SHALOM 관제 브릿지 통신 프로토콜 명세 v1
+# 철도차량 하부점검 관제 ↔ 로봇 브릿지 통신 프로토콜 명세 v1
 
 > 본 문서는 납품 성과물 "ROS2 인터페이스 명세서"의 관제 연동 구간에 해당한다.
 > 로봇측 브릿지 노드(`shalom_bridge`, Ubuntu 22.04 / ROS2 Humble)와
@@ -365,11 +365,11 @@ PC 로 직접 보낸다. 관제용 라이브뷰와 화질·프레임률 요구�
 
 ```
 //nas.internal/inspection  /mnt/nas  cifs
-    credentials=/etc/shalom/nas.cred,   # 자격증명을 fstab 에 평문으로 두지 않는다
+    credentials=/etc/inspection/nas.cred, # 자격증명을 fstab 에 평문으로 두지 않는다
     soft,                               # ★ 아래 설명 참조
     vers=3.1.1,                         # SMB1 비활성 (보안 감사 지적 항목)
     noserverino,                        # inode 충돌 회피
-    uid=shalom,gid=shalom,file_mode=0644,dir_mode=0755,
+    uid=inspection,gid=inspection,file_mode=0644,dir_mode=0755,
     _netdev,nofail                      # 부팅 시 NAS 부재로 기동 실패하지 않게
 ```
 

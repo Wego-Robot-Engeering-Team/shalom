@@ -120,6 +120,22 @@ private slots:
                  "통신 두절 정지 시간이 문서에 없다");
     }
 
+    /// 개발 중에 쓰던 이름은 납품물에 남지 않는다.
+    ///
+    /// 이 문서는 패키지에 함께 설치되는 납품 성과물이라 제목부터 눈에 띈다.
+    /// 지금 남은 것은 로봇측 ROS 패키지 이름 하나뿐이고, 그것은 로봇 코드와
+    /// 같이 바꿔야 문서가 사실과 어긋나지 않는다. 그 하나만 예외로 둔다 —
+    /// 로봇 코드가 합쳐지면 이 예외도 같이 없앤다.
+    void codenameIsNotInTheDeliveredDocument()
+    {
+        QString doc = protocolDoc();
+        QVERIFY(!doc.isEmpty());
+        doc.remove(QStringLiteral("shalom_bridge"));
+
+        QVERIFY2(!doc.contains(QStringLiteral("shalom"), Qt::CaseInsensitive),
+                 "납품 문서에 개발 중 이름이 남아 있다");
+    }
+
     /// 문서가 선언한 프로토콜 버전과 코드가 같아야 한다.
     void protocolVersionMatches()
     {
