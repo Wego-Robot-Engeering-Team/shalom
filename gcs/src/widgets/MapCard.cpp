@@ -32,6 +32,7 @@ MapCard::MapCard(QWidget *parent) : QWidget(parent)
     auto *tb = new QHBoxLayout(toolbar_);
     tb->setContentsMargins(metrics::s2, metrics::s2, metrics::s2, metrics::s2);
     tb->setSpacing(metrics::s2);
+    toolbarRow_ = toolbar_;
 
     goal_ = new QPushButton(QStringLiteral("목표 지정"));
     fit_ = new QPushButton(QStringLiteral("전체 보기"));
@@ -65,6 +66,21 @@ MapCard::MapCard(QWidget *parent) : QWidget(parent)
         readout_->adjustSize();
         readout_->move(width() - readout_->width() - metrics::s3, metrics::s3);
     });
+}
+
+void MapCard::addModeButtons(QWidget *autoBtn, QWidget *manualBtn)
+{
+    auto *tb = qobject_cast<QHBoxLayout *>(toolbarRow_->layout());
+    if (!tb)
+        return;
+    // 맨 앞에 넣고 선으로 떼어 놓는다. 지도를 어떻게 볼지(목표 지정,
+    // 전체 보기)와 로봇이 어떻게 움직일지는 다른 이야기다.
+    tb->insertWidget(0, autoBtn);
+    tb->insertWidget(1, manualBtn);
+    tb->insertSpacing(2, metrics::s1);
+    tb->insertWidget(3, new VLine(nullptr, metrics::s1));
+    tb->insertSpacing(4, metrics::s1);
+    toolbar_->adjustSize();
 }
 
 void MapCard::setMapLabel(const QString &mapId, const QString &extent)

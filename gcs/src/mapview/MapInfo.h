@@ -33,6 +33,7 @@
 // inverted heading still looks plausible on screen, but a goal pose derived
 // from it sends the robot the wrong way.
 
+#include <cmath>
 #include <QPointF>
 #include <QString>
 

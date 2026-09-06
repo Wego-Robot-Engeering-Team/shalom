@@ -24,7 +24,7 @@
 #include <thread>
 #include <vector>
 
-#include "shalom/framing.hpp"
+#include "inspection/framing.hpp"
 
 namespace shalom_bridge {
 
@@ -41,7 +41,7 @@ struct LinkEvents {
     std::string protocolErrorDetail;
 
     /// Frames received, in order.
-    std::vector<shalom::Frame> frames;
+    std::vector<inspection::Frame> frames;
 
     bool empty() const
     {
@@ -100,7 +100,7 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<bool> connected_{false};
 
-    shalom::FrameDecoder decoder_;
+    inspection::FrameDecoder decoder_;
 
     mutable std::mutex outMutex_;
     std::string outBuffer_;

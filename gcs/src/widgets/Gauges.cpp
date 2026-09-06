@@ -1,5 +1,6 @@
 #include "widgets/Gauges.h"
 
+#include <cmath>
 #include <QFont>
 #include <QFontMetrics>
 #include <QPainter>
@@ -16,7 +17,7 @@ namespace {
 
 QFont monoFont(int pt, bool demiBold = false)
 {
-    QFont f(monoFamily());
+    QFont f = monoFont(10);
     f.setPointSize(pt);
     if (demiBold)
         f.setWeight(QFont::DemiBold);
@@ -171,7 +172,6 @@ void BatteryPill::paintEvent(QPaintEvent *)
                       1.5, 1.5);
 
     QFont f;
-    f.setPointSize(10);
     f.setWeight(QFont::DemiBold);
     p.setFont(f);
     p.setPen(QColor(soc <= low_ ? tone : QColor(C.text)));

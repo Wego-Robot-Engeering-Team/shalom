@@ -17,7 +17,7 @@ std::string toStd(const QByteArray &b)
 
 QByteArray encodeFrame(const QByteArray &header, const QByteArray &payload)
 {
-    return toQt(shalom::encodeFrame(toStd(header), toStd(payload)));
+    return toQt(inspection::encodeFrame(toStd(header), toStd(payload)));
 }
 
 void FrameDecoder::append(const QByteArray &chunk)
@@ -27,17 +27,17 @@ void FrameDecoder::append(const QByteArray &chunk)
 
 FrameDecoder::Status FrameDecoder::next(Frame &out)
 {
-    shalom::Frame frame;
+    inspection::Frame frame;
     switch (inner_.next(frame)) {
-    case shalom::DecodeStatus::Ok:
+    case inspection::DecodeStatus::Ok:
         out.header = toQt(frame.header);
         out.payload = toQt(frame.payload);
         return Status::Ok;
-    case shalom::DecodeStatus::NeedMore:
+    case inspection::DecodeStatus::NeedMore:
         return Status::NeedMore;
-    case shalom::DecodeStatus::BadMagic:
+    case inspection::DecodeStatus::BadMagic:
         return Status::BadMagic;
-    case shalom::DecodeStatus::TooLarge:
+    case inspection::DecodeStatus::TooLarge:
         break;
     }
     return Status::TooLarge;

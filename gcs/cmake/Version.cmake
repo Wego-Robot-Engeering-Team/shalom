@@ -32,4 +32,4 @@ endif()
 
 string(TIMESTAMP GCS_BUILD_DATE "%Y-%m-%d %H:%M:%S" UTC)
 
-message(STATUS "SHALOM GCS ${PROJECT_VERSION} (${GCS_GIT_HASH}${GCS_GIT_DIRTY})")
+message(STATUS "Inspection GCS ${PROJECT_VERSION} (${GCS_GIT_HASH}${GCS_GIT_DIRTY})")

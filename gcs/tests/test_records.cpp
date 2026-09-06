@@ -164,7 +164,7 @@ private slots:
     void scan_reportsMissingDirectory()
     {
         const ScanResult result =
-            scanDirectory(QStringLiteral("/nonexistent/shalom/share"));
+            scanDirectory(QStringLiteral("/nonexistent/inspection/share"));
         QVERIFY(!result.error.isEmpty());
         QVERIFY(result.records.isEmpty());
     }

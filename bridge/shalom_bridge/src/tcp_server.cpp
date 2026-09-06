@@ -233,18 +233,18 @@ void TcpServer::handleReadable()
     }
 
     // 한 번의 읽기에 여러 프레임이 들어온다. 버퍼가 마를 때까지 꺼낸다.
-    shalom::Frame frame;
+    inspection::Frame frame;
     for (;;) {
         const auto status = decoder_.next(frame);
-        if (status == shalom::DecodeStatus::NeedMore)
+        if (status == inspection::DecodeStatus::NeedMore)
             return;
-        if (status != shalom::DecodeStatus::Ok) {
+        if (status != inspection::DecodeStatus::Ok) {
             // 정합이 깨졌다. 재동기화를 시도하지 않고 끊는다.
             {
                 std::lock_guard<std::mutex> lock(eventMutex_);
                 events_.protocolError = true;
                 events_.protocolErrorDetail =
-                    status == shalom::DecodeStatus::BadMagic
+                    status == inspection::DecodeStatus::BadMagic
                         ? "frame magic mismatch - stream desynchronised"
                         : "declared frame length is impossible";
             }

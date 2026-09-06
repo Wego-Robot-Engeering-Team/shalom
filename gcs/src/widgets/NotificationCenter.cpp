@@ -78,8 +78,7 @@ protected:
         ft.setWeight(QFont::DemiBold);
         p.setFont(ft);
 
-        QFont fs(monoFamily());
-        fs.setPointSize(9);
+        QFont fs = monoFont(9);
         const int timeW = QFontMetrics(fs).horizontalAdvance(QStringLiteral("00:00:00")) + 4;
 
         const int textX = 28;

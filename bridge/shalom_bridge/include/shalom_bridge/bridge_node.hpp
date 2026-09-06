@@ -51,7 +51,7 @@ public:
 private:
     // ---- link ------------------------------------------------------------
     void pollLink();
-    void handleFrame(const shalom::Frame &frame);
+    void handleFrame(const inspection::Frame &frame);
     void handleRequest(const Envelope &request);
     void handleHeartbeat(const Envelope &heartbeat);
 
