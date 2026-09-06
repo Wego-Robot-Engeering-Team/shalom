@@ -4,7 +4,9 @@
 #include <QJsonObject>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QCursor>
 #include <QInputDialog>
+#include <QToolTip>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
@@ -18,12 +20,15 @@
 #include <QtMath>
 
 #include "Config.h"
+#include "diag/CodeCatalog.h"
 #include "diag/LogStore.h"
 #include "mapview/MapRender.h"
 #include "net/BridgeClient.h"
 #include "mapview/MapView.h"
 #include "panels/ArmPanel.h"
 #include "panels/CapturePanel.h"
+#include "data/InspectionRecord.h"
+#include "panels/DataPanel.h"
 #include "panels/DiagnosticsPanel.h"
 #include "panels/EventLogPanel.h"
 #include "panels/StatusPanel.h"
@@ -105,6 +110,7 @@ MainWindow::MainWindow(gcs::robot::RobotLink *link, QWidget *parent)
     // E-Stop 발동 시 창 전체를 감싸는 경고 테두리 (지시서 2.2.7 [5]).
     alert_ = new AlertFrame(root);
     alert_->setGeometry(root->rect());
+    toasts_ = new ToastHost(root);
     root->installEventFilter(this);
 
     wireSignals();
@@ -184,6 +190,7 @@ QWidget *MainWindow::buildContextColumn()
     stack->addWidget(buildArmContext());
     stack->addWidget(buildCaptureContext());
     stack->addWidget(buildDiagnosticsContext());
+    stack->addWidget(buildDataContext());
     return stack;
 }
 
@@ -284,6 +291,24 @@ QWidget *MainWindow::buildDiagnosticsContext()
     return scroll;
 }
 
+QWidget *MainWindow::buildDataContext()
+{
+    auto *inner = new QWidget;
+    auto *lay = new QVBoxLayout(inner);
+    lay->setContentsMargins(0, 0, metrics::s2, 0);
+    lay->setSpacing(metrics::s3);
+
+    data_ = new DataPanel;
+    lay->addWidget(data_);
+
+    auto *scroll = new QScrollArea;
+    scroll->setWidget(inner);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    return scroll;
+}
+
 void MainWindow::logAction(const QString &code, QVariantMap detail)
 {
     auto &session = auth::Session::instance();
@@ -313,6 +338,7 @@ void MainWindow::openSettings()
 void MainWindow::wireSignals()
 {
     connect(nav_, &NavRail::navigated, this, &MainWindow::navigate);
+    connect(log_, &diag::LogStore::appended, this, &MainWindow::onLogAppended);
     connect(robot_, &robot::RobotLink::telemetry, this, &MainWindow::onTelemetry);
     if (auto *bridge = qobject_cast<net::BridgeClient *>(robot_)) {
         connect(bridge, &net::BridgeClient::mapReceived, this,
@@ -422,7 +448,7 @@ void MainWindow::wireSignals()
     });
 
     connect(view, &MapView::waypointClicked, this, [this](const QString &id) {
-        log_->note(diag::Severity::Info, QStringLiteral("포인트 선택: %1").arg(id));
+        showWaypointInfo(id, QCursor::pos());
     });
 
     connect(locations_, &LocationPanel::captureFromRobot, this, &MainWindow::captureLocation);
@@ -473,6 +499,14 @@ void MainWindow::wireSignals()
         log_->note(diag::Severity::Warn, QStringLiteral("로봇팔 정지 요청"),
                    QJsonObject{{"channel", QStringLiteral("cmd/arm/stop")}});
     });
+
+    connect(data_, &DataPanel::notice, this,
+            [this](const QString &severity, const QString &message) {
+                log_->note(severity == QLatin1String("ok")   ? diag::Severity::Ok
+                           : severity == QLatin1String("warn") ? diag::Severity::Warn
+                                                               : diag::Severity::Info,
+                           message);
+            });
 
     connect(capture_, &CapturePanel::captureRequested, this, [this] {
         logAction(QStringLiteral("CAPTURE_OK"),
@@ -533,6 +567,72 @@ void MainWindow::onMissionStateChanged(MissionState state)
         missionBadge_->set(QStringLiteral("일시정지"), QStringLiteral("warn"));
     else
         missionBadge_->set(QStringLiteral("자율주행 중"), QStringLiteral("info"));
+}
+
+void MainWindow::onLogAppended(const diag::LogEntry &entry)
+{
+    // 정보성 항목까지 띄우면 화면이 알림으로 덮이고, 정작 중요한 것이 묻힌다.
+    // 조작자가 조치해야 하는 등급만 올린다.
+    if (int(entry.severity) < int(diag::Severity::Warn))
+        return;
+
+    const auto *code = diag::CodeCatalog::instance().find(entry.code);
+    const QString title = code ? code->title : entry.message;
+
+    // 첫 번째 조치를 함께 보여준다. 무슨 일이 났는지만 알리고 무엇을 해야
+    // 하는지 말하지 않으면, 조작자는 결국 로그를 다시 열어야 한다.
+    QString detail;
+    if (code && !code->actions.isEmpty())
+        detail = code->actions.first();
+    else if (code && title != code->cause)
+        detail = code->cause;
+
+    toasts_->show(title, detail, diag::severityToString(entry.severity));
+}
+
+void MainWindow::showWaypointInfo(const QString &id, const QPoint &globalPos)
+{
+    QVariantMap found;
+    int index = -1;
+    const auto points = waypoints_->waypoints();
+    for (int i = 0; i < points.size(); ++i) {
+        if (points.at(i).value(QStringLiteral("id")).toString() == id) {
+            found = points.at(i);
+            index = i;
+            break;
+        }
+    }
+    if (found.isEmpty())
+        return;
+
+    // 이 포인트로 이미 찍힌 사진을 함께 보여준다. 지도에서 포인트를 눌렀을 때
+    // 알고 싶은 것은 "여기 찍었나, 언제 찍었나" 이지 좌표가 아니다.
+    const auto scan = gcs::data::scanDirectory(Config::instance().nasMountPath());
+    QList<gcs::data::InspectionRecord> forPoint;
+    for (const auto &r : scan.records)
+        if (r.pointId == id)
+            forPoint << r;
+
+    QStringList lines;
+    lines << QStringLiteral("<b>%1</b>  ·  %2")
+                 .arg(found.value(QStringLiteral("name"), id).toString(),
+                      QStringLiteral("%1번째").arg(index + 1));
+    lines << QStringLiteral("좌표  %1, %2")
+                 .arg(found.value(QStringLiteral("x")).toDouble(), 0, 'f', 2)
+                 .arg(found.value(QStringLiteral("y")).toDouble(), 0, 'f', 2);
+    if (found.contains(QStringLiteral("tag_id")))
+        lines << QStringLiteral("Apriltag  %1").arg(found.value(QStringLiteral("tag_id")).toInt());
+
+    if (forPoint.isEmpty()) {
+        lines << QStringLiteral("<i>저장된 촬영 없음</i>");
+    } else {
+        lines << QStringLiteral("촬영 %1건, 최근 %2")
+                     .arg(forPoint.size())
+                     .arg(forPoint.first().capturedAt.toString(
+                         QStringLiteral("yyyy-MM-dd HH:mm")));
+    }
+
+    QToolTip::showText(globalPos, lines.join(QStringLiteral("<br/>")), this);
 }
 
 void MainWindow::navigate(NavItem item)
@@ -693,8 +793,10 @@ void MainWindow::showEvent(QShowEvent *ev)
 
 bool MainWindow::eventFilter(QObject *obj, QEvent *ev)
 {
-    if (obj == centralWidget() && ev->type() == QEvent::Resize)
+    if (obj == centralWidget() && ev->type() == QEvent::Resize) {
         alert_->setGeometry(centralWidget()->rect());
+        toasts_->relayout();
+    }
     return QMainWindow::eventFilter(obj, ev);
 }
 
@@ -750,6 +852,9 @@ void MainWindow::startSession()
                         {"theta", 0.0}, {"captured_from", QStringLiteral("map")}};
     locations_->setDock(dock_);
     locations_->setHome({});
+
+    // 이력은 저장 장치의 공유 폴더를 직접 읽는다. 로봇을 거치지 않는다.
+    data_->setDirectory(Config::instance().nasMountPath());
 
     status_->setConnected(robot_->isConnected());
     linkBadge_->set(robot_->describe(),
