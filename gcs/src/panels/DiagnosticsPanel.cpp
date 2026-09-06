@@ -100,6 +100,13 @@ DiagnosticsPanel::DiagnosticsPanel(QWidget *parent) : QWidget(parent)
     // 주행 화면에 있던 지표다. 조작자가 주행 중에 CPU 백분율을 보고
     // 할 수 있는 일이 없어서, 상태를 따지는 이 화면으로 옮겼다.
     auto *sysCard = new Card(QStringLiteral("로봇 제어기"));
+
+    // 모델명을 적어 둔다. 정비 담당자가 사양을 찾아보거나 부품을 확인할
+    // 때 필요하고, 조작자에게는 그냥 지나가는 글자다.
+    auto *sysModel = new QLabel(QStringLiteral("Jetson AGX Orin"));
+    sysModel->setObjectName(QStringLiteral("Hint"));
+    sysCard->addHeaderWidget(sysModel);
+
     auto *sysGrid = new QGridLayout;
     sysGrid->setContentsMargins(0, 0, 0, 0);
     sysGrid->setHorizontalSpacing(metrics::s4);
