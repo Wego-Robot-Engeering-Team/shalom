@@ -274,7 +274,7 @@ EventLogPanel::EventLogPanel(LogStore *store, QWidget *parent)
     bar->addWidget(filter_);
 
     search_ = new QLineEdit;
-    search_->setPlaceholderText(QStringLiteral("코드 또는 내용 검색"));
+    search_->setPlaceholderText(QStringLiteral("검색어를 입력하십시오"));
     search_->setClearButtonEnabled(true);
     bar->addWidget(search_, 1);
 

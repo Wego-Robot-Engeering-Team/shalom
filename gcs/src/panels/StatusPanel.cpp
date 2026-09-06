@@ -1,12 +1,10 @@
 #include "panels/StatusPanel.h"
 
-#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QVBoxLayout>
 
 #include "theme/Tokens.h"
-#include "widgets/Gauges.h"
 #include "widgets/Primitives.h"
 
 namespace gcs::ui {
@@ -23,50 +21,37 @@ StatusPanel::StatusPanel(QWidget *parent) : QWidget(parent)
     card_->addHeaderWidget(conn_);
     outer->addWidget(card_);
 
-    // ---- 배터리 + 모드 ----
-    auto *top = new QHBoxLayout;
-    top->setSpacing(metrics::s4);
-    battery_ = new BatteryRing(nullptr, 86, 25.0);
-    top->addWidget(battery_, 0, Qt::AlignVCenter);
-
-    auto *right = new QVBoxLayout;
-    right->setSpacing(metrics::s2);
-    right->addWidget(sectionLabel(QStringLiteral("주행 모드")));
+    // 주행 모드만 배지다. 나머지는 값이 자주 바뀌므로 배지로 만들면
+    // 화면이 계속 깜빡인다.
+    auto *modeRow = new QHBoxLayout;
+    modeRow->addWidget(sectionLabel(QStringLiteral("주행 모드")));
+    modeRow->addStretch(1);
     mode_ = new Badge(QStringLiteral("—"), QStringLiteral("neutral"));
-    right->addWidget(mode_, 0, Qt::AlignLeft);
-    right->addWidget(sectionLabel(QStringLiteral("인식된 마커")));
-    tag_ = new Badge(QStringLiteral("미인식"), QStringLiteral("neutral"));
-    right->addWidget(tag_, 0, Qt::AlignLeft);
-    right->addStretch(1);
-    top->addLayout(right, 1);
-    card_->body()->addLayout(top);
+    modeRow->addWidget(mode_);
+    card_->body()->addLayout(modeRow);
 
-    // ---- 시스템 지표 ----
-    card_->body()->addSpacing(metrics::s2);
-    card_->body()->addWidget(sectionLabel(QStringLiteral("시스템")));
+    motion_ = addRow(QStringLiteral("움직임"));
+    arm_ = addRow(QStringLiteral("로봇팔"));
+    tag_ = addRow(QStringLiteral("인식된 마커"));
 
-    auto *grid = new QGridLayout;
-    grid->setContentsMargins(0, 0, 0, 0);
-    grid->setHorizontalSpacing(metrics::s4);
-    grid->setVerticalSpacing(metrics::s1);
-    cpu_ = new StatBar(QStringLiteral("CPU"), QStringLiteral("%"), nullptr, 80, 92);
-    mem_ = new StatBar(QStringLiteral("메모리"), QStringLiteral("%"), nullptr, 80, 92);
-    cpuTemp_ = new StatBar(QStringLiteral("CPU 온도"), QStringLiteral("°C"), nullptr, 75, 88);
-    gpuTemp_ = new StatBar(QStringLiteral("GPU 온도"), QStringLiteral("°C"), nullptr, 75, 88);
-    rtt_ = new StatBar(QStringLiteral("응답 시간"), QStringLiteral("ms"), nullptr, 120, 400, 500);
-    grid->addWidget(cpu_, 0, 0);
-    grid->addWidget(mem_, 0, 1);
-    grid->addWidget(cpuTemp_, 1, 0);
-    grid->addWidget(gpuTemp_, 1, 1);
-    grid->addWidget(rtt_, 2, 0, 1, 2);
-    card_->body()->addLayout(grid);
-
-    // ---- 위치 ----
-    card_->body()->addSpacing(metrics::s2);
+    card_->body()->addSpacing(metrics::s1);
+    card_->body()->addWidget(new HLine);
     card_->body()->addWidget(sectionLabel(QStringLiteral("현재 위치")));
     pose_ = readout();
     card_->body()->addWidget(pose_);
+
     card_->body()->addStretch(1);
+}
+
+QLabel *StatusPanel::addRow(const QString &label)
+{
+    auto *row = new QHBoxLayout;
+    row->addWidget(sectionLabel(label));
+    row->addStretch(1);
+    auto *value = readout();
+    row->addWidget(value);
+    card_->body()->addLayout(row);
+    return value;
 }
 
 void StatusPanel::setConnected(bool ok)
@@ -75,16 +60,11 @@ void StatusPanel::setConnected(bool ok)
                ok ? QStringLiteral("ok") : QStringLiteral("danger"));
 }
 
-void StatusPanel::setBattery(double socPercent, bool charging)
-{
-    battery_->setState(socPercent, charging);
-}
-
 void StatusPanel::setMode(const QString &mode, bool estop)
 {
-    // E-Stop 중에는 주행 모드가 조작자에게 의미 없는 정보다. 덮어쓴다.
+    // 비상정지 중에는 주행 모드가 조작자에게 의미 없는 정보다. 덮어쓴다.
     if (estop)
-        mode_->set(QStringLiteral("E-STOP"), QStringLiteral("danger"));
+        mode_->set(QStringLiteral("비상정지"), QStringLiteral("danger"));
     else if (mode == QLatin1String("auto"))
         mode_->set(QStringLiteral("자율"), QStringLiteral("info"));
     else if (mode == QLatin1String("manual"))
@@ -93,14 +73,25 @@ void StatusPanel::setMode(const QString &mode, bool estop)
         mode_->set(mode.isEmpty() ? QStringLiteral("—") : mode, QStringLiteral("neutral"));
 }
 
-void StatusPanel::setSystem(double cpu, double mem, double cpuTemp, double gpuTemp,
-                            double rttMs)
+void StatusPanel::setMotion(double speedMps)
 {
-    cpu_->setReading(cpu);
-    mem_->setReading(mem);
-    cpuTemp_->setReading(cpuTemp);
-    gpuTemp_->setReading(gpuTemp);
-    rtt_->setReading(rttMs);
+    // 판정 기준은 위치 등록의 정지 판정과 같은 값을 쓴다. 한 화면에서
+    // "정지 중"이라고 하는데 등록은 막히는 일이 없어야 한다.
+    motion_->setText(speedMps < 0.05
+                         ? QStringLiteral("정지 중")
+                         : QStringLiteral("이동 중  %1 m/s").arg(speedMps, 0, 'f', 2));
+}
+
+void StatusPanel::setArmState(const QString &state)
+{
+    if (state == QLatin1String("executing"))
+        arm_->setText(QStringLiteral("움직이는 중"));
+    else if (state == QLatin1String("planning"))
+        arm_->setText(QStringLiteral("경로 계산 중"));
+    else if (state == QLatin1String("error"))
+        arm_->setText(QStringLiteral("오류"));
+    else
+        arm_->setText(QStringLiteral("대기"));
 }
 
 void StatusPanel::setPose(double x, double y, double thetaDeg)
@@ -113,10 +104,8 @@ void StatusPanel::setPose(double x, double y, double thetaDeg)
 
 void StatusPanel::setTagsSeen(int count)
 {
-    if (count > 0)
-        tag_->set(QStringLiteral("%1개 인식").arg(count), QStringLiteral("ok"));
-    else
-        tag_->set(QStringLiteral("미인식"), QStringLiteral("neutral"));
+    tag_->setText(count > 0 ? QStringLiteral("%1개").arg(count)
+                            : QStringLiteral("없음"));
 }
 
 }  // namespace gcs::ui

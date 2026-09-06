@@ -18,17 +18,15 @@
 #include <QList>
 #include <QWidget>
 
-class QLabel;
 
 namespace gcs::ui {
 
-class BatteryRing;
 class NavButton;
 
-/// What the context column shows. The map, the emergency stop, the battery
-/// summary and the recent-event strip are not part of this: they stay on
-/// screen in every mode, because losing sight of where the robot is while
-/// adjusting something else is how incidents happen.
+/// What the context column shows. The map, the event log, the emergency stop
+/// and the battery/position strip in the top bar are not part of this: they
+/// stay on screen in every mode, because losing sight of where the robot is
+/// while adjusting something else is how incidents happen.
 ///
 /// The order here is the display order.
 enum class NavItem {
@@ -50,8 +48,6 @@ public:
 
     /// Compact always-visible summary at the foot of the rail, so battery and
     /// pose stay readable whichever context column is showing.
-    void setBattery(double socPercent);
-    void setPoseText(const QString &text);
 
     /// Badge count drawn on the diagnostics item; 0 hides it.
     void setDiagnosticsAlerts(int count);
@@ -62,8 +58,6 @@ signals:
 private:
     QList<NavButton *> buttons_;
     NavButton *diagnosticsButton_ = nullptr;
-    BatteryRing *battery_ = nullptr;
-    QLabel *pose_ = nullptr;
     NavItem current_ = NavItem::Drive;
 };
 

@@ -1,5 +1,13 @@
 #include "panels/TeleopPanel.h"
 
+#include <QAbstractSpinBox>
+#include <QApplication>
+#include <QComboBox>
+#include <QKeyEvent>
+#include <QLineEdit>
+#include <QPlainTextEdit>
+#include <QTextEdit>
+
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -36,14 +44,16 @@ TeleopPanel::TeleopPanel(QWidget *parent) : QWidget(parent)
     card_->body()->addLayout(holder);
 
     card_->body()->addSpacing(metrics::s2);
-    linear_ = addSpeedRow(QStringLiteral("앞뒤 속도"), robot::kVxMax, 0.30,
+    linear_ = addSpeedRow(QStringLiteral("선속도"), robot::kVxMax, 0.30,
                           QStringLiteral("m/s"), robot::kVxCaution);
-    // 회전은 도(°) 로 보여준다. 라디안은 현장에서 읽히지 않는다.
-    angular_ = addSpeedRow(QStringLiteral("회전 속도"), robot::kWzMax, 0.50,
+    // 단위는 도(°) 로 보여준다. 값 자체는 rad/s 로 다룬다.
+    angular_ = addSpeedRow(QStringLiteral("각속도"), robot::kWzMax, 0.50,
                            QStringLiteral("°/s"), -1,
                            180.0 / M_PI, 0);
 
-    auto *note = new QLabel(QStringLiteral("버튼을 누르는 동안만 움직입니다. 손을 떼면 즉시 멈춥니다."));
+    auto *note = new QLabel(QStringLiteral(
+        "버튼이나 키를 누르고 있는 동안만 움직입니다. 손을 떼면 즉시 멈춥니다.\n"
+        "키보드  ↑↓←→ 이동,  Q E 회전,  Space 정지"));
     note->setObjectName(QStringLiteral("Hint"));
     note->setWordWrap(true);
     card_->body()->addWidget(note);
@@ -54,6 +64,76 @@ TeleopPanel::TeleopPanel(QWidget *parent) : QWidget(parent)
     connect(timer_, &QTimer::timeout, this, &TeleopPanel::publish);
 
     setJogEnabled(false);
+
+    // 패널을 먼저 클릭해야 키가 먹으면 급할 때 못 쓴다. 창 전체를 본다.
+    qApp->installEventFilter(this);
+}
+
+QString TeleopPanel::keyFor(const QKeyEvent *ev)
+{
+    switch (ev->key()) {
+    case Qt::Key_Up:    return QStringLiteral("fwd");
+    case Qt::Key_Down:  return QStringLiteral("back");
+    case Qt::Key_Left:  return QStringLiteral("left");
+    case Qt::Key_Right: return QStringLiteral("right");
+    case Qt::Key_Q:     return QStringLiteral("rot_l");
+    case Qt::Key_E:     return QStringLiteral("rot_r");
+    default:            return {};
+    }
+}
+
+bool TeleopPanel::typingSomewhere()
+{
+    const QWidget *w = QApplication::focusWidget();
+    if (!w)
+        return false;
+    if (qobject_cast<const QLineEdit *>(w) || qobject_cast<const QTextEdit *>(w)
+        || qobject_cast<const QPlainTextEdit *>(w)
+        || qobject_cast<const QAbstractSpinBox *>(w))
+        return true;
+    const auto *combo = qobject_cast<const QComboBox *>(w);
+    return combo && combo->isEditable();
+}
+
+bool TeleopPanel::eventFilter(QObject *watched, QEvent *ev)
+{
+    const bool down = ev->type() == QEvent::KeyPress;
+    if ((!down && ev->type() != QEvent::KeyRelease) || !enabled_ || typingSomewhere())
+        return QWidget::eventFilter(watched, ev);
+
+    auto *ke = static_cast<QKeyEvent *>(ev);
+
+    // 자동 반복은 버린다. 그대로 두면 누르고 있는 내내 press/release 가
+    // 번갈아 들어와 로봇이 끊겼다 이어졌다 한다.
+    if (ke->isAutoRepeat())
+        return true;
+
+    if (ke->key() == Qt::Key_Space) {
+        if (down) {
+            heldKey_.clear();
+            release();
+        }
+        return true;
+    }
+
+    const QString key = keyFor(ke);
+    if (key.isEmpty())
+        return QWidget::eventFilter(watched, ev);
+
+    if (down) {
+        heldKey_ = key;
+        press(key);
+    } else if (heldKey_ == key) {
+        // 다른 방향키로 이미 넘어간 뒤라면 이 뗌은 무시한다. 그러지 않으면
+        // 두 키를 겹쳐 눌렀다 하나를 뗄 때 로봇이 멈춘다.
+        heldKey_.clear();
+        release();
+    }
+
+    // 눌린 방향 버튼을 같이 눌린 것처럼 보여준다.
+    if (auto *b = buttons_.value(key))
+        b->setDown(down);
+    return true;
 }
 
 QWidget *TeleopPanel::buildPad()
