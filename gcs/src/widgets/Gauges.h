@@ -121,7 +121,6 @@ public:
     /// Pass a negative value to mark the reading as unavailable; the bar then
     /// shows an em dash instead of a misleading zero.
     void setReading(double v);
-    void clearReading();
 
 protected:
     void paintEvent(QPaintEvent *) override;

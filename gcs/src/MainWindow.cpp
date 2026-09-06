@@ -382,6 +382,16 @@ void MainWindow::openSettings()
 
 void MainWindow::wireSignals()
 {
+    wireRobotSignals();
+    wireChromeSignals();
+    wireMapSignals();
+    wireLocationSignals();
+    wirePanelSignals();
+    wireMissionSignals();
+}
+
+void MainWindow::wireRobotSignals()
+{
     connect(nav_, &NavRail::navigated, this, &MainWindow::navigate);
     connect(log_, &diag::LogStore::appended, this, &MainWindow::onLogAppended);
     connect(robot_, &robot::RobotLink::telemetry, this, &MainWindow::onTelemetry);
@@ -431,6 +441,10 @@ void MainWindow::wireSignals()
             [this](const QString &code, const QVariantMap &detail) {
                 log_->log(code, QJsonObject::fromVariantMap(detail));
             });
+}
+
+void MainWindow::wireChromeSignals()
+{
     connect(themeBtn_, &QPushButton::clicked, this, [this] {
         const auto &c = toggleTheme();
         Config::instance().setTheme(c.name);
@@ -443,8 +457,12 @@ void MainWindow::wireSignals()
 
     connect(autoBtn_, &QPushButton::clicked, this, [this] { setMode(QStringLiteral("auto")); });
     connect(manualBtn_, &QPushButton::clicked, this, [this] { setMode(QStringLiteral("manual")); });
+}
 
+void MainWindow::wireMapSignals()
+{
     auto *view = map_->view();
+
     connect(map_->goalButton(), &QPushButton::toggled, this, [this, view](bool on) {
         pendingPlacementKind_.clear();
         view->setMode(on ? MapMode::SetGoal : MapMode::View);
@@ -495,7 +513,10 @@ void MainWindow::wireSignals()
     connect(view, &MapView::waypointClicked, this, [this](const QString &id) {
         showWaypointInfo(id, QCursor::pos());
     });
+}
 
+void MainWindow::wireLocationSignals()
+{
     connect(locations_, &LocationPanel::captureFromRobot, this, &MainWindow::captureLocation);
     connect(locations_, &LocationPanel::captureFromMap, this, [this](const QString &kind) {
         pendingPlacementKind_ = kind;
@@ -519,6 +540,10 @@ void MainWindow::wireSignals()
 
     // 20 Hz 로 흘려보낸다. 시뮬레이터가 데드맨을 그대로 구현하므로,
     // 발행이 멈추면 로봇도 멈춘다.
+}
+
+void MainWindow::wirePanelSignals()
+{
     connect(teleop_, &TeleopPanel::cmdVel, robot_, &robot::RobotLink::setCmdVel);
 
     connect(arm_, &ArmPanel::presetRequested, this, [this](const QString &name) {
@@ -565,7 +590,10 @@ void MainWindow::wireSignals()
                           QJsonObject::fromVariantMap(meta.toJson().toVariantMap())
                               .toVariantMap());
             });
+}
 
+void MainWindow::wireMissionSignals()
+{
     connect(waypoints_, &WaypointPanel::addRequested, this, [this] {
         pendingPlacementKind_ = QStringLiteral("inspection");
         map_->view()->setMode(MapMode::AddWaypoint);
@@ -775,6 +803,9 @@ void MainWindow::engageEstop()
     robot_->engageEstop();
     estop_->setEngaged(true);
     alert_->setActive(true);
+    // 지정해 둔 목표는 이 시점에 무효다. 지도에 남겨 두면 해제 후에도
+    // 로봇이 그리로 갈 것처럼 읽힌다.
+    map_->view()->clearGoal();
     status_->setMode({}, true);
     teleop_->setJogEnabled(false);
     teleopHost_->setVisible(false);
@@ -841,6 +872,8 @@ void MainWindow::setMode(const QString &mode)
 
     teleop_->setJogEnabled(!isAuto);
     teleopHost_->setVisible(!isAuto);
+    if (!isAuto)
+        map_->view()->clearGoal();
     arm_->setControlsEnabled(true);
 
     if (isAuto) {

@@ -18,11 +18,6 @@ constexpr auto kPngPath = ":/brand/logo.png";
 
 BrandMark::~BrandMark() = default;
 
-bool BrandMark::hasBrandAsset() const
-{
-    return svg_ != nullptr || !pixmap_.isNull();
-}
-
 BrandMark::BrandMark(QWidget *parent, int height)
     : QWidget(parent), height_(height)
 {

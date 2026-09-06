@@ -246,12 +246,6 @@ void StatBar::setReading(double v)
     update();
 }
 
-void StatBar::clearReading()
-{
-    valid_ = false;
-    update();
-}
-
 void StatBar::paintEvent(QPaintEvent *)
 {
     const Colors &C = colors();
