@@ -73,8 +73,7 @@ void HealthRow::paintEvent(QPaintEvent *)
         p.drawRect(QRectF(barX, h / 2 - 1.5, qMax(2.0, barW * ratio), 3));
     }
 
-    QFont fm(monoFamily());
-    fm.setPointSize(9);
+    QFont fm = monoFont(9);
     p.setFont(fm);
     p.setPen(QColor(C.textDim));
     const QString rate =

@@ -14,6 +14,7 @@
 #include <QPushButton>
 #include <QSlider>
 #include <QTimer>
+#include <QtMath>
 #include <QVBoxLayout>
 
 #include "RobotDef.h"

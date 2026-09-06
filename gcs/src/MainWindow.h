@@ -31,6 +31,7 @@
 #include "widgets/Toast.h"
 
 class QLabel;
+class QVBoxLayout;
 class QPushButton;
 class QStackedWidget;
 class QTimer;
@@ -54,6 +55,7 @@ class Badge;
 class BatteryPill;
 class NotificationBell;
 class EStopButton;
+class IconButton;
 class DiagnosticsPanel;
 class EventLogPanel;
 class SettingsDialog;
@@ -98,6 +100,7 @@ private:
     QWidget *buildCaptureContext();
     QWidget *buildDiagnosticsContext();
     QWidget *buildDataContext();
+    QWidget *buildEventsContext();
     /// Connects every signal, split by what the operator is touching.
     /// One 240-line function made it impossible to see whether a panel
     /// was wired at all - two panels were not.
@@ -176,8 +179,8 @@ private:
     Badge *missionBadge_ = nullptr;
     QPushButton *autoBtn_ = nullptr;
     QPushButton *manualBtn_ = nullptr;
-    QPushButton *themeBtn_ = nullptr;
-    QPushButton *settingsBtn_ = nullptr;
+    IconButton *themeBtn_ = nullptr;
+    IconButton *settingsBtn_ = nullptr;
     Badge *userBadge_ = nullptr;
 
     /// What the map click should produce once placed: empty means a goal pose.

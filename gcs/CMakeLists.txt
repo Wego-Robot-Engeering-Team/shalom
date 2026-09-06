@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(shalom_gcs VERSION 0.1.0 LANGUAGES CXX)
+project(inspection_gcs VERSION 0.1.0 LANGUAGES CXX)
 
 # 납품 시 시스템 설계서에 기재할 버전 정보를 빌드에 박아 넣는다.
 # (과업지시서 4장 — 실제 사용 버전 기재 요구)
@@ -97,6 +97,7 @@ add_library(gcs_core ${GCS_CORE_TYPE}
     src/panels/MissionPanel.cpp
     src/widgets/WaypointDelegate.cpp
     src/widgets/NotificationCenter.cpp
+    src/widgets/IconButton.cpp
     src/panels/TeleopPanel.cpp
     src/panels/WaypointPanel.cpp
     src/panels/ArmPanel.cpp
@@ -131,11 +132,11 @@ qt_add_resources(gcs_core "gcs_brand"
 # ---------------------------------------------------------------------------
 # 실행 파일
 # ---------------------------------------------------------------------------
-add_executable(shalom_gcs
+add_executable(inspection_gcs
     src/main.cpp
 )
-target_link_libraries(shalom_gcs PRIVATE gcs_core)
-target_compile_definitions(shalom_gcs PRIVATE
+target_link_libraries(inspection_gcs PRIVATE gcs_core)
+target_compile_definitions(inspection_gcs PRIVATE
     GCS_REQUIRE_LOGIN=$<BOOL:${GCS_REQUIRE_LOGIN}>)
 
 # ---------------------------------------------------------------------------
@@ -191,7 +192,7 @@ endif()
 #
 #   cmake --preset release
 #   cmake --build --preset release
-#   cmake --install build-release --prefix dist/shalom-gcs
+#   cmake --install build-release --prefix dist/inspection-gcs
 # ---------------------------------------------------------------------------
 include(GNUInstallDirs)
 
@@ -212,11 +213,11 @@ elseif(UNIX)
     set(GCS_INSTALL_RPATH "$ORIGIN")
 endif()
 
-set_target_properties(shalom_gcs PROPERTIES
+set_target_properties(inspection_gcs PROPERTIES
     INSTALL_RPATH "${GCS_INSTALL_RPATH}"
     BUILD_WITH_INSTALL_RPATH OFF)
 
-install(TARGETS shalom_gcs gcs_core
+install(TARGETS inspection_gcs gcs_core
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION bin          # Windows 는 DLL 이 실행 파일 옆에 있어야 한다
     ARCHIVE DESTINATION lib)
@@ -237,19 +238,19 @@ set(GCS_PUBLIC_HEADERS
 foreach(_header IN LISTS GCS_PUBLIC_HEADERS)
     get_filename_component(_dir "${_header}" DIRECTORY)
     string(REPLACE "src/" "" _dir "${_dir}")
-    install(FILES "${_header}" DESTINATION include/shalom_gcs/${_dir})
+    install(FILES "${_header}" DESTINATION include/inspection_gcs/${_dir})
 endforeach()
 
 # 프레이밍은 로봇측과 공유하는 구현이라 함께 내보낸다.
-install(FILES ../protocol/include/shalom/framing.hpp
-        DESTINATION include/shalom)
+install(FILES ../protocol/include/inspection/framing.hpp
+        DESTINATION include/inspection)
 
 # ---- 참조 자료 ----
 #
 # 진단 코드는 바이너리에 내장되지만 사본을 함께 낸다. 비상대응 매뉴얼과
 # 대조하려면 문서로 읽을 수 있어야 한다.
-install(FILES resources/error_codes.json DESTINATION share/shalom_gcs)
-install(FILES ../docs/bridge_protocol.md DESTINATION share/shalom_gcs)
+install(FILES resources/error_codes.json DESTINATION share/inspection_gcs)
+install(FILES ../docs/bridge_protocol.md DESTINATION share/inspection_gcs)
 
 # ---- 버전 정보 ----
 configure_file(cmake/VERSION.txt.in "${CMAKE_BINARY_DIR}/VERSION.txt" @ONLY)

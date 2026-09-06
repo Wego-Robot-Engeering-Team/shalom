@@ -4,7 +4,7 @@
 //
 // Mirrors the control station's implementation (gcs/src/net/Envelope.h) and
 // must stay consistent with docs/bridge_protocol.md sections 1.2 and 1.4. The
-// framing beneath it is genuinely shared code (shalom/framing.hpp); the
+// framing beneath it is genuinely shared code (inspection/framing.hpp); the
 // envelope is not, because the two sides use different JSON libraries, and the
 // format is specified well enough that separate parsers are safe.
 //

@@ -1,4 +1,4 @@
-# SHALOM 관제 (GCS)
+# 철도차량 하부점검 관제 시스템 (GCS)
 
 Unitree B2 + Franka FR3 기반 철도차량 하부 점검시스템의 관제 UI.
 C++ / Qt 6 데스크톱 애플리케이션이며 Windows·Ubuntu 크로스 플랫폼으로 빌드된다.
@@ -62,7 +62,7 @@ Qt 경로는 프리셋에 Homebrew 기본 위치가 들어 있다. Ubuntu 에서
 ## 실행
 
 ```bash
-./build/shalom_gcs
+./build/inspection_gcs
 ```
 
 최초 실행에서는 관리자 비밀번호를 설정한다. 이후에는 로그인 화면에서 이름과
@@ -75,7 +75,7 @@ Qt 경로는 프리셋에 Homebrew 기본 위치가 들어 있다. Ubuntu 에서
 `--live` 를 주면 설정된 주소의 브릿지에 raw TCP 로 접속한다.
 
 ```bash
-./build/shalom_gcs --live
+./build/inspection_gcs --live
 ```
 
 둘 다 `RobotLink` 인터페이스를 구현하므로 화면은 어느 쪽에 붙었는지 알지 못한다.
@@ -104,15 +104,17 @@ Qt 경로는 프리셋에 Homebrew 기본 위치가 들어 있다. Ubuntu 에서
 |---|---|
 | `--dark` | 다크 테마로 시작 |
 | `--no-login` | 로그인 생략 |
-| `--view <이름>` | 시작 화면 지정 (`drive` `locations` `arm` `capture` `diagnostics` `data`) |
+| `--view <이름>` | 시작 화면 지정 (`drive` `locations` `arm` `capture` `diagnostics` `data` `events`) |
 | `--live` | 로봇 브릿지에 접속 (기본은 내장 시뮬레이터) |
 | `--host <주소>` `--port <포트>` | `--live` 접속 대상 override |
+| `--manual` | 수동 모드로 시작 (조작 패널 확인용) |
+| `--size <W>x<H>` | 창 크기 지정. 좁은 화면 배치 확인용 |
 | `--shot <경로>` | 창을 캡처하고 종료 |
-| `--shot-dialog <종류> <경로>` | 대화상자 캡처 (`welcome`, `settings`, `settings:1`) |
+| `--shot-dialog <종류> <경로>` | 대화상자 캡처 (`welcome`, `settings`, `settings:1`, `notifications`) |
 
 ```bash
-./build/shalom_gcs --dark --view arm
-./build/shalom_gcs --no-login --shot /tmp/screen.png
+./build/inspection_gcs --dark --view arm
+./build/inspection_gcs --no-login --shot /tmp/screen.png
 ```
 
 ## 테스트
@@ -166,18 +168,70 @@ tests/
 ```bash
 cmake --preset release
 cmake --build --preset release
-cmake --install build-release --prefix dist/shalom-gcs
+cmake --install build-release --prefix dist/inspection-gcs
 ```
 
+고객에게는 **소스가 아니라 이 폴더 하나**를 준다. 압축을 풀고 실행하면
+끝나야 하고, 지우면 흔적이 남지 않아야 한다.
+
+**Windows**
+
 ```
-shalom-gcs/
-├── bin/                    실행 파일 · 공유 라이브러리 · Qt 런타임
-├── lib/                    링크용 라이브러리 (Windows)
-├── include/shalom_gcs/     공개 헤더 — 인터페이스 계약만
-├── share/shalom_gcs/       진단 코드 카탈로그 · 통신 규약
-├── licenses/               Qt LGPL 등
-└── VERSION.txt             버전 · 커밋 해시 · 의존성 (자동 생성)
+INSPECTION-GCS-1.0.0-win64/
+├── inspection_gcs.exe
+├── inspection.ini                  설정 (아래 "설정값 저장 위치" 참조)
+├── Qt6Core.dll  Qt6Gui.dll  Qt6Widgets.dll  Qt6Network.dll  Qt6Svg.dll
+├── platforms/qwindows.dll      Qt 플랫폼 플러그인 — 없으면 실행되지 않는다
+├── styles/  imageformats/  iconengines/
+├── include/inspection/             공개 헤더 7종 — 인터페이스 계약만
+├── share/
+│   ├── error_codes.json        진단 코드 카탈로그
+│   └── bridge_protocol.md      통신 규약
+├── licenses/                   Qt LGPL v3 · Pretendard OFL · Qt 소스 취득 안내
+├── VERSION.txt                 버전 · 커밋 해시 · Qt 버전 (자동 생성)
+└── README.txt                  설치 · 실행 · 설정 변경 방법
 ```
+
+**Ubuntu**
+
+```
+INSPECTION-GCS-1.0.0-linux-x86_64/
+├── inspection_gcs.sh               실행 스크립트 (LD_LIBRARY_PATH 지정)
+├── bin/inspection_gcs
+├── lib/                        libQt6*.so.6 · libgcs_core.so
+├── plugins/platforms/libqxcb.so
+├── inspection.ini
+├── include/  share/  licenses/  VERSION.txt  README.txt
+```
+
+`RPATH` 를 `$ORIGIN/../lib` 로 박아 두므로 스크립트 없이도 돌지만, 고객
+환경의 시스템 Qt 와 섞이지 않도록 스크립트를 함께 준다.
+
+**인스톨러는 만들지 않는다.** 에어갭 환경에서 인스톨러는 관리자 권한과
+레지스트리 문제를 만든다. 압축을 풀어 쓰는 편이 낫고, 문제가 생기면 폴더를
+지우는 것으로 되돌릴 수 있다.
+
+### 설정값 저장 위치
+
+> **결정 필요.** 현재 구현은 `QSettings` 기본 위치를 쓴다. 납품에는 맞지 않다.
+
+| | 현재 (기본 위치) | 권장 (`inspection.ini`) |
+|---|---|---|
+| Windows | 레지스트리 `HKCU\Software\WEGO Robotics\Inspection GCS` | 실행 파일 옆 |
+| Ubuntu | `~/.config/WEGO Robotics/Inspection GCS.conf` | 실행 파일 옆 |
+| 범위 | **로그인 계정별** | PC 단위로 하나 |
+| 초기값 납품 | 불가 | 파일을 채워서 납품 |
+| 백업·이관 | 어려움 | 파일 복사 |
+
+현재 방식의 문제는 관제 PC 를 여러 명이 쓸 때 드러난다. 계정마다 로봇 주소가
+따로 저장되고, **관리자 비밀번호 해시도 계정별로 저장되어** 다른 계정으로
+로그인하면 비밀번호가 초기화된 것처럼 보인다.
+
+저장되는 값: 로봇 주소·포트, 테마, 글자 크기, 수동 조작 기본 속도,
+이벤트 로그 폴더·보관 기간, 촬영 저장 장치 경로, 관리자 비밀번호 해시·솔트.
+
+**저장되지 않는 것**: 점검포인트와 충전 스테이션 위치. 이것들은 로봇이
+가지고 있고 관제는 받아서 보여줄 뿐이다. 관제 PC 를 바꿔도 따라오지 않는다.
 
 공개 헤더에는 **인터페이스 계약에 해당하는 것만** 들어간다 — 통신 규약, 로봇
 연동 인터페이스, 진단 코드, 메타데이터 규약. 화면 구성이나 시뮬레이터 같은

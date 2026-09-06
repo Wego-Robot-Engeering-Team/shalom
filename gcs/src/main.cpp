@@ -1,4 +1,4 @@
-// SHALOM control station - application entry point.
+// Undercarriage inspection control station - application entry point.
 
 #include <QApplication>
 #include <QDir>
@@ -64,7 +64,7 @@ void captureAndQuit(QWidget *window, const QString &path)
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
-    app.setApplicationName(QStringLiteral("SHALOM GCS"));
+    app.setApplicationName(QStringLiteral("Inspection GCS"));
     app.setOrganizationName(QStringLiteral("WEGO Robotics"));
 
     // 플랫폼 네이티브 스타일 대신 Fusion 으로 고정한다.
@@ -177,10 +177,19 @@ int main(int argc, char *argv[])
             {QStringLiteral("capture"), gcs::ui::NavItem::Capture},
             {QStringLiteral("diagnostics"), gcs::ui::NavItem::Diagnostics},
             {QStringLiteral("data"), gcs::ui::NavItem::Data},
+            {QStringLiteral("events"), gcs::ui::NavItem::Events},
         };
         const auto it = kViews.constFind(args.at(viewIdx + 1));
         if (it != kViews.constEnd())
             window.showView(*it);
+    }
+
+    // 창 크기별 레이아웃 확인용. "--size 1280x760" 형태.
+    const int sizeIdx = args.indexOf(QStringLiteral("--size"));
+    if (sizeIdx >= 0 && sizeIdx + 1 < args.size()) {
+        const auto wh = args.at(sizeIdx + 1).split(QLatin1Char('x'));
+        if (wh.size() == 2)
+            window.resize(wh.at(0).toInt(), wh.at(1).toInt());
     }
 
     // 수동 모드에서만 나타나는 조작 패널을 확인하기 위한 개발용 옵션.

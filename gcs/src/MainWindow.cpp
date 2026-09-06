@@ -15,6 +15,7 @@
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QShowEvent>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -45,6 +46,7 @@
 #include "widgets/BrandMark.h"
 #include "widgets/EStopButton.h"
 #include "widgets/Gauges.h"
+#include "widgets/IconButton.h"
 #include "widgets/NotificationCenter.h"
 #include "widgets/MapCard.h"
 #include "widgets/Primitives.h"
@@ -66,7 +68,7 @@ MainWindow::MainWindow(gcs::robot::RobotLink *link, QWidget *parent)
     Q_ASSERT(robot_);
     robot_->setParent(this);
 
-    setWindowTitle(QStringLiteral("SHALOM 관제 · 철도차량 하부 점검시스템"));
+    setWindowTitle(QStringLiteral("철도차량 하부점검 관제 시스템"));
     resize(1720, 990);
 
     log_ = new diag::LogStore(this);
@@ -88,32 +90,8 @@ MainWindow::MainWindow(gcs::robot::RobotLink *link, QWidget *parent)
     body->addWidget(nav_);
 
     map_ = new MapCard;
+    map_->addModeButtons(autoBtn_, manualBtn_);
     context_ = qobject_cast<QStackedWidget *>(buildContextColumn());
-
-    events_ = new EventLogPanel(log_);
-
-    // 로그는 시간순으로 흐르는 목록이다. 창 전체 폭에 눕혀 놓으면 한 줄에
-    // 30 자쯤 되는 메시지 옆이 1000 px 넘게 비면서, 정작 보이는 줄 수는
-    // 네댓 개뿐이었다. 좁은 열 아래에 세워 두면 폭은 내용에 맞고 줄 수도
-    // 늘어난다.
-    //
-    // 높이는 조절할 수 있어야 한다. 평소엔 몇 줄만 보다가, 문제가 생기면
-    // 끌어올려 넓게 본다.
-    // 컨텍스트 페이지는 스크롤 영역 안에서 오른쪽에 s2 만큼 여백을 둔다
-    // (스크롤바 자리). 로그에는 그 여백이 없어 카드 하나만 더 넓어 보였다.
-    // 같은 여백을 씌워 세로로 줄을 맞춘다.
-    auto *eventsHost = new QWidget;
-    auto *eventsLay = new QVBoxLayout(eventsHost);
-    eventsLay->setContentsMargins(0, 0, metrics::s2, 0);
-    eventsLay->addWidget(events_);
-
-    auto *side = new QSplitter(Qt::Vertical);
-    side->setChildrenCollapsible(false);
-    side->setHandleWidth(metrics::s2);
-    side->addWidget(context_);
-    side->addWidget(eventsHost);
-    side->setSizes({570, 290});
-    side->setStretchFactor(0, 1);
 
     // 레일 바로 옆에 그 레일이 바꾸는 열을 둔다. 레일은 왼쪽 끝인데
     // 눌러서 바뀌는 화면이 오른쪽 끝에 있으면, 조작자는 1500 px 떨어진
@@ -121,7 +99,7 @@ MainWindow::MainWindow(gcs::robot::RobotLink *link, QWidget *parent)
     auto *upper = new QSplitter(Qt::Horizontal);
     upper->setChildrenCollapsible(false);
     upper->setHandleWidth(metrics::s2);
-    upper->addWidget(side);
+    upper->addWidget(context_);
     upper->addWidget(map_);
     upper->setSizes({440, 1060});
     upper->setStretchFactor(1, 1);
@@ -163,7 +141,7 @@ QWidget *MainWindow::buildTopBar()
     // ---- 무엇인가 ----
     lay->addWidget(new BrandMark(nullptr, 30), 0, Qt::AlignVCenter);
 
-    auto *title = new QLabel(QStringLiteral("SHALOM 관제"));
+    auto *title = new QLabel(QStringLiteral("하부점검 관제"));
     title->setObjectName(QStringLiteral("AppTitle"));
     lay->addWidget(title, 0, Qt::AlignVCenter);
 
@@ -185,20 +163,17 @@ QWidget *MainWindow::buildTopBar()
 
     lay->addStretch(1);
 
-    // ---- 무엇을 하는가 ----
-    // 화면에서 비상정지 다음으로 무거운 조작이다. 설정·테마와 같은 모양으로
-    // 늘어놓으면 그 무게가 드러나지 않는다.
-    lay->addWidget(captionLabel(QStringLiteral("주행 모드")), 0, Qt::AlignVCenter);
+    // 주행 모드 버튼은 여기서 만들되 상단 바에 두지 않는다. 지도 툴바로
+    // 보내 로봇이 움직이는 면 위에 얹는다. 설정·테마와 나란히 두면
+    // 화면에서 두 번째로 무거운 조작이 도구처럼 보인다.
     autoBtn_ = new QPushButton(QStringLiteral("자율"));
     manualBtn_ = new QPushButton(QStringLiteral("수동"));
     for (auto *b : {autoBtn_, manualBtn_}) {
         b->setCheckable(true);
-        b->setFixedWidth(76);
-        lay->addWidget(b);
+        b->setProperty("size", "sm");
+        b->setFixedWidth(64);
     }
     autoBtn_->setChecked(true);
-
-    lay->addStretch(1);
 
     // ---- 부수적인 것 ----
     // 테두리 없는 버튼으로 낮춘다. 조작이 아니라 도구다.
@@ -206,18 +181,16 @@ QWidget *MainWindow::buildTopBar()
     userBadge_->hide();
     lay->addWidget(userBadge_);
 
-    settingsBtn_ = new QPushButton(QStringLiteral("설정"));
-    settingsBtn_->setProperty("variant", "ghost");
-    settingsBtn_->setProperty("size", "sm");
-    lay->addWidget(settingsBtn_);
+    settingsBtn_ = new IconButton(IconButton::Glyph::Sliders);
+    settingsBtn_->setToolTip(QStringLiteral("설정"));
+    lay->addWidget(settingsBtn_, 0, Qt::AlignVCenter);
 
-    themeBtn_ = new QPushButton(colors().isDark() ? QStringLiteral("라이트")
-                                                  : QStringLiteral("다크"));
-    themeBtn_->setProperty("variant", "ghost");
-    themeBtn_->setProperty("size", "sm");
-    themeBtn_->setFixedWidth(58);
+    // 라벨은 "지금 상태"가 아니라 "누르면 갈 곳"이다. 다크에서는 해,
+    // 라이트에서는 달을 보여준다.
+    themeBtn_ = new IconButton(colors().isDark() ? IconButton::Glyph::Sun
+                                                 : IconButton::Glyph::Moon);
     themeBtn_->setToolTip(QStringLiteral("다크 / 라이트 전환"));
-    lay->addWidget(themeBtn_);
+    lay->addWidget(themeBtn_, 0, Qt::AlignVCenter);
 
     bell_ = new NotificationBell;
     lay->addWidget(bell_, 0, Qt::AlignVCenter);
@@ -245,14 +218,24 @@ QWidget *MainWindow::buildContextColumn()
     stack->addWidget(buildCaptureContext());
     stack->addWidget(buildDiagnosticsContext());
     stack->addWidget(buildDataContext());
+    stack->addWidget(buildEventsContext());
     return stack;
+}
+
+QWidget *MainWindow::buildEventsContext()
+{
+    // 로그는 예전에 컨텍스트 열 아래에 고정으로 붙어 있었다. 늘 보이는
+    // 대신 서너 줄만 보이는 자리였고, 조작자가 놓치면 안 되는 것은 어차피
+    // 토스트로 뜨고 알림함에 쌓인다. 화면 하나를 온전히 준다.
+    events_ = new EventLogPanel(log_);
+    return events_;
 }
 
 QWidget *MainWindow::buildDriveContext()
 {
     auto *inner = new QWidget;
     auto *lay = new QVBoxLayout(inner);
-    lay->setContentsMargins(0, 0, metrics::s2, 0);
+    lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(metrics::s3);
 
     status_ = new StatusPanel;
@@ -289,7 +272,7 @@ QWidget *MainWindow::buildLocationsContext()
 {
     auto *inner = new QWidget;
     auto *lay = new QVBoxLayout(inner);
-    lay->setContentsMargins(0, 0, metrics::s2, 0);
+    lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(metrics::s3);
 
     locations_ = new LocationPanel;
@@ -310,7 +293,7 @@ QWidget *MainWindow::buildArmContext()
 {
     auto *inner = new QWidget;
     auto *lay = new QVBoxLayout(inner);
-    lay->setContentsMargins(0, 0, metrics::s2, 0);
+    lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(metrics::s3);
 
     arm_ = new ArmPanel;
@@ -328,7 +311,7 @@ QWidget *MainWindow::buildCaptureContext()
 {
     auto *inner = new QWidget;
     auto *lay = new QVBoxLayout(inner);
-    lay->setContentsMargins(0, 0, metrics::s2, 0);
+    lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(metrics::s3);
 
     capture_ = new CapturePanel;
@@ -346,7 +329,7 @@ QWidget *MainWindow::buildDiagnosticsContext()
 {
     auto *inner = new QWidget;
     auto *lay = new QVBoxLayout(inner);
-    lay->setContentsMargins(0, 0, metrics::s2, 0);
+    lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(metrics::s3);
 
     diagnostics_ = new DiagnosticsPanel;
@@ -365,7 +348,7 @@ QWidget *MainWindow::buildDataContext()
 {
     auto *inner = new QWidget;
     auto *lay = new QVBoxLayout(inner);
-    lay->setContentsMargins(0, 0, metrics::s2, 0);
+    lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(metrics::s3);
 
     data_ = new DataPanel;
@@ -930,10 +913,6 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *ev)
 {
     if (obj == centralWidget() && ev->type() == QEvent::Resize) {
         alert_->setGeometry(centralWidget()->rect());
-        // 알림을 이벤트 로그 위로 띄운다. 로그 높이는 조작자가 조절하므로
-        // 매번 다시 잰다.
-        // 로그가 오른쪽 열로 옮겨가 더 이상 토스트와 겹치지 않는다.
-        // 토스트는 지도 아래쪽에 그대로 뜬다.
         toasts_->setBottomAnchor(metrics::s3);
     }
     return QMainWindow::eventFilter(obj, ev);
@@ -945,7 +924,7 @@ void MainWindow::applyTheme(const QString &name)
     if (auto *app = qobject_cast<QApplication *>(QApplication::instance()))
         app->setStyleSheet(buildQss());
 
-    themeBtn_->setText(c.isDark() ? QStringLiteral("라이트") : QStringLiteral("다크"));
+    themeBtn_->setGlyph(c.isDark() ? IconButton::Glyph::Sun : IconButton::Glyph::Moon);
 
     // QSS 로 칠해지는 위젯은 스타일시트 재적용만으로 따라온다.
     // 씬 아이템의 펜 색은 아이템에 박혀 있어 별도로 다시 지정해야 한다.
@@ -978,7 +957,7 @@ void MainWindow::startLogFile()
     pruneOldLogs(dir, Config::instance().logRetentionDays());
 
     const QString path =
-        QStringLiteral("%1/shalom-%2.jsonl")
+        QStringLiteral("%1/inspection-%2.jsonl")
             .arg(dir, QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd")));
 
     QString err;
@@ -992,7 +971,7 @@ void MainWindow::pruneOldLogs(const QString &dir, int retentionDays)
         return;
 
     const QDateTime cutoff = QDateTime::currentDateTime().addDays(-retentionDays);
-    const auto files = QDir(dir).entryInfoList({QStringLiteral("shalom-*.jsonl")}, QDir::Files);
+    const auto files = QDir(dir).entryInfoList({QStringLiteral("inspection-*.jsonl")}, QDir::Files);
     for (const auto &fi : files)
         if (fi.lastModified() < cutoff)
             QFile::remove(fi.absoluteFilePath());
@@ -1093,6 +1072,7 @@ void MainWindow::onTelemetry(const Telemetry &tm)
 
     headerBattery_->setState(tm.soc);
     nav_->setDiagnosticsAlerts(log_->countAtOrAbove(diag::Severity::Error));
+    nav_->setEventAlerts(log_->countAtOrAbove(diag::Severity::Warn));
 
     // 위치 등록 가능 여부는 실제 속력으로 판정한다. 시뮬레이터가 속력을
     // 직접 알려주므로 UI 가 궤적을 미분할 필요가 없다.

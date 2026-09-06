@@ -1,5 +1,6 @@
 #include "widgets/Robot3DView.h"
 
+#include <cmath>
 #include <QFont>
 #include <QMatrix4x4>
 #include <QMouseEvent>

@@ -73,8 +73,7 @@ void WaypointDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
                     .arg(d.value(QStringLiteral("name"),
                                  d.value(QStringLiteral("id"))).toString()));
 
-    QFont fm(monoFamily());
-    fm.setPointSize(9);
+    QFont fm = monoFont(9);
     p->setFont(fm);
     p->setPen(QColor(C.textMute));
     QString sub = QStringLiteral("%1, %2")

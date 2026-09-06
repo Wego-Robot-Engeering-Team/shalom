@@ -2,7 +2,7 @@
 
 // Qt-flavoured adapter over the shared framing implementation.
 //
-// The byte layout lives in protocol/include/shalom/framing.hpp, which is
+// The byte layout lives in protocol/include/inspection/framing.hpp, which is
 // compiled into both this application and the robot-side bridge node. Two
 // implementations of one wire format would eventually disagree, and the
 // disagreement would show up as a corrupted stream in the field rather than as
@@ -12,13 +12,13 @@
 
 #include <QByteArray>
 
-#include "shalom/framing.hpp"
+#include "inspection/framing.hpp"
 
 namespace gcs::net {
 
-inline constexpr std::uint32_t kMagic = shalom::kMagic;
-inline constexpr std::uint32_t kMaxBodyLen = shalom::kMaxBodyLen;
-inline constexpr qsizetype kCompactThreshold = qsizetype(shalom::kCompactThreshold);
+inline constexpr std::uint32_t kMagic = inspection::kMagic;
+inline constexpr std::uint32_t kMaxBodyLen = inspection::kMaxBodyLen;
+inline constexpr qsizetype kCompactThreshold = qsizetype(inspection::kCompactThreshold);
 
 struct Frame {
     QByteArray header;   ///< UTF-8 JSON envelope
@@ -63,7 +63,7 @@ public:
     qsizetype buffered() const { return qsizetype(inner_.buffered()); }
 
 private:
-    shalom::FrameDecoder inner_;
+    inspection::FrameDecoder inner_;
 };
 
 }  // namespace gcs::net

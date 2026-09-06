@@ -19,7 +19,7 @@
 #include <string>
 #include <thread>
 
-#include "shalom/framing.hpp"
+#include "inspection/framing.hpp"
 #include "shalom_bridge/tcp_server.hpp"
 
 using namespace shalom_bridge;
@@ -150,9 +150,9 @@ void receivesCompleteFrame(std::uint16_t port)
     check(client.connect(port), "client connects");
     waitFor([&] { return server.isConnected(); });
 
-    client.write(shalom::encodeFrame(R"({"v":1,"t":"hb"})", "BODY"));
+    client.write(inspection::encodeFrame(R"({"v":1,"t":"hb"})", "BODY"));
 
-    shalom::Frame got;
+    inspection::Frame got;
     const bool received = waitFor([&] {
         const auto ev = server.drain();
         if (ev.frames.empty())
@@ -177,7 +177,7 @@ void reassemblesSplitFrame(std::uint16_t port)
     client.connect(port);
     waitFor([&] { return server.isConnected(); });
 
-    const std::string wire = shalom::encodeFrame(R"({"t":"req","ch":"cmd/goto"})");
+    const std::string wire = inspection::encodeFrame(R"({"t":"req","ch":"cmd/goto"})");
     for (std::size_t i = 0; i < wire.size(); ++i) {
         client.write(wire.substr(i, 1));
         std::this_thread::sleep_for(1ms);
@@ -205,8 +205,8 @@ void handlesCoalescedFrames(std::uint16_t port)
     client.connect(port);
     waitFor([&] { return server.isConnected(); });
 
-    client.write(shalom::encodeFrame(R"({"n":1})") + shalom::encodeFrame(R"({"n":2})")
-                 + shalom::encodeFrame(R"({"n":3})"));
+    client.write(inspection::encodeFrame(R"({"n":1})") + inspection::encodeFrame(R"({"n":2})")
+                 + inspection::encodeFrame(R"({"n":3})"));
 
     std::size_t total = 0;
     waitFor([&] {
@@ -260,7 +260,7 @@ void refusesSecondClient(std::uint16_t port)
 
     // 첫 연결은 살아 있어야 한다.
     check(server.isConnected(), "first client remains connected");
-    first.write(shalom::encodeFrame(R"({"t":"hb"})"));
+    first.write(inspection::encodeFrame(R"({"t":"hb"})"));
     bool stillWorks = false;
     waitFor([&] {
         if (!server.drain().frames.empty())
@@ -281,15 +281,15 @@ void sendsFramesToClient(std::uint16_t port)
     client.connect(port);
     waitFor([&] { return server.isConnected(); });
 
-    server.send(shalom::encodeFrame(R"({"t":"pub","ch":"state/pose"})", "XY"));
+    server.send(inspection::encodeFrame(R"({"t":"pub","ch":"state/pose"})", "XY"));
 
     const std::string raw = client.readSome();
     check(!raw.empty(), "client received bytes");
 
-    shalom::FrameDecoder decoder;
+    inspection::FrameDecoder decoder;
     decoder.append(raw);
-    shalom::Frame frame;
-    check(decoder.next(frame) == shalom::DecodeStatus::Ok, "client decoded a frame");
+    inspection::Frame frame;
+    check(decoder.next(frame) == inspection::DecodeStatus::Ok, "client decoded a frame");
     check(frame.payload == "XY", "payload round-trips");
     server.stop();
 }
@@ -331,7 +331,7 @@ void resetsDecoderBetweenConnections(std::uint16_t port)
         first.connect(port);
         waitFor([&] { return server.isConnected(); });
         // 완결되지 않은 프레임을 남기고 끊는다.
-        const std::string partial = shalom::encodeFrame(R"({"t":"hb"})").substr(0, 6);
+        const std::string partial = inspection::encodeFrame(R"({"t":"hb"})").substr(0, 6);
         first.write(partial);
         std::this_thread::sleep_for(100ms);
     }
@@ -341,9 +341,9 @@ void resetsDecoderBetweenConnections(std::uint16_t port)
     Client second;
     second.connect(port);
     waitFor([&] { return server.isConnected(); });
-    second.write(shalom::encodeFrame(R"({"t":"hb","ch":"fresh"})"));
+    second.write(inspection::encodeFrame(R"({"t":"hb","ch":"fresh"})"));
 
-    shalom::Frame got;
+    inspection::Frame got;
     const bool ok = waitFor([&] {
         const auto ev = server.drain();
         if (ev.frames.empty())
