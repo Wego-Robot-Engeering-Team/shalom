@@ -194,6 +194,12 @@ int main(int argc, char *argv[])
             window.showView(*it);
     }
 
+    // 이력 화면 확인용. 표본 촬영 폴더를 이번 실행에만 쓴다 — 설정에
+    // 저장하지 않으므로 실제 저장 장치 경로를 덮어쓰지 않는다.
+    const int samplesIdx = args.indexOf(QStringLiteral("--samples"));
+    if (samplesIdx >= 0 && samplesIdx + 1 < args.size())
+        window.setInspectionDirectory(args.at(samplesIdx + 1));
+
     // 창 크기별 레이아웃 확인용. "--size 1280x760" 형태.
     const int sizeIdx = args.indexOf(QStringLiteral("--size"));
     if (sizeIdx >= 0 && sizeIdx + 1 < args.size()) {

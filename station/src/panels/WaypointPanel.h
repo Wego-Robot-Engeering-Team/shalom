@@ -30,17 +30,12 @@ public:
     void setStatus(const QString &id, const QString &status);
 
     /// Drives which of the run controls are available.
-    void setMissionState(bool running, bool paused);
 
 signals:
     void addRequested();
     void deleteRequested(const QString &id);
     void orderChanged(const QStringList &ids);
     void waypointSelected(const QString &id);
-    void missionStart();
-    void missionPause();
-    void missionResume();
-    void missionStop();
 
     /// Emitted whenever the list or any point's status changes, so that
     /// summaries elsewhere cannot drift out of step with this list.
@@ -53,10 +48,6 @@ private:
     Card *card_ = nullptr;
     Badge *count_ = nullptr;
     QListWidget *list_ = nullptr;
-    QPushButton *start_ = nullptr;
-    QPushButton *pause_ = nullptr;
-    QPushButton *resume_ = nullptr;
-    QPushButton *stop_ = nullptr;
 };
 
 }  // namespace gcs::ui

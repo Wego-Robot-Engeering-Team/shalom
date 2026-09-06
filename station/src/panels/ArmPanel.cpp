@@ -164,13 +164,6 @@ QWidget *ArmPanel::buildEeTab()
     lay->setContentsMargins(0, metrics::s2, 0, 0);
     lay->setSpacing(metrics::s1);
 
-    auto *hint = new QLabel(QStringLiteral(
-        "팔 끝을 보낼 자리입니다. 로봇 기준 좌표이며, 숫자를 누르면 직접 "
-        "입력할 수 있습니다.\n빈 점은 마지막으로 보낸 값입니다."));
-    hint->setObjectName(QStringLiteral("Hint"));
-    hint->setWordWrap(true);
-    lay->addWidget(hint);
-
     // 관절과 같은 조작으로 통일한다. 한쪽은 슬라이더, 한쪽은 스핀박스면
     // 같은 성격의 값을 다루는 방법을 두 번 배워야 한다.
     struct Spec { const char *key; const char *label; double lo, hi; const char *unit;

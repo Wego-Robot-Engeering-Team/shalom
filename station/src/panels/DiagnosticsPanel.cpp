@@ -69,13 +69,6 @@ DiagnosticsPanel::DiagnosticsPanel(QWidget *parent) : QWidget(parent)
     sensorLay->setContentsMargins(0, 0, 0, 0);
     sensorLay->setSpacing(metrics::s1);
     card_->body()->addWidget(sensorHost_);
-
-    auto *sensorHint = new QLabel(QStringLiteral(
-        "막대는 각 센서가 기대만큼 신호를 보내고 있는지를 나타냅니다. "
-        "가득 차 있으면 정상이고, 짧아지면 그 센서를 확인해야 합니다."));
-    sensorHint->setObjectName(QStringLiteral("Hint"));
-    sensorHint->setWordWrap(true);
-    card_->body()->addWidget(sensorHint);
     outer->addWidget(card_);
 
     // ---- 링크 ----
@@ -88,12 +81,6 @@ DiagnosticsPanel::DiagnosticsPanel(QWidget *parent) : QWidget(parent)
     decodeErrors_ = metricRow(linkCard->body(), QStringLiteral("통신 오류"));
     reconnects_ = metricRow(linkCard->body(), QStringLiteral("재연결"));
 
-    auto *linkHint = new QLabel(QStringLiteral(
-        "통신 오류는 0 이어야 정상입니다. 값이 늘어나면 운용을 멈추고 "
-        "로그를 내보내 담당자에게 전달하십시오."));
-    linkHint->setObjectName(QStringLiteral("Hint"));
-    linkHint->setWordWrap(true);
-    linkCard->body()->addWidget(linkHint);
     outer->addWidget(linkCard);
 
     // ---- 로봇 제어기 ----
@@ -121,12 +108,6 @@ DiagnosticsPanel::DiagnosticsPanel(QWidget *parent) : QWidget(parent)
     sysGrid->addWidget(gpuTemp_, 1, 1);
     sysCard->body()->addLayout(sysGrid);
 
-    auto *sysHint = new QLabel(QStringLiteral(
-        "온도가 계속 높게 유지되면 로봇이 스스로 성능을 낮춥니다. "
-        "주행이 느려지거나 끊기면 이 값을 먼저 확인하십시오."));
-    sysHint->setObjectName(QStringLiteral("Hint"));
-    sysHint->setWordWrap(true);
-    sysCard->body()->addWidget(sysHint);
     outer->addWidget(sysCard);
 
     // ---- 저장 ----
@@ -134,12 +115,6 @@ DiagnosticsPanel::DiagnosticsPanel(QWidget *parent) : QWidget(parent)
     nas_ = metricRow(storageCard->body(), QStringLiteral("저장 장치"));
     spool_ = metricRow(storageCard->body(), QStringLiteral("업로드 대기"));
 
-    auto *storageHint = new QLabel(QStringLiteral(
-        "촬영한 사진은 로봇에서 저장 장치로 직접 전송됩니다. 대기 건수가 0 이 되어야 "
-        "해당 점검이 실제로 끝난 것입니다."));
-    storageHint->setObjectName(QStringLiteral("Hint"));
-    storageHint->setWordWrap(true);
-    storageCard->body()->addWidget(storageHint);
     outer->addWidget(storageCard);
 
     outer->addStretch(1);

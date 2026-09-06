@@ -3,6 +3,8 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QProgressBar>
+#include <QHBoxLayout>
+#include <QPushButton>
 #include <QVBoxLayout>
 
 #include "theme/Tokens.h"
@@ -44,6 +46,30 @@ MissionPanel::MissionPanel(QWidget *parent) : QWidget(parent)
     list_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     card_->body()->addWidget(list_, 1);
 
+    // 운용 조작. 목록 아래에 둔다 — 무엇을 돌릴지 보고 나서 시작한다.
+    card_->body()->addSpacing(metrics::s2);
+    auto *run = new QHBoxLayout;
+    run->setSpacing(metrics::s2);
+
+    start_ = new QPushButton(QStringLiteral("자율주행 시작"));
+    start_->setProperty("variant", "primary");
+    pause_ = new QPushButton(QStringLiteral("일시정지"));
+    resume_ = new QPushButton(QStringLiteral("재개"));
+    stop_ = new QPushButton(QStringLiteral("정지"));
+    for (auto *b : {start_, pause_, resume_, stop_})
+        b->setProperty("size", "sm");
+
+    run->addWidget(start_, 2);
+    run->addWidget(pause_, 1);
+    run->addWidget(resume_, 1);
+    run->addWidget(stop_, 1);
+    card_->body()->addLayout(run);
+
+    connect(start_, &QPushButton::clicked, this, &MissionPanel::missionStart);
+    connect(pause_, &QPushButton::clicked, this, &MissionPanel::missionPause);
+    connect(resume_, &QPushButton::clicked, this, &MissionPanel::missionResume);
+    connect(stop_, &QPushButton::clicked, this, &MissionPanel::missionStop);
+
     refresh();
 }
 
@@ -61,12 +87,22 @@ void MissionPanel::setMissionState(const QString &state)
 
 void MissionPanel::refresh()
 {
-    if (missionState_ == QLatin1String("running"))
-        state_->set(QStringLiteral("점검 중"), QStringLiteral("info"));
-    else if (missionState_ == QLatin1String("paused"))
+    const bool running = missionState_ != QLatin1String("idle");
+    const bool paused = missionState_ == QLatin1String("paused");
+
+    if (paused)
         state_->set(QStringLiteral("일시정지"), QStringLiteral("warn"));
+    else if (running)
+        state_->set(QStringLiteral("점검 중"), QStringLiteral("info"));
     else
         state_->set(QStringLiteral("대기"), QStringLiteral("neutral"));
+
+    if (start_) {
+        start_->setEnabled(!running);
+        pause_->setEnabled(running && !paused);
+        resume_->setEnabled(running && paused);
+        stop_->setEnabled(running);
+    }
 
     const int total = points_.size();
     int done = 0;
