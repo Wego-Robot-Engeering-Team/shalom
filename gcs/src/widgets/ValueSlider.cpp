@@ -21,7 +21,7 @@ constexpr int kSteps = 1000;
 
 constexpr int kNameW = 60;    ///< "J1" 또는 "앞뒤" 자리
 constexpr int kValueW = 78;
-constexpr int kRowH = 30;
+constexpr int kRowH = 32;
 
 }  // namespace
 

@@ -330,7 +330,7 @@ EventLogPanel::EventLogPanel(LogStore *store, QWidget *parent)
     filter_->addItem(QStringLiteral("전체"), int(Severity::Info));
     filter_->addItem(QStringLiteral("주의 이상"), int(Severity::Warn));
     filter_->addItem(QStringLiteral("오류 이상"), int(Severity::Error));
-    filter_->setFixedWidth(96);
+    filter_->setFixedWidth(112);
     bar->addWidget(filter_);
 
     search_ = new QLineEdit;

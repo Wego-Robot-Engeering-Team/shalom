@@ -1,5 +1,6 @@
 #include "mapview/MapFile.h"
 
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>

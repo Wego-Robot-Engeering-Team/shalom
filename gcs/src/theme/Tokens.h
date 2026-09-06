@@ -86,9 +86,11 @@ inline constexpr int rSm = 3;
 inline constexpr int rMd = 5;
 inline constexpr int rLg = 6;
 
-inline constexpr int rowH = 28;
-inline constexpr int ctlH = 30;
-inline constexpr int ctlHSm = 24;
+// Raised alongside the type scale. Left at the old values, the taller text
+// was clipped inside every control.
+inline constexpr int rowH = 30;
+inline constexpr int ctlH = 33;
+inline constexpr int ctlHSm = 27;
 }  // namespace metrics
 
 /// Font stacks.

@@ -25,7 +25,7 @@ WelcomeDialog::WelcomeDialog(QWidget *parent) : QDialog(parent)
     setObjectName(QStringLiteral("Root"));
     setWindowTitle(QStringLiteral("철도차량 하부점검 관제 시스템"));
     setModal(true);
-    setFixedWidth(440);
+    setFixedWidth(470);
 
     setupMode_ = Session::instance().needsInitialSetup();
 

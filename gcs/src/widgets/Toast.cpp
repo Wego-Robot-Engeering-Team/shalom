@@ -17,7 +17,7 @@ using namespace gcs::theme;
 
 namespace {
 
-constexpr int kWidth = 380;
+constexpr int kWidth = 400;
 constexpr int kMargin = 16;
 constexpr int kGap = 8;
 
@@ -69,7 +69,7 @@ Toast::Toast(const QString &title, const QString &detail, const QString &severit
         detail_.isEmpty()
             ? 0
             : fm.boundingRect(0, 0, kWidth - 48, 1000, Qt::TextWordWrap, detail_).height();
-    setFixedSize(kWidth, 34 + detailHeight + (detail_.isEmpty() ? 0 : 6));
+    setFixedSize(kWidth, 38 + detailHeight + (detail_.isEmpty() ? 0 : 6));
 
     life_ = new QTimer(this);
     life_->setSingleShot(true);

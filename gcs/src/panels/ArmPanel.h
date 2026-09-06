@@ -82,6 +82,7 @@ private:
     Robot3DView *view3d_ = nullptr;
     QTabWidget *tabs_ = nullptr;
     QLabel *advice_ = nullptr;
+    QLabel *poseWarning_ = nullptr;
 
     QList<ValueSlider *> sliders_;
     QHash<QString, ValueSlider *> ee_;

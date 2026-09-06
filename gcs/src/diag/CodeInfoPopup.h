@@ -27,6 +27,15 @@ public:
     /// still sees something actionable to report.
     static QString tooltipHtml(const QString &code);
 
+protected:
+    /// Painted rather than styled.
+    ///
+    /// A top-level Qt::Popup picks up the platform's window frame, which came
+    /// out as a hard black rule around the panel; the mask rounds the corners
+    /// without needing a compositor, which a bare Ubuntu session may not have.
+    void paintEvent(QPaintEvent *) override;
+    void resizeEvent(QResizeEvent *) override;
+
 private:
     explicit CodeInfoPopup(const CodeEntry &entry, QWidget *parent);
 };

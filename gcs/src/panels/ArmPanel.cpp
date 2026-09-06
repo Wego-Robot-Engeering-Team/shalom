@@ -11,6 +11,8 @@
 #include <QtMath>
 
 #include "RobotDef.h"
+#include "robot/PoseCheck.h"
+#include "theme/Style.h"
 #include "theme/Tokens.h"
 #include "widgets/ValueSlider.h"
 #include "widgets/Robot3DView.h"
@@ -122,7 +124,14 @@ QWidget *ArmPanel::buildJointTab()
         "직접 입력할 수 있습니다."));
     legend->setWordWrap(true);
     legend->setObjectName(QStringLiteral("Hint"));
+
+    poseWarning_ = new QLabel;
+    poseWarning_->setObjectName(QStringLiteral("PoseWarning"));
+    poseWarning_->setWordWrap(true);
+    poseWarning_->hide();
+    legend->setObjectName(QStringLiteral("Hint"));
     lay->addWidget(legend);
+    lay->addWidget(poseWarning_);
 
     for (const auto &j : kFr3Joints) {
         auto *slider = new ValueSlider(QString::fromUtf8(j.label), j.lo, j.hi,
@@ -330,6 +339,19 @@ void ArmPanel::refreshPreview()
             differs = true;
     }
     view3d_->setPreviewJoints(onJointTab && differs ? q : QList<double>{});
+
+    // 보내기 전에 조용히 알린다. 로봇이 최종 판정을 하지만, 눌러 본 뒤에야
+    // 거부 코드로 알게 되는 것보다 낫다. 요란하게 막지는 않는다 — 조작자가
+    // 의도해서 그 자세로 가는 경우도 있다.
+    if (onJointTab && differs) {
+        const auto warning = robot::checkArmPose(q);
+        poseWarning_->setText(warning.text);
+        poseWarning_->setProperty("tone", warning.severity);
+        poseWarning_->setVisible(!warning.isEmpty());
+        theme::repolish(poseWarning_);
+    } else {
+        poseWarning_->hide();
+    }
 }
 
 void ArmPanel::syncSlidersToActual()

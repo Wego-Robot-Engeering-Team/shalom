@@ -91,7 +91,9 @@ add_library(gcs_core ${GCS_CORE_TYPE}
     src/mapview/MapItems.cpp
     src/mapview/MapView.cpp
     src/mapview/MapRender.cpp
+    src/mapview/MapFile.cpp
     src/robot/RobotLink.cpp
+    src/robot/PoseCheck.cpp
     src/sim/SimRobot.cpp
     src/panels/StatusPanel.cpp
     src/panels/MissionPanel.cpp
@@ -120,6 +122,15 @@ qt_add_resources(gcs_core "gcs_resources"
     PREFIX "/"
     BASE resources
     FILES resources/error_codes.json
+)
+
+# 검수고 기본 지도. SLAM Toolbox 실물이 나오기 전까지 쓰는 대역이며,
+# 리소스에 넣어 두면 실행 위치와 무관하게 열린다. 현장 지도는 설정에서
+# 파일로 지정한다.
+qt_add_resources(gcs_core "gcs_maps"
+    PREFIX "/maps"
+    BASE resources/maps
+    FILES resources/maps/gtxa_depot.yaml resources/maps/gtxa_depot.pgm
 )
 
 # 발주기관 로고. 자산이 없으면 BrandMark 가 중립 마크로 폴백한다

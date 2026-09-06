@@ -153,7 +153,7 @@ QWidget *TeleopPanel::buildPad()
 
     for (const auto &c : cells) {
         auto *b = new QPushButton(QString::fromUtf8(c.glyph));
-        b->setFixedSize(46, 34);
+        b->setFixedSize(50, 36);
         const QString key = QString::fromLatin1(c.key);
         if (key == QLatin1String("stop")) {
             b->setProperty("variant", "danger");
