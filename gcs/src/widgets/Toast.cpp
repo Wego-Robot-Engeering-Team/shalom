@@ -155,6 +155,12 @@ void Toast::paintEvent(QPaintEvent *)
 
 ToastHost::ToastHost(QWidget *host) : QObject(host), host_(host) {}
 
+void ToastHost::setBottomAnchor(int pixelsFromBottom)
+{
+    anchorFromBottom_ = pixelsFromBottom;
+    relayout();
+}
+
 void ToastHost::show(const QString &title, const QString &detail, const QString &severity)
 {
     auto *toast = new Toast(title, detail, severity, host_);
@@ -179,8 +185,10 @@ void ToastHost::relayout()
     if (!host_)
         return;
 
-    // 하단에서 위로 쌓는다. 비상정지는 우상단이므로 절대 가리지 않는다.
-    int y = host_->height() - kMargin;
+    // 이벤트 로그 위쪽에 띄운다. 로그 바로 위에 겹치면 같은 내용이 두 번
+    // 보이고, 그중 하나는 곧 사라져서 어느 쪽을 봐야 하는지 헷갈린다.
+    // 비상정지는 우상단이므로 어느 경우에도 가리지 않는다.
+    int y = host_->height() - kMargin - anchorFromBottom_;
     for (int i = toasts_.size() - 1; i >= 0; --i) {
         Toast *t = toasts_.at(i);
         y -= t->height();

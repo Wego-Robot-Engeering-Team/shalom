@@ -36,13 +36,14 @@ TeleopPanel::TeleopPanel(QWidget *parent) : QWidget(parent)
     card_->body()->addLayout(holder);
 
     card_->body()->addSpacing(metrics::s2);
-    linear_ = addSpeedRow(QStringLiteral("선속도"), robot::kVxMax, 0.30,
+    linear_ = addSpeedRow(QStringLiteral("앞뒤 속도"), robot::kVxMax, 0.30,
                           QStringLiteral("m/s"), robot::kVxCaution);
-    angular_ = addSpeedRow(QStringLiteral("각속도"), robot::kWzMax, 0.50,
-                           QStringLiteral("rad/s"), -1);
+    // 회전은 도(°) 로 보여준다. 라디안은 현장에서 읽히지 않는다.
+    angular_ = addSpeedRow(QStringLiteral("회전 속도"), robot::kWzMax, 0.50,
+                           QStringLiteral("°/s"), -1,
+                           180.0 / M_PI, 0);
 
-    auto *note = new QLabel(QStringLiteral("버튼을 누르는 동안만 발행 · %1 Hz · 데드맨 300 ms")
-                                .arg(kPublishHz));
+    auto *note = new QLabel(QStringLiteral("버튼을 누르는 동안만 움직입니다. 손을 떼면 즉시 멈춥니다."));
     note->setObjectName(QStringLiteral("Hint"));
     note->setWordWrap(true);
     card_->body()->addWidget(note);
@@ -92,7 +93,8 @@ QWidget *TeleopPanel::buildPad()
 }
 
 QSlider *TeleopPanel::addSpeedRow(const QString &label, double vmax, double def,
-                                  const QString &unit, double caution)
+                                  const QString &unit, double caution,
+                                  double dispScale, int decimals)
 {
     auto *host = new QWidget;
     auto *lay = new QVBoxLayout(host);
@@ -102,7 +104,8 @@ QSlider *TeleopPanel::addSpeedRow(const QString &label, double vmax, double def,
     auto *head = new QHBoxLayout;
     head->addWidget(sectionLabel(label));
     head->addStretch(1);
-    auto *value = readout(QStringLiteral("%1 %2").arg(def, 0, 'f', 2).arg(unit));
+    auto *value =
+        readout(QStringLiteral("%1 %2").arg(def * dispScale, 0, 'f', decimals).arg(unit));
     head->addWidget(value);
     lay->addLayout(head);
 
@@ -110,8 +113,11 @@ QSlider *TeleopPanel::addSpeedRow(const QString &label, double vmax, double def,
     slider->setRange(5, int(vmax * 100));
     slider->setValue(int(def * 100));
 
-    connect(slider, &QSlider::valueChanged, this, [value, unit, caution, slider](int v) {
-        value->setText(QStringLiteral("%1 %2").arg(v / 100.0, 0, 'f', 2).arg(unit));
+    connect(slider, &QSlider::valueChanged, this,
+            [value, unit, caution, slider, dispScale, decimals](int v) {
+        value->setText(QStringLiteral("%1 %2")
+                           .arg(v / 100.0 * dispScale, 0, 'f', decimals)
+                           .arg(unit));
         if (caution < 0)
             return;
         // 지시서 2.2.5 는 미등록 물체 접근 시 30 cm/s 감속을 요구한다.

@@ -56,7 +56,6 @@ private:
     QTabWidget *tabs_ = nullptr;
     QLineEdit *host_ = nullptr;
     QSpinBox *port_ = nullptr;
-    QSpinBox *cameraPort_ = nullptr;
     QSlider *scale_ = nullptr;
     QLabel *scaleValue_ = nullptr;
     QDoubleSpinBox *linear_ = nullptr;

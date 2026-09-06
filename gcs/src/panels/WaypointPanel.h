@@ -42,6 +42,10 @@ signals:
     void missionResume();
     void missionStop();
 
+    /// Emitted whenever the list or any point's status changes, so that
+    /// summaries elsewhere cannot drift out of step with this list.
+    void waypointsChanged(const QList<QVariantMap> &points);
+
 private:
     void move(int delta);
     void emitOrder();

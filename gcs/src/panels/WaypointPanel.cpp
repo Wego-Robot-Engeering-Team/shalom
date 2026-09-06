@@ -94,7 +94,7 @@ public:
                           .arg(d.value(QStringLiteral("x")).toDouble(), 0, 'f', 2)
                           .arg(d.value(QStringLiteral("y")).toDouble(), 0, 'f', 2);
         if (d.contains(QStringLiteral("tag_id")))
-            sub += QStringLiteral("   tag %1").arg(d.value(QStringLiteral("tag_id")).toInt());
+            sub += QStringLiteral("   마커 %1").arg(d.value(QStringLiteral("tag_id")).toInt());
         p->drawText(r.adjusted(26, 0, -62, -3), Qt::AlignLeft | Qt::AlignBottom, sub);
 
         QFont fs;
@@ -147,7 +147,7 @@ WaypointPanel::WaypointPanel(QWidget *parent) : QWidget(parent)
     // ---- 편집 ----
     auto *edit = new QHBoxLayout;
     edit->setSpacing(metrics::s2);
-    auto *add = makeButton(QStringLiteral("+ 지도에서 추가"));
+    auto *add = makeButton(QStringLiteral("지도에서 추가"));
     auto *del = makeButton(QStringLiteral("삭제"));
     auto *up = makeButton(QStringLiteral("↑"), 36);
     auto *down = makeButton(QStringLiteral("↓"), 36);
@@ -200,6 +200,7 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
         list_->addItem(it);
     }
     count_->setText(QString::number(waypoints.size()));
+    emit waypointsChanged(waypoints);
 }
 
 QList<QVariantMap> WaypointPanel::waypoints() const
@@ -223,6 +224,7 @@ void WaypointPanel::setStatus(const QString &id, const QString &status)
         d[QStringLiteral("status")] = status;
         it->setData(kRoleData, d);
         list_->update(list_->indexFromItem(it));
+        emit waypointsChanged(waypoints());
         return;
     }
 }

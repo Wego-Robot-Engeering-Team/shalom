@@ -49,7 +49,9 @@ private slots:
         const auto r = LocationPanel::checkCapture(s, QStringLiteral("inspection"));
         QVERIFY(!r.allowed);
         QCOMPARE(r.code, QStringLiteral("LOC_CAPTURE_BLOCKED"));
-        QVERIFY2(r.reason.contains(QStringLiteral("이동")), "사유에 원인이 드러나야 한다");
+        // 문안은 다듬어질 수 있으므로 코드로 계약을 고정하고, 사유에는
+        // 조작자가 읽고 원인을 알 만한 낱말이 들어 있는지만 본다.
+        QVERIFY2(r.reason.contains(QStringLiteral("움직")), "사유에 원인이 드러나야 한다");
     }
 
     /// 아주 느린 잔여 움직임까지 막으면 현장에서 등록이 안 된다.
@@ -100,7 +102,8 @@ private slots:
         const auto r = LocationPanel::checkCapture(s, QStringLiteral("inspection"));
         QVERIFY(r.allowed);
         QVERIFY(r.degraded);
-        QVERIFY(r.reason.contains(QStringLiteral("Apriltag")));
+        QCOMPARE(r.code, QStringLiteral("LOC_CAPTURE_DEGRADED"));
+        QVERIFY2(r.reason.contains(QStringLiteral("마커")), "사유에 원인이 드러나야 한다");
     }
 
     /// 충전 스테이션과 시작 위치는 마커 보정을 쓰지 않으므로 경고 대상이 아니다.

@@ -133,6 +133,7 @@ private:
     // arm
     QList<double> joints_;
     QList<double> jointTarget_;
+    bool armMoving_ = false;
 
     int seqGaps_ = 0;
     int pendingUploads_ = 0;

@@ -36,8 +36,13 @@ signals:
 
 private:
     QWidget *buildPad();
+    /// Adds a labelled speed slider. The slider always works in SI units;
+    /// dispScale and decimals only change how the number is written, so that
+    /// rotation can be shown in degrees without radians leaking into the
+    /// command path.
     QSlider *addSpeedRow(const QString &label, double vmax, double def,
-                         const QString &unit, double caution);
+                         const QString &unit, double caution,
+                         double dispScale = 1.0, int decimals = 2);
     void press(const QString &key);
     void release();
     void publish();

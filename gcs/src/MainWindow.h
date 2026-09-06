@@ -56,6 +56,7 @@ class DiagnosticsPanel;
 class EventLogPanel;
 class SettingsDialog;
 class MapCard;
+class MissionPanel;
 class StatusPanel;
 class TeleopPanel;
 class WaypointPanel;
@@ -73,6 +74,10 @@ public:
     /// Selects the context column. Public so that a screenshot run can target
     /// a specific view.
     void showView(NavItem item);
+
+    /// Switches drive mode from outside the window. Used by the development
+    /// screenshot options; the operator path goes through the top-bar buttons.
+    void setDriveMode(const QString &mode) { setMode(mode); }
 
 protected:
     bool eventFilter(QObject *obj, QEvent *ev) override;
@@ -127,6 +132,7 @@ private:
     MapCard *map_ = nullptr;
 
     StatusPanel *status_ = nullptr;
+    MissionPanel *mission_ = nullptr;
     TeleopPanel *teleop_ = nullptr;
     QWidget *teleopHost_ = nullptr;
     EventLogPanel *events_ = nullptr;

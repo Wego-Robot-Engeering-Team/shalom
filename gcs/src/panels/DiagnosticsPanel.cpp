@@ -69,8 +69,8 @@ DiagnosticsPanel::DiagnosticsPanel(QWidget *parent) : QWidget(parent)
     card_->body()->addWidget(sensorHost_);
 
     auto *sensorHint = new QLabel(QStringLiteral(
-        "막대는 기대 주기 대비 실측 주기입니다. 200 Hz IMU 와 1 Hz 배터리를 "
-        "같은 기준으로 볼 수 있도록 절대값이 아닌 비율로 그립니다."));
+        "막대는 각 센서가 기대만큼 신호를 보내고 있는지를 나타냅니다. "
+        "가득 차 있으면 정상이고, 짧아지면 그 센서를 확인해야 합니다."));
     sensorHint->setObjectName(QStringLiteral("Hint"));
     sensorHint->setWordWrap(true);
     card_->body()->addWidget(sensorHint);
