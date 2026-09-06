@@ -161,6 +161,34 @@ resources/
 tests/
 ```
 
+## 납품 패키지
+
+```bash
+cmake --preset release
+cmake --build --preset release
+cmake --install build-release --prefix dist/shalom-gcs
+```
+
+```
+shalom-gcs/
+├── bin/                    실행 파일 · 공유 라이브러리 · Qt 런타임
+├── lib/                    링크용 라이브러리 (Windows)
+├── include/shalom_gcs/     공개 헤더 — 인터페이스 계약만
+├── share/shalom_gcs/       진단 코드 카탈로그 · 통신 규약
+├── licenses/               Qt LGPL 등
+└── VERSION.txt             버전 · 커밋 해시 · 의존성 (자동 생성)
+```
+
+공개 헤더에는 **인터페이스 계약에 해당하는 것만** 들어간다 — 통신 규약, 로봇
+연동 인터페이스, 진단 코드, 메타데이터 규약. 화면 구성이나 시뮬레이터 같은
+구현 세부는 고객이 알 필요도 의존할 이유도 없다.
+
+`VERSION.txt` 의 커밋 해시에 `-dirty` 가 붙어 있으면 커밋되지 않은 변경이
+섞인 빌드다. 그런 빌드는 소프트웨어 임치본과 산출물이 달라지므로 납품하지
+않는다.
+
+절차와 확인 목록은 [packaging/README.md](packaging/README.md) 참조.
+
 ## 주석 언어 규약
 
 - **헤더(`.h`)는 영문.** 고객 배포 시 API 레퍼런스로 읽힌다.
