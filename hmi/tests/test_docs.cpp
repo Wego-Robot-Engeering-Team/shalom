@@ -10,6 +10,7 @@
 // runs on every build is worth more than a precise one that nobody runs.
 
 #include <QFile>
+#include <QIODevice>
 #include <QRegularExpression>
 #include <QTest>
 
@@ -37,40 +38,37 @@ private slots:
     }
 
     /// 코드에 있는 채널이 명세에 전부 적혀 있어야 한다.
+    ///
+    /// 목록을 여기에 손으로 적어 두었더니, 새 채널을 헤더에만 넣고 이 목록에
+    /// 넣지 않는 일이 생겼다 — 그러면 검사는 통과하고 명세서에는 채널이
+    /// 빠진 채로 남는다. 로봇 팀이 보는 것은 명세서뿐이라, 그 채널은
+    /// 아무도 구현하지 않는다. 실제로 cmd/power/policy 가 그랬다.
+    ///
+    /// 그래서 헤더를 읽는다. 목록을 두 곳에 두지 않으면 어긋날 수도 없다.
     void everyChannelIsDocumented()
     {
         const QString doc = protocolDoc();
         QVERIFY(!doc.isEmpty());
 
-        const QStringList channels{
-            QLatin1String(hmi::ch::kPose),        QLatin1String(hmi::ch::kBattery),
-            QLatin1String(hmi::ch::kSystem),      QLatin1String(hmi::ch::kSafety),
-            QLatin1String(hmi::ch::kNav),         QLatin1String(hmi::ch::kPlan),
-            QLatin1String(hmi::ch::kTrail),       QLatin1String(hmi::ch::kArm),
-            QLatin1String(hmi::ch::kApriltag),    QLatin1String(hmi::ch::kMission),
-            QLatin1String(hmi::ch::kWaypoints),   QLatin1String(hmi::ch::kLog),
-            QLatin1String(hmi::ch::kMap),         QLatin1String(hmi::ch::kPreview),
-            QLatin1String(hmi::ch::kCaptureSpool),
-            QLatin1String(hmi::ch::kCmdEstop),    QLatin1String(hmi::ch::kCmdEstopRelease),
-            QLatin1String(hmi::ch::kCmdMode),     QLatin1String(hmi::ch::kCmdGoto),
-            QLatin1String(hmi::ch::kCmdNavCancel),
-            QLatin1String(hmi::ch::kCmdWaypointsSet),
-            QLatin1String(hmi::ch::kCmdMissionStart),
-            QLatin1String(hmi::ch::kCmdMissionPause),
-            QLatin1String(hmi::ch::kCmdMissionResume),
-            QLatin1String(hmi::ch::kCmdMissionStop),
-            QLatin1String(hmi::ch::kCmdArmPreset),
-            QLatin1String(hmi::ch::kCmdArmJointGoal),
-            QLatin1String(hmi::ch::kCmdArmEeGoal),
-            QLatin1String(hmi::ch::kCmdArmStop),
-            QLatin1String(hmi::ch::kCmdCapture),  QLatin1String(hmi::ch::kCmdVel),
-        };
+        QFile header(QStringLiteral(HMI_SOURCE_DIR "/src/net/Channels.h"));
+        QVERIFY2(header.open(QIODevice::ReadOnly), "Channels.h 를 읽지 못했다");
+        const QString src = QString::fromUtf8(header.readAll());
+
+        // 원시 문자열을 쓰면 moc 의 전처리기가 괄호를 세다 막힌다.
+        static const QRegularExpression decl(
+            QStringLiteral("inline constexpr auto \\w+ = \"([^\"]+)\""));
+        QStringList channels;
+        for (auto it = decl.globalMatch(src); it.hasNext();)
+            channels << it.next().captured(1);
+        QVERIFY2(channels.size() > 20,
+                 qPrintable(QStringLiteral("채널을 %1 개밖에 못 찾았다 — "
+                                           "헤더 형식이 바뀌었는지 확인할 것")
+                                .arg(channels.size())));
 
         QStringList missing;
-        for (const auto &ch : channels)
-            if (!doc.contains(ch))
-                missing << ch;
-
+        for (const auto &c : channels)
+            if (!doc.contains(c))
+                missing << c;
         QVERIFY2(missing.isEmpty(),
                  qPrintable(QStringLiteral("명세서에 없는 채널: %1")
                                 .arg(missing.join(QStringLiteral(", ")))));

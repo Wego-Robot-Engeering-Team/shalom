@@ -221,9 +221,22 @@ QList<QVariantMap> SimRobot::markers() const
 
 QVariantMap SimRobot::dockPose() const
 {
-    // 대역 지도의 충전 스테이션 자리. 편성 끝 너머 구석이다.
+    // 조작자가 다시 등록했으면 그것이 우선이다. 등록 전에는 대역 지도의
+    // 충전 스테이션 자리 — 편성 끝 너머 구석이다.
+    if (!dock_.isEmpty())
+        return dock_;
     return QVariantMap{{"kind", QStringLiteral("dock")}, {"x", -85.0}, {"y", -6.0},
                        {"theta", 0.0}, {"captured_from", QStringLiteral("map")}};
+}
+
+void SimRobot::setLocations(const QList<QVariantMap> &locations)
+{
+    // 로봇이 지키는 값이다. 배터리가 떨어지거나 점검이 끝나면 여기로
+    // 돌아온다 — 관제 화면에만 적어 두면 화면이 가리키는 자리와 로봇이
+    // 가는 자리가 달라진다.
+    for (const auto &loc : locations)
+        if (loc.value(QStringLiteral("kind")).toString() == QLatin1String("dock"))
+            dock_ = loc;
 }
 
 QString SimRobot::describe() const

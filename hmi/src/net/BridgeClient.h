@@ -54,8 +54,10 @@ public:
     void cancelNav() override;
 
     void setWaypoints(const QList<QVariantMap> &waypoints) override;
+    void setLocations(const QList<QVariantMap> &locations) override;
     void setBatteryPolicy(double returnAt, double departAt) override;
     QList<QVariantMap> waypoints() const override { return waypoints_; }
+    QVariantMap dockPose() const override { return dock_; }
 
     void missionStart() override;
     void missionPause() override;
@@ -153,6 +155,7 @@ private:
 
     hmi::robot::Telemetry telemetry_;
     QList<QVariantMap> waypoints_;
+    QVariantMap dock_;
     hmi::robot::MissionState mission_ = hmi::robot::MissionState::Idle;
     hmi::robot::DriveMode mode_ = hmi::robot::DriveMode::Auto;
     bool estop_ = false;

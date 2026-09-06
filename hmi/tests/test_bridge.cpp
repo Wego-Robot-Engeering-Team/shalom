@@ -270,6 +270,55 @@ private slots:
         }
     }
 
+    /// 조작자가 다시 등록한 충전소는 로봇에게 가야 한다.
+    ///
+    /// 화면에만 적어 두면 배터리 복귀와 점검 종료 복귀는 로봇이 예전부터
+    /// 알던 자리로 간다. 조작자는 방금 옮겨 놓은 줄 알고 있고, 그 차이는
+    /// 로봇이 엉뚱한 데로 갈 때에야 드러난다.
+    void taughtDock_reachesTheRobot()
+    {
+        connectPair();
+        client_->setLocations({QVariantMap{{"kind", QStringLiteral("dock")},
+                                           {"x", -12.5},
+                                           {"y", 3.25},
+                                           {"theta", 1.0}}});
+
+        QVERIFY(waitFor([this] {
+            for (const auto &e : server_->received)
+                if (e.t == QLatin1String(mtype::kReq)
+                    && e.ch == QLatin1String(hmi::ch::kCmdLocationsSet))
+                    return true;
+            return false;
+        }));
+
+        for (const auto &e : server_->received) {
+            if (e.ch != QLatin1String(hmi::ch::kCmdLocationsSet))
+                continue;
+            const auto arr = e.p.value(QStringLiteral("locations")).toArray();
+            QCOMPARE(arr.size(), 1);
+            QCOMPARE(arr.at(0).toObject().value(QStringLiteral("x")).toDouble(), -12.5);
+        }
+
+        // 보낸 값은 화면 쪽에서도 바로 읽혀야 한다. 로봇이 되돌려 줄 때까지
+        // 예전 자리를 보여 주면 조작자는 등록이 안 먹은 줄 안다.
+        QCOMPARE(client_->dockPose().value(QStringLiteral("x")).toDouble(), -12.5);
+    }
+
+    /// 로봇이 알려 주는 고정 위치를 받아 둔다. 관제가 켜질 때 충전소가
+    /// 어디인지 아는 유일한 경로다.
+    void dockFromRobot_isRemembered()
+    {
+        connectPair();
+        server_->send(pub(hmi::ch::kLocations,
+                          {{"locations", QJsonArray{QJsonObject{{"kind", QStringLiteral("dock")},
+                                                                {"x", -85.0},
+                                                                {"y", -6.0},
+                                                                {"theta", 0.0}}}}}));
+
+        QVERIFY(waitFor([this] { return !client_->dockPose().isEmpty(); }));
+        QCOMPARE(client_->dockPose().value(QStringLiteral("y")).toDouble(), -6.0);
+    }
+
     /// 거부된 명령이 조용히 사라지면 조작자는 명령이 먹은 줄 안다.
     void rejectedCommand_surfacesAsEvent()
     {
@@ -359,7 +408,11 @@ private slots:
     {
         connectPair();
         QSignalSpy events(client_, &BridgeClient::robotEvent);
-        server_->sendRaw(QByteArray("\xDE\xAD\xBE\xEF\x08\x00\x00\x00garbage", 20));
+        // 길이를 손으로 적으면 리터럴을 고칠 때 같이 안 고친다. 실제로
+        // 15 바이트짜리를 20 바이트라고 적어 두어, 검사가 리터럴 뒤의
+        // 남의 메모리를 4 바이트 읽어 보내고 있었다 (ASan 이 잡았다).
+        static const char kGarbage[] = "\xDE\xAD\xBE\xEF\x08\x00\x00\x00garbage";
+        server_->sendRaw(QByteArray(kGarbage, sizeof(kGarbage) - 1));
 
         QVERIFY(waitFor([this] { return !client_->isConnected(); }));
         bool sawFrameError = false;

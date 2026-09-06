@@ -9,6 +9,7 @@
 // grab() 은 페인트 이벤트를 동기로 돌린다. 화면이 없어도 되도록
 // offscreen 플랫폼에서 실행한다.
 
+#include <QStandardPaths>
 #include <QTest>
 #include <QtMath>
 
@@ -68,6 +69,13 @@ class TestRender : public QObject {
     Q_OBJECT
 
 private slots:
+
+    void initTestCase()
+    {
+        // 창을 띄우면 이벤트 로그가 실제로 파일을 쓴다. 격리하지 않으면
+        // 검사를 한 번 돌릴 때마다 개발자 홈에 로그 폴더가 하나씩 남는다.
+        QStandardPaths::setTestModeEnabled(true);
+    }
 
     void everyView_paints_light() { paintEveryView(QStringLiteral("light")); }
     void everyView_paints_dark() { paintEveryView(QStringLiteral("dark")); }

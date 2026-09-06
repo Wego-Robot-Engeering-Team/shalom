@@ -54,6 +54,14 @@ public:
     // ---- mission --------------------------------------------------------
     virtual void setWaypoints(const QList<QVariantMap> &waypoints) = 0;
 
+    /// Replaces the fixed locations: the charging station and the start point.
+    ///
+    /// These have to reach the robot, not just the screen. The robot drives to
+    /// the dock on its own - when a run finishes, and when the battery gets
+    /// low - so a dock the operator re-taught here and nowhere else means the
+    /// place shown and the place driven to are different places.
+    virtual void setLocations(const QList<QVariantMap> &locations) = 0;
+
     /// Battery policy, in percent.
     ///
     /// returnAt: below this the robot abandons the run and drives to the dock.
@@ -112,8 +120,8 @@ public:
     /// Markers the link knows about up front. Empty for the bridge.
     virtual QList<QVariantMap> markers() const { return {}; }
 
-    /// Charging station pose the link knows about up front. Empty for the
-    /// bridge - it comes from the robot, or the operator teaches it.
+    /// Charging station pose the link knows about. Comes from the robot over
+    /// state/locations, or from the operator teaching it.
     virtual QVariantMap dockPose() const { return {}; }
 
     /// Starts producing telemetry. The bridge connects on construction and

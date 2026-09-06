@@ -231,6 +231,7 @@ header `p`:
 | `cmd/nav_cancel` | `{}` | |
 | `cmd/waypoints/set` | `{"points":[...]}` | 전체 치환. 배열 순서 = 순회 순서 |
 | `cmd/locations/set` | `{"locations":[...]}` | 고정 위치 전체 치환. §8 |
+| `cmd/power/policy` | `{"return_at":25,"depart_at":60}` | 배터리 임계, %. 관제는 값을 정하고 **로봇이 지킨다**. 재연결 때마다 다시 보낸다 — 로봇이 재부팅하면 화면의 값과 로봇이 지키는 값이 갈라지는데 그 차이는 눈에 보이지 않는다 |
 | `cmd/mission/start` | `{"from_index":0}` | |
 | `cmd/mission/pause` | `{}` | 그 자리에 정지. 진행 상황은 유지 |
 | `cmd/mission/resume` | `{}` | 명시적 재개만. 자동 재개 금지 |

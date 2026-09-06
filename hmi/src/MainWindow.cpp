@@ -532,9 +532,7 @@ void MainWindow::wireMapSignals()
         if (kind == QLatin1String("dock") || kind == QLatin1String("home")) {
             loc[QStringLiteral("kind")] = kind;
             (kind == QLatin1String("dock") ? dock_ : home_) = loc;
-            locations_->setDock(dock_);
-            mission_->setDockKnown(!dock_.isEmpty());
-            locations_->setHome(home_);
+            applyFixedLocations();
             log_->log(QStringLiteral("LOC_CAPTURED"), QJsonObject::fromVariantMap(loc));
             return;
         }
@@ -868,9 +866,7 @@ void MainWindow::captureLocation(const QString &kind)
 
     if (kind == QLatin1String("dock") || kind == QLatin1String("home")) {
         (kind == QLatin1String("dock") ? dock_ : home_) = loc;
-        locations_->setDock(dock_);
-        mission_->setDockKnown(!dock_.isEmpty());
-        locations_->setHome(home_);
+        applyFixedLocations();
     } else {
         auto wps = waypoints_->waypoints();
         const int n = wps.size() + 1;
@@ -947,6 +943,24 @@ void MainWindow::releaseEstop()
     // 해제 후에는 수동 모드로 떨어뜨린다. 바로 자율로 복귀시키면
     // "명시적 재개" 요건을 UI 가 우회하는 셈이 된다.
     setMode(QStringLiteral("manual"));
+}
+
+void MainWindow::applyFixedLocations()
+{
+    locations_->setDock(dock_);
+    locations_->setHome(home_);
+    mission_->setDockKnown(!dock_.isEmpty());
+
+    // 로봇에게도 보낸다. 화면에만 적어 두면 배터리 복귀와 점검 종료 복귀는
+    // 로봇이 예전부터 알고 있던 자리로 간다 — 조작자는 방금 옮겨 놓은 줄
+    // 알고 있고, 그 차이는 로봇이 엉뚱한 데로 갈 때에야 드러난다.
+    QList<QVariantMap> fixed;
+    if (!dock_.isEmpty())
+        fixed << dock_;
+    if (!home_.isEmpty())
+        fixed << home_;
+    if (!fixed.isEmpty())
+        robot_->setLocations(fixed);
 }
 
 void MainWindow::refreshUserBadge()
@@ -1114,10 +1128,13 @@ void MainWindow::startSession()
     map_->view()->setWaypoints(wps);
     map_->view()->setTags(robot_->markers());
 
+    // 로봇이 알려 준 값이 출발점이다. 여기서 다시 보내지는 않는다 —
+    // 방금 받은 것을 그대로 돌려주는 셈이라 의미가 없다.
     dock_ = robot_->dockPose();
+    home_.clear();
     locations_->setDock(dock_);
+    locations_->setHome(home_);
     mission_->setDockKnown(!dock_.isEmpty());
-    locations_->setHome({});
 
     // 이력은 저장 장치의 공유 폴더를 직접 읽는다. 로봇을 거치지 않는다.
     data_->setDirectory(Config::instance().nasMountPath());

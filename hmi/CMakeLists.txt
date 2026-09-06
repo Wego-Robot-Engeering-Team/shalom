@@ -328,6 +328,9 @@ if(UNIX AND NOT APPLE)
     install(FILES resources/brand/app-256.png
             DESTINATION share/icons/hicolor/256x256/apps
             RENAME inspection-hmi.png)
+    install(FILES resources/brand/app-128.png
+            DESTINATION share/icons/hicolor/128x128/apps
+            RENAME inspection-hmi.png)
     install(FILES resources/brand/app-48.png
             DESTINATION share/icons/hicolor/48x48/apps
             RENAME inspection-hmi.png)

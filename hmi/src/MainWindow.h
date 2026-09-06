@@ -126,6 +126,12 @@ private:
 
     void engageEstop();
     void releaseEstop();
+    /// Pushes the taught dock and start point to the panels and to the robot.
+    ///
+    /// The robot drives to the dock on its own, so a location taught only on
+    /// screen is a location the robot does not have.
+    void applyFixedLocations();
+
     /// Keeps the top-bar name and role badge on the current session.
     void refreshUserBadge();
 

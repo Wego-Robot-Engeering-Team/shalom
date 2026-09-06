@@ -135,7 +135,8 @@ void BridgeClient::onConnected()
     for (const auto *ch : {hmi::ch::kPose, hmi::ch::kBattery, hmi::ch::kSystem,
                            hmi::ch::kSafety, hmi::ch::kNav, hmi::ch::kPlan,
                            hmi::ch::kTrail, hmi::ch::kArm, hmi::ch::kApriltag,
-                           hmi::ch::kMission, hmi::ch::kWaypoints, hmi::ch::kMap,
+                           hmi::ch::kMission, hmi::ch::kWaypoints, hmi::ch::kLocations,
+                           hmi::ch::kMap,
                            hmi::ch::kPreview, hmi::ch::kCaptureSpool,
                            hmi::ch::kHealth})
         channels << QLatin1String(ch);
@@ -413,6 +414,14 @@ void BridgeClient::handlePublish(const Envelope &env)
         for (const auto &v : p.value(QStringLiteral("points")).toArray())
             wps << v.toObject().toVariantMap();
         waypoints_ = wps;
+    } else if (ch == QLatin1String(hmi::ch::kLocations)) {
+        // 충전소와 시작점은 순회 목록에 들어가지 않는다. 로봇이 스스로
+        // 복귀할 때 쓰는 자리라 로봇이 말해 주는 것이 원본이다.
+        for (const auto &v : p.value(QStringLiteral("locations")).toArray()) {
+            const QVariantMap loc = v.toObject().toVariantMap();
+            if (loc.value(QStringLiteral("kind")).toString() == QLatin1String("dock"))
+                dock_ = loc;
+        }
     } else if (ch == QLatin1String(hmi::ch::kCaptureSpool)) {
         telemetry_.nasOnline = p.value(QStringLiteral("nas_online")).toBool();
         telemetry_.pendingUploads = p.value(QStringLiteral("pending")).toInt();
@@ -514,6 +523,17 @@ void BridgeClient::setWaypoints(const QList<QVariantMap> &waypoints)
     for (const auto &w : waypoints)
         arr.append(QJsonObject::fromVariantMap(w));
     sendRequest(QLatin1String(hmi::ch::kCmdWaypointsSet), {{"points", arr}});
+}
+
+void BridgeClient::setLocations(const QList<QVariantMap> &locations)
+{
+    QJsonArray arr;
+    for (const auto &loc : locations) {
+        arr.append(QJsonObject::fromVariantMap(loc));
+        if (loc.value(QStringLiteral("kind")).toString() == QLatin1String("dock"))
+            dock_ = loc;
+    }
+    sendRequest(QLatin1String(hmi::ch::kCmdLocationsSet), {{"locations", arr}});
 }
 
 void BridgeClient::setBatteryPolicy(double returnAt, double departAt)

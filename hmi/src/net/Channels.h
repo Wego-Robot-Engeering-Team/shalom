@@ -32,6 +32,7 @@ inline constexpr auto kCaptureSpool = "state/capture_spool";
 /// Sensor and link health. Staleness is judged by the bridge against each
 /// sensor's expected rate, not by a fixed timeout here (protocol section 9.2).
 inline constexpr auto kHealth = "state/health";
+inline constexpr auto kLocations = "state/locations";  ///< dock, home - not part of the run
 
 // ---- Commands, sent by the control station -------------------------------
 inline constexpr auto kCmdEstop = "cmd/estop";                  ///< engage only
@@ -40,6 +41,7 @@ inline constexpr auto kCmdMode = "cmd/mode";
 inline constexpr auto kCmdGoto = "cmd/goto";
 inline constexpr auto kCmdNavCancel = "cmd/nav_cancel";
 inline constexpr auto kCmdWaypointsSet = "cmd/waypoints/set";   ///< replaces the whole list
+inline constexpr auto kCmdLocationsSet = "cmd/locations/set";   ///< dock and home, whole list
 
 /// Battery policy the robot must enforce: return_at and depart_at, in percent.
 ///
