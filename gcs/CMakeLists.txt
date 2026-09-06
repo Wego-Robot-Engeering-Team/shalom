@@ -97,6 +97,7 @@ add_library(gcs_core ${GCS_CORE_TYPE}
     src/panels/MissionPanel.cpp
     src/widgets/WaypointDelegate.cpp
     src/widgets/NotificationCenter.cpp
+    src/widgets/IconButton.cpp
     src/panels/TeleopPanel.cpp
     src/panels/WaypointPanel.cpp
     src/panels/ArmPanel.cpp

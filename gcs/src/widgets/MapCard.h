@@ -25,6 +25,13 @@ public:
     gcs::map::MapView *view() const { return view_; }
     QPushButton *goalButton() const { return goal_; }
 
+    /// Puts the drive-mode buttons at the left of the map's floating toolbar.
+    ///
+    /// Mode belongs on the surface it governs, not in the window chrome next
+    /// to the theme toggle. The toolbar floats over the map, so it stays
+    /// reachable from every view without costing map area.
+    void addModeButtons(QWidget *autoBtn, QWidget *manualBtn);
+
     void setMapLabel(const QString &mapId, const QString &extent);
 
     /// Banner shown while the map is waiting for a click. Without it the only
@@ -41,6 +48,7 @@ protected:
 private:
     gcs::map::MapView *view_ = nullptr;
     QWidget *toolbar_ = nullptr;
+    QWidget *toolbarRow_ = nullptr;
     QPushButton *goal_ = nullptr;
     QPushButton *fit_ = nullptr;
     QLabel *mapLabel_ = nullptr;
