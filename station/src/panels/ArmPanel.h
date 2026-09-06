@@ -87,6 +87,11 @@ private:
     void syncEeFromJoints();
     void syncJointsFromEe();
 
+    /// The same for the measured side. The robot reports joints, not a pose,
+    /// but the pose follows from the joints - so both tabs can show where the
+    /// arm actually is instead of one of them showing the last thing sent.
+    void syncEeActualFromJoints(const QList<double> &joints);
+
     /// Updates the warning badge, but only when what it says has changed.
     void showPoseWarning(const robot::PoseWarning &warning);
     void syncSlidersToActual();
@@ -102,6 +107,12 @@ private:
     QHash<QString, ValueSlider *> ee_;
     QList<QPushButton *> commandButtons_;
     QList<double> actual_;
+
+    /// Whether the robot has ever reported a pose. The command sliders snap to
+    /// the first report: until then they sit on defaults, and showing that as
+    /// an unsent edit would mean the screen opens claiming work in progress
+    /// that nobody asked for.
+    bool hadArmState_ = false;
     bool syncing_ = false;
     /// False while the pose fields name a place the arm cannot reach.
     bool eeReachable_ = true;
