@@ -12,9 +12,10 @@
 // warning that prevents the operator from stopping the robot is worse than no
 // warning at all.
 //
-// For the same reason the toasts appear along the bottom of the window, away
-// from the emergency stop in the top right, and they never grab keyboard
-// focus.
+// They appear just under the notification bell and stack downward, because
+// that is where they end up: every toast is also filed in the bell's list, and
+// showing them somewhere else made the two look unrelated. They fade in and
+// out rather than blinking, and never grab keyboard focus.
 
 #include <QWidget>
 
@@ -33,6 +34,7 @@ public:
     double appear() const { return appear_; }
     void setAppear(double v);
 
+    /// Fades out, then deletes. Calling twice is harmless.
     void dismiss();
 
 signals:
@@ -49,6 +51,7 @@ private:
     QString detail_;
     QString severity_;
     double appear_ = 0.0;
+    bool leaving_ = false;
     QTimer *life_ = nullptr;
 };
 
@@ -64,10 +67,13 @@ public:
     /// Repositions after the host resizes.
     void relayout();
 
-    /// Lifts the stack this far off the bottom of the host, so that toasts sit
-    /// above the event log instead of covering the same message it is already
-    /// showing.
+    /// Lifts the stack this far off the bottom of the host.
     void setBottomAnchor(int pixelsFromBottom);
+
+    /// Hangs the stack under this widget, right edges aligned - normally the
+    /// notification bell, so a toast visibly comes from where it is filed.
+    /// Pass nullptr to fall back to the bottom of the host.
+    void setAnchorWidget(QWidget *w);
 
 private:
     /// Beyond this many at once the screen is more alert than information.
@@ -76,6 +82,7 @@ private:
     static constexpr int kMaxVisible = 4;
 
     QWidget *host_ = nullptr;
+    QWidget *anchor_ = nullptr;
     QList<Toast *> toasts_;
     int anchorFromBottom_ = 0;
 };
