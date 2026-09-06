@@ -93,9 +93,23 @@ void Toast::setAppear(double v)
 
 void Toast::dismiss()
 {
+    if (leaving_)
+        return;
+    leaving_ = true;
     life_->stop();
+
+    // 자리부터 비워 남은 알림이 곧바로 위로 올라가게 하고, 이 위젯은
+    // 흐려지는 동안만 더 살아 있는다. 툭 사라지면 무엇이 지나갔는지
+    // 알아채지 못한다.
     emit dismissed(this);
-    deleteLater();
+
+    auto *out = new QPropertyAnimation(this, "appear", this);
+    out->setDuration(220);
+    out->setStartValue(appear_);
+    out->setEndValue(0.0);
+    out->setEasingCurve(QEasingCurve::InCubic);
+    connect(out, &QPropertyAnimation::finished, this, &QObject::deleteLater);
+    out->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void Toast::mousePressEvent(QMouseEvent *)
@@ -123,8 +137,9 @@ void Toast::paintEvent(QPaintEvent *)
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
 
-    // 등장할 때 살짝 떠오른다. 갑자기 나타나면 조작자가 놓친다.
-    p.translate(0, (1.0 - appear_) * 8);
+    // 등장·퇴장 모두 위에서 살짝 내려오며 흐려진다. 갑자기 나타나거나
+    // 툭 사라지면 조작자가 놓친다.
+    p.translate(0, (1.0 - appear_) * -6);
     p.setOpacity(appear_);
 
     const QRectF box = rect().adjusted(0, 0, -1, -1);
@@ -185,14 +200,32 @@ void ToastHost::show(const QString &title, const QString &detail, const QString 
     relayout();
 }
 
+void ToastHost::setAnchorWidget(QWidget *w)
+{
+    anchor_ = w;
+    relayout();
+}
+
 void ToastHost::relayout()
 {
     if (!host_)
         return;
 
-    // 이벤트 로그 위쪽에 띄운다. 로그 바로 위에 겹치면 같은 내용이 두 번
-    // 보이고, 그중 하나는 곧 사라져서 어느 쪽을 봐야 하는지 헷갈린다.
-    // 비상정지는 우상단이므로 어느 경우에도 가리지 않는다.
+    // 알림 종 아래에 오른쪽을 맞춰 매단다. 종이 없으면 예전처럼 아래쪽
+    // 가운데로 떨어진다.
+    if (anchor_ && anchor_->isVisible()) {
+        const QRect a(anchor_->mapTo(host_, QPoint(0, 0)), anchor_->size());
+        int y = a.bottom() + kGap;
+        for (Toast *t : std::as_const(toasts_)) {
+            const int x = qBound(kMargin, a.right() - t->width(),
+                                 host_->width() - t->width() - kMargin);
+            t->move(x, y);
+            t->raise();
+            y += t->height() + kGap;
+        }
+        return;
+    }
+
     int y = host_->height() - kMargin - anchorFromBottom_;
     for (int i = toasts_.size() - 1; i >= 0; --i) {
         Toast *t = toasts_.at(i);

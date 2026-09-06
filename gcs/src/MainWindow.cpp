@@ -94,26 +94,29 @@ MainWindow::MainWindow(gcs::robot::RobotLink *link, QWidget *parent)
 
     // 로그는 시간순으로 흐르는 목록이다. 창 전체 폭에 눕혀 놓으면 한 줄에
     // 30 자쯤 되는 메시지 옆이 1000 px 넘게 비면서, 정작 보이는 줄 수는
-    // 네댓 개뿐이었다. 오른쪽 열 아래에 세워 두면 폭은 내용에 맞고 줄 수도
-    // 늘어난다. 그만큼 지도가 왼쪽 전체 높이를 쓴다.
+    // 네댓 개뿐이었다. 좁은 열 아래에 세워 두면 폭은 내용에 맞고 줄 수도
+    // 늘어난다.
     //
     // 높이는 조절할 수 있어야 한다. 평소엔 몇 줄만 보다가, 문제가 생기면
     // 끌어올려 넓게 본다.
-    auto *right = new QSplitter(Qt::Vertical);
-    right->setChildrenCollapsible(false);
-    right->setHandleWidth(metrics::s2);
-    right->addWidget(context_);
-    right->addWidget(events_);
-    right->setSizes({570, 290});
-    right->setStretchFactor(0, 1);
+    auto *side = new QSplitter(Qt::Vertical);
+    side->setChildrenCollapsible(false);
+    side->setHandleWidth(metrics::s2);
+    side->addWidget(context_);
+    side->addWidget(events_);
+    side->setSizes({570, 290});
+    side->setStretchFactor(0, 1);
 
+    // 레일 바로 옆에 그 레일이 바꾸는 열을 둔다. 레일은 왼쪽 끝인데
+    // 눌러서 바뀌는 화면이 오른쪽 끝에 있으면, 조작자는 1500 px 떨어진
+    // 두 곳을 번갈아 봐야 한다. 지도는 남는 폭 전부를 가져간다.
     auto *upper = new QSplitter(Qt::Horizontal);
     upper->setChildrenCollapsible(false);
     upper->setHandleWidth(metrics::s2);
+    upper->addWidget(side);
     upper->addWidget(map_);
-    upper->addWidget(right);
-    upper->setSizes({1060, 440});
-    upper->setStretchFactor(0, 1);
+    upper->setSizes({440, 1060});
+    upper->setStretchFactor(1, 1);
 
     body->addWidget(upper, 1);
     outer->addLayout(body, 1);
@@ -122,6 +125,9 @@ MainWindow::MainWindow(gcs::robot::RobotLink *link, QWidget *parent)
     alert_ = new AlertFrame(root);
     alert_->setGeometry(root->rect());
     toasts_ = new ToastHost(root);
+    // 알림 종 아래에 띄운다. 어차피 종의 목록에 쌓이는 내용이므로,
+    // 나온 자리와 쌓이는 자리가 같아야 둘이 같은 것임이 드러난다.
+    toasts_->setAnchorWidget(bell_);
     root->installEventFilter(this);
 
     wireSignals();
