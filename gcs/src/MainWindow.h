@@ -127,6 +127,12 @@ private:
 
     void startSession();
 
+    /// Opens today's JSONL log file and drops files past the retention window.
+    /// Failure is reported into the log itself and is not fatal: an operator
+    /// with no log file is still better off than one with no application.
+    void startLogFile();
+    static void pruneOldLogs(const QString &dir, int retentionDays);
+
     gcs::diag::LogStore *log_ = nullptr;
 
     NavRail *nav_ = nullptr;

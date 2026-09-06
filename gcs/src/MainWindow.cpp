@@ -8,6 +8,8 @@
 #include <QInputDialog>
 #include <QToolTip>
 #include <QLineEdit>
+#include <QDir>
+#include <QFile>
 #include <QDateTime>
 #include <QMessageBox>
 #include <QPushButton>
@@ -90,26 +92,27 @@ MainWindow::MainWindow(gcs::robot::RobotLink *link, QWidget *parent)
 
     events_ = new EventLogPanel(log_);
 
-    // 로그를 창 전체 폭으로 깔면 한 줄에 30자쯤 되는 메시지 옆으로
-    // 1000 px 넘게 빈다. 지도 폭에 맞춰 아래에 붙이고, 남은 오른쪽은
-    // 컨텍스트 열이 세로로 끝까지 쓴다.
+    // 로그는 시간순으로 흐르는 목록이다. 창 전체 폭에 눕혀 놓으면 한 줄에
+    // 30 자쯤 되는 메시지 옆이 1000 px 넘게 비면서, 정작 보이는 줄 수는
+    // 네댓 개뿐이었다. 오른쪽 열 아래에 세워 두면 폭은 내용에 맞고 줄 수도
+    // 늘어난다. 그만큼 지도가 왼쪽 전체 높이를 쓴다.
     //
-    // 로그 높이는 조절할 수 있어야 한다. 평소엔 몇 줄만 보다가,
-    // 문제가 생기면 끌어올려 넓게 본다.
-    auto *left = new QSplitter(Qt::Vertical);
-    left->setChildrenCollapsible(false);
-    left->setHandleWidth(metrics::s2);
-    left->addWidget(map_);
-    left->addWidget(events_);
-    left->setSizes({700, 230});
-    left->setStretchFactor(0, 1);
+    // 높이는 조절할 수 있어야 한다. 평소엔 몇 줄만 보다가, 문제가 생기면
+    // 끌어올려 넓게 본다.
+    auto *right = new QSplitter(Qt::Vertical);
+    right->setChildrenCollapsible(false);
+    right->setHandleWidth(metrics::s2);
+    right->addWidget(context_);
+    right->addWidget(events_);
+    right->setSizes({570, 290});
+    right->setStretchFactor(0, 1);
 
     auto *upper = new QSplitter(Qt::Horizontal);
     upper->setChildrenCollapsible(false);
     upper->setHandleWidth(metrics::s2);
-    upper->addWidget(left);
-    upper->addWidget(context_);
-    upper->setSizes({1080, 420});
+    upper->addWidget(map_);
+    upper->addWidget(right);
+    upper->setSizes({1060, 440});
     upper->setStretchFactor(0, 1);
 
     body->addWidget(upper, 1);
@@ -209,7 +212,6 @@ QWidget *MainWindow::buildContextColumn()
 {
     auto *stack = new QStackedWidget;
     stack->setMinimumWidth(380);
-    stack->setMaximumWidth(520);
 
     // NavItem 순서와 페이지 인덱스가 일치해야 한다.
     stack->addWidget(buildDriveContext());
@@ -231,17 +233,21 @@ QWidget *MainWindow::buildDriveContext()
     status_ = new StatusPanel;
     lay->addWidget(status_);
 
-    // 점검 목록과 시작·정지는 위치 화면에 있다. 하지만 운용 중에는
-    // 지도를 띄운 이 화면에 머무르므로, 진행 상황만이라도 여기서 읽히게 한다.
-    mission_ = new MissionPanel;
-    lay->addWidget(mission_, 1);
-
     // 수동 조작은 수동 모드에서만 나타난다. 자율 주행 중에는 의미가 없고,
     // 비활성 컨트롤을 띄워두면 화면만 차지한다.
+    //
+    // 점검 목록보다 위에 둔다. 수동으로 바꿨다는 것은 지금 조작자가 직접
+    // 몰겠다는 뜻이므로, 그 순간 눌러야 할 것이 스크롤 아래에 있으면 안 된다.
     teleop_ = new TeleopPanel;
     teleopHost_ = teleop_;
     teleopHost_->setVisible(false);
     lay->addWidget(teleopHost_);
+
+    // 점검 목록과 시작·정지는 위치 화면에 있다. 하지만 운용 중에는
+    // 지도를 띄운 이 화면에 머무르므로, 진행 상황만이라도 여기서 읽히게 한다.
+    // 남는 세로 공간은 이 목록이 가져간다.
+    mission_ = new MissionPanel;
+    lay->addWidget(mission_, 1);
 
     // 스크롤로 감싸지 않으면 이 열의 최소 높이가 카드 높이의 합이 된다.
     // 수동 모드로 바꿔 조작 카드가 나타나는 순간 세로 스플리터가 밀려
@@ -566,6 +572,27 @@ void MainWindow::wireSignals()
         map_->setPlacementHint(
             QStringLiteral("지도를 클릭해 점검포인트를 추가하십시오"));
     });
+    connect(waypoints_, &WaypointPanel::deleteRequested, this, [this](const QString &id) {
+        auto wps = waypoints_->waypoints();
+        const auto removed = std::remove_if(wps.begin(), wps.end(), [&id](const QVariantMap &w) {
+            return w.value(QStringLiteral("id")).toString() == id;
+        });
+        if (removed == wps.end())
+            return;
+        wps.erase(removed, wps.end());
+        waypoints_->setWaypoints(wps);
+        map_->view()->setWaypoints(wps);
+        robot_->setWaypoints(wps);
+        log_->note(diag::Severity::Info, QStringLiteral("점검포인트 삭제 (%1)").arg(id),
+                   QJsonObject{{"id", id}});
+    });
+
+    // 목록에서 고른 포인트를 지도에서도 짚어 준다. 목록과 지도를 눈으로
+    // 대응시키지 못하면 좌표만 보고 어디인지 알아내야 한다.
+    connect(waypoints_, &WaypointPanel::waypointSelected, this, [this](const QString &id) {
+        map_->view()->focusWaypoint(id);
+    });
+
     connect(waypoints_, &WaypointPanel::orderChanged, this, [this](const QStringList &ids) {
         robot_->setWaypoints(waypoints_->waypoints());
         log_->note(diag::Severity::Info,
@@ -847,7 +874,9 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *ev)
         alert_->setGeometry(centralWidget()->rect());
         // 알림을 이벤트 로그 위로 띄운다. 로그 높이는 조작자가 조절하므로
         // 매번 다시 잰다.
-        toasts_->setBottomAnchor(events_ ? events_->height() + metrics::s3 : 0);
+        // 로그가 오른쪽 열로 옮겨가 더 이상 토스트와 겹치지 않는다.
+        // 토스트는 지도 아래쪽에 그대로 뜬다.
+        toasts_->setBottomAnchor(metrics::s3);
     }
     return QMainWindow::eventFilter(obj, ev);
 }
@@ -874,10 +903,49 @@ void MainWindow::applyTheme(const QString &name)
     }
 }
 
+// ================= 로그 파일 =================
+
+void MainWindow::startLogFile()
+{
+    // 설정 화면에 저장 위치와 보관 기간이 있는데도 파일이 열리지 않고
+    // 있었다. 문제가 생긴 뒤 담당자에게 보낼 수 있는 것이 로그뿐인데
+    // 그 로그가 창을 닫는 순간 사라지고 있었다는 뜻이다.
+    const QString dir = Config::instance().logDirectory();
+    if (!QDir().mkpath(dir)) {
+        log_->note(diag::Severity::Warn,
+                   QStringLiteral("로그 저장 폴더를 만들 수 없습니다: %1").arg(dir));
+        return;
+    }
+
+    pruneOldLogs(dir, Config::instance().logRetentionDays());
+
+    const QString path =
+        QStringLiteral("%1/shalom-%2.jsonl")
+            .arg(dir, QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd")));
+
+    QString err;
+    if (!log_->startFileSink(path, &err))
+        log_->note(diag::Severity::Warn, err);
+}
+
+void MainWindow::pruneOldLogs(const QString &dir, int retentionDays)
+{
+    if (retentionDays <= 0)
+        return;
+
+    const QDateTime cutoff = QDateTime::currentDateTime().addDays(-retentionDays);
+    const auto files = QDir(dir).entryInfoList({QStringLiteral("shalom-*.jsonl")}, QDir::Files);
+    for (const auto &fi : files)
+        if (fi.lastModified() < cutoff)
+            QFile::remove(fi.absoluteFilePath());
+}
+
 // ================= 데모 =================
 
 void MainWindow::startSession()
 {
+    startLogFile();
+
     auto *sim = qobject_cast<sim::SimRobot *>(robot_);
     if (sim) {
         // 시뮬레이터는 맵을 자체 생성한다. 브릿지 연결 시에는 map/occupancy
