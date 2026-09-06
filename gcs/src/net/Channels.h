@@ -40,6 +40,14 @@ inline constexpr auto kCmdMode = "cmd/mode";
 inline constexpr auto kCmdGoto = "cmd/goto";
 inline constexpr auto kCmdNavCancel = "cmd/nav_cancel";
 inline constexpr auto kCmdWaypointsSet = "cmd/waypoints/set";   ///< replaces the whole list
+
+/// Battery policy the robot must enforce: return_at and depart_at, in percent.
+///
+/// Sent whenever the setting changes and once on connect, so a robot that
+/// rebooted picks the policy back up. The robot keeps the last value it was
+/// given; it must not fall back to a built-in default silently, because the
+/// operator would then be looking at a number the robot is not using.
+inline constexpr auto kCmdPowerPolicy = "cmd/power/policy";
 inline constexpr auto kCmdMissionStart = "cmd/mission/start";
 inline constexpr auto kCmdMissionPause = "cmd/mission/pause";
 inline constexpr auto kCmdMissionResume = "cmd/mission/resume"; ///< explicit resume only

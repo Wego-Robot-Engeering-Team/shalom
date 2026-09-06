@@ -14,6 +14,14 @@ constexpr double kDefaultScale = 1.0;
 constexpr double kDefaultLinear = 0.30;
 constexpr double kDefaultAngular = 0.50;
 constexpr int kDefaultRetention = 90;
+
+/// 복귀 임계와 출발 최소값의 기본값.
+///
+/// 복귀 25 %: 검수고 끝에서 충전 스테이션까지 74 m 를 돌아오고도 남는
+/// 여유다. 출발 60 %: 편성 하나를 다 돌기에 부족한 잔량으로 나갔다가
+/// 차량 아래에서 서 버리면, 꺼내려고 열차를 움직여야 한다.
+constexpr double kDefaultReturnPct = 25.0;
+constexpr double kDefaultDepartPct = 60.0;
 /// 촬영 저장 장치의 기본 경로. 현장에서 설정 화면으로 바꾸는 값이지만,
 /// 기본값이 그 OS 에서 쓸 수 없는 형태면 처음 켰을 때 "찾을 수 없습니다"
 /// 부터 보게 된다. 윈도우에서는 UNC 경로가 자연스럽다.
@@ -65,6 +73,28 @@ int Config::bridgePort() const
 void Config::setBridgePort(int port)
 {
     store().setValue(QStringLiteral("connection/port"), port);
+    emit changed();
+}
+
+double Config::batteryReturnPercent() const
+{
+    return store().value(QStringLiteral("power/return_pct"), kDefaultReturnPct).toDouble();
+}
+
+void Config::setBatteryReturnPercent(double pct)
+{
+    store().setValue(QStringLiteral("power/return_pct"), qBound(5.0, pct, 90.0));
+    emit changed();
+}
+
+double Config::batteryDeparturePercent() const
+{
+    return store().value(QStringLiteral("power/depart_pct"), kDefaultDepartPct).toDouble();
+}
+
+void Config::setBatteryDeparturePercent(double pct)
+{
+    store().setValue(QStringLiteral("power/depart_pct"), qBound(10.0, pct, 100.0));
     emit changed();
 }
 

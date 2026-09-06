@@ -17,8 +17,13 @@ using namespace gcs::theme;
 
 namespace {
 
-constexpr int kRailWidth = 112;
-constexpr int kItemHeight = 58;
+// 아이콘과 두 글자 라벨이 들어가는 최소 폭. 예전 112 px 은 좌우가 크게
+// 비어 본문과의 간격이 두 번 있는 것처럼 보였다.
+constexpr int kRailWidth = 84;
+constexpr int kItemHeight = 56;
+
+/// 선택 표시 알약의 좌우 여백.
+constexpr int kPillInset = 6;
 constexpr int kIconBox = 22;
 
 /// 네비게이션 아이콘. 전부 선 기반이라 테마 색을 그대로 따르고,
@@ -201,24 +206,26 @@ protected:
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
 
+        // 선택 표시는 둥근 알약 하나. 예전에는 왼쪽에 굵은 파란 막대를
+        // 세웠는데, 항목마다 세로선이 하나씩 더 생기는 셈이라 레일이
+        // 어수선했다. 알약은 아이콘과 글자를 감싸므로 무엇이 선택됐는지가
+        // 모양으로 드러나고, 선이 늘지 않는다.
+        const QRectF pill = QRectF(rect()).adjusted(kPillInset, 3, -kPillInset, -3);
         if (checked_) {
             QColor bg(C.accent);
-            bg.setAlpha(28);
+            bg.setAlpha(C.isDark() ? 46 : 30);
             p.setPen(Qt::NoPen);
             p.setBrush(bg);
-            p.drawRect(rect());
-            // 선택 표시는 좌측 막대 하나. 전체를 물들이면 아이콘이 묻힌다.
-            p.setBrush(QColor(C.accent));
-            p.drawRect(QRectF(0, 0, 2.5, height()));
+            p.drawRoundedRect(pill, metrics::rLg, metrics::rLg);
         } else if (hover_) {
             p.setPen(Qt::NoPen);
             p.setBrush(QColor(C.surfaceHi));
-            p.drawRect(rect());
+            p.drawRoundedRect(pill, metrics::rLg, metrics::rLg);
         }
 
         const QColor fg(checked_ ? C.accent : (hover_ ? C.text : C.textDim));
 
-        const QRectF iconRect((width() - kIconBox) / 2.0, 8, kIconBox, kIconBox);
+        const QRectF iconRect((width() - kIconBox) / 2.0, 7, kIconBox, kIconBox);
         drawIcon(p, item_, iconRect, fg);
 
         QFont f;
@@ -226,11 +233,11 @@ protected:
         f.setWeight(checked_ ? QFont::DemiBold : QFont::Normal);
         p.setFont(f);
         p.setPen(fg);
-        p.drawText(QRectF(0, 34, width(), 18), Qt::AlignCenter, label_);
+        p.drawText(QRectF(0, 33, width(), 18), Qt::AlignCenter, label_);
 
         if (alerts_ > 0) {
             const double d = 15;
-            const QRectF badge(width() / 2.0 + kIconBox / 2.0 - 3, 5, d, d);
+            const QRectF badge(width() / 2.0 + kIconBox / 2.0 - 4, 4, d, d);
             p.setPen(Qt::NoPen);
             p.setBrush(QColor(C.danger));
             p.drawEllipse(badge);

@@ -375,6 +375,8 @@ void MainWindow::openSettings()
         connect(settings_, &SettingsDialog::appearanceChanged, this, [this] {
             applyTheme(colors().name);
         });
+        connect(settings_, &SettingsDialog::batteryPolicyChanged, this,
+                &MainWindow::pushBatteryPolicy);
     }
     settings_->show();
     settings_->raise();
@@ -631,6 +633,19 @@ void MainWindow::wireMissionSignals()
                    QJsonObject{{"channel", QStringLiteral("cmd/waypoints/set")}});
     });
     connect(waypoints_, &WaypointPanel::missionStart, this, [this] {
+        // 로봇도 같은 값으로 거부하지만, 여기서 먼저 막아야 조작자가 이유를
+        // 안다. 로봇만 거부하면 화면에서는 "눌렀는데 아무 일도 안 났다" 가 된다.
+        const double departAt = Config::instance().batteryDeparturePercent();
+        if (lastSoc_ < departAt) {
+            QMessageBox::warning(
+                this, QStringLiteral("점검을 시작할 수 없습니다"),
+                QStringLiteral("배터리가 %1%% 입니다. 출발 최소 기준 %2%% 이상 "
+                               "충전한 뒤에 시작하십시오.\n\n"
+                               "기준은 설정 · 전원에서 바꿀 수 있습니다.")
+                    .arg(lastSoc_, 0, 'f', 0)
+                    .arg(departAt, 0, 'f', 0));
+            return;
+        }
         robot_->setWaypoints(waypoints_->waypoints());
         robot_->missionStart();
         log_->log(QStringLiteral("MISSION_START"));
@@ -974,9 +989,22 @@ void MainWindow::pruneOldLogs(const QString &dir, int retentionDays)
 
 // ================= 데모 =================
 
+void MainWindow::pushBatteryPolicy()
+{
+    const auto &cfg = Config::instance();
+    robot_->setBatteryPolicy(cfg.batteryReturnPercent(), cfg.batteryDeparturePercent());
+    log_->note(diag::Severity::Info,
+               QStringLiteral("배터리 기준 전송 — 복귀 %1%, 출발 %2%")
+                   .arg(cfg.batteryReturnPercent(), 0, 'f', 0)
+                   .arg(cfg.batteryDeparturePercent(), 0, 'f', 0));
+}
+
 void MainWindow::startSession()
 {
     startLogFile();
+    // 로봇이 지킬 값이므로 시작하자마자 보낸다. 설정 화면을 한 번도 열지
+    // 않은 채로 운용하면 로봇은 아무 기준도 못 받는다.
+    pushBatteryPolicy();
 
     auto *sim = qobject_cast<sim::SimRobot *>(robot_);
     if (sim) {
@@ -1065,6 +1093,7 @@ void MainWindow::onTelemetry(const Telemetry &tm)
     status_->setTagsSeen(int(tm.seenTags.size()));
     arm_->setArmState(tm.joints, tm.manipulability, tm.sigmaMin, tm.armState);
 
+    lastSoc_ = tm.soc;
     headerBattery_->setState(tm.soc);
     nav_->setDiagnosticsAlerts(log_->countAtOrAbove(diag::Severity::Error));
     nav_->setEventAlerts(log_->countAtOrAbove(diag::Severity::Warn));

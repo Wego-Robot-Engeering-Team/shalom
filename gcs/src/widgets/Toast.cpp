@@ -68,7 +68,7 @@ Toast::Toast(const QString &title, const QString &detail, const QString &severit
     const int detailHeight =
         detail_.isEmpty()
             ? 0
-            : fm.boundingRect(0, 0, kWidth - 48, 1000, Qt::TextWordWrap, detail_).height();
+            : fm.boundingRect(0, 0, kWidth - 76, 1000, Qt::TextWordWrap, detail_).height();
     setFixedSize(kWidth, 38 + detailHeight + (detail_.isEmpty() ? 0 : 6));
 
     life_ = new QTimer(this);
@@ -147,26 +147,29 @@ void Toast::paintEvent(QPaintEvent *)
 
     p.setPen(QPen(QColor(C.borderHi), 1));
     p.setBrush(QColor(C.surface));
-    p.drawRoundedRect(box, metrics::rMd, metrics::rMd);
+    p.drawRoundedRect(box, metrics::rLg, metrics::rLg);
 
-    // 좌측 심각도 막대
+    // 심각도는 점 하나로. 예전에는 왼쪽에 굵은 색 막대를 세웠는데, 알림이
+    // 겹쳐 뜨면 세로선이 여러 개 생기면서 화면이 어수선했다. 이벤트 로그와
+    // 알림함도 같은 점 표기를 쓰므로, 세 곳에서 같은 모양으로 읽힌다.
     p.setPen(Qt::NoPen);
     p.setBrush(accent);
-    p.drawRoundedRect(QRectF(box.left() + 1, box.top() + 1, 3, box.height() - 2), 1.5, 1.5);
+    p.drawEllipse(QPointF(box.left() + 17, box.top() + 17), 4.0, 4.0);
 
     QFont ft;
     ft.setPointSize(11);
     ft.setWeight(QFont::DemiBold);
     p.setFont(ft);
-    p.setPen(accent);
-    p.drawText(QRectF(16, 8, width() - 32, 18), Qt::AlignLeft | Qt::AlignVCenter, title_);
+    p.setPen(QColor(C.text));
+    p.drawText(QRectF(30, 8, width() - 46, 18), Qt::AlignLeft | Qt::AlignVCenter, title_);
 
     if (!detail_.isEmpty()) {
         QFont fd;
         fd.setPointSize(10);
         p.setFont(fd);
         p.setPen(QColor(C.textDim));
-        p.drawText(QRectF(16, 28, width() - 32, height() - 34),
+        // 제목과 왼쪽을 맞춘다. 점 자리만큼 들여쓴다.
+        p.drawText(QRectF(30, 28, width() - 46, height() - 34),
                    Qt::TextWordWrap | Qt::AlignLeft | Qt::AlignTop, detail_);
     }
 }

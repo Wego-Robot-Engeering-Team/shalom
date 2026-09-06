@@ -29,6 +29,14 @@ public:
     void setBridgePort(int port);
 
     // ---- appearance ------------------------------------------------------
+    // ---- battery policy ---------------------------------------------------
+    // Percentages. Enforced by the robot; stored here so the setting survives
+    // a restart and can be shipped pre-filled.
+    double batteryReturnPercent() const;
+    void setBatteryReturnPercent(double pct);
+    double batteryDeparturePercent() const;
+    void setBatteryDeparturePercent(double pct);
+
     QString theme() const;              ///< "light" or "dark"
     void setTheme(const QString &name);
 

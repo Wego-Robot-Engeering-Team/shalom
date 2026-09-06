@@ -54,6 +54,7 @@ public:
     void cancelNav() override;
 
     void setWaypoints(const QList<QVariantMap> &waypoints) override;
+    void setBatteryPolicy(double returnAt, double departAt) override;
     QList<QVariantMap> waypoints() const override { return waypoints_; }
 
     void missionStart() override;
@@ -125,6 +126,11 @@ private:
     /// Distinguishes the first connection from a reconnection, so the log does
     /// not report "link restored" for a link that was never up.
     bool everConnected_ = false;
+
+    /// Last battery policy given, resent on every (re)connect. Zero means the
+    /// station has not been told one yet.
+    double batteryReturnAt_ = 0.0;
+    double batteryDepartAt_ = 0.0;
 
     qint64 heartbeatSeq_ = 0;
     QHash<qint64, qint64> heartbeatSentAt_;   ///< seq -> monotonic ms

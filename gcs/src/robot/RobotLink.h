@@ -43,6 +43,18 @@ public:
 
     // ---- mission --------------------------------------------------------
     virtual void setWaypoints(const QList<QVariantMap> &waypoints) = 0;
+
+    /// Battery policy, in percent.
+    ///
+    /// returnAt: below this the robot abandons the run and drives to the dock.
+    /// departAt: it will not leave the dock until charged to this.
+    ///
+    /// The control station only sets these; the robot enforces them. If the
+    /// station held the rule, a crashed or disconnected station during a run
+    /// would leave the robot driving until flat, possibly under a train where
+    /// recovering it means moving the train. Same reasoning as the safety gate
+    /// in protocol section 4.
+    virtual void setBatteryPolicy(double returnAt, double departAt) = 0;
     virtual QList<QVariantMap> waypoints() const = 0;
 
     virtual void missionStart() = 0;

@@ -145,6 +145,11 @@ private:
 
     void startSession();
 
+    /// Sends the battery thresholds to the robot. Called on start-up and
+    /// whenever the setting changes: the robot enforces them, so a value the
+    /// robot never received is a number on a screen, not a rule.
+    void pushBatteryPolicy();
+
     /// Opens today's JSONL log file and drops files past the retention window.
     /// Failure is reported into the log itself and is not fatal: an operator
     /// with no log file is still better off than one with no application.
@@ -187,6 +192,9 @@ private:
     QString pendingPlacementKind_;
 
     RobotSnapshot snapshot_;
+    /// Last reported charge. Kept out of RobotSnapshot, which exists to judge
+    /// whether a location capture is valid and has nothing to do with power.
+    double lastSoc_ = 0.0;
     QVariantMap dock_;
     QVariantMap home_;
 

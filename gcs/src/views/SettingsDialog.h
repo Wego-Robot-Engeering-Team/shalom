@@ -35,6 +35,11 @@ signals:
     /// Raised when a change requires the stylesheet to be rebuilt.
     void appearanceChanged();
 
+    /// The battery thresholds changed. The window must push them to the robot:
+    /// a setting the robot never hears about is a number on a screen, not a
+    /// rule the machine follows.
+    void batteryPolicyChanged();
+
 private:
     QWidget *buildConnectionTab();
 
@@ -48,6 +53,7 @@ private:
     void testConnection();
     QWidget *buildAppearanceTab();
     QWidget *buildOperationTab();
+    QWidget *buildPowerTab();
     QWidget *buildStorageTab();
     QWidget *buildSafetyTab();
 
@@ -62,6 +68,8 @@ private:
     QDoubleSpinBox *angular_ = nullptr;
     QLineEdit *logDir_ = nullptr;
     QSpinBox *retention_ = nullptr;
+    QSpinBox *returnPct_ = nullptr;
+    QSpinBox *departPct_ = nullptr;
     QLineEdit *nasPath_ = nullptr;
     QLabel *interfaces_ = nullptr;
     QLabel *subnetWarning_ = nullptr;
