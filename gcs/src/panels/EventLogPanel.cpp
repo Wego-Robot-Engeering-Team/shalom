@@ -1,5 +1,7 @@
 #include "panels/EventLogPanel.h"
 
+#include <QJsonObject>
+
 #include <QComboBox>
 #include <QEvent>
 #include <QFileDialog>
@@ -38,8 +40,29 @@ constexpr int kRoleTime = Qt::UserRole;
 constexpr int kRoleSeverity = Qt::UserRole + 1;
 constexpr int kRoleCode = Qt::UserRole + 2;
 constexpr int kRoleMessage = Qt::UserRole + 3;
+constexpr int kRoleDetail = Qt::UserRole + 4;
 
 constexpr int kRowHeight = 32;
+
+/// 상세 JSON 을 한 줄 요약으로 접는다. 중첩 객체는 값이 길어지기만 하고
+/// 한 줄에서는 읽히지 않으므로 건너뛴다.
+QString detailText(const QJsonObject &detail)
+{
+    QStringList parts;
+    for (auto it = detail.constBegin(); it != detail.constEnd(); ++it) {
+        const QJsonValue v = it.value();
+        if (v.isObject() || v.isArray())
+            continue;
+        QString text = v.isDouble() ? QString::number(v.toDouble(), 'g', 6) : v.toVariant().toString();
+        if (text.isEmpty())
+            continue;
+        parts << QStringLiteral("%1 %2").arg(it.key(), text);
+        if (parts.size() >= 4)
+            break;
+    }
+    return parts.join(QStringLiteral("   "));
+}
+
 constexpr int kIconSize = 14;
 constexpr int kRightPad = 8;
 
@@ -136,12 +159,30 @@ public:
             x = ic.right() + 10;
         }
 
-        // 제목 — 남은 폭 전부
+        // 상세 — 오른쪽 끝에 붙인다. 로그가 지도 폭을 쓰다 보니 짧은
+        // 메시지 옆이 크게 비는데, 그 자리에 (i) 를 눌러야 보이던 값을
+        // 미리 꺼내 둔다. 자리가 좁으면 제목이 우선이다.
+        int detailW = 0;
+        const QString detail = idx.data(kRoleDetail).toString();
+        const int avail = r.right() - kRightPad - x;
+        if (!detail.isEmpty() && avail > 320) {
+            QFont fd(monoFamily());
+            fd.setPointSize(9);
+            const QFontMetrics dm(fd);
+            detailW = qMin(dm.horizontalAdvance(detail) + 16, avail / 2);
+            p->setFont(fd);
+            p->setPen(QColor(C.textMute));
+            p->drawText(QRect(r.right() - kRightPad - detailW, r.top(), detailW, r.height()),
+                        Qt::AlignRight | Qt::AlignVCenter,
+                        dm.elidedText(detail, Qt::ElideRight, detailW));
+        }
+
+        // 제목 — 상세를 뺀 나머지
         QFont ft;
         ft.setPointSize(10);
         p->setFont(ft);
         p->setPen(QColor(C.text));
-        const QRect textRect(x, r.top(), r.right() - kRightPad - x, r.height());
+        const QRect textRect(x, r.top(), avail - detailW, r.height());
         if (textRect.width() > 20) {
             const QString msg = QFontMetrics(ft).elidedText(
                 idx.data(kRoleMessage).toString(), Qt::ElideRight, textRect.width());
@@ -274,7 +315,7 @@ EventLogPanel::EventLogPanel(LogStore *store, QWidget *parent)
     bar->addWidget(filter_);
 
     search_ = new QLineEdit;
-    search_->setPlaceholderText(QStringLiteral("코드 또는 내용 검색"));
+    search_->setPlaceholderText(QStringLiteral("검색어를 입력하십시오"));
     search_->setClearButtonEnabled(true);
     bar->addWidget(search_, 1);
 
@@ -304,6 +345,7 @@ void EventLogPanel::addRow(const LogEntry &e)
     it->setData(kRoleSeverity, int(e.severity));
     it->setData(kRoleCode, e.code);
     it->setData(kRoleMessage, e.message);
+    it->setData(kRoleDetail, detailText(e.detail));
     list_->insertItem(0, it);   // 최신이 위
 }
 

@@ -2,7 +2,6 @@
 
 #include <QButtonGroup>
 #include <QFont>
-#include <QLabel>
 #include <QPainter>
 #include <QPainterPath>
 #include <QVBoxLayout>
@@ -264,29 +263,6 @@ NavRail::NavRail(QWidget *parent) : QWidget(parent)
 
     lay->addStretch(1);
 
-    // ---- 상시 요약 ----
-    // 어느 뷰에 있든 배터리와 위치는 보여야 한다. 주행 뷰로 돌아가서
-    // 확인해야 한다면 그건 이미 늦은 경우가 많다.
-    lay->addWidget(new HLine);
-    lay->addSpacing(metrics::s3);
-
-    battery_ = new BatteryRing(this, 58, 25.0);
-    lay->addWidget(battery_, 0, Qt::AlignHCenter);
-
-    lay->addSpacing(metrics::s2);
-    // 숫자만 두면 무엇의 좌표인지 알 수 없다. 좁은 레일이라 라벨은
-    // 한 줄로 짧게 둔다.
-    auto *poseCaption = new QLabel(QStringLiteral("로봇 위치"), this);
-    poseCaption->setObjectName(QStringLiteral("Hint"));
-    poseCaption->setAlignment(Qt::AlignCenter);
-    lay->addWidget(poseCaption);
-
-    pose_ = new QLabel(QStringLiteral("—"), this);
-    pose_->setObjectName(QStringLiteral("Mono"));
-    pose_->setAlignment(Qt::AlignCenter);
-    pose_->setWordWrap(true);
-    lay->addWidget(pose_);
-
     setCurrent(NavItem::Drive);
 }
 
@@ -295,16 +271,6 @@ void NavRail::setCurrent(NavItem item)
     current_ = item;
     for (auto *b : std::as_const(buttons_))
         b->setChecked(b->item() == item);
-}
-
-void NavRail::setBattery(double socPercent)
-{
-    battery_->setState(socPercent);
-}
-
-void NavRail::setPoseText(const QString &text)
-{
-    pose_->setText(text);
 }
 
 void NavRail::setDiagnosticsAlerts(int count)

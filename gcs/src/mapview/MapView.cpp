@@ -159,6 +159,12 @@ void MapView::setWaypointStatus(const QString &id, const QString &status)
         m->setStatus(status);
 }
 
+void MapView::focusWaypoint(const QString &id)
+{
+    if (auto *m = waypoints_.value(id, nullptr))
+        centerOn(m);
+}
+
 void MapView::setTags(const QList<QVariantMap> &tags)
 {
     for (auto *m : std::as_const(tags_))

@@ -125,6 +125,60 @@ void BatteryRing::paintEvent(QPaintEvent *)
 
 // ============================ ArcGauge ============================
 
+// ============================ BatteryPill ============================
+
+BatteryPill::BatteryPill(QWidget *parent, double lowThreshold)
+    : AnimatedValue(parent), low_(lowThreshold)
+{
+    setFixedSize(74, 22);
+}
+
+void BatteryPill::setState(double socPercent, bool charging)
+{
+    charging_ = charging;
+    setToolTip(charging_ ? QStringLiteral("충전 중 · %1%").arg(socPercent, 0, 'f', 0)
+                         : QStringLiteral("배터리 %1%").arg(socPercent, 0, 'f', 0));
+    animateTo(qBound(0.0, socPercent, 100.0));
+}
+
+void BatteryPill::paintEvent(QPaintEvent *)
+{
+    const Colors &C = colors();
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+
+    const double soc = value();
+    const QColor tone = charging_       ? QColor(C.success)
+                        : soc <= low_ / 2 ? QColor(C.danger)
+                        : soc <= low_     ? QColor(C.warning)
+                                          : QColor(C.success);
+
+    // 셀 몸통과 오른쪽 단자.
+    const QRectF cell(0.75, 4.5, 30.0, 13.0);
+    p.setPen(QPen(QColor(C.borderHi), 1.2));
+    p.setBrush(QColor(C.surfaceHi));
+    p.drawRoundedRect(cell, 3, 3);
+
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(C.borderHi));
+    p.drawRoundedRect(QRectF(cell.right() + 1.0, 8.5, 2.4, 5.0), 1, 1);
+
+    // 잔량. 0 % 에서도 실선이 보이도록 최소 폭을 준다.
+    const double inner = cell.width() - 3.0;
+    p.setBrush(tone);
+    p.drawRoundedRect(QRectF(cell.left() + 1.5, cell.top() + 1.5,
+                             qMax(2.0, inner * soc / 100.0), cell.height() - 3.0),
+                      1.5, 1.5);
+
+    QFont f;
+    f.setPointSize(10);
+    f.setWeight(QFont::DemiBold);
+    p.setFont(f);
+    p.setPen(QColor(soc <= low_ ? tone : QColor(C.text)));
+    p.drawText(QRectF(38, 0, width() - 38, height()), Qt::AlignLeft | Qt::AlignVCenter,
+               QStringLiteral("%1%").arg(soc, 0, 'f', 0));
+}
+
 ArcGauge::ArcGauge(QWidget *parent, const QString &caption, double warnBelow,
                    double dangerBelow)
     : AnimatedValue(parent), caption_(caption), warn_(warnBelow), danger_(dangerBelow)
@@ -189,12 +243,6 @@ void StatBar::setReading(double v)
 {
     value_ = v;
     valid_ = true;
-    update();
-}
-
-void StatBar::clearReading()
-{
-    valid_ = false;
     update();
 }
 

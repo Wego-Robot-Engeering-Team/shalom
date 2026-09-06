@@ -5,8 +5,10 @@
 // Statement of work 2.2.7 [5]: always visible, engages on a single click, and
 // the whole screen is outlined in red while engaged.
 //
-// The shape deliberately echoes a physical mushroom-head emergency switch. The
-// control has to read as hardware so that the operator does not hesitate.
+// The shape deliberately echoes a physical mushroom-head emergency switch, set
+// on a labelled plate. The control has to read as hardware, and it has to be
+// the largest thing in the top bar, so that the operator does not hesitate or
+// hunt for it.
 //
 // IMPORTANT: this widget requests a stop, it does not perform one. The
 // one-second stopping guarantee comes from the robot-side safety node cutting
@@ -28,7 +30,8 @@ class EStopButton : public QWidget {
     Q_OBJECT
     Q_PROPERTY(double pulse READ pulse WRITE setPulse)
 public:
-    explicit EStopButton(QWidget *parent = nullptr, int size = 64);
+    /// height sets the plate height; the width follows from it.
+    explicit EStopButton(QWidget *parent = nullptr, int height = 56);
 
     bool isEngaged() const { return engaged_; }
     void setEngaged(bool engaged);

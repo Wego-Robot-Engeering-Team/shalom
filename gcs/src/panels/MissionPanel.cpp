@@ -1,11 +1,13 @@
 #include "panels/MissionPanel.h"
 
 #include <QLabel>
+#include <QListWidget>
 #include <QProgressBar>
 #include <QVBoxLayout>
 
 #include "theme/Tokens.h"
 #include "widgets/Primitives.h"
+#include "widgets/WaypointDelegate.h"
 
 namespace gcs::ui {
 
@@ -32,15 +34,15 @@ MissionPanel::MissionPanel(QWidget *parent) : QWidget(parent)
     card_->body()->addWidget(count_);
 
     card_->body()->addSpacing(metrics::s2);
-    card_->body()->addWidget(sectionLabel(QStringLiteral("지금 점검 중")));
-    current_ = new QLabel(QStringLiteral("—"));
-    current_->setWordWrap(true);
-    card_->body()->addWidget(current_);
 
-    card_->body()->addWidget(sectionLabel(QStringLiteral("다음 지점")));
-    next_ = new QLabel(QStringLiteral("—"));
-    next_->setWordWrap(true);
-    card_->body()->addWidget(next_);
+    // 목록은 읽기 전용이다. 추가·삭제·순서 변경과 시작·정지는 위치
+    // 화면이 맡는다. 운용 중 이 화면에서 목록을 건드릴 일은 없다.
+    list_ = new QListWidget;
+    list_->setItemDelegate(new WaypointDelegate(list_));
+    list_->setSelectionMode(QAbstractItemView::NoSelection);
+    list_->setFocusPolicy(Qt::NoFocus);
+    list_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    card_->body()->addWidget(list_, 1);
 
     refresh();
 }
@@ -82,28 +84,17 @@ void MissionPanel::refresh()
     count_->setText(total > 0 ? QStringLiteral("%1 / %2 완료").arg(done).arg(total)
                               : QStringLiteral("등록된 점검포인트 없음"));
 
-    // 진행 중인 지점이 없으면 아직 시작하지 않았거나 이미 끝난 것이다.
-    // 두 경우를 같은 "—" 로 뭉뚱그리면 조작자가 상태를 오해한다.
-    const auto nameAt = [this](int i) {
-        return points_.at(i)
-            .value(QStringLiteral("name"),
-                   points_.at(i).value(QStringLiteral("id")))
-            .toString();
-    };
-
-    if (currentIdx >= 0) {
-        current_->setText(QStringLiteral("%1. %2").arg(currentIdx + 1).arg(nameAt(currentIdx)));
-        next_->setText(currentIdx + 1 < total
-                           ? QStringLiteral("%1. %2").arg(currentIdx + 2).arg(nameAt(currentIdx + 1))
-                           : QStringLiteral("마지막 지점입니다"));
-    } else if (total > 0 && done == total) {
-        current_->setText(QStringLiteral("전체 점검 완료"));
-        next_->setText(QStringLiteral("—"));
-    } else {
-        current_->setText(QStringLiteral("아직 시작하지 않았습니다"));
-        next_->setText(total > 0 ? QStringLiteral("1. %1").arg(nameAt(0))
-                                 : QStringLiteral("—"));
+    list_->clear();
+    for (const auto &wp : points_) {
+        auto *it = new QListWidgetItem;
+        it->setData(kWaypointRole, wp);
+        list_->addItem(it);
     }
+
+    // 진행 중인 지점은 목록에서 스스로 보이게 한다. 스크롤을 조작자가
+    // 따라가야 한다면 목록을 띄운 의미가 없다.
+    if (currentIdx >= 0)
+        list_->scrollToItem(list_->item(currentIdx), QAbstractItemView::PositionAtCenter);
 }
 
 }  // namespace gcs::ui

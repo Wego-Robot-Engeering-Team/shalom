@@ -54,6 +54,11 @@ public:
     void setWaypoints(const QList<QVariantMap> &waypoints);
     void setWaypointStatus(const QString &id, const QString &status);
 
+    /// Scrolls the view so this point is centred. Used when the operator picks
+    /// a row in the list: reading a coordinate and finding it on the map by
+    /// eye is exactly the work the map is supposed to save them.
+    void focusWaypoint(const QString &id);
+
     void setTags(const QList<QVariantMap> &tags);
     void setTagsSeen(const QSet<int> &seenIds);
 

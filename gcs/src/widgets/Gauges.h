@@ -66,6 +66,25 @@ private:
     bool charging_ = false;
 };
 
+/// Battery as a horizontal cell plus a percentage, for the top bar.
+///
+/// The ring reads well at 60 px and up, where the number sits inside it. In a
+/// toolbar there is no room for that: the digits wrap and become unreadable.
+/// This draws the icon and the number side by side instead.
+class BatteryPill : public AnimatedValue {
+    Q_OBJECT
+public:
+    explicit BatteryPill(QWidget *parent = nullptr, double lowThreshold = 25.0);
+    void setState(double socPercent, bool charging = false);
+
+protected:
+    void paintEvent(QPaintEvent *) override;
+
+private:
+    double low_;
+    bool charging_ = false;
+};
+
 /// Half-circle arc gauge, used for the FR3 manipulability index.
 ///
 /// The color scale is inverted relative to a normal gauge: a low value is the
@@ -102,7 +121,6 @@ public:
     /// Pass a negative value to mark the reading as unavailable; the bar then
     /// shows an em dash instead of a misleading zero.
     void setReading(double v);
-    void clearReading();
 
 protected:
     void paintEvent(QPaintEvent *) override;
