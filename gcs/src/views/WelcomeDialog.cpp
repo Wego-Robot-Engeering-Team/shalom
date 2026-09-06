@@ -93,7 +93,7 @@ WelcomeDialog::WelcomeDialog(QWidget *parent) : QDialog(parent)
     lay->addWidget(info);
 
     auto *notice = new QLabel(QStringLiteral(
-        "비상정지의 최종 권한은 하드웨어 버튼과 로봇측 안전 노드에 있습니다. "
+        "비상정지의 최종 권한은 하드웨어 정지 버튼과 로봇 자체 안전장치에 있습니다. "
         "관제 화면의 정지 버튼은 보조 수단입니다."));
     notice->setObjectName(QStringLiteral("Hint"));
     notice->setWordWrap(true);
@@ -106,7 +106,7 @@ void WelcomeDialog::buildSetupMode()
 
     auto *intro = new QLabel(QStringLiteral(
         "최초 실행입니다. 관리자 비밀번호를 설정하십시오.\n"
-        "비상정지 해제, 위치 교시, 설정 변경에 필요합니다."));
+        "비상정지 해제, 위치 등록, 설정 변경에 필요합니다."));
     intro->setWordWrap(true);
     lay->addWidget(intro);
     lay->addSpacing(metrics::s2);
@@ -125,8 +125,8 @@ void WelcomeDialog::buildSetupMode()
     lay->addWidget(fieldRow(QStringLiteral("확인"), passwordConfirm_, 72));
 
     auto *warn = new QLabel(QStringLiteral(
-        "이 비밀번호는 오조작 방지를 위한 운용 통제 수단입니다. "
-        "관제 PC에 파일 접근이 가능한 사람에게는 보안 경계가 되지 않습니다."));
+        "실수로 누르는 것을 막기 위한 장치입니다. "
+        "관제 PC 를 직접 쓸 수 있는 사람까지 막아주지는 않습니다."));
     warn->setObjectName(QStringLiteral("Hint"));
     warn->setWordWrap(true);
     lay->addWidget(warn);
@@ -142,7 +142,7 @@ void WelcomeDialog::buildSignInMode()
 
     role_ = new QComboBox;
     role_->addItem(QStringLiteral("운용자 — 주행 · 촬영 · 미션 실행"), int(Role::Operator));
-    role_->addItem(QStringLiteral("관리자 — 비상정지 해제 · 위치 교시 · 설정"), int(Role::Admin));
+    role_->addItem(QStringLiteral("관리자 — 비상정지 해제 · 위치 등록 · 설정"), int(Role::Admin));
     lay->addWidget(fieldRow(QStringLiteral("권한"), role_, 72));
 
     password_ = new QLineEdit;

@@ -33,6 +33,12 @@ struct Telemetry {
     QList<double> joints;
     double manipulability = 0;
     double sigmaMin = 0;
+
+    /// "idle" | "planning" | "executing" | "error".
+    /// Reported by the arm controller rather than inferred here: guessing from
+    /// base velocity got it backwards once already, and the operator cannot
+    /// tell a wrong badge from a right one.
+    QString armState = QStringLiteral("idle");
     QSet<int> seenTags;
     double cpu = 0, mem = 0, cpuTemp = 0, gpuTemp = 0, rtt = 0;
     bool estop = false;

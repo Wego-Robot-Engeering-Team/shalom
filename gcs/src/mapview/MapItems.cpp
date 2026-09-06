@@ -143,7 +143,7 @@ AprilTagMarker::AprilTagMarker(int tagId, double size) : id_(tagId), s_(size)
 {
     setFlag(QGraphicsItem::ItemIgnoresTransformations, true);
     setZValue(50);
-    setToolTip(QStringLiteral("AprilTag #%1").arg(tagId));
+    setToolTip(QStringLiteral("마커 #%1").arg(tagId));
 }
 
 void AprilTagMarker::setSeen(bool seen)

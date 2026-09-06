@@ -18,7 +18,7 @@ StatusPanel::StatusPanel(QWidget *parent) : QWidget(parent)
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
 
-    card_ = new Card(QStringLiteral("상태 모니터링"));
+    card_ = new Card(QStringLiteral("로봇 상태"));
     conn_ = new Badge(QStringLiteral("연결 끊김"), QStringLiteral("danger"));
     card_->addHeaderWidget(conn_);
     outer->addWidget(card_);
@@ -34,7 +34,7 @@ StatusPanel::StatusPanel(QWidget *parent) : QWidget(parent)
     right->addWidget(sectionLabel(QStringLiteral("주행 모드")));
     mode_ = new Badge(QStringLiteral("—"), QStringLiteral("neutral"));
     right->addWidget(mode_, 0, Qt::AlignLeft);
-    right->addWidget(sectionLabel(QStringLiteral("Apriltag")));
+    right->addWidget(sectionLabel(QStringLiteral("인식된 마커")));
     tag_ = new Badge(QStringLiteral("미인식"), QStringLiteral("neutral"));
     right->addWidget(tag_, 0, Qt::AlignLeft);
     right->addStretch(1);
@@ -50,7 +50,7 @@ StatusPanel::StatusPanel(QWidget *parent) : QWidget(parent)
     grid->setHorizontalSpacing(metrics::s4);
     grid->setVerticalSpacing(metrics::s1);
     cpu_ = new StatBar(QStringLiteral("CPU"), QStringLiteral("%"), nullptr, 80, 92);
-    mem_ = new StatBar(QStringLiteral("MEM"), QStringLiteral("%"), nullptr, 80, 92);
+    mem_ = new StatBar(QStringLiteral("메모리"), QStringLiteral("%"), nullptr, 80, 92);
     cpuTemp_ = new StatBar(QStringLiteral("CPU 온도"), QStringLiteral("°C"), nullptr, 75, 88);
     gpuTemp_ = new StatBar(QStringLiteral("GPU 온도"), QStringLiteral("°C"), nullptr, 75, 88);
     rtt_ = new StatBar(QStringLiteral("응답 시간"), QStringLiteral("ms"), nullptr, 120, 400, 500);
@@ -63,7 +63,7 @@ StatusPanel::StatusPanel(QWidget *parent) : QWidget(parent)
 
     // ---- 위치 ----
     card_->body()->addSpacing(metrics::s2);
-    card_->body()->addWidget(sectionLabel(QStringLiteral("현재 위치 (map)")));
+    card_->body()->addWidget(sectionLabel(QStringLiteral("현재 위치")));
     pose_ = readout();
     card_->body()->addWidget(pose_);
     card_->body()->addStretch(1);
@@ -105,7 +105,7 @@ void StatusPanel::setSystem(double cpu, double mem, double cpuTemp, double gpuTe
 
 void StatusPanel::setPose(double x, double y, double thetaDeg)
 {
-    pose_->setText(QStringLiteral("%1, %2   θ %3°")
+    pose_->setText(QStringLiteral("%1, %2   방향 %3°")
                        .arg(x, 7, 'f', 2)
                        .arg(y, 7, 'f', 2)
                        .arg(thetaDeg, 6, 'f', 1));
