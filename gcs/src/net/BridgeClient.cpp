@@ -140,6 +140,13 @@ void BridgeClient::onConnected()
     sendEnvelope(makeSubscribe(channels));
 
     heartbeatTimer_->start();
+
+    // 붙자마자 전원 정책을 다시 보낸다. 로봇이 재부팅했으면 정책을 잊었을
+    // 수 있고, 그 상태로 두면 관제 화면에 적힌 값과 로봇이 지키는 값이
+    // 갈라진다 — 눈에 보이지 않는 차이라 사고 뒤에야 드러난다.
+    if (batteryReturnAt_ > 0.0)
+        setBatteryPolicy(batteryReturnAt_, batteryDepartAt_);
+
     emit connectionChanged(true);
     // 첫 연결과 재연결을 구분한다. 처음 붙는 것을 "재연결됨" 이라고 하면
     // 조작자가 직전에 무슨 문제가 있었나 하고 로그를 뒤진다.
@@ -480,6 +487,16 @@ void BridgeClient::setWaypoints(const QList<QVariantMap> &waypoints)
     for (const auto &w : waypoints)
         arr.append(QJsonObject::fromVariantMap(w));
     sendRequest(QLatin1String(gcs::ch::kCmdWaypointsSet), {{"points", arr}});
+}
+
+void BridgeClient::setBatteryPolicy(double returnAt, double departAt)
+{
+    // 값을 들고 있다가 재연결 때 다시 보낸다. 로봇이 재부팅하면 관제 화면에
+    // 적힌 값과 로봇이 지키는 값이 갈라지는데, 그 차이는 눈에 보이지 않는다.
+    batteryReturnAt_ = returnAt;
+    batteryDepartAt_ = departAt;
+    sendRequest(QLatin1String(gcs::ch::kCmdPowerPolicy),
+                {{"return_at", returnAt}, {"depart_at", departAt}});
 }
 
 void BridgeClient::missionStart()

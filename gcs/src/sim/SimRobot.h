@@ -65,6 +65,7 @@ public:
 
     void requestGoal(double x, double y, double theta) override;
     void cancelNav() override;
+    void setBatteryPolicy(double returnAt, double departAt) override;
 
     void missionStart() override;
     void missionPause() override;
@@ -115,6 +116,11 @@ private:
     // (-13, 0) sits in the middle of the aisle between the two trains there.
     double x_ = -32.0, y_ = -10.0, theta_ = 0.0;
     double speed_ = 0.0;
+
+    // Battery policy: set by the control station, enforced here.
+    double returnAtPct_ = 25.0;
+    double departAtPct_ = 60.0;
+    bool returningForCharge_ = false;
 
     // manual jog with deadman
     double cmdVx_ = 0, cmdVy_ = 0, cmdWz_ = 0;

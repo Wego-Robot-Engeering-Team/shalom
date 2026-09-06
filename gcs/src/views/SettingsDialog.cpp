@@ -69,6 +69,7 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QWidget(parent, Qt::Window)
     tabs->addTab(buildAppearanceTab(), QStringLiteral("표시"));
     tabs->addTab(buildConnectionTab(), QStringLiteral("연결"));
     tabs->addTab(buildOperationTab(), QStringLiteral("조작"));
+    tabs->addTab(buildPowerTab(), QStringLiteral("전원"));
     tabs->addTab(buildStorageTab(), QStringLiteral("저장"));
     tabs->addTab(buildSafetyTab(), QStringLiteral("안전"));
     lay->addWidget(tabs, 1);
@@ -270,6 +271,51 @@ QWidget *SettingsDialog::buildOperationTab()
     return page;
 }
 
+QWidget *SettingsDialog::buildPowerTab()
+{
+    auto *page = new QWidget;
+    auto *lay = new QVBoxLayout(page);
+    lay->setContentsMargins(metrics::s3, metrics::s4, metrics::s3, metrics::s3);
+    lay->setSpacing(metrics::s3);
+
+    returnPct_ = new QSpinBox;
+    returnPct_->setRange(5, 90);
+    returnPct_->setSuffix(QStringLiteral(" %"));
+
+    departPct_ = new QSpinBox;
+    departPct_->setRange(10, 100);
+    departPct_->setSuffix(QStringLiteral(" %"));
+
+    lay->addWidget(sectionLabel(QStringLiteral("배터리")));
+    lay->addWidget(fieldRow(QStringLiteral("복귀 시작"), returnPct_, 96));
+    lay->addWidget(fieldRow(QStringLiteral("출발 최소"), departPct_, 96));
+
+    auto *hint = new QLabel(QStringLiteral(
+        "복귀 시작 — 점검 중 잔량이 이 값 아래로 내려가면 로봇이 점검을 멈추고 "
+        "충전 스테이션으로 돌아갑니다.\n\n"
+        "출발 최소 — 충전이 이 값에 이르기 전에는 점검을 시작하지 않습니다. "
+        "부족한 잔량으로 나갔다가 차량 아래에서 서면, 꺼내기 위해 열차를 "
+        "움직여야 합니다.\n\n"
+        "이 두 값은 로봇이 지킵니다. 관제 화면이 꺼져 있어도 그대로 동작합니다."));
+    hint->setObjectName(QStringLiteral("Hint"));
+    hint->setWordWrap(true);
+    lay->addWidget(hint);
+
+    // 설정만 저장하고 끝나면 로봇은 예전 값으로 계속 돈다. 바뀔 때마다
+    // 즉시 로봇으로 보낸다.
+    connect(returnPct_, &QSpinBox::valueChanged, this, [this](int v) {
+        Config::instance().setBatteryReturnPercent(v);
+        emit batteryPolicyChanged();
+    });
+    connect(departPct_, &QSpinBox::valueChanged, this, [this](int v) {
+        Config::instance().setBatteryDeparturePercent(v);
+        emit batteryPolicyChanged();
+    });
+
+    lay->addStretch(1);
+    return page;
+}
+
 QWidget *SettingsDialog::buildStorageTab()
 {
     auto *page = new QWidget;
@@ -444,12 +490,15 @@ void SettingsDialog::load()
 {
     auto &cfg = Config::instance();
     const QSignalBlocker b1(scale_), b2(host_), b3(port_);
+    const QSignalBlocker bp1(returnPct_), bp2(departPct_);
     const QSignalBlocker b5(linear_), b6(angular_), b7(logDir_), b8(retention_), b9(nasPath_);
 
     scale_->setValue(int(qRound(cfg.uiScale() * 100)));
     scaleValue_->setText(QStringLiteral("%1%").arg(scale_->value()));
     host_->setText(cfg.bridgeHost());
     port_->setValue(cfg.bridgePort());
+    returnPct_->setValue(int(cfg.batteryReturnPercent()));
+    departPct_->setValue(int(cfg.batteryDeparturePercent()));
     linear_->setValue(cfg.defaultLinearSpeed());
     angular_->setValue(qRadiansToDegrees(cfg.defaultAngularSpeed()));
     logDir_->setText(cfg.logDirectory());

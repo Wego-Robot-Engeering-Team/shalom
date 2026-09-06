@@ -233,6 +233,18 @@ void SimRobot::missionStart()
 {
     if (estop_ || mode_ != DriveMode::Auto)
         return;
+
+    // 출발 최소값을 지키는 것도 로봇이다. 충전이 덜 된 채로 나가면 편성
+    // 하나를 다 돌기 전에 서고, 차량 아래에서 서면 꺼내려고 열차를 움직여야
+    // 한다. 관제도 같은 값을 보고 미리 막지만, 최종 거부는 여기서 한다.
+    if (soc_ < departAtPct_) {
+        emit robotEvent(QStringLiteral("BATTERY_LOW"),
+                        {{"soc", soc_}, {"depart_at", departAtPct_},
+                         {"reason", QStringLiteral("depart_blocked")}});
+        return;
+    }
+
+    returningForCharge_ = false;
     for (int i = 0; i < waypoints_.size(); ++i)
         setWaypointStatus(i, QStringLiteral("todo"));
     activeIndex_ = -1;
@@ -327,6 +339,12 @@ void SimRobot::setArmPreset(const QString &name)
         preset = &robot::kArmStow;
     if (preset)
         jointTarget_ = {preset->begin(), preset->end()};
+}
+
+void SimRobot::setBatteryPolicy(double returnAt, double departAt)
+{
+    returnAtPct_ = returnAt;
+    departAtPct_ = departAt;
 }
 
 void SimRobot::stopArm()
@@ -499,6 +517,18 @@ Telemetry SimRobot::step(double dt)
 
     // 배터리는 활동량에 비례해 줄어든다. 정지 중에도 대기 전력은 있다.
     soc_ = qMax(0.0, soc_ - dt * (0.02 + speed_ * 0.05));
+
+    // 복귀 임계를 지키는 것은 로봇이다. 관제가 판단하게 두면 관제가 죽거나
+    // 끊긴 사이에 방전되고, 차량 아래에서 서면 꺼내려고 열차를 움직여야 한다.
+    if (mission_ != MissionState::Idle && !returningForCharge_ && soc_ <= returnAtPct_) {
+        returningForCharge_ = true;
+        emit robotEvent(QStringLiteral("BATTERY_LOW"),
+                        {{"soc", soc_}, {"return_at", returnAtPct_}});
+        emit robotEvent(QStringLiteral("RETURN_TO_DOCK"), {{"reason", QStringLiteral("battery")}});
+        mission_ = MissionState::Idle;
+        activeIndex_ = -1;
+        emit missionStateChanged(mission_);
+    }
 
     // 업로드는 주행과 무관하게 진행된다.
     uploadTimer_ += dt;
