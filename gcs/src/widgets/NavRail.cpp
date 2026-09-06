@@ -85,6 +85,17 @@ void drawIcon(QPainter &p, NavItem item, const QRectF &r, const QColor &c)
         p.drawEllipse(QPointF(x + s * 0.50, y + s * 0.58), s * 0.16, s * 0.16);
         break;
     }
+    case NavItem::Events: {
+        // 줄글 목록 — 왼쪽에 점, 오른쪽에 줄
+        for (int i = 0; i < 3; ++i) {
+            const double cy = y + s * (0.28 + i * 0.22);
+            p.setBrush(p.pen().color());
+            p.drawEllipse(QRectF(x + s * 0.10, cy - s * 0.055, s * 0.11, s * 0.11));
+            p.setBrush(Qt::NoBrush);
+            p.drawLine(QPointF(x + s * 0.34, cy), QPointF(x + s * 0.90, cy));
+        }
+        break;
+    }
     case NavItem::Data: {
         // 적층 디스크 — 저장된 점검 데이터
         for (int i = 0; i < 3; ++i) {
@@ -120,6 +131,7 @@ const ItemSpec kItems[] = {
     {NavItem::Capture, "촬영"},
     {NavItem::Diagnostics, "진단"},
     {NavItem::Data, "이력"},
+    {NavItem::Events, "로그"},
 };
 
 }  // namespace
@@ -259,6 +271,8 @@ NavRail::NavRail(QWidget *parent) : QWidget(parent)
         buttons_ << btn;
         if (spec.item == NavItem::Diagnostics)
             diagnosticsButton_ = btn;
+        if (spec.item == NavItem::Events)
+            eventsButton_ = btn;
     }
 
     lay->addStretch(1);
@@ -277,6 +291,12 @@ void NavRail::setDiagnosticsAlerts(int count)
 {
     if (diagnosticsButton_)
         diagnosticsButton_->setAlerts(count);
+}
+
+void NavRail::setEventAlerts(int count)
+{
+    if (eventsButton_)
+        eventsButton_->setAlerts(count);
 }
 
 }  // namespace gcs::ui

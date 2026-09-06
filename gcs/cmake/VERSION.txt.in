@@ -1,5 +1,5 @@
-SHALOM 관제 시스템 (Ground Control Station)
-===========================================
+철도차량 하부점검 관제 시스템 (Ground Control Station)
+=====================================================
 
 버전            @PROJECT_VERSION@
 Git 커밋        @GCS_GIT_HASH@@GCS_GIT_DIRTY@
@@ -24,5 +24,5 @@ Qt              @Qt6_VERSION@  (LGPL v3, 동적 링크)
 Qt 는 LGPL v3 로 동적 링크되어 있습니다. 이용자는 Qt 를 교체해 재링크할 수
 있으며, 그에 필요한 정보는 licenses/ 디렉터리를 참조하십시오.
 
-통신 규약은 share/bridge_protocol.md 를 참조하십시오.
-진단 코드 목록은 share/error_codes.json 및 비상대응 매뉴얼을 참조하십시오.
+통신 규약은 share/inspection_gcs/bridge_protocol.md 를 참조하십시오.
+진단 코드 목록은 share/inspection_gcs/error_codes.json 및 비상대응 매뉴얼을 참조하십시오.

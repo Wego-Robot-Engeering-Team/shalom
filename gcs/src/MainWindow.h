@@ -100,6 +100,7 @@ private:
     QWidget *buildCaptureContext();
     QWidget *buildDiagnosticsContext();
     QWidget *buildDataContext();
+    QWidget *buildEventsContext();
     /// Connects every signal, split by what the operator is touching.
     /// One 240-line function made it impossible to see whether a panel
     /// was wired at all - two panels were not.
@@ -121,14 +122,6 @@ private:
     void releaseEstop();
     void setMode(const QString &mode);
     void navigate(NavItem item);
-
-    /// Keeps the event log the same width as the cards above it.
-    ///
-    /// The cards live in a scroll area and the log does not, so whenever the
-    /// column overflows the scroll bar narrows the cards and the log alone
-    /// stays wide. A fixed gutter cannot fix that: it is wrong in whichever
-    /// state it was not measured for.
-    void syncLogGutter();
     void openSettings();
 
     /// Writes a log entry tagged with the signed-in operator, so the event log
@@ -171,7 +164,6 @@ private:
     TeleopPanel *teleop_ = nullptr;
     QWidget *teleopHost_ = nullptr;
     EventLogPanel *events_ = nullptr;
-    QVBoxLayout *eventsLay_ = nullptr;
     WaypointPanel *waypoints_ = nullptr;
     ArmPanel *arm_ = nullptr;
     LocationPanel *locations_ = nullptr;

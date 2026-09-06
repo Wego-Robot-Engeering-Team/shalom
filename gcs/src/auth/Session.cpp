@@ -22,7 +22,7 @@ constexpr int kLockoutSeconds = 60;
 QSettings &store()
 {
     static QSettings s(QSettings::IniFormat, QSettings::UserScope,
-                       QStringLiteral("WEGO Robotics"), QStringLiteral("SHALOM GCS"));
+                       QStringLiteral("WEGO Robotics"), QStringLiteral("Inspection GCS"));
     return s;
 }
 

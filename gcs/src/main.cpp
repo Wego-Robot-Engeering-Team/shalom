@@ -1,4 +1,4 @@
-// SHALOM control station - application entry point.
+// Undercarriage inspection control station - application entry point.
 
 #include <QApplication>
 #include <QDir>
@@ -64,7 +64,7 @@ void captureAndQuit(QWidget *window, const QString &path)
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
-    app.setApplicationName(QStringLiteral("SHALOM GCS"));
+    app.setApplicationName(QStringLiteral("Inspection GCS"));
     app.setOrganizationName(QStringLiteral("WEGO Robotics"));
 
     // 플랫폼 네이티브 스타일 대신 Fusion 으로 고정한다.
@@ -177,6 +177,7 @@ int main(int argc, char *argv[])
             {QStringLiteral("capture"), gcs::ui::NavItem::Capture},
             {QStringLiteral("diagnostics"), gcs::ui::NavItem::Diagnostics},
             {QStringLiteral("data"), gcs::ui::NavItem::Data},
+            {QStringLiteral("events"), gcs::ui::NavItem::Events},
         };
         const auto it = kViews.constFind(args.at(viewIdx + 1));
         if (it != kViews.constEnd())

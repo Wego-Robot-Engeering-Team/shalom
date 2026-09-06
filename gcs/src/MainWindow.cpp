@@ -68,7 +68,7 @@ MainWindow::MainWindow(gcs::robot::RobotLink *link, QWidget *parent)
     Q_ASSERT(robot_);
     robot_->setParent(this);
 
-    setWindowTitle(QStringLiteral("SHALOM 관제 · 철도차량 하부 점검시스템"));
+    setWindowTitle(QStringLiteral("철도차량 하부점검 관제 시스템"));
     resize(1720, 990);
 
     log_ = new diag::LogStore(this);
@@ -93,39 +93,13 @@ MainWindow::MainWindow(gcs::robot::RobotLink *link, QWidget *parent)
     map_->addModeButtons(autoBtn_, manualBtn_);
     context_ = qobject_cast<QStackedWidget *>(buildContextColumn());
 
-    events_ = new EventLogPanel(log_);
-
-    // 로그는 시간순으로 흐르는 목록이다. 창 전체 폭에 눕혀 놓으면 한 줄에
-    // 30 자쯤 되는 메시지 옆이 1000 px 넘게 비면서, 정작 보이는 줄 수는
-    // 네댓 개뿐이었다. 좁은 열 아래에 세워 두면 폭은 내용에 맞고 줄 수도
-    // 늘어난다.
-    //
-    // 높이는 조절할 수 있어야 한다. 평소엔 몇 줄만 보다가, 문제가 생기면
-    // 끌어올려 넓게 본다.
-    // 컨텍스트 열은 내용이 넘치면 스크롤바가 생기고, 그만큼 카드가
-    // 좁아진다. 로그는 스크롤 영역 밖이라 그 영향을 받지 않아 창을 줄이면
-    // 로그만 넓어 보였다. 고정 여백으로 맞춰 두면 스크롤바가 없을 때
-    // 반대로 어긋나므로, 지금 실제 스크롤바 폭을 그때그때 따라간다.
-    auto *eventsHost = new QWidget;
-    eventsLay_ = new QVBoxLayout(eventsHost);
-    eventsLay_->setContentsMargins(0, 0, 0, 0);
-    eventsLay_->addWidget(events_);
-
-    auto *side = new QSplitter(Qt::Vertical);
-    side->setChildrenCollapsible(false);
-    side->setHandleWidth(metrics::s2);
-    side->addWidget(context_);
-    side->addWidget(eventsHost);
-    side->setSizes({570, 290});
-    side->setStretchFactor(0, 1);
-
     // 레일 바로 옆에 그 레일이 바꾸는 열을 둔다. 레일은 왼쪽 끝인데
     // 눌러서 바뀌는 화면이 오른쪽 끝에 있으면, 조작자는 1500 px 떨어진
     // 두 곳을 번갈아 봐야 한다. 지도는 남는 폭 전부를 가져간다.
     auto *upper = new QSplitter(Qt::Horizontal);
     upper->setChildrenCollapsible(false);
     upper->setHandleWidth(metrics::s2);
-    upper->addWidget(side);
+    upper->addWidget(context_);
     upper->addWidget(map_);
     upper->setSizes({440, 1060});
     upper->setStretchFactor(1, 1);
@@ -167,7 +141,7 @@ QWidget *MainWindow::buildTopBar()
     // ---- 무엇인가 ----
     lay->addWidget(new BrandMark(nullptr, 30), 0, Qt::AlignVCenter);
 
-    auto *title = new QLabel(QStringLiteral("SHALOM 관제"));
+    auto *title = new QLabel(QStringLiteral("하부점검 관제"));
     title->setObjectName(QStringLiteral("AppTitle"));
     lay->addWidget(title, 0, Qt::AlignVCenter);
 
@@ -244,13 +218,17 @@ QWidget *MainWindow::buildContextColumn()
     stack->addWidget(buildCaptureContext());
     stack->addWidget(buildDiagnosticsContext());
     stack->addWidget(buildDataContext());
-
-    // 스크롤바가 생기고 사라지는 것을 알아야 아래 로그와 폭을 맞출 수 있다.
-    for (int i = 0; i < stack->count(); ++i)
-        if (auto *area = qobject_cast<QScrollArea *>(stack->widget(i)))
-            area->verticalScrollBar()->installEventFilter(this);
-
+    stack->addWidget(buildEventsContext());
     return stack;
+}
+
+QWidget *MainWindow::buildEventsContext()
+{
+    // 로그는 예전에 컨텍스트 열 아래에 고정으로 붙어 있었다. 늘 보이는
+    // 대신 서너 줄만 보이는 자리였고, 조작자가 놓치면 안 되는 것은 어차피
+    // 토스트로 뜨고 알림함에 쌓인다. 화면 하나를 온전히 준다.
+    events_ = new EventLogPanel(log_);
+    return events_;
 }
 
 QWidget *MainWindow::buildDriveContext()
@@ -773,18 +751,6 @@ void MainWindow::showWaypointInfo(const QString &id, const QPoint &globalPos)
 void MainWindow::navigate(NavItem item)
 {
     context_->setCurrentIndex(int(item));
-    syncLogGutter();
-}
-
-void MainWindow::syncLogGutter()
-{
-    int gutter = 0;
-    if (auto *area = qobject_cast<QScrollArea *>(context_->currentWidget())) {
-        if (auto *bar = area->verticalScrollBar(); bar && bar->isVisible())
-            gutter = bar->sizeHint().width();
-    }
-    if (eventsLay_->contentsMargins().right() != gutter)
-        eventsLay_->setContentsMargins(0, 0, gutter, 0);
 }
 
 void MainWindow::showView(NavItem item)
@@ -948,14 +914,6 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *ev)
     if (obj == centralWidget() && ev->type() == QEvent::Resize) {
         alert_->setGeometry(centralWidget()->rect());
         toasts_->setBottomAnchor(metrics::s3);
-        syncLogGutter();
-    }
-
-    // 스크롤바가 나타나거나 사라지는 순간에도 맞춘다. 창 크기가 그대로여도
-    // 카드가 늘거나 줄면(수동 모드 전환 등) 스크롤바가 생겼다 없어진다.
-    if (ev->type() == QEvent::Show || ev->type() == QEvent::Hide) {
-        if (qobject_cast<QScrollBar *>(obj))
-            syncLogGutter();
     }
     return QMainWindow::eventFilter(obj, ev);
 }
@@ -999,7 +957,7 @@ void MainWindow::startLogFile()
     pruneOldLogs(dir, Config::instance().logRetentionDays());
 
     const QString path =
-        QStringLiteral("%1/shalom-%2.jsonl")
+        QStringLiteral("%1/inspection-%2.jsonl")
             .arg(dir, QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd")));
 
     QString err;
@@ -1013,7 +971,7 @@ void MainWindow::pruneOldLogs(const QString &dir, int retentionDays)
         return;
 
     const QDateTime cutoff = QDateTime::currentDateTime().addDays(-retentionDays);
-    const auto files = QDir(dir).entryInfoList({QStringLiteral("shalom-*.jsonl")}, QDir::Files);
+    const auto files = QDir(dir).entryInfoList({QStringLiteral("inspection-*.jsonl")}, QDir::Files);
     for (const auto &fi : files)
         if (fi.lastModified() < cutoff)
             QFile::remove(fi.absoluteFilePath());
@@ -1114,6 +1072,7 @@ void MainWindow::onTelemetry(const Telemetry &tm)
 
     headerBattery_->setState(tm.soc);
     nav_->setDiagnosticsAlerts(log_->countAtOrAbove(diag::Severity::Error));
+    nav_->setEventAlerts(log_->countAtOrAbove(diag::Severity::Warn));
 
     // 위치 등록 가능 여부는 실제 속력으로 판정한다. 시뮬레이터가 속력을
     // 직접 알려주므로 UI 가 궤적을 미분할 필요가 없다.

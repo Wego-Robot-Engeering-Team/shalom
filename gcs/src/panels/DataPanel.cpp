@@ -79,8 +79,7 @@ public:
         p->drawText(r.adjusted(26, 3, -8, 0), Qt::AlignLeft | Qt::AlignTop,
                     idx.data(kRolePoint).toString());
 
-        QFont fm(monoFamily());
-        fm.setPointSize(9);
+        QFont fm = monoFont(9);
         p->setFont(fm);
         p->setPen(QColor(C.textMute));
         p->drawText(r.adjusted(26, 0, -8, -3), Qt::AlignLeft | Qt::AlignBottom,

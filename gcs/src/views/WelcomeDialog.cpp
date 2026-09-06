@@ -23,7 +23,7 @@ using gcs::auth::Session;
 WelcomeDialog::WelcomeDialog(QWidget *parent) : QDialog(parent)
 {
     setObjectName(QStringLiteral("Root"));
-    setWindowTitle(QStringLiteral("SHALOM 관제"));
+    setWindowTitle(QStringLiteral("철도차량 하부점검 관제 시스템"));
     setModal(true);
     setFixedWidth(440);
 
@@ -38,7 +38,7 @@ WelcomeDialog::WelcomeDialog(QWidget *parent) : QDialog(parent)
     head->setSpacing(metrics::s3);
     head->addWidget(new BrandMark(nullptr, 40), 0, Qt::AlignVCenter);
 
-    auto *title = new QLabel(QStringLiteral("SHALOM 관제"));
+    auto *title = new QLabel(QStringLiteral("하부점검 관제"));
     title->setObjectName(QStringLiteral("AppTitle"));
     head->addWidget(title, 0, Qt::AlignVCenter);
     head->addStretch(1);
