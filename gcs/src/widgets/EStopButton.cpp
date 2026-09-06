@@ -1,6 +1,7 @@
 #include "widgets/EStopButton.h"
 
 #include <QFont>
+#include <QFontMetricsF>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPropertyAnimation>
@@ -37,7 +38,7 @@ EStopButton::EStopButton(QWidget *parent, int height) : QWidget(parent), size_(h
     // 버튼 하나가 상단 바에서 가장 큰 요소여야 한다. 원형 머리만으로는
     // 1720 px 폭 화면의 구석에서 존재감이 나오지 않아, 글자를 새긴
     // 판 위에 얹은 형태로 만든다.
-    setFixedSize(int(size_ * 3.0) + kRingRoom * 2, size_ + kRingRoom * 2);
+    setFixedSize(int(size_ * 2.9) + kRingRoom * 2, size_ + kRingRoom * 2);
     setCursor(Qt::PointingHandCursor);
     setToolTip(QStringLiteral("비상정지 — 1회 클릭으로 즉시 발동"));
     anim_ = makePulse(this, 760);
@@ -119,11 +120,26 @@ void EStopButton::paintEvent(QPaintEvent *)
         p.drawRoundedRect(plate.adjusted(-g, -g, g, g), radius + g, radius + g);
     }
 
-    // ---- 버섯 머리 ----
-    const double cy = plate.center().y();
-    const double cx = plate.left() + plate.height() * 0.5;
+    // ---- 버섯 머리와 글자 ----
+    // 원과 글자를 한 덩어리로 묶어 판 가운데에 놓는다. 원을 왼쪽에 고정하고
+    // 글자를 남은 폭에 왼쪽 정렬하면, 글자가 짧을 때 오른쪽만 크게 비어
+    // 한쪽으로 쏠려 보인다.
+    const QString label = engaged_ ? QStringLiteral("눌러 해제")
+                                   : QStringLiteral("비상정지");
+    QFont f;
+    f.setPointSize(qMax(9, int(size_ * 0.235)));
+    f.setWeight(QFont::Bold);
+    p.setFont(f);
+
     const double outerR = size_ * 0.36;
     const double btnR = size_ * 0.27;
+    const double gap = size_ * 0.22;
+    const double textW = QFontMetricsF(f).horizontalAdvance(label);
+    const double groupW = outerR * 2 + gap + textW;
+
+    const double left = plate.left() + (plate.width() - groupW) / 2.0;
+    const double cy = plate.center().y();
+    const double cx = left + outerR;
 
     p.setPen(QPen(QColor(engaged_ ? C.dangerLo : C.borderHi), 1));
     p.setBrush(QColor(engaged_ ? C.dangerHi : C.surfaceHi));
@@ -133,18 +149,9 @@ void EStopButton::paintEvent(QPaintEvent *)
     p.setBrush(QColor((hover_ || engaged_) ? C.dangerHi : C.danger));
     p.drawEllipse(QRectF(cx - btnR, cy - btnR, btnR * 2, btnR * 2));
 
-    // ---- 글자 ----
-    QFont f;
-    f.setPointSize(qMax(9, int(size_ * 0.235)));
-    f.setWeight(QFont::Bold);
-    p.setFont(f);
     p.setPen(QColor(engaged_ ? QLatin1String("#FFFFFF") : C.danger));
-
-    const QRectF textRect(plate.left() + plate.height() * 0.94, plate.top(),
-                          plate.width() - plate.height() * 0.94 - radius * 0.6,
-                          plate.height());
-    p.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft,
-               engaged_ ? QStringLiteral("눌러 해제") : QStringLiteral("비상정지"));
+    p.drawText(QRectF(left + outerR * 2 + gap, plate.top(), textW + 2, plate.height()),
+               Qt::AlignVCenter | Qt::AlignLeft, label);
 }
 
 // ============================ AlertFrame ============================

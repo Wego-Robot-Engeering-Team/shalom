@@ -139,11 +139,9 @@ QWidget *MainWindow::buildTopBar()
     lay->setSpacing(metrics::s3);
 
     // ---- 무엇인가 ----
-    lay->addWidget(new BrandMark(nullptr, 30), 0, Qt::AlignVCenter);
-
-    auto *title = new QLabel(QStringLiteral("하부점검 관제"));
-    title->setObjectName(QStringLiteral("AppTitle"));
-    lay->addWidget(title, 0, Qt::AlignVCenter);
+    // 로고만 둔다. 이름은 창 제목 표시줄에 있고, 상단 바는 상태와 조작에
+    // 쓰는 편이 낫다. 늘 같은 글자가 자리를 차지할 이유가 없다.
+    lay->addWidget(new BrandMark(nullptr, 32), 0, Qt::AlignVCenter);
 
     lay->addSpacing(metrics::s2);
     lay->addWidget(new VLine(nullptr, metrics::s5), 0);

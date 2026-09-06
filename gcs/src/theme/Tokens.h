@@ -106,12 +106,15 @@ inline constexpr auto ui =
 inline constexpr auto mono =
     "\"JetBrains Mono\", \"SF Mono\", \"Consolas\", \"D2Coding\", monospace";
 
-inline constexpr int xs = 10;
-inline constexpr int sm = 11;
-inline constexpr int md = 12;
-inline constexpr int lg = 14;
-inline constexpr int xl = 17;
-inline constexpr int xxl = 24;
+// Sized for a screen read while standing in a depot, not from a desk. The
+// original desktop-sized scale was reported as too small on site, so every
+// step is one point larger; the settings dialog scales the whole set further.
+inline constexpr int xs = 11;
+inline constexpr int sm = 12;
+inline constexpr int md = 13;
+inline constexpr int lg = 15;
+inline constexpr int xl = 18;
+inline constexpr int xxl = 25;
 }  // namespace type
 
 extern const Colors kDark;
