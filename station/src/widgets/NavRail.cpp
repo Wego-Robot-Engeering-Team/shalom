@@ -1,0 +1,319 @@
+#include "widgets/NavRail.h"
+
+#include <QButtonGroup>
+#include <QFont>
+#include <QPainter>
+#include <QPainterPath>
+#include <QVBoxLayout>
+
+#include "theme/Tokens.h"
+#include "widgets/Gauges.h"
+#include "widgets/BrandMark.h"
+#include "widgets/Primitives.h"
+
+namespace gcs::ui {
+
+using namespace gcs::theme;
+
+namespace {
+
+// 아이콘과 두 글자 라벨이 들어가는 최소 폭. 예전 112 px 은 좌우가 크게
+// 비어 본문과의 간격이 두 번 있는 것처럼 보였다.
+constexpr int kRailWidth = 84;
+constexpr int kItemHeight = 56;
+
+/// 선택 표시 알약의 좌우 여백.
+constexpr int kPillInset = 6;
+constexpr int kIconBox = 22;
+
+/// 네비게이션 아이콘. 전부 선 기반이라 테마 색을 그대로 따르고,
+/// 아이콘 폰트나 SVG 자산 의존성이 생기지 않는다.
+void drawIcon(QPainter &p, NavItem item, const QRectF &r, const QColor &c)
+{
+    QPen pen(c, 1.6);
+    pen.setCapStyle(Qt::RoundCap);
+    pen.setJoinStyle(Qt::RoundJoin);
+    p.setPen(pen);
+    p.setBrush(Qt::NoBrush);
+
+    const double x = r.x();
+    const double y = r.y();
+    const double s = r.width();
+
+    switch (item) {
+    case NavItem::Drive: {
+        // 나침반 — 원 + 방향 바늘
+        p.drawEllipse(r.adjusted(1, 1, -1, -1));
+        QPainterPath needle;
+        needle.moveTo(x + s * 0.50, y + s * 0.24);
+        needle.lineTo(x + s * 0.66, y + s * 0.72);
+        needle.lineTo(x + s * 0.50, y + s * 0.60);
+        needle.lineTo(x + s * 0.34, y + s * 0.72);
+        needle.closeSubpath();
+        p.setBrush(c);
+        p.drawPath(needle);
+        break;
+    }
+    case NavItem::Locations: {
+        // 지도 핀
+        QPainterPath pin;
+        pin.moveTo(x + s * 0.50, y + s * 0.92);
+        pin.cubicTo(x + s * 0.50, y + s * 0.58, x + s * 0.84, y + s * 0.52,
+                    x + s * 0.84, y + s * 0.37);
+        pin.cubicTo(x + s * 0.84, y + s * 0.15, x + s * 0.16, y + s * 0.15,
+                    x + s * 0.16, y + s * 0.37);
+        pin.cubicTo(x + s * 0.16, y + s * 0.52, x + s * 0.50, y + s * 0.58,
+                    x + s * 0.50, y + s * 0.92);
+        p.drawPath(pin);
+        p.setBrush(c);
+        p.drawEllipse(QPointF(x + s * 0.50, y + s * 0.37), s * 0.10, s * 0.10);
+        break;
+    }
+    case NavItem::Arm: {
+        // 두 마디 링크와 관절점
+        p.drawLine(QPointF(x + s * 0.18, y + s * 0.86), QPointF(x + s * 0.42, y + s * 0.38));
+        p.drawLine(QPointF(x + s * 0.42, y + s * 0.38), QPointF(x + s * 0.84, y + s * 0.26));
+        p.setBrush(c);
+        p.drawEllipse(QPointF(x + s * 0.18, y + s * 0.86), s * 0.09, s * 0.09);
+        p.drawEllipse(QPointF(x + s * 0.42, y + s * 0.38), s * 0.09, s * 0.09);
+        p.drawEllipse(QPointF(x + s * 0.84, y + s * 0.26), s * 0.09, s * 0.09);
+        break;
+    }
+    case NavItem::Capture: {
+        // 카메라 몸체 + 렌즈
+        p.drawRoundedRect(QRectF(x + s * 0.06, y + s * 0.30, s * 0.88, s * 0.54), 3, 3);
+        QPainterPath hump;
+        hump.moveTo(x + s * 0.32, y + s * 0.30);
+        hump.lineTo(x + s * 0.40, y + s * 0.16);
+        hump.lineTo(x + s * 0.60, y + s * 0.16);
+        hump.lineTo(x + s * 0.68, y + s * 0.30);
+        p.drawPath(hump);
+        p.drawEllipse(QPointF(x + s * 0.50, y + s * 0.58), s * 0.16, s * 0.16);
+        break;
+    }
+    case NavItem::Events: {
+        // 줄글 목록 — 왼쪽에 점, 오른쪽에 줄
+        for (int i = 0; i < 3; ++i) {
+            const double cy = y + s * (0.28 + i * 0.22);
+            p.setBrush(p.pen().color());
+            p.drawEllipse(QRectF(x + s * 0.10, cy - s * 0.055, s * 0.11, s * 0.11));
+            p.setBrush(Qt::NoBrush);
+            p.drawLine(QPointF(x + s * 0.34, cy), QPointF(x + s * 0.90, cy));
+        }
+        break;
+    }
+    case NavItem::Data: {
+        // 적층 디스크 — 저장된 점검 데이터
+        for (int i = 0; i < 3; ++i) {
+            const double cy = y + s * (0.30 + i * 0.20);
+            p.drawEllipse(QRectF(x + s * 0.12, cy - s * 0.10, s * 0.76, s * 0.20));
+        }
+        break;
+    }
+    case NavItem::Diagnostics: {
+        // 이벤트 파형
+        QPainterPath wave;
+        wave.moveTo(x + s * 0.06, y + s * 0.56);
+        wave.lineTo(x + s * 0.28, y + s * 0.56);
+        wave.lineTo(x + s * 0.40, y + s * 0.22);
+        wave.lineTo(x + s * 0.55, y + s * 0.84);
+        wave.lineTo(x + s * 0.67, y + s * 0.56);
+        wave.lineTo(x + s * 0.94, y + s * 0.56);
+        p.drawPath(wave);
+        break;
+    }
+    }
+}
+
+struct ItemSpec {
+    NavItem item;
+    const char *label;
+};
+
+const ItemSpec kItems[] = {
+    {NavItem::Drive, "주행"},
+    {NavItem::Locations, "위치"},
+    {NavItem::Arm, "로봇팔"},
+    {NavItem::Capture, "촬영"},
+    {NavItem::Diagnostics, "진단"},
+    {NavItem::Data, "이력"},
+    {NavItem::Events, "로그"},
+};
+
+}  // namespace
+
+/// 아이콘 + 라벨을 세로로 쌓은 네비게이션 항목.
+///
+/// QPushButton 을 QSS 로 꾸미는 대신 직접 그린다. 아이콘·라벨·선택 표시·배지를
+/// 한 번에 배치해야 하는데, 스타일시트로는 그 정렬을 통제할 수 없다.
+class NavButton : public QWidget {
+public:
+    NavButton(NavItem item, const QString &label, QWidget *parent = nullptr)
+        : QWidget(parent), item_(item), label_(label)
+    {
+        setFixedHeight(kItemHeight);
+        setCursor(Qt::PointingHandCursor);
+        setAttribute(Qt::WA_Hover);
+    }
+
+    void setChecked(bool on)
+    {
+        if (on == checked_)
+            return;
+        checked_ = on;
+        update();
+    }
+
+    void setAlerts(int count)
+    {
+        if (count == alerts_)
+            return;
+        alerts_ = count;
+        update();
+    }
+
+    NavItem item() const { return item_; }
+
+Q_SIGNALS:
+
+protected:
+    void enterEvent(QEnterEvent *ev) override
+    {
+        hover_ = true;
+        update();
+        QWidget::enterEvent(ev);
+    }
+
+    void leaveEvent(QEvent *ev) override
+    {
+        hover_ = false;
+        update();
+        QWidget::leaveEvent(ev);
+    }
+
+    void mousePressEvent(QMouseEvent *) override { pressedOnce_ = true; }
+
+    void mouseReleaseEvent(QMouseEvent *) override
+    {
+        if (pressedOnce_ && onClick_)
+            onClick_();
+        pressedOnce_ = false;
+    }
+
+    void paintEvent(QPaintEvent *) override
+    {
+        const Colors &C = colors();
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+
+        // 선택 표시는 둥근 알약 하나. 예전에는 왼쪽에 굵은 파란 막대를
+        // 세웠는데, 항목마다 세로선이 하나씩 더 생기는 셈이라 레일이
+        // 어수선했다. 알약은 아이콘과 글자를 감싸므로 무엇이 선택됐는지가
+        // 모양으로 드러나고, 선이 늘지 않는다.
+        const QRectF pill = QRectF(rect()).adjusted(kPillInset, 3, -kPillInset, -3);
+        if (checked_) {
+            QColor bg(C.accent);
+            bg.setAlpha(C.isDark() ? 46 : 30);
+            p.setPen(Qt::NoPen);
+            p.setBrush(bg);
+            p.drawRoundedRect(pill, metrics::rLg, metrics::rLg);
+        } else if (hover_) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(C.surfaceHi));
+            p.drawRoundedRect(pill, metrics::rLg, metrics::rLg);
+        }
+
+        const QColor fg(checked_ ? C.accent : (hover_ ? C.text : C.textDim));
+
+        const QRectF iconRect((width() - kIconBox) / 2.0, 7, kIconBox, kIconBox);
+        drawIcon(p, item_, iconRect, fg);
+
+        QFont f;
+        f.setPointSize(10);
+        f.setWeight(checked_ ? QFont::DemiBold : QFont::Normal);
+        p.setFont(f);
+        p.setPen(fg);
+        p.drawText(QRectF(0, 33, width(), 18), Qt::AlignCenter, label_);
+
+        if (alerts_ > 0) {
+            const double d = 15;
+            const QRectF badge(width() / 2.0 + kIconBox / 2.0 - 4, 4, d, d);
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(C.danger));
+            p.drawEllipse(badge);
+            QFont bf;
+            bf.setPointSize(8);
+            bf.setWeight(QFont::Bold);
+            p.setFont(bf);
+            p.setPen(QColor(C.textOnAccent));
+            p.drawText(badge, Qt::AlignCenter,
+                       alerts_ > 99 ? QStringLiteral("99+") : QString::number(alerts_));
+        }
+    }
+
+public:
+    std::function<void()> onClick_;
+
+private:
+    NavItem item_;
+    QString label_;
+    bool checked_ = false;
+    bool hover_ = false;
+    bool pressedOnce_ = false;
+    int alerts_ = 0;
+};
+
+NavRail::NavRail(QWidget *parent) : QWidget(parent)
+{
+    setObjectName(QStringLiteral("NavRail"));
+    setFixedWidth(kRailWidth);
+
+    auto *lay = new QVBoxLayout(this);
+    lay->setContentsMargins(0, metrics::s3, 0, metrics::s3);
+    lay->setSpacing(0);
+
+    // 로고는 상단 바가 아니라 레일 맨 위에 둔다. 상단 바가 창 전체 폭을
+    // 가로지르면 레일이 그 아래에서 시작해 왼쪽 위 모서리가 비고, 로고만
+    // 본문 바깥으로 튀어나온 것처럼 보인다.
+    auto *brand = new BrandMark(this, 40);
+    lay->addWidget(brand, 0, Qt::AlignHCenter);
+    lay->addSpacing(metrics::s4);
+    lay->addWidget(new HLine);
+    lay->addSpacing(metrics::s3);
+
+    for (const auto &spec : kItems) {
+        auto *btn = new NavButton(spec.item, QString::fromUtf8(spec.label), this);
+        btn->onClick_ = [this, item = spec.item] { setCurrent(item); emit navigated(item); };
+        lay->addWidget(btn);
+        buttons_ << btn;
+        if (spec.item == NavItem::Diagnostics)
+            diagnosticsButton_ = btn;
+        if (spec.item == NavItem::Events)
+            eventsButton_ = btn;
+    }
+
+    lay->addStretch(1);
+
+    setCurrent(NavItem::Drive);
+}
+
+void NavRail::setCurrent(NavItem item)
+{
+    current_ = item;
+    for (auto *b : std::as_const(buttons_))
+        b->setChecked(b->item() == item);
+}
+
+void NavRail::setDiagnosticsAlerts(int count)
+{
+    if (diagnosticsButton_)
+        diagnosticsButton_->setAlerts(count);
+}
+
+void NavRail::setEventAlerts(int count)
+{
+    if (eventsButton_)
+        eventsButton_->setAlerts(count);
+}
+
+}  // namespace gcs::ui

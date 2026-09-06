@@ -1,0 +1,71 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_PREFIX_PATH": "/opt/homebrew/opt/qt;/usr/local/opt/qt"
+      }
+    },
+    {
+      "name": "dev",
+      "displayName": "개발 (로그인 생략)",
+      "description": "개발용. 기동 시 로그인을 요구하지 않으며 상단바에 '개발 빌드' 로 표시된다. 납품 빌드에 쓰지 말 것.",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "GCS_REQUIRE_LOGIN": "OFF",
+        "GCS_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "납품",
+      "description": "납품 구성. 로그인 필수, 코어를 공유 라이브러리로 낸다 (과업지시서 4장의 라이브러리 모듈 요구).",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "GCS_REQUIRE_LOGIN": "ON",
+        "GCS_BUILD_TESTS": "ON",
+        "GCS_SHARED_CORE": "ON",
+        "GCS_WITH_TESTBED": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "dev"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "dev",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}
