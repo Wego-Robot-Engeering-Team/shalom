@@ -9,6 +9,7 @@
 
 #include "mapview/MapView.h"
 #include "theme/Tokens.h"
+#include "widgets/MapLegend.h"
 #include "widgets/Primitives.h"
 
 namespace gcs::ui {
@@ -45,6 +46,9 @@ MapCard::MapCard(QWidget *parent) : QWidget(parent)
     tb->addSpacing(metrics::s2);
     mapLabel_ = sectionLabel(QStringLiteral("맵 없음"));
     tb->addWidget(mapLabel_);
+
+    // 범례. 한 번 묻고 마는 것이라 구석에 작게 둔다.
+    legend_ = new MapLegend(this);
 
     readout_ = new QLabel(this);
     readout_->setObjectName(QStringLiteral("MapReadout"));
@@ -112,6 +116,9 @@ void MapCard::resizeEvent(QResizeEvent *ev)
     QWidget::resizeEvent(ev);
     toolbar_->adjustSize();
     toolbar_->move(metrics::s3, metrics::s3);
+
+    legend_->move(width() - legend_->width() - metrics::s3,
+                  height() - legend_->height() - metrics::s3);
     if (readout_->isVisible()) {
         readout_->adjustSize();
         readout_->move(width() - readout_->width() - metrics::s3, metrics::s3);

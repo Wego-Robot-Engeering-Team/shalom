@@ -17,6 +17,8 @@ class MapView;
 
 namespace gcs::ui {
 
+class MapLegend;
+
 class MapCard : public QWidget {
     Q_OBJECT
 public:
@@ -24,6 +26,7 @@ public:
 
     gcs::map::MapView *view() const { return view_; }
     QPushButton *goalButton() const { return goal_; }
+    MapLegend *legend() const { return legend_; }
 
     /// Puts the drive-mode buttons at the left of the map's floating toolbar.
     ///
@@ -54,6 +57,7 @@ private:
     QLabel *mapLabel_ = nullptr;
     QLabel *readout_ = nullptr;
     QLabel *hint_ = nullptr;
+    MapLegend *legend_ = nullptr;
 };
 
 }  // namespace gcs::ui

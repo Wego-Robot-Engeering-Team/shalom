@@ -11,7 +11,10 @@
 
 #include <QTest>
 
+#include <QLabel>
+
 #include "MainWindow.h"
+#include "panels/ArmPanel.h"
 #include "sim/SimRobot.h"
 #include "theme/Style.h"
 #include "theme/Tokens.h"
@@ -80,6 +83,28 @@ private slots:
             QVERIFY2(!settings.grab().isNull(),
                      qPrintable(QStringLiteral("설정 %1 번째 탭을 그리지 못했다").arg(tab)));
         }
+    }
+
+    /// 자세 경고는 아이콘 하나뿐이라, 설명이 도구 설명에 들어가지 않으면
+    /// 화면에 "!" 만 뜨고 무엇이 문제인지 알 방법이 없어진다.
+    void poseWarning_carriesItsExplanation()
+    {
+        ui::ArmPanel arm;
+
+        // 로봇이 홈 자세에 있다고 알린 뒤, 슬라이더를 손목 축이 일직선이
+        // 되는 자리로 옮긴다 — 경고가 떠야 하는 자세다.
+        const QList<double> home{0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785};
+        arm.setArmState(home, 0.09, 0.06);
+        arm.applyPresetToSliders(QStringLiteral("stow"));
+
+        auto *badge = arm.findChild<QLabel *>(QStringLiteral("PoseWarning"));
+        QVERIFY2(badge, "자세 경고 배지를 찾지 못했다");
+
+        // 조건부로 검사하면 배지가 안 뜨는 채로도 통과한다. 이 자세에서는
+        // 반드시 떠야 하므로 그것부터 못 박는다.
+        QVERIFY2(!badge->isHidden(), "수납 자세인데 경고가 뜨지 않았다");
+        QVERIFY2(!badge->toolTip().isEmpty(),
+                 "경고 아이콘이 떴는데 설명이 비어 있다");
     }
 
     /// 알림 목록은 항목이 있을 때와 없을 때 그리는 경로가 다르다.

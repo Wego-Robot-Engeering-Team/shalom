@@ -49,6 +49,7 @@
 #include "widgets/IconButton.h"
 #include "widgets/NotificationCenter.h"
 #include "widgets/MapCard.h"
+#include "widgets/MapLegend.h"
 #include "widgets/Primitives.h"
 
 namespace gcs::ui {
@@ -514,6 +515,14 @@ void MainWindow::wireMapSignals()
         map_->view()->setWaypoints(wps);
         log_->log(QStringLiteral("LOC_CAPTURED"), QJsonObject::fromVariantMap(loc));
     });
+
+    connect(map_->legend(), &MapLegend::manageRequested, this,
+            [this](MapLegend::Item item) {
+                // "이게 뭐지" 다음은 대개 "바꾸고 싶다" 이다. 설명을 읽은
+                // 자리에서 관리 화면으로 바로 넘어가게 한다.
+                if (item == MapLegend::Item::Waypoint)
+                    showView(NavItem::Locations);
+            });
 
     connect(view, &MapView::waypointClicked, this, [this](const QString &id) {
         showWaypointInfo(id, QCursor::pos());
