@@ -31,6 +31,10 @@ public:
     /// Selects a tab by index. Used by the screenshot path during development.
     void setCurrentTab(int index);
 
+    /// How many tabs there are, so a test can walk all of them. Hard-coding the
+    /// count in the test left the safety tab unpainted when a sixth was added.
+    int tabCount() const;
+
 signals:
     /// Raised when a change requires the stylesheet to be rebuilt.
     void appearanceChanged();
@@ -59,6 +63,15 @@ private:
 
     void load();
 
+    /// Keeps the two battery thresholds in a workable order. Departing below
+    /// the return threshold means leaving the dock and turning straight back.
+    void applyBatteryBounds();
+
+    /// Says whether a configured directory is there and can be written to.
+    /// A path that is only a typo looks exactly like a correct one until the
+    /// day a log has to be exported or a photo fetched.
+    void refreshPathStatus();
+
     QTabWidget *tabs_ = nullptr;
     QLineEdit *host_ = nullptr;
     QSpinBox *port_ = nullptr;
@@ -75,6 +88,8 @@ private:
     QLabel *subnetWarning_ = nullptr;
     QLabel *testResult_ = nullptr;
     QPushButton *testButton_ = nullptr;
+    QLabel *logDirStatus_ = nullptr;
+    QLabel *nasStatus_ = nullptr;
 };
 
 }  // namespace gcs::ui

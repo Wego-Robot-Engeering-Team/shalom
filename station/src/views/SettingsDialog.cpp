@@ -1,6 +1,9 @@
 #include "views/SettingsDialog.h"
 
+#include <QDir>
 #include <QDoubleSpinBox>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -47,6 +50,29 @@ QWidget *readOnlyRow(const QString &label, const QString &value, const QString &
     hint->setObjectName(QStringLiteral("Hint"));
     hint->setWordWrap(true);
     lay->addWidget(hint);
+    return host;
+}
+
+/// 경로 한 줄. 입력칸 옆에 찾아보기를 붙인다.
+///
+/// 검수고에서 NAS 경로를 손으로 받아 적는 일이 흔한데, 한 글자만 틀려도
+/// 증상은 "사진이 안 보인다" 뿐이라 원인을 짚기 어렵다.
+QWidget *pathRow(const QString &label, QLineEdit *edit, QPushButton **browseOut)
+{
+    auto *host = new QWidget;
+    auto *lay = new QHBoxLayout(host);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->setSpacing(metrics::s2);
+
+    auto *lbl = sectionLabel(label);
+    lbl->setFixedWidth(84);
+    lay->addWidget(lbl);
+    lay->addWidget(edit, 1);
+
+    auto *browse = new QPushButton(QStringLiteral("찾아보기"));
+    browse->setProperty("size", "sm");
+    lay->addWidget(browse);
+    *browseOut = browse;
     return host;
 }
 
@@ -253,9 +279,11 @@ QWidget *SettingsDialog::buildOperationTab()
 
     auto *hint = new QLabel(QStringLiteral(
         "수동 조작 화면을 열 때 처음 적용되는 속도입니다. "
-        "이보다 빠르게는 설정할 수 없습니다.\n\n"
-        "지도에 없는 장애물이 가까워지면 로봇이 스스로 %1 m/s 까지 늦춥니다. "
+        "최대값은 로봇의 주행 한계(%1 m/s, %2 °/s)라 그 위로는 올릴 수 없습니다.\n\n"
+        "지도에 없는 장애물이 가까워지면 로봇이 스스로 %3 m/s 까지 늦춥니다. "
         "이 설정과는 관계없이 동작합니다.")
+            .arg(robot::kVxMax, 0, 'f', 2)
+            .arg(qRadiansToDegrees(robot::kWzMax), 0, 'f', 0)
             .arg(robot::kVxCaution, 0, 'f', 2));
     hint->setObjectName(QStringLiteral("Hint"));
     hint->setWordWrap(true);
@@ -296,6 +324,7 @@ QWidget *SettingsDialog::buildPowerTab()
         "출발 최소 — 충전이 이 값에 이르기 전에는 점검을 시작하지 않습니다. "
         "부족한 잔량으로 나갔다가 차량 아래에서 서면, 꺼내기 위해 열차를 "
         "움직여야 합니다.\n\n"
+        "출발 최소는 복귀 시작보다 높아야 합니다. 낮으면 나가자마자 되돌아옵니다.\n\n"
         "이 두 값은 로봇이 지킵니다. 관제 화면이 꺼져 있어도 그대로 동작합니다."));
     hint->setObjectName(QStringLiteral("Hint"));
     hint->setWordWrap(true);
@@ -305,10 +334,12 @@ QWidget *SettingsDialog::buildPowerTab()
     // 즉시 로봇으로 보낸다.
     connect(returnPct_, &QSpinBox::valueChanged, this, [this](int v) {
         Config::instance().setBatteryReturnPercent(v);
+        applyBatteryBounds();
         emit batteryPolicyChanged();
     });
     connect(departPct_, &QSpinBox::valueChanged, this, [this](int v) {
         Config::instance().setBatteryDeparturePercent(v);
+        applyBatteryBounds();
         emit batteryPolicyChanged();
     });
 
@@ -329,34 +360,119 @@ QWidget *SettingsDialog::buildStorageTab()
     retention_->setSuffix(QStringLiteral(" 일"));
     nasPath_ = new QLineEdit;
 
+    QPushButton *browseLog = nullptr;
+    QPushButton *browseNas = nullptr;
+
     lay->addWidget(sectionLabel(QStringLiteral("이벤트 로그")));
-    lay->addWidget(fieldRow(QStringLiteral("저장 위치"), logDir_, 84));
+    lay->addWidget(pathRow(QStringLiteral("저장 위치"), logDir_, &browseLog));
+    logDirStatus_ = new QLabel;
+    logDirStatus_->setObjectName(QStringLiteral("Hint"));
+    logDirStatus_->setWordWrap(true);
+    lay->addWidget(logDirStatus_);
     lay->addWidget(fieldRow(QStringLiteral("보관 기간"), retention_, 84));
+
+    auto *logHint = new QLabel(QStringLiteral(
+        "문제가 생겼을 때 담당자에게 보낼 수 있는 것은 내보낸 로그뿐입니다."));
+    logHint->setObjectName(QStringLiteral("Hint"));
+    logHint->setWordWrap(true);
+    lay->addWidget(logHint);
 
     lay->addSpacing(metrics::s2);
     lay->addWidget(new HLine);
     lay->addSpacing(metrics::s2);
     lay->addWidget(sectionLabel(QStringLiteral("촬영 데이터")));
-    lay->addWidget(fieldRow(QStringLiteral("저장 장치 경로"), nasPath_, 84));
+    lay->addWidget(pathRow(QStringLiteral("저장 장치 경로"), nasPath_, &browseNas));
+    nasStatus_ = new QLabel;
+    nasStatus_->setObjectName(QStringLiteral("Hint"));
+    nasStatus_->setWordWrap(true);
+    lay->addWidget(nasStatus_);
 
     auto *hint = new QLabel(QStringLiteral(
         "이력 화면에서 사진을 찾고 내려받을 때 쓰는 경로입니다. "
-        "사진을 저장 장치에 올리는 것은 로봇이며, 관제 화면은 읽기만 합니다.\n\n"
-        "문제가 생겼을 때 담당자에게 보낼 수 있는 것은 내보낸 로그뿐입니다. "
-        "보관 기간을 너무 짧게 두지 마십시오."));
+        "사진을 저장 장치에 올리는 것은 로봇이며, 관제 화면은 읽기만 합니다."));
     hint->setObjectName(QStringLiteral("Hint"));
     hint->setWordWrap(true);
     lay->addWidget(hint);
 
-    connect(logDir_, &QLineEdit::editingFinished, this,
-            [this] { Config::instance().setLogDirectory(logDir_->text()); });
+    // 긴 경로는 입력칸에서 잘린다. 도구 설명으로 전체를 볼 수 있게 한다.
+    const auto pick = [this](QLineEdit *edit, const QString &title) {
+        const QString dir = QFileDialog::getExistingDirectory(this, title, edit->text());
+        if (dir.isEmpty())
+            return;
+        edit->setText(QDir::toNativeSeparators(dir));
+        emit edit->editingFinished();
+    };
+    connect(browseLog, &QPushButton::clicked, this,
+            [pick, this] { pick(logDir_, QStringLiteral("이벤트 로그 저장 위치")); });
+    connect(browseNas, &QPushButton::clicked, this,
+            [pick, this] { pick(nasPath_, QStringLiteral("촬영 데이터 저장 장치 경로")); });
+
+    connect(logDir_, &QLineEdit::editingFinished, this, [this] {
+        Config::instance().setLogDirectory(logDir_->text());
+        refreshPathStatus();
+    });
     connect(retention_, &QSpinBox::valueChanged, this,
             [](int v) { Config::instance().setLogRetentionDays(v); });
-    connect(nasPath_, &QLineEdit::editingFinished, this,
-            [this] { Config::instance().setNasMountPath(nasPath_->text()); });
+    connect(nasPath_, &QLineEdit::editingFinished, this, [this] {
+        Config::instance().setNasMountPath(nasPath_->text());
+        refreshPathStatus();
+    });
 
     lay->addStretch(1);
     return page;
+}
+
+void SettingsDialog::applyBatteryBounds()
+{
+    // 두 값의 순서를 설명으로만 부탁하면 언젠가 뒤집힌 채로 저장된다.
+    // 입력 범위 자체를 서로에게 묶어 애초에 만들 수 없게 한다. 사이는
+    // 10 %p 를 띄운다 — 충전 스테이션까지 돌아올 여유다.
+    constexpr int kMargin = 10;
+    const QSignalBlocker b1(returnPct_), b2(departPct_);
+    returnPct_->setMaximum(qMax(returnPct_->minimum(), departPct_->value() - kMargin));
+    departPct_->setMinimum(qMin(departPct_->maximum(), returnPct_->value() + kMargin));
+
+    // 범위를 좁히면 스핀박스가 값을 말없이 끌어당긴다. 신호를 막아 둔
+    // 참이라 그대로 두면 화면의 숫자와 저장된 값이 갈린다.
+    auto &cfg = Config::instance();
+    if (returnPct_->value() != int(cfg.batteryReturnPercent())
+        || departPct_->value() != int(cfg.batteryDeparturePercent())) {
+        cfg.setBatteryReturnPercent(returnPct_->value());
+        cfg.setBatteryDeparturePercent(departPct_->value());
+        emit batteryPolicyChanged();
+    }
+}
+
+void SettingsDialog::refreshPathStatus()
+{
+    const auto describe = [](QLabel *out, const QString &path) {
+        out->setToolTip(path);
+        if (path.isEmpty()) {
+            out->setText(QStringLiteral("경로가 비어 있습니다."));
+            return;
+        }
+        const QFileInfo info(path);
+        if (!info.exists())
+            out->setText(QStringLiteral("⚠ %1 — 없는 경로입니다.").arg(path));
+        else if (!info.isDir())
+            out->setText(QStringLiteral("⚠ %1 — 폴더가 아닙니다.").arg(path));
+        else if (!info.isWritable())
+            out->setText(QStringLiteral("⚠ %1 — 쓸 수 없습니다.").arg(path));
+        else
+            out->setText(path);
+    };
+    if (logDirStatus_)
+        describe(logDirStatus_, logDir_->text());
+    // 촬영 데이터는 관제 화면이 읽기만 하므로 쓰기 권한까지 따지지 않는다.
+    if (nasStatus_) {
+        const QString path = nasPath_->text();
+        nasStatus_->setToolTip(path);
+        const QFileInfo info(path);
+        nasStatus_->setText(path.isEmpty() ? QStringLiteral("경로가 비어 있습니다.")
+                            : !info.isDir()
+                                ? QStringLiteral("⚠ %1 — 지금은 연결되어 있지 않습니다.").arg(path)
+                                : path);
+    }
 }
 
 QWidget *SettingsDialog::buildSafetyTab()
@@ -374,15 +490,18 @@ QWidget *SettingsDialog::buildSafetyTab()
     lay->addSpacing(metrics::s2);
 
     lay->addWidget(readOnlyRow(
-        QStringLiteral("비상정지 응답"), QStringLiteral("1 초 이내"),
+        QStringLiteral("비상정지 응답"),
+        QStringLiteral("%1 초 이내").arg(robot::kEstopResponseSec),
         QStringLiteral("정지 명령과 주행 명령 차단이 동시에 걸립니다. "
                        "최종 권한은 하드웨어 정지 버튼에 있습니다.")));
     lay->addWidget(readOnlyRow(
-        QStringLiteral("통신 두절 정지"), QStringLiteral("3 초"),
+        QStringLiteral("통신 두절 정지"),
+        QStringLiteral("%1 초").arg(robot::kLinkLossStopSec),
         QStringLiteral("관제 화면이 꺼지거나 연결이 끊겨도 로봇이 스스로 멈춥니다. "
                        "다시 연결되어도 자율주행은 자동으로 이어지지 않습니다.")));
     lay->addWidget(readOnlyRow(
-        QStringLiteral("조작 중단 시 정지"), QStringLiteral("300 ms"),
+        QStringLiteral("조작 중단 시 정지"),
+        QStringLiteral("%1 ms").arg(robot::kDeadmanMs),
         QStringLiteral("조작 버튼에서 손을 떼면 로봇이 즉시 멈춥니다. 관제 화면이 멈추거나 "
                        "연결이 끊겨도 마찬가지입니다.")));
     lay->addWidget(readOnlyRow(
@@ -398,14 +517,23 @@ void SettingsDialog::setCurrentTab(int index)
     tabs_->setCurrentIndex(index);
 }
 
+int SettingsDialog::tabCount() const
+{
+    return tabs_->count();
+}
+
 void SettingsDialog::refreshNetworkInfo()
 {
     QStringList lines;
     QList<QPair<QHostAddress, int>> local;   // 주소와 프리픽스 길이
 
     for (const auto &iface : QNetworkInterface::allInterfaces()) {
-        if (!(iface.flags() & QNetworkInterface::IsUp)
-            || (iface.flags() & QNetworkInterface::IsLoopBack))
+        // IsRunning 까지 요구한다. IsUp 만 보면 도커 브리지나 케이블이 빠진
+        // 랜카드까지 올라오는데, 그중 172.18.0.1/16 같은 것은 대역이 넓어서
+        // 로봇 주소가 우연히 그 안에 들면 "같은 네트워크" 라고 잘못 말한다.
+        const auto flags = iface.flags();
+        if (!(flags & QNetworkInterface::IsUp) || !(flags & QNetworkInterface::IsRunning)
+            || (flags & QNetworkInterface::IsLoopBack))
             continue;
         for (const auto &entry : iface.addressEntries()) {
             if (entry.ip().protocol() != QAbstractSocket::IPv4Protocol)
@@ -441,7 +569,7 @@ void SettingsDialog::refreshNetworkInfo()
     subnetWarning_->setVisible(!sameSubnet && !local.isEmpty());
     if (!sameSubnet && !local.isEmpty()) {
         subnetWarning_->setText(
-            QStringLiteral("⚠ 로봇 주소 %1 이 이 PC 의 네트워크 대역에 없습니다. "
+            QStringLiteral("⚠ 로봇 주소 %1 은 위 대역 어디에도 들지 않습니다. "
                            "같은 네트워크가 아니면 연결되지 않습니다.")
                 .arg(target.toString()));
     }
@@ -504,6 +632,9 @@ void SettingsDialog::load()
     logDir_->setText(cfg.logDirectory());
     retention_->setValue(cfg.logRetentionDays());
     nasPath_->setText(cfg.nasMountPath());
+
+    applyBatteryBounds();
+    refreshPathStatus();
 }
 
 

@@ -81,7 +81,9 @@ private slots:
         QVERIFY(!welcome.grab().isNull());
 
         ui::SettingsDialog settings;
-        for (int tab = 0; tab < 5; ++tab) {
+        // 탭 수를 손으로 적어 두었더니 여섯 번째(안전)가 추가된 뒤로도
+        // 다섯 개만 그려 보고 있었다.
+        for (int tab = 0; tab < settings.tabCount(); ++tab) {
             settings.setCurrentTab(tab);
             QVERIFY2(!settings.grab().isNull(),
                      qPrintable(QStringLiteral("설정 %1 번째 탭을 그리지 못했다").arg(tab)));

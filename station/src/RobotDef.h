@@ -46,6 +46,17 @@ inline constexpr double kVyMax = 0.40;      ///< m/s
 inline constexpr double kWzMax = 0.80;      ///< rad/s
 inline constexpr double kVxCaution = 0.30;  ///< m/s, the mandated reduced speed
 
+/// Robot-side safety timings, in the units the operator reads them in.
+///
+/// The station only displays these. The robot enforces them, and the safety
+/// node does so without going through this protocol at all - see protocol
+/// sections 4 and 5. They are named here rather than written into the settings
+/// screen so that the number on screen and the number in the specification
+/// cannot drift apart unnoticed; test_docs checks both against the document.
+inline constexpr int kEstopResponseSec = 1;    ///< engage to full stop
+inline constexpr int kLinkLossStopSec = 3;     ///< heartbeat loss to stop in place
+inline constexpr int kDeadmanMs = 300;         ///< jog command timeout
+
 /// Manipulability thresholds, normalised. Re-tune after on-site trials.
 inline constexpr double kManipWarn = 0.35;
 inline constexpr double kManipDanger = 0.15;

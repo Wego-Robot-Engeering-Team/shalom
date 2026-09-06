@@ -13,6 +13,7 @@
 #include <QRegularExpression>
 #include <QTest>
 
+#include "RobotDef.h"
 #include "net/Channels.h"
 #include "net/Envelope.h"
 
@@ -105,6 +106,20 @@ private slots:
         QVERIFY2(doc.contains(QStringLiteral("32 MiB")), "프레임 상한이 문서에 없다");
         QVERIFY2(doc.contains(QStringLiteral("TCP_NODELAY")),
                  "TCP_NODELAY 요구가 문서에 없다");
+    }
+
+    /// 안전 시간값은 설정 화면이 조작자에게 그대로 보여 주는 숫자다.
+    /// 로봇이 지키는 값이고 규격이 그 근거이므로, 셋이 어긋나면 화면이
+    /// 지키지도 않는 값을 약속하는 셈이 된다.
+    void safetyTimingsMatchDocument()
+    {
+        const QString doc = protocolDoc();
+        QVERIFY2(doc.contains(QStringLiteral("%1 ms").arg(gcs::robot::kDeadmanMs)),
+                 "데드맨 시간이 문서에 없다");
+        QVERIFY2(doc.contains(QStringLiteral("**%1초**").arg(gcs::robot::kLinkLossStopSec))
+                     || doc.contains(QStringLiteral("통신 두절 %1초")
+                                         .arg(gcs::robot::kLinkLossStopSec)),
+                 "통신 두절 정지 시간이 문서에 없다");
     }
 
     /// 문서가 선언한 프로토콜 버전과 코드가 같아야 한다.
