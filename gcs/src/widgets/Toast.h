@@ -64,6 +64,11 @@ public:
     /// Repositions after the host resizes.
     void relayout();
 
+    /// Lifts the stack this far off the bottom of the host, so that toasts sit
+    /// above the event log instead of covering the same message it is already
+    /// showing.
+    void setBottomAnchor(int pixelsFromBottom);
+
 private:
     /// Beyond this many at once the screen is more alert than information.
     /// The oldest is dropped rather than queued: during an incident the newest
@@ -72,6 +77,7 @@ private:
 
     QWidget *host_ = nullptr;
     QList<Toast *> toasts_;
+    int anchorFromBottom_ = 0;
 };
 
 }  // namespace gcs::ui

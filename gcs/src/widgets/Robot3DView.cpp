@@ -195,6 +195,18 @@ void Robot3DView::wheelEvent(QWheelEvent *ev)
     update();
 }
 
+void Robot3DView::enterEvent(QEnterEvent *)
+{
+    hovered_ = true;
+    update();
+}
+
+void Robot3DView::leaveEvent(QEvent *)
+{
+    hovered_ = false;
+    update();
+}
+
 void Robot3DView::paintEvent(QPaintEvent *)
 {
     const Colors &C = colors();
@@ -303,13 +315,17 @@ void Robot3DView::paintEvent(QPaintEvent *)
         p.drawPolygon(poly);
     }
 
-    // ---- 안내 ----
-    QFont f;
-    f.setPointSize(8);
-    p.setFont(f);
-    p.setPen(QColor(C.textMute));
-    p.drawText(rect().adjusted(8, 0, -8, -6), Qt::AlignLeft | Qt::AlignBottom,
-               QStringLiteral("드래그: 회전   휠: 확대"));
+    // ---- 조작 안내 ----
+    // 한 번 읽으면 그만인 문구다. 늘 띄워두면 화면만 지저분해지므로
+    // 마우스를 올렸을 때만 보여준다.
+    if (hovered_) {
+        QFont f;
+        f.setPointSize(8);
+        p.setFont(f);
+        p.setPen(QColor(C.textMute));
+        p.drawText(rect().adjusted(8, 0, -8, -6), Qt::AlignLeft | Qt::AlignBottom,
+                   QStringLiteral("끌어서 회전 · 휠로 확대"));
+    }
 
     if (singularWarn_) {
         p.setPen(QColor(C.warning));

@@ -44,14 +44,20 @@ ArmPanel::ArmPanel(QWidget *parent) : QWidget(parent)
     // ---- 조작성 게이지 ----
     auto *gaugeRow = new QHBoxLayout;
     gaugeRow->setSpacing(metrics::s3);
-    manip_ = new ArcGauge(nullptr, QStringLiteral("조작성 지수 w"),
+    manip_ = new ArcGauge(nullptr, QStringLiteral("자세 여유"),
                           kManipWarn, kManipDanger);
+    manip_->setToolTip(QStringLiteral(
+        "현재 자세에서 팔이 얼마나 자유롭게 움직일 수 있는지를 나타냅니다.\n"
+        "값이 0 에 가까울수록 팔이 뻗치거나 접혀 움직임이 막힙니다."));
     gaugeRow->addWidget(manip_, 1);
 
     auto *side = new QVBoxLayout;
     side->setSpacing(metrics::s1);
-    side->addWidget(sectionLabel(QStringLiteral("σ min")));
+    side->addWidget(sectionLabel(QStringLiteral("가장 좁은 방향")));
     sigma_ = readout(QStringLiteral("—"), true);
+    sigma_->setToolTip(QStringLiteral(
+        "여러 방향 중 가장 움직이기 어려운 방향의 여유입니다.\n"
+        "전체 여유가 넉넉해도 이 값이 작으면 특정 방향으로는 못 움직입니다."));
     side->addWidget(sigma_);
     singular_ = new Badge(QStringLiteral("정상"), QStringLiteral("ok"));
     side->addWidget(singular_, 0, Qt::AlignLeft);
@@ -89,6 +95,12 @@ void ArmPanel::buildJointSection()
 {
     card_->body()->addWidget(sectionLabel(QStringLiteral("관절 (7축)")));
 
+    auto *legend = new QLabel(
+        QStringLiteral("위 막대는 지금 각도, 아래 조절기는 보낼 목표 각도입니다."));
+    legend->setObjectName(QStringLiteral("Hint"));
+    legend->setWordWrap(true);
+    card_->body()->addWidget(legend);
+
     for (const auto &j : kFr3Joints) {
         auto *row = new QWidget;
         auto *lay = new QVBoxLayout(row);
@@ -96,6 +108,7 @@ void ArmPanel::buildJointSection()
         lay->setSpacing(0);
 
         auto *bar = new JointBar(j.label, j.lo, j.hi);
+        bar->setToolTip(QStringLiteral("%1 축의 지금 각도").arg(QString::fromUtf8(j.label)));
         lay->addWidget(bar);
         bars_ << bar;
 
@@ -103,6 +116,8 @@ void ArmPanel::buildJointSection()
         slider->setRange(toTicks(j.lo), toTicks(j.hi));
         // 가동 범위가 0 을 포함하지 않는 축(J4, J6)은 중앙에서 시작한다.
         slider->setValue(j.lo < 0 && j.hi > 0 ? 0 : toTicks((j.lo + j.hi) / 2));
+        slider->setToolTip(QStringLiteral("%1 축을 움직일 목표 각도")
+                               .arg(QString::fromUtf8(j.label)));
         connect(slider, &QSlider::valueChanged, this, &ArmPanel::onSliderMoved);
         lay->addWidget(slider);
         sliders_ << slider;
@@ -133,7 +148,7 @@ void ArmPanel::buildJointSection()
 
 void ArmPanel::buildEeSection()
 {
-    card_->body()->addWidget(sectionLabel(QStringLiteral("End-Effector 목표 (MoveIt2)")));
+    card_->body()->addWidget(sectionLabel(QStringLiteral("끝단 목표 위치")));
 
     auto *grid = new QGridLayout;
     grid->setSpacing(metrics::s2);
@@ -164,7 +179,7 @@ void ArmPanel::buildEeSection()
     }
     card_->body()->addLayout(grid);
 
-    auto *send = new QPushButton(QStringLiteral("EE 목표 실행"));
+    auto *send = new QPushButton(QStringLiteral("끝단 목표로 이동"));
     send->setProperty("variant", "primary");
     send->setProperty("size", "sm");
     card_->body()->addWidget(send);

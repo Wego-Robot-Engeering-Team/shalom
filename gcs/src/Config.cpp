@@ -9,7 +9,6 @@ namespace {
 // 기본값을 한곳에 모아둔다. 설정 초기화와 최초 실행이 같은 값을 쓰게 하기 위함.
 constexpr auto kDefaultHost = "192.168.123.100";
 constexpr int kDefaultPort = 9090;
-constexpr int kDefaultCameraPort = 8080;
 constexpr auto kDefaultTheme = "light";
 constexpr double kDefaultScale = 1.0;
 constexpr double kDefaultLinear = 0.30;
@@ -59,18 +58,6 @@ int Config::bridgePort() const
 void Config::setBridgePort(int port)
 {
     store().setValue(QStringLiteral("connection/port"), port);
-    emit changed();
-}
-
-int Config::cameraPort() const
-{
-    return store().value(QStringLiteral("connection/camera_port"),
-                         kDefaultCameraPort).toInt();
-}
-
-void Config::setCameraPort(int port)
-{
-    store().setValue(QStringLiteral("connection/camera_port"), port);
     emit changed();
 }
 

@@ -31,6 +31,7 @@
 #include "panels/DataPanel.h"
 #include "panels/DiagnosticsPanel.h"
 #include "panels/EventLogPanel.h"
+#include "panels/MissionPanel.h"
 #include "panels/StatusPanel.h"
 #include "panels/TeleopPanel.h"
 #include "panels/WaypointPanel.h"
@@ -166,7 +167,10 @@ QWidget *MainWindow::buildTopBar()
     settingsBtn_->setFixedWidth(52);
     lay->addWidget(settingsBtn_);
 
-    themeBtn_ = new QPushButton(QStringLiteral("다크"));
+    // 라벨은 "지금 상태"가 아니라 "누르면 갈 곳"이다. 저장된 설정이
+    // 다크면 처음부터 "라이트" 로 떠야 한다.
+    themeBtn_ = new QPushButton(colors().isDark() ? QStringLiteral("라이트")
+                                                  : QStringLiteral("다크"));
     themeBtn_->setProperty("size", "sm");
     themeBtn_->setFixedWidth(58);
     themeBtn_->setToolTip(QStringLiteral("다크 / 라이트 전환"));
@@ -203,6 +207,11 @@ QWidget *MainWindow::buildDriveContext()
 
     status_ = new StatusPanel;
     lay->addWidget(status_);
+
+    // 점검 목록과 시작·정지는 위치 화면에 있다. 하지만 운용 중에는
+    // 지도를 띄운 이 화면에 머무르므로, 진행 상황만이라도 여기서 읽히게 한다.
+    mission_ = new MissionPanel;
+    lay->addWidget(mission_);
 
     // 수동 조작은 수동 모드에서만 나타난다. 자율 주행 중에는 의미가 없고,
     // 비활성 컨트롤을 띄워두면 화면만 차지한다.
@@ -548,6 +557,9 @@ void MainWindow::wireSignals()
         robot_->missionResume();
         log_->log(QStringLiteral("MISSION_RESUME"));
     });
+    connect(waypoints_, &WaypointPanel::waypointsChanged, mission_,
+            &MissionPanel::setWaypoints);
+
     connect(waypoints_, &WaypointPanel::missionStop, this, [this] {
         robot_->setWaypoints(waypoints_->waypoints());
         robot_->missionStop();
@@ -560,6 +572,9 @@ void MainWindow::onMissionStateChanged(MissionState state)
     const bool running = state != MissionState::Idle;
     const bool paused = state == MissionState::Paused;
     waypoints_->setMissionState(running, paused);
+    mission_->setMissionState(paused   ? QStringLiteral("paused")
+                              : running ? QStringLiteral("running")
+                                        : QStringLiteral("idle"));
 
     if (!running)
         missionBadge_->set(QStringLiteral("미션 대기"), QStringLiteral("neutral"));
@@ -617,11 +632,11 @@ void MainWindow::showWaypointInfo(const QString &id, const QPoint &globalPos)
     lines << QStringLiteral("<b>%1</b>  ·  %2")
                  .arg(found.value(QStringLiteral("name"), id).toString(),
                       QStringLiteral("%1번째").arg(index + 1));
-    lines << QStringLiteral("좌표  %1, %2")
+    lines << QStringLiteral("위치  %1, %2")
                  .arg(found.value(QStringLiteral("x")).toDouble(), 0, 'f', 2)
                  .arg(found.value(QStringLiteral("y")).toDouble(), 0, 'f', 2);
     if (found.contains(QStringLiteral("tag_id")))
-        lines << QStringLiteral("Apriltag  %1").arg(found.value(QStringLiteral("tag_id")).toInt());
+        lines << QStringLiteral("마커  %1").arg(found.value(QStringLiteral("tag_id")).toInt());
 
     if (forPoint.isEmpty()) {
         lines << QStringLiteral("<i>저장된 촬영 없음</i>");
@@ -677,7 +692,7 @@ void MainWindow::captureLocation(const QString &kind)
         auto wps = waypoints_->waypoints();
         const int n = wps.size() + 1;
         loc[QStringLiteral("id")] = QStringLiteral("TP-%1").arg(n, 2, 10, QLatin1Char('0'));
-        loc[QStringLiteral("name")] = QStringLiteral("교시 포인트 %1").arg(n);
+        loc[QStringLiteral("name")] = QStringLiteral("점검 위치 %1").arg(n);
         loc[QStringLiteral("status")] = QStringLiteral("todo");
         wps << loc;
         waypoints_->setWaypoints(wps);
@@ -712,11 +727,11 @@ void MainWindow::releaseEstop()
     // 자동 해제 금지 (지시서 2.2.5). 사람이 확인하고, 관리자 권한을 요구한다.
     // 발동에는 어떤 인증도 걸지 않는다 — 급할 때 인증하다 못 누르면 안 된다.
     const auto answer = QMessageBox::question(
-        this, QStringLiteral("E-Stop 해제 확인"),
-        QStringLiteral("E-Stop 을 해제합니다.\n\n"
+        this, QStringLiteral("비상정지 해제 확인"),
+        QStringLiteral("비상정지를 해제합니다.\n\n"
                        "로봇 주변에 사람이 없고 안전이 확보되었는지 확인하십시오.\n"
-                       "해제 후에도 자율주행은 자동 재개되지 않으며,\n"
-                       "명시적 재개 명령이 필요합니다."),
+                       "해제해도 자율주행은 저절로 이어지지 않습니다.\n"
+                       "다시 시작하려면 재개를 눌러야 합니다."),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
     if (answer != QMessageBox::Yes)
         return;
@@ -795,7 +810,9 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *ev)
 {
     if (obj == centralWidget() && ev->type() == QEvent::Resize) {
         alert_->setGeometry(centralWidget()->rect());
-        toasts_->relayout();
+        // 알림을 이벤트 로그 위로 띄운다. 로그 높이는 조작자가 조절하므로
+        // 매번 다시 잰다.
+        toasts_->setBottomAnchor(events_ ? events_->height() + metrics::s3 : 0);
     }
     return QMainWindow::eventFilter(obj, ev);
 }
@@ -909,12 +926,10 @@ void MainWindow::onTelemetry(const Telemetry &tm)
     status_->setBattery(tm.soc);
     status_->setSystem(tm.cpu, tm.mem, tm.cpuTemp, tm.gpuTemp, tm.rtt);
     status_->setTagsSeen(int(tm.seenTags.size()));
-    arm_->setArmState(tm.joints, tm.manipulability, tm.sigmaMin,
-                      tm.speed > 0.01 ? QStringLiteral("idle")
-                                      : QStringLiteral("executing"));
+    arm_->setArmState(tm.joints, tm.manipulability, tm.sigmaMin, tm.armState);
 
     nav_->setBattery(tm.soc);
-    nav_->setPoseText(QStringLiteral("%1, %2\nθ %3°")
+    nav_->setPoseText(QStringLiteral("%1, %2\n방향 %3°")
                           .arg(tm.x, 0, 'f', 1)
                           .arg(tm.y, 0, 'f', 1)
                           .arg(qRadiansToDegrees(tm.theta), 0, 'f', 0));
@@ -936,10 +951,10 @@ void MainWindow::onTelemetry(const Telemetry &tm)
     capture_->setContext(tm.x, tm.y, tm.theta,
                          tm.seenTags.isEmpty() ? -1 : *tm.seenTags.cbegin());
     capture_->setCaptureAllowed(stationary && !tm.estop && tm.poseFresh,
-                                tm.estop ? QStringLiteral("E-Stop 발동 중입니다.")
+                                tm.estop ? QStringLiteral("비상정지가 걸려 있습니다.")
                                 : !tm.poseFresh
                                     ? QStringLiteral("위치 정보가 오래되었습니다.")
-                                    : QStringLiteral("로봇이 이동 중입니다. 정지 후 촬영하십시오."));
+                                    : QStringLiteral("로봇이 움직이는 중입니다. 멈춘 뒤에 촬영할 수 있습니다."));
 
     diagnostics_->setSensors(tm.sensors);
     diagnostics_->setLink(tm.link);

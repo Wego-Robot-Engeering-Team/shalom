@@ -34,6 +34,10 @@ public:
 protected:
     void resizeEvent(QResizeEvent *) override;
 
+    /// Hides the coordinate readout when the cursor leaves the map. An empty
+    /// box floating over the map reads as a broken widget.
+    void leaveEvent(QEvent *) override;
+
 private:
     gcs::map::MapView *view_ = nullptr;
     QWidget *toolbar_ = nullptr;

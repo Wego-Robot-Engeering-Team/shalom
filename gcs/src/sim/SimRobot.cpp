@@ -415,8 +415,11 @@ void SimRobot::stepMission(double dt)
 void SimRobot::stepArm(double dt)
 {
     const double maxStep = kJointRate * dt;
+    armMoving_ = false;
     for (int i = 0; i < joints_.size() && i < jointTarget_.size(); ++i) {
         const double err = jointTarget_.at(i) - joints_.at(i);
+        if (qAbs(err) > 1e-4)
+            armMoving_ = true;
         joints_[i] += qBound(-maxStep, err, maxStep);
     }
 }
@@ -448,7 +451,9 @@ Telemetry SimRobot::step(double dt)
         speed_ = 0.0;
     }
 
-    if (!estop_)
+    if (estop_)
+        armMoving_ = false;
+    else
         stepArm(dt);
 
     trail_ << QPointF(x_, y_);
@@ -476,6 +481,11 @@ Telemetry SimRobot::step(double dt)
     tm.joints = joints_;
     tm.estop = estop_;
     tm.navStatus = navStatus_;
+    // 로봇팔 상태는 팔이 실제로 목표를 향해 움직이는지로 정한다.
+    // 본체 속도로 추측하지 않는다.
+    tm.armState = estop_          ? QStringLiteral("idle")
+                  : armMoving_    ? QStringLiteral("executing")
+                                  : QStringLiteral("idle");
     // 시뮬레이터에는 잃을 링크가 없으므로 위치는 항상 신선하다.
     tm.poseFresh = true;
     tm.localizationOk = true;

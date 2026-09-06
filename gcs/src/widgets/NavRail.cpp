@@ -274,6 +274,13 @@ NavRail::NavRail(QWidget *parent) : QWidget(parent)
     lay->addWidget(battery_, 0, Qt::AlignHCenter);
 
     lay->addSpacing(metrics::s2);
+    // 숫자만 두면 무엇의 좌표인지 알 수 없다. 좁은 레일이라 라벨은
+    // 한 줄로 짧게 둔다.
+    auto *poseCaption = new QLabel(QStringLiteral("로봇 위치"), this);
+    poseCaption->setObjectName(QStringLiteral("Hint"));
+    poseCaption->setAlignment(Qt::AlignCenter);
+    lay->addWidget(poseCaption);
+
     pose_ = new QLabel(QStringLiteral("—"), this);
     pose_->setObjectName(QStringLiteral("Mono"));
     pose_->setAlignment(Qt::AlignCenter);
