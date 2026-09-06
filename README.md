@@ -9,7 +9,7 @@ GTX-A 차량 하부를 자율주행 로봇(Unitree B2 + Franka FR3)으로 점검
 걸칠 때 어디에 둘지가 매번 논쟁이 되고, 무엇을 납품하는지도 흐려진다.
 
 ```text
-station/     관제 PC 에서 도는 것 — C++/Qt6 관제 UI
+hmi/         관제 PC 에서 도는 것 — C++/Qt6 관제 화면
 testbed/     로봇 없이 화면을 돌리기 위한 것 (납품 제외)
 protocol/    관제와 로봇이 함께 쓰는 프레이밍 헤더
 bridge/      로봇 위에서 도는 ROS2 ↔ 관제 브릿지
@@ -32,17 +32,17 @@ docs/        통신 규격 등 납품 문서
 띄우기 위한 것이고, 납품 빌드에는 들어가면 안 된다 — 들어가면 현장에서
 로봇이 안 붙었을 때 조용히 가짜 데이터로 도는 화면이 만들어진다.
 
-`release` 프리셋은 `GCS_WITH_TESTBED=OFF` 로 빌드하므로 납품 실행 파일에는
+`release` 프리셋은 `HMI_WITH_TESTBED=OFF` 로 빌드하므로 납품 실행 파일에는
 시뮬레이터가 없다. 로봇 주소 없이 켜면 뜨지 않고 그렇게 말한다.
 
 ## 시작하기
 
 ```bash
-cmake --preset dev -S station
+cmake --preset dev -S hmi
 cmake --build --preset dev
-./station/build/inspection_gcs
+./hmi/build/inspection_hmi
 ```
 
-자세한 내용은 [station/README.md](station/README.md) 를 참조한다.
-브릿지는 [robot/bridge/README.md](robot/bridge/README.md), 통신 규격은
+자세한 내용은 [hmi/README.md](hmi/README.md) 를 참조한다.
+브릿지는 [bridge/README.md](bridge/README.md), 통신 규격은
 [docs/bridge_protocol.md](docs/bridge_protocol.md) 에 있다.

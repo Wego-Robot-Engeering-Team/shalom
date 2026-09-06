@@ -24,7 +24,7 @@ ROS 지도 규약
   Y 축이 뒤집힌다.
 
 사용법:
-    python3 tools/make_depot_map.py gcs/resources/maps/gtxa_depot
+    python3 tools/make_depot_map.py hmi/resources/maps/gtxa_depot
 """
 
 import sys
