@@ -20,7 +20,10 @@ namespace {
 constexpr int kSteps = 1000;
 
 constexpr int kNameW = 60;    ///< "J1" 또는 "앞뒤" 자리
-constexpr int kValueW = 78;
+/// 값 칸 폭. 손잡이 반지름만큼 트랙에서 떨어뜨려야 동그라미가 글자에
+/// 가리지 않는다.
+constexpr int kValueW = 86;
+constexpr double kHandleR = 7.0;
 constexpr int kRowH = 32;
 
 }  // namespace
@@ -83,7 +86,8 @@ double ValueSlider::trackLeft() const
 
 double ValueSlider::trackWidth() const
 {
-    return qMax(1, width() - kNameW - kValueW);
+    // 손잡이가 트랙 끝에서 반지름만큼 튀어나오므로 그만큼 물려 둔다.
+    return qMax(1.0, width() - kNameW - kValueW - kHandleR - 4.0);
 }
 
 QRect ValueSlider::valueRect() const
@@ -228,7 +232,7 @@ void ValueSlider::paintEvent(QPaintEvent *)
 
     p.setPen(QPen(QColor(C.accentLo), 1.4));
     p.setBrush(QColor(isSliderDown() || underMouse() ? C.accentHi : C.accent));
-    p.drawEllipse(QPointF(cmdX, cy), 7.0, 7.0);
+    p.drawEllipse(QPointF(cmdX, cy), kHandleR, kHandleR);
 
     if (editor_ && editor_->isVisible())
         return;
@@ -241,7 +245,7 @@ void ValueSlider::paintEvent(QPaintEvent *)
         p.drawRoundedRect(vr, metrics::rSm, metrics::rSm);
     }
 
-    p.setFont(monoFont(10));
+    p.setFont(monoFont(11));
     p.setPen(QColor(gap ? C.accent : C.text));
     p.drawText(vr.adjusted(0, 0, -4, 0), Qt::AlignRight | Qt::AlignVCenter,
                QStringLiteral("%1%2").arg(command() * scale_, 0, 'f', decimals_).arg(unit_));

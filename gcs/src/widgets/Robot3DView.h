@@ -75,8 +75,17 @@ private:
     /// arm base frame.
     QList<QVector3D> jointOrigins(const QList<double> &q) const;
 
+    /// Angles the arm reports, and the un-sent pose being dialled in.
     QList<double> joints_;
     QList<double> preview_;
+
+    /// What is actually drawn. It eases toward the target instead of jumping.
+    ///
+    /// A preset click sets seven angles at once; snapping there reads as a
+    /// glitch rather than a movement, and gives no sense of the path the arm
+    /// will take. Easing costs one timer and makes the change legible.
+    QList<double> shown_;
+    QTimer *ease_ = nullptr;
     bool hovered_ = false;
     bool singularWarn_ = false;
     bool stale_ = false;

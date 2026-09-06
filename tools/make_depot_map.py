@@ -7,14 +7,15 @@ SLAM Toolbox 가 실제 현장에서 뽑아 올 지도를 대신하는 파일이
 
 현장 가정
 ---------
-- 검수고 안에 나란한 선로 두 개. 각 선로 위에 편성이 한 대씩 서 있다.
+- 검수고 안에 선로 하나. 그 위에 8 량 편성이 한 대 서 있다.
 - 로봇(B2)은 차량 **아래**를 걸어서 지나간다. GTX-A 차량 바닥은 레일면에서
   1 m 넘게 떠 있어 사족보행 로봇이 통과할 수 있다. 그래서 피트를 파서
   그 안을 다니는 구조가 아니라, 검수고 바닥 위를 다니는 평면 하나로
   표현된다 — 2D 점유격자로 그릴 수 있는 것도 이 때문이다.
-- 차량 아래에서 실제 장애물은 **대차(bogie)** 다. 레일은 낮아 라이다
-  평면에 걸리지 않으므로 장애물로 넣지 않는다.
-- 편성 사이 통로, 편성 옆 통로, 편성 양 끝의 횡통로로 돌아다닌다.
+- **량과 량 사이는 막힘없이 지나간다.** 차량 아래 중앙 통로는 편성 끝에서
+  끝까지 뚫려 있다. 장애물은 좌우 레일 위의 윤축(輪軸)이고, 로봇은 그
+  사이로 다닌다.
+- 편성 위아래로 주행 통로가 있다. 차량 **옆면**을 찍는 자리다.
 
 ROS 지도 규약
 -------------
@@ -32,20 +33,24 @@ from pathlib import Path
 # ---- 치수 (m) ----------------------------------------------------------
 RES = 0.05                # m/cell — SLAM Toolbox 기본값
 
-SHED_X, SHED_Y = 72.0, 24.0     # 검수고 내부 크기
-WALL = 0.4                      # 벽 두께
+WALL = 0.4                      # 검수고 외벽 두께
 
-TRACK_Y = 4.6                   # 선로 중심선 (±). 중심 간격 9.2 m
 CAR_LEN = 20.0                  # GTX-A 1량 길이
-CAR_N = 3                       # 지도에 들어오는 량 수
+CAR_N = 8                       # 편성 량 수
 CAR_GAP = 0.6                   # 량 사이 간격
-BODY_HALF = 1.55                # 차체 반폭 — 차량이 차지하는 평면 폭
+BODY_HALF = 1.55                # 차체 반폭 — 옆면 촬영 거리의 기준
 
-BOGIE_LEN, BOGIE_HALF = 2.6, 1.1   # 대차 크기 (평면)
-BOGIE_INSET = 2.6                  # 량 끝에서 대차 중심까지
+SIDE_AISLE = 6.0                # 편성 옆 주행 통로 폭
+END_AISLE = 6.0                 # 편성 양 끝 여유
+
+# 윤축. 레일 위에만 있고 가운데는 뚫려 있어야 량과 량 사이를 지나갈 수 있다.
+GAUGE_HALF = 0.7175             # 궤간 1435 mm 의 절반
+WHEEL_LEN, WHEEL_HALF = 0.9, 0.35
+BOGIE_INSET = 2.6               # 량 끝에서 대차 중심까지
+AXLE_SPACING = 2.5              # 한 대차 안 두 윤축 간격
 
 PILLAR = 0.5              # 기둥 한 변
-PILLAR_STEP = 12.0        # 기둥 간격
+PILLAR_STEP = 20.0        # 기둥 간격
 
 DOCK_X, DOCK_Y = 3.2, 2.4   # 충전 스테이션 외형
 
@@ -102,52 +107,46 @@ class Grid:
 
 
 def build(map_id: str) -> Grid:
-    g = Grid(SHED_X + 2 * WALL + 1.0, SHED_Y + 2 * WALL + 1.0, RES)
+    train_len = CAR_N * CAR_LEN + (CAR_N - 1) * CAR_GAP
+    shed_x = train_len + 2 * END_AISLE
+    shed_y = 2 * (BODY_HALF + SIDE_AISLE)
 
-    hx, hy = SHED_X / 2.0, SHED_Y / 2.0
+    g = Grid(shed_x + 2 * WALL + 1.0, shed_y + 2 * WALL + 1.0, RES)
+    hx, hy = shed_x / 2.0, shed_y / 2.0
 
     # 검수고 내부와 외벽
     g.rect(-hx, -hy, hx, hy, FREE)
     g.frame(-hx - WALL, -hy - WALL, hx + WALL, hy + WALL, WALL, OCC)
 
-    # 편성 전체 길이와 시작점 — 지도 가운데에 놓는다
-    train_len = CAR_N * CAR_LEN + (CAR_N - 1) * CAR_GAP
+    # 편성. 선로는 지도 한가운데(y = 0)를 지난다.
     x_start = -train_len / 2.0
+    for car in range(CAR_N):
+        cx0 = x_start + car * (CAR_LEN + CAR_GAP)
+        cx1 = cx0 + CAR_LEN
 
-    for sign in (+1, -1):
-        ty = sign * TRACK_Y
+        # 대차 두 개, 대차마다 윤축 두 개. 레일 위에만 그린다 — 가운데를
+        # 막으면 량과 량 사이를 지나갈 수 없고, 그건 현장과 다르다.
+        for bx in (cx0 + BOGIE_INSET, cx1 - BOGIE_INSET):
+            for ax in (bx - AXLE_SPACING / 2, bx + AXLE_SPACING / 2):
+                for sy in (+1, -1):
+                    g.rect(ax - WHEEL_LEN / 2, sy * GAUGE_HALF - WHEEL_HALF,
+                           ax + WHEEL_LEN / 2, sy * GAUGE_HALF + WHEEL_HALF, OCC)
 
-        for car in range(CAR_N):
-            cx0 = x_start + car * (CAR_LEN + CAR_GAP)
-            cx1 = cx0 + CAR_LEN
-
-            # 대차 두 개. 차체 자체는 머리 위로 지나가므로 바닥 평면에서는
-            # 장애물이 아니다 — 로봇이 그 아래로 걸어 들어간다.
-            for bx in (cx0 + BOGIE_INSET, cx1 - BOGIE_INSET):
-                g.rect(bx - BOGIE_LEN / 2, ty - BOGIE_HALF,
-                       bx + BOGIE_LEN / 2, ty + BOGIE_HALF, OCC)
-
-            # 량과 량 사이 연결부. 아래로 지나갈 수 없어 막힌 것으로 둔다.
-            if car < CAR_N - 1:
-                g.rect(cx1, ty - BODY_HALF * 0.5,
-                       cx1 + CAR_GAP, ty + BODY_HALF * 0.5, OCC)
-
-    # 검수고 기둥. 편성 옆 통로에 규칙적으로 선다.
+    # 검수고 기둥. 옆 통로 바깥쪽에 선다 — 촬영 동선을 막지 않는 자리다.
     x = -hx + PILLAR_STEP / 2
     while x < hx:
-        for py in (hy - 1.4, -hy + 1.4):
+        for py in (hy - 1.2, -hy + 1.2):
             g.rect(x - PILLAR / 2, py - PILLAR / 2,
                    x + PILLAR / 2, py + PILLAR / 2, OCC)
         x += PILLAR_STEP
 
-    # 충전 스테이션 — 편성 끝 너머 횡통로 구석. 안쪽은 로봇이 들어가야
-    # 하므로 비워 둔다.
+    # 충전 스테이션 — 편성 끝 너머 구석. 안쪽은 로봇이 들어가야 하므로 비운다.
     dx0, dy0 = -hx + 1.0, -hy + 1.0
     g.rect(dx0, dy0, dx0 + DOCK_X, dy0 + DOCK_Y, OCC)
     g.rect(dx0 + 0.3, dy0 + 0.3, dx0 + DOCK_X - 0.3, dy0 + DOCK_Y, FREE)
 
     # 벽면 검수 설비함
-    for x in (-hx + 14.0, -hx + 30.0, -hx + 46.0):
+    for x in (-hx + 24.0, -hx + 60.0, -hx + 96.0, -hx + 132.0):
         g.rect(x, hy - 1.0, x + 2.2, hy, OCC)
 
     return g

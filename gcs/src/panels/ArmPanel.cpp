@@ -76,6 +76,18 @@ void ArmPanel::build3DSection()
 {
     auto *head = new QHBoxLayout;
     head->addWidget(sectionLabel(QStringLiteral("현재 자세")));
+
+    // 문제가 있을 때만 나타나는 표시. 문장을 늘 띄워 두면 자리를 차지하고,
+    // 정작 문제가 생겼을 때 다른 문장과 구분되지 않는다. 마우스를 올리면
+    // 무엇이 문제인지 나온다.
+    poseWarning_ = new QLabel(QStringLiteral("!"));
+    poseWarning_->setObjectName(QStringLiteral("PoseWarning"));
+    poseWarning_->setAlignment(Qt::AlignCenter);
+    poseWarning_->setFixedSize(18, 18);
+    poseWarning_->hide();
+    head->addSpacing(metrics::s2);
+    head->addWidget(poseWarning_, 0, Qt::AlignVCenter);
+
     head->addStretch(1);
     auto *reset = new QPushButton(QStringLiteral("시점 초기화"));
     reset->setProperty("size", "sm");
@@ -83,7 +95,7 @@ void ArmPanel::build3DSection()
     card_->body()->addLayout(head);
 
     view3d_ = new Robot3DView;
-    view3d_->setMinimumHeight(220);
+    view3d_->setMinimumHeight(320);
     card_->body()->addWidget(view3d_, 1);
     connect(reset, &QPushButton::clicked, view3d_, &Robot3DView::resetCamera);
 }
@@ -116,22 +128,10 @@ QWidget *ArmPanel::buildJointTab()
 {
     auto *page = new QWidget;
     auto *lay = new QVBoxLayout(page);
+    // 설명 한 줄은 지웠다. 한 번 읽으면 그만인 문장이 세로 공간을 계속
+    // 차지하고, 그만큼 3D 뷰가 줄어든다. 같은 내용은 슬라이더 도구 설명에 있다.
     lay->setContentsMargins(0, metrics::s2, 0, 0);
-    lay->setSpacing(metrics::s1);
-
-    auto *legend = new QLabel(QStringLiteral(
-        "빈 점이 지금 각도, 채운 손잡이가 보낼 각도입니다. 숫자를 누르면 "
-        "직접 입력할 수 있습니다."));
-    legend->setWordWrap(true);
-    legend->setObjectName(QStringLiteral("Hint"));
-
-    poseWarning_ = new QLabel;
-    poseWarning_->setObjectName(QStringLiteral("PoseWarning"));
-    poseWarning_->setWordWrap(true);
-    poseWarning_->hide();
-    legend->setObjectName(QStringLiteral("Hint"));
-    lay->addWidget(legend);
-    lay->addWidget(poseWarning_);
+    lay->setSpacing(0);
 
     for (const auto &j : kFr3Joints) {
         auto *slider = new ValueSlider(QString::fromUtf8(j.label), j.lo, j.hi,
@@ -345,7 +345,7 @@ void ArmPanel::refreshPreview()
     // 의도해서 그 자세로 가는 경우도 있다.
     if (onJointTab && differs) {
         const auto warning = robot::checkArmPose(q);
-        poseWarning_->setText(warning.text);
+        poseWarning_->setToolTip(warning.text);
         poseWarning_->setProperty("tone", warning.severity);
         poseWarning_->setVisible(!warning.isEmpty());
         theme::repolish(poseWarning_);
