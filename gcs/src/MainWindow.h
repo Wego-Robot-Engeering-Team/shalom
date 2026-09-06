@@ -28,6 +28,7 @@
 #include "panels/LocationPanel.h"
 #include "widgets/MapCard.h"
 #include "widgets/NavRail.h"
+#include "widgets/Toast.h"
 
 class QLabel;
 class QPushButton;
@@ -36,6 +37,7 @@ class QTimer;
 
 namespace gcs::diag {
 class LogStore;
+struct LogEntry;
 }
 
 namespace gcs::map {
@@ -47,6 +49,7 @@ namespace gcs::ui {
 class AlertFrame;
 class ArmPanel;
 class CapturePanel;
+class DataPanel;
 class Badge;
 class EStopButton;
 class DiagnosticsPanel;
@@ -87,6 +90,7 @@ private:
     QWidget *buildArmContext();
     QWidget *buildCaptureContext();
     QWidget *buildDiagnosticsContext();
+    QWidget *buildDataContext();
     void wireSignals();
 
     void engageEstop();
@@ -100,6 +104,14 @@ private:
     void logAction(const QString &code, QVariantMap detail = {});
     void onMissionStateChanged(gcs::robot::MissionState state);
     void onTelemetry(const gcs::robot::Telemetry &tm);
+
+    /// Raises a non-modal alert for entries the operator must not miss.
+    /// Deliberately not a dialog: see widgets/Toast.h.
+    void onLogAppended(const gcs::diag::LogEntry &entry);
+
+    /// Shows what is known about a waypoint, including any captures already
+    /// filed for it.
+    void showWaypointInfo(const QString &id, const QPoint &globalPos);
 
     /// Records the current robot pose as a location of the given kind, after
     /// validating it. Rejections and low-confidence captures are logged with
@@ -122,11 +134,13 @@ private:
     ArmPanel *arm_ = nullptr;
     LocationPanel *locations_ = nullptr;
     CapturePanel *capture_ = nullptr;
+    DataPanel *data_ = nullptr;
     DiagnosticsPanel *diagnostics_ = nullptr;
     SettingsDialog *settings_ = nullptr;
 
     EStopButton *estop_ = nullptr;
     AlertFrame *alert_ = nullptr;
+    ToastHost *toasts_ = nullptr;
     Badge *linkBadge_ = nullptr;
     Badge *missionBadge_ = nullptr;
     QPushButton *autoBtn_ = nullptr;

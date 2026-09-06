@@ -53,8 +53,11 @@ add_library(gcs_core
     src/net/Envelope.cpp
     src/net/BridgeClient.cpp
     src/capture/CaptureMetadata.cpp
+    src/data/InspectionRecord.cpp
     src/widgets/PreviewView.cpp
+    src/widgets/Toast.cpp
     src/panels/CapturePanel.cpp
+    src/panels/DataPanel.cpp
     src/mapview/MapInfo.cpp
     src/diag/CodeCatalog.cpp
     src/diag/LogStore.cpp
@@ -151,6 +154,7 @@ if(GCS_BUILD_TESTS)
 
     gcs_add_test(test_bridge)
     gcs_add_test(test_capture_meta)
+    gcs_add_test(test_records)
 
     gcs_add_test(test_docs)
     # 명세서 경로를 알려준다. 문서와 코드의 드리프트를 잡는 검사다.

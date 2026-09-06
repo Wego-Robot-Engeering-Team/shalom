@@ -86,6 +86,14 @@ void drawIcon(QPainter &p, NavItem item, const QRectF &r, const QColor &c)
         p.drawEllipse(QPointF(x + s * 0.50, y + s * 0.58), s * 0.16, s * 0.16);
         break;
     }
+    case NavItem::Data: {
+        // 적층 디스크 — 저장된 점검 데이터
+        for (int i = 0; i < 3; ++i) {
+            const double cy = y + s * (0.30 + i * 0.20);
+            p.drawEllipse(QRectF(x + s * 0.12, cy - s * 0.10, s * 0.76, s * 0.20));
+        }
+        break;
+    }
     case NavItem::Diagnostics: {
         // 이벤트 파형
         QPainterPath wave;
@@ -112,6 +120,7 @@ const ItemSpec kItems[] = {
     {NavItem::Arm, "로봇팔"},
     {NavItem::Capture, "촬영"},
     {NavItem::Diagnostics, "진단"},
+    {NavItem::Data, "이력"},
 };
 
 }  // namespace
