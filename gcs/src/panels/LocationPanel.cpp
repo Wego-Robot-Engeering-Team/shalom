@@ -28,7 +28,7 @@ CaptureCheck LocationPanel::checkCapture(const RobotSnapshot &snap, const QStrin
 
     // ---- 차단 조건 ----
     if (!snap.poseFresh) {
-        r.reason = QStringLiteral("위치 정보가 오래되었습니다. 브릿지 연결을 확인하십시오.");
+        r.reason = QStringLiteral("위치 정보가 오래되었습니다. 로봇 연결을 확인하십시오.");
         r.code = QStringLiteral("LOC_CAPTURE_BLOCKED");
         return r;
     }

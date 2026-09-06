@@ -141,7 +141,12 @@ void BridgeClient::onConnected()
 
     heartbeatTimer_->start();
     emit connectionChanged(true);
-    emit robotEvent(QStringLiteral("LINK_RESTORED"), {{"peer", describe()}});
+    // 첫 연결과 재연결을 구분한다. 처음 붙는 것을 "재연결됨" 이라고 하면
+    // 조작자가 직전에 무슨 문제가 있었나 하고 로그를 뒤진다.
+    emit robotEvent(everConnected_ ? QStringLiteral("LINK_RESTORED")
+                                   : QStringLiteral("LINK_ESTABLISHED"),
+                    {{"peer", describe()}});
+    everConnected_ = true;
 }
 
 void BridgeClient::onDisconnected()
@@ -149,7 +154,9 @@ void BridgeClient::onDisconnected()
     heartbeatTimer_->stop();
     resetLinkState();
     emit connectionChanged(false);
-    emit robotEvent(QStringLiteral("LINK_LOST"), {{"peer", describe()}});
+    // 한 번도 붙은 적 없이 끊긴 것은 "연결 끊김" 이 아니라 연결 실패다.
+    if (everConnected_)
+        emit robotEvent(QStringLiteral("LINK_LOST"), {{"peer", describe()}});
     scheduleReconnect();
 }
 

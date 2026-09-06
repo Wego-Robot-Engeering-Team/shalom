@@ -56,6 +56,20 @@ private slots:
         }
     }
 
+    /// variant 규칙이 :disabled 뒤에 오면 비활성 상태를 덮어써서, 누를 수 없는
+    /// 버튼이 눌러도 되는 것처럼 보인다. variant 마다 명시적 규칙이 있어야 한다.
+    void qss_variantButtonsHaveDisabledState()
+    {
+        const QString qss = buildQss(&kLight);
+        for (const auto &variant : {QStringLiteral("primary"), QStringLiteral("danger"),
+                                    QStringLiteral("ghost")}) {
+            const QString rule =
+                QStringLiteral("QPushButton[variant=\"%1\"]:disabled").arg(variant);
+            QVERIFY2(qss.contains(rule),
+                     qPrintable(QStringLiteral("%1 에 비활성 규칙이 없다").arg(variant)));
+        }
+    }
+
     void rgba_channelOrder()
     {
         // 흰색 + 알파가 실제로 흰색으로 남아야 한다(연노랑이 되면 안 된다).

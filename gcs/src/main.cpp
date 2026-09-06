@@ -132,8 +132,18 @@ int main(int argc, char *argv[])
     // 창은 어느 쪽인지 알지 못한다 — 둘 다 RobotLink 를 구현한다.
     gcs::robot::RobotLink *link = nullptr;
     if (args.contains(QStringLiteral("--live"))) {
-        auto *bridge = new gcs::net::BridgeClient(cfg.bridgeHost(),
-                                                  quint16(cfg.bridgePort()));
+        // 설정값을 실행 인자로 덮어쓸 수 있게 한다. 현장 지원에서 설정 창을
+        // 열지 않고 다른 주소로 붙여봐야 하는 경우가 있다.
+        QString host = cfg.bridgeHost();
+        int port = cfg.bridgePort();
+        const int hostIdx = args.indexOf(QStringLiteral("--host"));
+        if (hostIdx >= 0 && hostIdx + 1 < args.size())
+            host = args.at(hostIdx + 1);
+        const int portIdx = args.indexOf(QStringLiteral("--port"));
+        if (portIdx >= 0 && portIdx + 1 < args.size())
+            port = args.at(portIdx + 1).toInt();
+
+        auto *bridge = new gcs::net::BridgeClient(host, quint16(port));
         bridge->connectToBridge();
         link = bridge;
     } else {

@@ -85,7 +85,7 @@ WelcomeDialog::WelcomeDialog(QWidget *parent) : QDialog(parent)
 
     auto &cfg = Config::instance();
     auto *info = new QLabel(
-        QStringLiteral("브릿지  %1:%2      프로토콜 v%3")
+        QStringLiteral("로봇  %1:%2      통신 규격 v%3")
             .arg(cfg.bridgeHost())
             .arg(cfg.bridgePort())
             .arg(gcs::net::kProtocolVersion));
