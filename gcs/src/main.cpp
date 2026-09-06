@@ -161,6 +161,7 @@ int main(int argc, char *argv[])
             {QStringLiteral("arm"), gcs::ui::NavItem::Arm},
             {QStringLiteral("capture"), gcs::ui::NavItem::Capture},
             {QStringLiteral("diagnostics"), gcs::ui::NavItem::Diagnostics},
+            {QStringLiteral("data"), gcs::ui::NavItem::Data},
         };
         const auto it = kViews.constFind(args.at(viewIdx + 1));
         if (it != kViews.constEnd())

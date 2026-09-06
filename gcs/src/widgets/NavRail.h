@@ -36,7 +36,8 @@ enum class NavItem {
     Locations,    ///< teach and edit waypoints, dock and home
     Arm,          ///< FR3 posture control
     Capture,      ///< capture control, preview and metadata
-    Diagnostics,  ///< event log, transport health, code catalog
+    Diagnostics,  ///< event log, link health, sensor health
+    Data,         ///< browsing and downloading past inspections from the share
 };
 
 class NavRail : public QWidget {
