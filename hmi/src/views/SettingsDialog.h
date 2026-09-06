@@ -36,9 +36,6 @@ public:
     int tabCount() const;
 
 signals:
-    /// Raised when a change requires the stylesheet to be rebuilt.
-    void appearanceChanged();
-
     /// The battery thresholds changed. The window must push them to the robot:
     /// a setting the robot never hears about is a number on a screen, not a
     /// rule the machine follows.
@@ -90,6 +87,8 @@ private:
     QPushButton *testButton_ = nullptr;
     QLabel *logDirStatus_ = nullptr;
     QLabel *nasStatus_ = nullptr;
+    QPushButton *lightBtn_ = nullptr;
+    QPushButton *darkBtn_ = nullptr;
 };
 
 }  // namespace hmi::ui

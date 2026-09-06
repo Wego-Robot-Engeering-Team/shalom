@@ -126,6 +126,9 @@ private:
 
     void engageEstop();
     void releaseEstop();
+    /// Keeps the top-bar name and role badge on the current session.
+    void refreshUserBadge();
+
     void setMode(const QString &mode);
 
     /// Sends the robot to a taught pose (dock or home). Autonomous driving is

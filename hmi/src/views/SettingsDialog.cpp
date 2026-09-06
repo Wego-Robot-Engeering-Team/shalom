@@ -1,5 +1,6 @@
 #include "views/SettingsDialog.h"
 
+#include <QButtonGroup>
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
@@ -120,7 +121,6 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QWidget(parent, Qt::Window)
             return;
         Config::instance().resetToDefaults();
         load();
-        emit appearanceChanged();
     });
 
     load();
@@ -152,11 +152,12 @@ QWidget *SettingsDialog::buildAppearanceTab()
     hint->setWordWrap(true);
     lay->addWidget(hint);
 
+    // 값만 쓴다. 화면에 반영하는 것은 창을 띄운 쪽의 일이다 — 여기서 같이
+    // 하면 순서에 따라 결과가 달라지고, 실제로 그것 때문에 테마 전환이
+    // 한 번 조용히 죽었다.
     connect(scale_, &QSlider::valueChanged, this, [this](int v) {
         scaleValue_->setText(QStringLiteral("%1%").arg(v));
         Config::instance().setUiScale(v / 100.0);
-        setUiScale(v / 100.0);
-        emit appearanceChanged();
     });
 
     lay->addSpacing(metrics::s3);
@@ -165,32 +166,25 @@ QWidget *SettingsDialog::buildAppearanceTab()
     lay->addWidget(sectionLabel(QStringLiteral("테마")));
 
     auto *themeRow = new QHBoxLayout;
-    auto *light = new QPushButton(QStringLiteral("라이트"));
-    auto *dark = new QPushButton(QStringLiteral("다크"));
-    for (auto *b : {light, dark})
+    lightBtn_ = new QPushButton(QStringLiteral("라이트"));
+    darkBtn_ = new QPushButton(QStringLiteral("다크"));
+    // 버튼 그룹으로 묶어 한쪽을 누르면 다른 쪽이 풀리게 한다. 손으로
+    // 맞추면 "기본값으로" 같은 다른 경로에서 둘 다 눌린 채로 남는다.
+    auto *themeGroup = new QButtonGroup(this);
+    themeGroup->setExclusive(true);
+    for (auto *b : {lightBtn_, darkBtn_}) {
         b->setCheckable(true);
-    themeRow->addWidget(light, 1);
-    themeRow->addWidget(dark, 1);
+        themeGroup->addButton(b);
+        themeRow->addWidget(b, 1);
+    }
     lay->addLayout(themeRow);
 
-    auto syncTheme = [light, dark] {
-        const bool isDark = Config::instance().theme() == QLatin1String("dark");
-        light->setChecked(!isDark);
-        dark->setChecked(isDark);
-    };
-    connect(light, &QPushButton::clicked, this, [this, syncTheme] {
-        Config::instance().setTheme(QStringLiteral("light"));
-        setTheme(QStringLiteral("light"));
-        syncTheme();
-        emit appearanceChanged();
-    });
-    connect(dark, &QPushButton::clicked, this, [this, syncTheme] {
-        Config::instance().setTheme(QStringLiteral("dark"));
-        setTheme(QStringLiteral("dark"));
-        syncTheme();
-        emit appearanceChanged();
-    });
-    syncTheme();
+    // 눌린 표시는 load() 가 맞춘다. 여기서만 맞추면 "기본값으로" 로 테마가
+    // 라이트로 돌아가도 다크 쪽이 눌린 채로 남는다.
+    connect(lightBtn_, &QPushButton::clicked, this,
+            [] { Config::instance().setTheme(QStringLiteral("light")); });
+    connect(darkBtn_, &QPushButton::clicked, this,
+            [] { Config::instance().setTheme(QStringLiteral("dark")); });
 
     lay->addStretch(1);
     return page;
@@ -632,6 +626,10 @@ void SettingsDialog::load()
     logDir_->setText(cfg.logDirectory());
     retention_->setValue(cfg.logRetentionDays());
     nasPath_->setText(cfg.nasMountPath());
+
+    const bool isDark = cfg.theme() == QLatin1String("dark");
+    lightBtn_->setChecked(!isDark);
+    darkBtn_->setChecked(isDark);
 
     applyBatteryBounds();
     refreshPathStatus();

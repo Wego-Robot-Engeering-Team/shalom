@@ -54,10 +54,6 @@ public:
     /// it yet", or "the arm has not got there".
     bool diverged() const;
 
-signals:
-    /// Emitted when the operator commits a typed value.
-    void valueTyped();
-
 protected:
     void paintEvent(QPaintEvent *) override;
     void wheelEvent(QWheelEvent *) override;

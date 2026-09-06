@@ -25,6 +25,7 @@
 // usefully, so that the attempts show up in the event log.
 
 #include <QDateTime>
+#include <QList>
 #include <QObject>
 #include <QString>
 
@@ -73,15 +74,32 @@ public:
     /// locked out.
     int lockoutRemainingSeconds() const;
 
+    /// One record of a privileged check: when, whether it passed, and why.
+    struct Attempt {
+        QDateTime at;
+        bool accepted = false;
+        QString detail;
+    };
+
+    /// Hands over the attempts made before anything was listening, and forgets
+    /// them. Failed sign-ins happen before the window - and its log - exist,
+    /// and an audit trail that starts after the interesting part is no trail.
+    QList<Attempt> takePendingAttempts();
+
 signals:
     void signedInChanged();
 
-    /// Emitted on every accepted or rejected privileged check, so the caller
-    /// can record it. `detail` is safe to log: it never contains the password.
+    /// Emitted on every accepted or rejected privileged check. `detail` is safe
+    /// to log: it never contains the password.
+    ///
+    /// The sign-in screen also verifies through here, and it runs before the
+    /// event log exists. Those attempts are held and handed over by
+    /// takePendingAttempts() once there is somewhere to write them.
     void authAttempt(bool accepted, const QString &detail);
 
 private:
     Session();
+    void record(bool accepted, const QString &detail);
     bool checkPassword(const QString &password) const;
     void registerFailure();
     void clearFailures();
@@ -90,6 +108,7 @@ private:
     Role role_ = Role::Operator;
     QString displayName_;
     QDateTime signedInAt_;
+    QList<Attempt> pending_;
 };
 
 }  // namespace hmi::auth

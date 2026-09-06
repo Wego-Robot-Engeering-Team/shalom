@@ -1,5 +1,7 @@
 #include "auth/Session.h"
 
+#include <utility>
+
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QPasswordDigestor>
@@ -125,7 +127,7 @@ bool Session::verifyAdmin(const QString &password, QString *err)
     if (const int wait = lockoutRemainingSeconds(); wait > 0) {
         if (err)
             *err = QStringLiteral("시도가 너무 많습니다. %1초 후 다시 시도하십시오.").arg(wait);
-        emit authAttempt(false, QStringLiteral("잠금 상태에서 시도"));
+        record(false, QStringLiteral("잠금 상태에서 시도"));
         return false;
     }
 
@@ -133,13 +135,33 @@ bool Session::verifyAdmin(const QString &password, QString *err)
         registerFailure();
         if (err)
             *err = QStringLiteral("관리자 비밀번호가 일치하지 않습니다.");
-        emit authAttempt(false, QStringLiteral("비밀번호 불일치"));
+        record(false, QStringLiteral("비밀번호 불일치"));
         return false;
     }
 
     clearFailures();
-    emit authAttempt(true, QStringLiteral("관리자 인증 성공"));
+    record(true, QStringLiteral("관리자 인증 성공"));
     return true;
+}
+
+void Session::record(bool accepted, const QString &detail)
+{
+    // 로그인 화면은 창과 이벤트 로그가 생기기 전에 돈다. 그때의 시도를
+    // 흘려보내면 이력은 재미있는 대목이 지난 뒤부터 시작한다. 들을 사람이
+    // 없으면 쌓아 두었다가 넘긴다.
+    if (receivers(SIGNAL(authAttempt(bool, QString))) > 0) {
+        emit authAttempt(accepted, detail);
+        return;
+    }
+    pending_.append({QDateTime::currentDateTime(), accepted, detail});
+    // 쌓인 것을 아무도 가져가지 않는 경우까지 대비해 한도를 둔다.
+    while (pending_.size() > 32)
+        pending_.removeFirst();
+}
+
+QList<Session::Attempt> Session::takePendingAttempts()
+{
+    return std::exchange(pending_, {});
 }
 
 bool Session::signIn(const QString &displayName, Role role, const QString &password,

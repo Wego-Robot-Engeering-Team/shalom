@@ -62,7 +62,6 @@ QString Config::bridgeHost() const
 void Config::setBridgeHost(const QString &host)
 {
     store().setValue(QStringLiteral("connection/host"), host);
-    emit changed();
 }
 
 int Config::bridgePort() const
@@ -73,7 +72,6 @@ int Config::bridgePort() const
 void Config::setBridgePort(int port)
 {
     store().setValue(QStringLiteral("connection/port"), port);
-    emit changed();
 }
 
 double Config::batteryReturnPercent() const
@@ -84,7 +82,6 @@ double Config::batteryReturnPercent() const
 void Config::setBatteryReturnPercent(double pct)
 {
     store().setValue(QStringLiteral("power/return_pct"), qBound(5.0, pct, 90.0));
-    emit changed();
 }
 
 double Config::batteryDeparturePercent() const
@@ -95,7 +92,6 @@ double Config::batteryDeparturePercent() const
 void Config::setBatteryDeparturePercent(double pct)
 {
     store().setValue(QStringLiteral("power/depart_pct"), qBound(10.0, pct, 100.0));
-    emit changed();
 }
 
 QString Config::theme() const
@@ -108,7 +104,6 @@ void Config::setTheme(const QString &name)
 {
     store().setValue(QStringLiteral("appearance/theme"), name);
     emit appearanceChanged();
-    emit changed();
 }
 
 double Config::uiScale() const
@@ -123,7 +118,6 @@ void Config::setUiScale(double scale)
     store().setValue(QStringLiteral("appearance/ui_scale"),
                      qBound(kMinScale, scale, kMaxScale));
     emit appearanceChanged();
-    emit changed();
 }
 
 double Config::defaultLinearSpeed() const
@@ -134,7 +128,6 @@ double Config::defaultLinearSpeed() const
 void Config::setDefaultLinearSpeed(double v)
 {
     store().setValue(QStringLiteral("operation/linear_speed"), v);
-    emit changed();
 }
 
 double Config::defaultAngularSpeed() const
@@ -145,7 +138,6 @@ double Config::defaultAngularSpeed() const
 void Config::setDefaultAngularSpeed(double v)
 {
     store().setValue(QStringLiteral("operation/angular_speed"), v);
-    emit changed();
 }
 
 QString Config::logDirectory() const
@@ -159,7 +151,6 @@ QString Config::logDirectory() const
 void Config::setLogDirectory(const QString &dir)
 {
     store().setValue(QStringLiteral("logging/directory"), dir);
-    emit changed();
 }
 
 int Config::logRetentionDays() const
@@ -170,7 +161,6 @@ int Config::logRetentionDays() const
 void Config::setLogRetentionDays(int days)
 {
     store().setValue(QStringLiteral("logging/retention_days"), days);
-    emit changed();
 }
 
 QString Config::nasMountPath() const
@@ -182,7 +172,6 @@ QString Config::nasMountPath() const
 void Config::setNasMountPath(const QString &path)
 {
     store().setValue(QStringLiteral("storage/nas_path"), path);
-    emit changed();
 }
 
 void Config::resetToDefaults()
@@ -196,7 +185,6 @@ void Config::resetToDefaults()
     s.remove(QStringLiteral("logging"));
     s.remove(QStringLiteral("storage"));
     emit appearanceChanged();
-    emit changed();
 }
 
 }  // namespace hmi

@@ -139,7 +139,6 @@ void ValueSlider::commitEdit()
     // 범위를 벗어난 값은 자른다. 가동 한계를 넘겨 보내면 로봇이 거부하고,
     // 조작자는 왜 안 갔는지 모른다.
     setCommand(typed / scale_);
-    emit valueTyped();
 }
 
 void ValueSlider::wheelEvent(QWheelEvent *ev)

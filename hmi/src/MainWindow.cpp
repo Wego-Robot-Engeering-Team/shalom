@@ -376,11 +376,8 @@ void MainWindow::logAction(const QString &code, QVariantMap detail)
 void MainWindow::openSettings()
 {
     if (!settings_) {
-        settings_ = new SettingsDialog(this);
         // 모달이 아니다. 로봇을 보면서 글자 크기를 조정할 수 있어야 한다.
-        connect(settings_, &SettingsDialog::appearanceChanged, this, [this] {
-            applyTheme(colors().name);
-        });
+        settings_ = new SettingsDialog(this);
         connect(settings_, &SettingsDialog::batteryPolicyChanged, this,
                 &MainWindow::pushBatteryPolicy);
     }
@@ -456,12 +453,43 @@ void MainWindow::wireRobotSignals()
 
 void MainWindow::wireChromeSignals()
 {
-    connect(themeBtn_, &QPushButton::clicked, this, [this] {
-        const auto &c = toggleTheme();
-        Config::instance().setTheme(c.name);
-        applyTheme(c.name);
+    // 여기서도 값만 쓴다. 아래의 Config 구독이 화면을 칠한다 — 두 곳에서
+    // 칠하면 어느 쪽이 이겼는지에 따라 결과가 달라진다.
+    connect(themeBtn_, &QPushButton::clicked, this, [] {
+        auto &cfg = Config::instance();
+        cfg.setTheme(cfg.theme() == QLatin1String("dark") ? QStringLiteral("light")
+                                                          : QStringLiteral("dark"));
     });
     connect(settingsBtn_, &QPushButton::clicked, this, &MainWindow::openSettings);
+
+    // 설정 창이 아니라 설정 자체를 듣는다. 창이 신호를 내게 해 두면 값을
+    // 바꾸는 다른 경로 — 기본값 복원이나 나중에 생길 무엇이든 — 는 화면을
+    // 갱신하지 못한다.
+    //
+    // 이름은 반드시 Config 에서 읽는다. colors() 는 지금 칠해져 있는 테마라,
+    // 이 신호가 오는 시점에는 아직 바뀌기 전 값이다 — 그것으로 다시 칠하면
+    // 아무 일도 일어나지 않는다.
+    connect(&Config::instance(), &Config::appearanceChanged, this, [this] {
+        auto &cfg = Config::instance();
+        setUiScale(cfg.uiScale());
+        applyTheme(cfg.theme());
+    });
+
+    // 이름과 권한은 상단바에 떠 있다. 세션이 바뀌었는데 그대로 두면 화면이
+    // 지난 사람의 이름으로 기록되는 것처럼 보인다.
+    auto &session = auth::Session::instance();
+    connect(&session, &auth::Session::signedInChanged, this,
+            &MainWindow::refreshUserBadge);
+
+    // 관리자 인증 시도는 성공이든 실패든 남는다. 오류 코드 목록의
+    // ESTOP_RELEASE_DENIED 가 "시도 이력은 로그에 남습니다" 라고 안내하는데,
+    // 그 이력을 실제로 적는 곳이 없었다.
+    connect(&session, &auth::Session::authAttempt, this,
+            [this](bool accepted, const QString &detail) {
+                log_->note(accepted ? diag::Severity::Info : diag::Severity::Warn,
+                           QStringLiteral("관리자 인증 — %1").arg(detail),
+                           QJsonObject{{"accepted", accepted}});
+            });
 
     connect(estop_, &EStopButton::engageRequested, this, &MainWindow::engageEstop);
     connect(estop_, &EStopButton::releaseRequested, this, &MainWindow::releaseEstop);
@@ -921,6 +949,18 @@ void MainWindow::releaseEstop()
     setMode(QStringLiteral("manual"));
 }
 
+void MainWindow::refreshUserBadge()
+{
+    auto &session = auth::Session::instance();
+    userBadge_->setVisible(session.isSignedIn());
+    if (!session.isSignedIn())
+        return;
+    userBadge_->set(QStringLiteral("%1 · %2")
+                        .arg(session.displayName(), auth::roleLabel(session.role())),
+                    session.role() == auth::Role::Admin ? QStringLiteral("info")
+                                                        : QStringLiteral("neutral"));
+}
+
 void MainWindow::setMode(const QString &mode)
 {
     if (estop_->isEngaged()) {
@@ -1087,14 +1127,16 @@ void MainWindow::startSession()
                     robot_->isConnected() ? QStringLiteral("warn")
                                           : QStringLiteral("danger"));
 
-    auto &session = auth::Session::instance();
-    if (session.isSignedIn()) {
-        userBadge_->set(QStringLiteral("%1 · %2")
-                            .arg(session.displayName(), auth::roleLabel(session.role())),
-                        session.role() == auth::Role::Admin ? QStringLiteral("info")
-                                                            : QStringLiteral("neutral"));
-        userBadge_->show();
+    refreshUserBadge();
+
+    // 로그인 화면은 이 창보다 먼저 돈다. 그때의 인증 시도를 지금 옮겨 적는다.
+    for (const auto &a : auth::Session::instance().takePendingAttempts()) {
+        log_->note(a.accepted ? diag::Severity::Info : diag::Severity::Warn,
+                   QStringLiteral("관리자 인증 — %1").arg(a.detail),
+                   QJsonObject{{"accepted", a.accepted},
+                               {"at", a.at.toString(Qt::ISODate)}});
     }
+
     setMode(QStringLiteral("auto"));
     nav_->setCurrent(NavItem::Drive);
     navigate(NavItem::Drive);

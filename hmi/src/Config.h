@@ -68,10 +68,11 @@ public:
     void resetToDefaults();
 
 signals:
-    /// Emitted whenever any value changes, so views can re-read what they use.
-    void changed();
-
-    /// Emitted specifically for changes that require rebuilding the stylesheet.
+    /// Emitted for changes that require rebuilding the stylesheet.
+    ///
+    /// There was a second, broader `changed()` next to this one. Nothing ever
+    /// listened to it: every screen reads the values it needs when it opens,
+    /// and the ones that must react while open are the appearance ones.
     void appearanceChanged();
 
 private:

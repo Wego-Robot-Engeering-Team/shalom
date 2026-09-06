@@ -187,6 +187,31 @@ private slots:
         QCOMPARE(spy.at(1).at(0).toBool(), true);
     }
 
+    /// 로그인 화면의 인증 시도는 이 창과 이벤트 로그가 생기기 전에 일어난다.
+    /// 들을 사람이 없을 때 그냥 흘려보내면, 이력은 재미있는 대목이 지난
+    /// 뒤부터 시작한다.
+    void authAttempts_madeBeforeAnyoneListens_areHandedOver()
+    {
+        auto &s = Session::instance();
+        QVERIFY(s.setAdminPassword(QStringLiteral("pit-inspect-2026")));
+        s.takePendingAttempts();   // 앞선 검사가 남긴 것을 비운다
+
+        s.verifyAdmin(QStringLiteral("nope"));
+
+        const auto pending = s.takePendingAttempts();
+        QCOMPARE(pending.size(), 1);
+        QCOMPARE(pending.at(0).accepted, false);
+        QVERIFY2(!pending.at(0).detail.isEmpty(), "왜 거절됐는지가 비어 있다");
+        QVERIFY2(pending.at(0).at.isValid(), "언제였는지가 없다");
+
+        // 한 번 넘긴 것은 다시 나오지 않는다. 같은 시도가 두 줄로 남으면
+        // 이력을 세는 사람이 횟수를 잘못 읽는다.
+        QVERIFY(s.takePendingAttempts().isEmpty());
+
+        s.verifyAdmin(QStringLiteral("pit-inspect-2026"));   // 잠금 카운터 정리
+        s.takePendingAttempts();
+    }
+
     void cleanupTestCase()
     {
         QSettings store(QSettings::IniFormat, QSettings::UserScope,

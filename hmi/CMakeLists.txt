@@ -177,10 +177,11 @@ add_executable(inspection_hmi
     src/main.cpp
     ${HMI_PLATFORM_SOURCES}
 )
-target_link_libraries(inspection_hmi PRIVATE hmi_core)
 if(HMI_WITH_TESTBED)
     target_link_libraries(inspection_hmi PRIVATE hmi_testbed)
     target_compile_definitions(inspection_hmi PRIVATE HMI_WITH_TESTBED=1)
+else()
+    target_link_libraries(inspection_hmi PRIVATE hmi_core)
 endif()
 target_compile_definitions(inspection_hmi PRIVATE
     HMI_REQUIRE_LOGIN=$<BOOL:${HMI_REQUIRE_LOGIN}>)
@@ -203,9 +204,12 @@ if(HMI_BUILD_TESTS)
     # 테스트 타깃 공통 설정.
     function(hmi_add_test name)
         add_executable(${name} tests/${name}.cpp)
-        target_link_libraries(${name} PRIVATE hmi_core Qt6::Test)
+        # hmi_testbed 는 hmi_core 를 PUBLIC 으로 물고 있다. 둘을 같이 적으면
+        # 링커가 같은 라이브러리를 두 번 받아 매 링크마다 경고를 낸다.
         if(HMI_WITH_TESTBED)
-            target_link_libraries(${name} PRIVATE hmi_testbed)
+            target_link_libraries(${name} PRIVATE hmi_testbed Qt6::Test)
+        else()
+            target_link_libraries(${name} PRIVATE hmi_core Qt6::Test)
         endif()
         target_compile_options(${name} PRIVATE ${HMI_TEST_FLAGS})
         add_test(NAME ${name} COMMAND ${name})
@@ -221,13 +225,25 @@ if(HMI_BUILD_TESTS)
     hmi_add_test(test_catalog)
     hmi_add_test(test_theme)
 
-    # 전 화면을 실제로 그려 보는 연기 테스트. 화면 없이 돌도록 offscreen
-    # 플랫폼을 강제한다. 그리기 경로에서만 터지는 버그를 잡는 유일한 테스트다.
     hmi_add_test(test_kinematics)
-    hmi_add_test(test_render)
-    set_tests_properties(test_render PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-    hmi_add_test(test_sim)
+
+    # 시뮬레이터가 있어야 도는 검사들. 납품 구성은 시뮬레이터를 빼고
+    # 빌드하므로 (HMI_WITH_TESTBED=OFF) 여기서도 빠져야 한다 — 그러지
+    # 않으면 납품 구성 자체가 컴파일되지 않는다.
+    #
+    # 화면을 그려 보는 검사가 납품 구성에서 빠지는 것은 감수한다. 위젯은
+    # 두 구성에서 같고, 다른 것은 로그인 요구와 코어를 공유 라이브러리로
+    # 내는지뿐이다. 로봇 없이 창을 띄우려면 RobotLink 구현이 하나는
+    # 있어야 하는데, 납품 빌드에는 브릿지 클라이언트밖에 없다.
+    if(HMI_WITH_TESTBED)
+        # 전 화면을 실제로 그려 보는 연기 테스트. 화면 없이 돌도록 offscreen
+        # 플랫폼을 강제한다. 그리기 경로에서만 터지는 버그를 잡는 유일한 검사다.
+        hmi_add_test(test_render)
+        set_tests_properties(test_render PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+        hmi_add_test(test_sim)
+    endif()
+
     hmi_add_test(test_capture)
     hmi_add_test(test_session)
 

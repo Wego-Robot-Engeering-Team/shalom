@@ -14,6 +14,7 @@
 
 #include <QLabel>
 
+#include "Config.h"
 #include "MainWindow.h"
 #include "panels/ArmPanel.h"
 #include "robot/Kinematics.h"
@@ -192,6 +193,29 @@ private slots:
                                            "않았다: %1 vs %2")
                                 .arg(ee.at(2)->command())
                                 .arg(after.z)));
+    }
+
+    /// 테마를 바꾸면 창이 실제로 다시 칠해져야 한다.
+    ///
+    /// 한 번은 설정이 Config 를 먼저 바꾸고 신호를 냈는데, 그 신호를 받은
+    /// 쪽이 "지금 칠해져 있는 테마" 를 다시 적용했다. 버튼은 눌린 것처럼
+    /// 보이고 화면은 그대로였다.
+    void changingThemeThroughConfig_repaintsTheWindow()
+    {
+        theme::setTheme(QStringLiteral("light"));
+        qApp->setStyleSheet(theme::buildQss());
+
+        auto *robot = new sim::SimRobot;
+        ui::MainWindow window(robot);
+        window.show();
+
+        Config::instance().setTheme(QStringLiteral("dark"));
+        QVERIFY2(theme::colors().isDark(),
+                 "Config 로 다크를 지정했는데 화면은 라이트 그대로다");
+
+        Config::instance().setTheme(QStringLiteral("light"));
+        QVERIFY2(!theme::colors().isDark(),
+                 "Config 로 라이트를 지정했는데 화면은 다크 그대로다");
     }
 
     /// -π 과 π 은 같은 각도다. 순환 값으로 다루지 않으면 같은 자세가 가장
