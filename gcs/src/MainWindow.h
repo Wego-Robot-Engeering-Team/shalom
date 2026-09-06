@@ -51,6 +51,8 @@ class ArmPanel;
 class CapturePanel;
 class DataPanel;
 class Badge;
+class BatteryPill;
+class NotificationBell;
 class EStopButton;
 class DiagnosticsPanel;
 class EventLogPanel;
@@ -131,6 +133,8 @@ private:
     QStackedWidget *context_ = nullptr;
     MapCard *map_ = nullptr;
 
+    BatteryPill *headerBattery_ = nullptr;
+    NotificationBell *bell_ = nullptr;
     StatusPanel *status_ = nullptr;
     MissionPanel *mission_ = nullptr;
     TeleopPanel *teleop_ = nullptr;

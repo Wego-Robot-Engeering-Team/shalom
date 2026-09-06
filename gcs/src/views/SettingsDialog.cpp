@@ -247,8 +247,8 @@ QWidget *SettingsDialog::buildOperationTab()
     angular_->setSuffix(QStringLiteral(" °/s"));
 
     lay->addWidget(sectionLabel(QStringLiteral("수동 조작 기본 속도")));
-    lay->addWidget(fieldRow(QStringLiteral("앞뒤 속도"), linear_, 84));
-    lay->addWidget(fieldRow(QStringLiteral("회전 속도"), angular_, 84));
+    lay->addWidget(fieldRow(QStringLiteral("선속도"), linear_, 84));
+    lay->addWidget(fieldRow(QStringLiteral("각속도"), angular_, 84));
 
     auto *hint = new QLabel(QStringLiteral(
         "수동 조작 화면을 열 때 처음 적용되는 속도입니다. "

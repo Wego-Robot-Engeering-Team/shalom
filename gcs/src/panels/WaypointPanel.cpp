@@ -1,111 +1,19 @@
 #include "panels/WaypointPanel.h"
 
-#include <QFont>
 #include <QHBoxLayout>
 #include <QListWidget>
-#include <QPainter>
 #include <QPushButton>
-#include <QStyle>
-#include <QStyledItemDelegate>
 #include <QVBoxLayout>
 
-#include "mapview/MapItems.h"
 #include "theme/Tokens.h"
 #include "widgets/Primitives.h"
+#include "widgets/WaypointDelegate.h"
 
 namespace gcs::ui {
 
 using namespace gcs::theme;
 
 namespace {
-
-constexpr int kRoleData = Qt::UserRole;
-constexpr int kRowHeight = 40;
-
-QString statusLabel(const QString &s)
-{
-    if (s == QLatin1String("done"))
-        return QStringLiteral("완료");
-    if (s == QLatin1String("current"))
-        return QStringLiteral("진행");
-    if (s == QLatin1String("error"))
-        return QStringLiteral("오류");
-    return QStringLiteral("대기");
-}
-
-class WaypointDelegate : public QStyledItemDelegate {
-public:
-    using QStyledItemDelegate::QStyledItemDelegate;
-
-    QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const override
-    {
-        return {0, kRowHeight};
-    }
-
-    void paint(QPainter *p, const QStyleOptionViewItem &opt,
-               const QModelIndex &idx) const override
-    {
-        const Colors &C = colors();
-        p->save();
-        p->setRenderHint(QPainter::Antialiasing);
-
-        const QRect r = opt.rect;
-        const QVariantMap d = idx.data(kRoleData).toMap();
-        const QString status = d.value(QStringLiteral("status"),
-                                       QStringLiteral("todo")).toString();
-        const QColor col(gcs::map::waypointColor(status));
-
-        if (opt.state & QStyle::StateFlag::State_Selected) {
-            QColor sel(C.accent);
-            sel.setAlpha(30);
-            p->setPen(Qt::NoPen);
-            p->setBrush(sel);
-            p->drawRect(r);
-        } else if (opt.state & QStyle::StateFlag::State_MouseOver) {
-            p->setPen(Qt::NoPen);
-            p->setBrush(QColor(C.surfaceHi));
-            p->drawRect(r);
-        }
-
-        // 상태 점 — 미완료만 속을 비운다. 지도 마커와 같은 규칙이라
-        // 목록과 지도를 눈으로 대응시키기 쉽다.
-        const int cy = r.center().y();
-        const bool filled = status != QLatin1String("todo");
-        p->setPen(filled ? QPen(Qt::NoPen) : QPen(col, 1.2));
-        p->setBrush(filled ? QBrush(col) : QBrush(Qt::NoBrush));
-        p->drawEllipse(r.left() + 10, cy - 4, 8, 8);
-
-        QFont ft;
-        ft.setPointSize(11);
-        ft.setWeight(status == QLatin1String("current") ? QFont::DemiBold : QFont::Normal);
-        p->setFont(ft);
-        p->setPen(filled ? QColor(C.text) : QColor(C.textDim));
-        p->drawText(r.adjusted(26, 3, -62, 0), Qt::AlignLeft | Qt::AlignTop,
-                    QStringLiteral("%1.  %2")
-                        .arg(idx.row() + 1)
-                        .arg(d.value(QStringLiteral("name"),
-                                     d.value(QStringLiteral("id"))).toString()));
-
-        QFont fm(monoFamily());
-        fm.setPointSize(9);
-        p->setFont(fm);
-        p->setPen(QColor(C.textMute));
-        QString sub = QStringLiteral("%1, %2")
-                          .arg(d.value(QStringLiteral("x")).toDouble(), 0, 'f', 2)
-                          .arg(d.value(QStringLiteral("y")).toDouble(), 0, 'f', 2);
-        if (d.contains(QStringLiteral("tag_id")))
-            sub += QStringLiteral("   마커 %1").arg(d.value(QStringLiteral("tag_id")).toInt());
-        p->drawText(r.adjusted(26, 0, -62, -3), Qt::AlignLeft | Qt::AlignBottom, sub);
-
-        QFont fs;
-        fs.setPointSize(9);
-        p->setFont(fs);
-        p->setPen(filled ? col : QColor(C.textMute));
-        p->drawText(r.adjusted(0, 0, -10, 0), Qt::AlignRight | Qt::AlignVCenter,
-                    statusLabel(status));
-        p->restore();
-    }
-};
 
 QPushButton *makeButton(const QString &text, int width = 0)
 {
@@ -141,7 +49,7 @@ WaypointPanel::WaypointPanel(QWidget *parent) : QWidget(parent)
             [this](QListWidgetItem *cur) {
                 if (cur)
                     emit waypointSelected(
-                        cur->data(kRoleData).toMap().value(QStringLiteral("id")).toString());
+                        cur->data(kWaypointRole).toMap().value(QStringLiteral("id")).toString());
             });
 
     // ---- 편집 ----
@@ -162,7 +70,7 @@ WaypointPanel::WaypointPanel(QWidget *parent) : QWidget(parent)
     connect(add, &QPushButton::clicked, this, &WaypointPanel::addRequested);
     connect(del, &QPushButton::clicked, this, [this] {
         if (auto *it = list_->currentItem())
-            emit deleteRequested(it->data(kRoleData).toMap()
+            emit deleteRequested(it->data(kWaypointRole).toMap()
                                      .value(QStringLiteral("id")).toString());
     });
     connect(up, &QPushButton::clicked, this, [this] { move(-1); });
@@ -196,7 +104,7 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
     list_->clear();
     for (const auto &wp : waypoints) {
         auto *it = new QListWidgetItem;
-        it->setData(kRoleData, wp);
+        it->setData(kWaypointRole, wp);
         list_->addItem(it);
     }
     count_->setText(QString::number(waypoints.size()));
@@ -208,7 +116,7 @@ QList<QVariantMap> WaypointPanel::waypoints() const
     QList<QVariantMap> out;
     out.reserve(list_->count());
     for (int i = 0; i < list_->count(); ++i)
-        out << list_->item(i)->data(kRoleData).toMap();
+        out << list_->item(i)->data(kWaypointRole).toMap();
     return out;
 }
 
@@ -216,13 +124,13 @@ void WaypointPanel::setStatus(const QString &id, const QString &status)
 {
     for (int i = 0; i < list_->count(); ++i) {
         auto *it = list_->item(i);
-        QVariantMap d = it->data(kRoleData).toMap();
+        QVariantMap d = it->data(kWaypointRole).toMap();
         if (d.value(QStringLiteral("id")).toString() != id)
             continue;
         if (d.value(QStringLiteral("status")).toString() == status)
             return;                       // 불필요한 갱신은 건너뛴다
         d[QStringLiteral("status")] = status;
-        it->setData(kRoleData, d);
+        it->setData(kWaypointRole, d);
         list_->update(list_->indexFromItem(it));
         emit waypointsChanged(waypoints());
         return;

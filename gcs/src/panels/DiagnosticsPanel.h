@@ -28,6 +28,7 @@ namespace gcs::ui {
 class Badge;
 class Card;
 class HealthRow;
+class StatBar;
 
 /// One sensor's reported health.
 struct SensorHealth {
@@ -61,6 +62,11 @@ public:
     void setLink(const LinkHealth &link);
     void setStorage(bool nasOnline, int pendingUploads, double spoolFreeMb);
 
+    /// Robot computer load and temperature. Percentages and degrees Celsius.
+    /// These used to sit on the drive view, where an operator could not act
+    /// on them; health belongs on the health screen.
+    void setSystem(double cpu, double mem, double cpuTemp, double gpuTemp);
+
     /// Worst sensor state present, for the summary badge and the nav badge.
     /// Returns one of the state strings used by SensorHealth.
     static QString worstState(const QList<SensorHealth> &sensors);
@@ -68,6 +74,10 @@ public:
 private:
     Card *card_ = nullptr;
     Badge *summary_ = nullptr;
+    StatBar *cpu_ = nullptr;
+    StatBar *mem_ = nullptr;
+    StatBar *cpuTemp_ = nullptr;
+    StatBar *gpuTemp_ = nullptr;
     QWidget *sensorHost_ = nullptr;
     QHash<QString, HealthRow *> rows_;
 
