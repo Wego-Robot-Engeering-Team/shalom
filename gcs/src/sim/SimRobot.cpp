@@ -93,48 +93,66 @@ MapData buildMap()
 
 QList<QVariantMap> buildWaypoints()
 {
-    // 새 지도의 배치에 맞춘다. 선로 두 개가 y = ±4.6 에 있고, 각 선로 위에
-    // 3 량 편성이 서 있다. 점검포인트는 대차 사이, 즉 차량 아래에서 로봇이
-    // 실제로 설 수 있는 자리에 둔다.
+    // 8 량 편성 한 줄. 량마다 하부 4 곳과 좌우 측면 2 곳씩을 찍는다.
     //
-    // 두 선로에 나눠 배치하는 것이 핵심이다. 한 선로에만 두면 편성 사이
-    // 통로를 지나는 동작이 한 번도 나오지 않아, 현장에서 처음 겪게 된다.
-    constexpr double kTrackY = 4.6;
+    // 순서는 량 단위다: 1량 하부 4 → 1량 좌측 2 → 1량 우측 2 → 2량 …
+    //
+    // 하부 전체를 먼저 돌고 측면으로 넘어가는 편이 주행은 짧지만, 그러면 한
+    // 량의 촬영이 세 번에 나뉘어 "1량 촬영 시간"(지시서 정밀도 요건)이 편성
+    // 전체 시간으로 늘어난다. 게다가 옆 통로로 나가는 데 드는 거리는 크지
+    // 않다 — 윤축 사이로 옆으로 빠지면 되고, 편성 끝까지 갈 필요가 없다.
+    constexpr int kCars = 8;
     constexpr double kCarLen = 20.0;
     constexpr double kCarGap = 0.6;
-    constexpr int kCars = 3;
-    constexpr double kBogieInset = 2.6;
-    constexpr double kBogieHalf = 1.3;   // 대차 반길이 + 여유
+    constexpr int kUnderPerCar = 4;
+    constexpr int kSidePerCar = 2;
+    constexpr double kSideY = 3.05;   ///< 차체 옆면에서 1.5 m 떨어진 통로
 
     const double trainLen = kCars * kCarLen + (kCars - 1) * kCarGap;
     const double xStart = -trainLen / 2.0;
 
-    QList<QVariantMap> wps;
-    int n = 0;
-    for (int track = 0; track < 2; ++track) {
-        const double y = track == 0 ? kTrackY : -kTrackY;
-        for (int car = 0; car < kCars; ++car) {
-            const double cx0 = xStart + car * (kCarLen + kCarGap);
-            const double lo = cx0 + kBogieInset + kBogieHalf;
-            const double hi = cx0 + kCarLen - kBogieInset - kBogieHalf;
+    const auto carX = [&](int car, int idx, int count) {
+        const double cx0 = xStart + car * (kCarLen + kCarGap);
+        return cx0 + kCarLen * (idx + 0.5) / count;
+    };
 
-            for (int pt = 0; pt < 2; ++pt) {
-                QVariantMap w;
-                w["id"] = QStringLiteral("T%1C%2-P%3").arg(track + 1).arg(car + 1).arg(pt + 1);
-                w["name"] = QStringLiteral("%1선 %2량 P%3").arg(track + 1).arg(car + 1).arg(pt + 1);
-                // 량 번호는 두 선로를 통틀어 유일해야 한다. 선로마다 1~3 을
-                // 다시 쓰면 량 촬영 시간(CAR_START/CAR_COMPLETE)이 한 량을
-                // 두 번 센 것처럼 합쳐진다.
-                w["car"] = track * kCars + car + 1;
-                w["x"] = lo + (hi - lo) * (pt == 0 ? 0.3 : 0.7);
-                w["y"] = y;
-                // 차량 아래에서는 선로를 따라 보게 둔다. 반대편 선로는 반대 방향.
-                w["theta"] = track == 0 ? 0.0 : M_PI;
-                w["tag_id"] = 10 + n;
-                w["status"] = QStringLiteral("todo");
-                wps << w;
-                ++n;
-            }
+    QList<QVariantMap> wps;
+    int tag = 10;
+
+    const auto add = [&](const QString &id, const QString &name, int car,
+                         double x, double y, double theta) {
+        QVariantMap w;
+        w["id"] = id;
+        w["name"] = name;
+        w["car"] = car + 1;
+        w["x"] = x;
+        w["y"] = y;
+        w["theta"] = theta;
+        w["tag_id"] = tag++;
+        w["status"] = QStringLiteral("todo");
+        wps << w;
+    };
+
+    for (int car = 0; car < kCars; ++car) {
+        // 하부 — 차량 아래 중앙 통로. 윤축은 좌우 레일 위에만 있어
+        // 가운데는 편성 끝에서 끝까지 뚫려 있다.
+        for (int i = 0; i < kUnderPerCar; ++i)
+            add(QStringLiteral("U%1-%2").arg(car + 1).arg(i + 1),
+                QStringLiteral("%1량 하부 %2").arg(car + 1).arg(i + 1),
+                car, carX(car, i, kUnderPerCar), 0.0, 0.0);
+
+        // 측면 — 편성 위아래 통로에서 차체 옆면을 본다. 진행 방향(+X)
+        // 기준 좌측이 +Y, 우측이 -Y 다. 카메라는 편성 쪽을 향한다.
+        for (int side = 0; side < 2; ++side) {
+            const double y = side == 0 ? kSideY : -kSideY;
+            const double theta = side == 0 ? -M_PI_2 : M_PI_2;
+            const QString label = side == 0 ? QStringLiteral("좌측") : QStringLiteral("우측");
+            const QString key = side == 0 ? QStringLiteral("L") : QStringLiteral("R");
+
+            for (int i = 0; i < kSidePerCar; ++i)
+                add(QStringLiteral("%1%2-%3").arg(key).arg(car + 1).arg(i + 1),
+                    QStringLiteral("%1량 %2 %3").arg(car + 1).arg(label).arg(i + 1),
+                    car, carX(car, i, kSidePerCar), y, theta);
         }
     }
     return wps;
@@ -146,11 +164,16 @@ QList<QVariantMap> buildTags(const QList<QVariantMap> &waypoints)
     for (const auto &w : waypoints) {
         const int id = w.value("tag_id").toInt();
         const double y = w.value("y").toDouble();
-        // 마커는 점검포인트 양옆, 차량 아래 구조물에 붙는다 (지시서 2.2.2).
-        // 예전에는 지도 한가운데 통로에 붙여 놓아, 포인트가 선로로 옮겨간
-        // 지금은 로봇이 볼 수 없는 자리가 된다.
-        tags << QVariantMap{{"id", id}, {"x", w.value("x")}, {"y", y + 1.2}};
-        tags << QVariantMap{{"id", id + 100}, {"x", w.value("x")}, {"y", y - 1.2}};
+
+        // 마커는 로봇이 그 자리에서 실제로 볼 수 있는 곳에 붙는다 (지시서 2.2.2).
+        // 하부 포인트는 좌우 레일 쪽 구조물에, 측면 포인트는 차체 쪽에 하나.
+        if (std::abs(y) < 0.5) {
+            tags << QVariantMap{{"id", id}, {"x", w.value("x")}, {"y", 0.9}};
+            tags << QVariantMap{{"id", id + 100}, {"x", w.value("x")}, {"y", -0.9}};
+        } else {
+            tags << QVariantMap{{"id", id}, {"x", w.value("x")},
+                                {"y", y > 0 ? 1.7 : -1.7}};
+        }
     }
     return tags;
 }

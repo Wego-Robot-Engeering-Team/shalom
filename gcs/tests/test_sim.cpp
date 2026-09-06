@@ -260,9 +260,9 @@ private slots:
         r.setMode(DriveMode::Auto);
         r.missionStart();
 
-        // 12 포인트 × (이동 + 3 초 체류). 검수고 지도가 74 m 로 커지고
-        // 포인트가 두 선로에 나뉘면서 주행 거리가 늘었다. 넉넉히 돌린다.
-        run(r, 1200.0);
+        // 64 포인트 × (이동 + 3 초 체류). 8 량 편성 178 m 를 하부와 좌우
+        // 측면까지 도는 경로다. 넉넉히 돌린다.
+        run(r, 4000.0);
 
         int done = 0;
         for (const auto &w : r.waypoints())
@@ -278,7 +278,7 @@ private slots:
         r.setMode(DriveMode::Auto);
         QSignalSpy spy(&r, &SimRobot::robotEvent);
         r.missionStart();
-        run(r, 1200.0);
+        run(r, 4000.0);
 
         int starts = 0, completes = 0;
         for (const auto &sig : spy) {
@@ -289,9 +289,9 @@ private slots:
                 ++completes;
         }
         // 1량 촬영 시간 보고서가 이 구간으로 산출된다. 량마다 한 쌍이어야
-        // 한다. 선로 두 개에 3 량씩이므로 여섯 량이다.
-        QCOMPARE(starts, 6);
-        QCOMPARE(completes, 6);
+        // 한다 — 그래서 경로도 량 단위로 묶는다. 8 량 편성이다.
+        QCOMPARE(starts, 8);
+        QCOMPARE(completes, 8);
     }
 
     void mission_pauseHaltsProgress()

@@ -5,6 +5,7 @@
 #include <QMatrix4x4>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QTimer>
 #include <QPolygonF>
 #include <QWheelEvent>
 #include <QtMath>
@@ -126,6 +127,36 @@ Robot3DView::Robot3DView(QWidget *parent) : QWidget(parent)
     setMinimumHeight(240);
     setCursor(Qt::OpenHandCursor);
     joints_ = {0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785};
+    shown_ = joints_;
+
+    // 표시용 보간. 실제 팔의 속도가 아니라 "움직였다" 를 읽히게 하는 것이
+    // 목적이므로 실제 관절 속도보다 빠르게 잡는다.
+    ease_ = new QTimer(this);
+    ease_->setInterval(20);
+    connect(ease_, &QTimer::timeout, this, [this] {
+        const QList<double> &target = preview_.isEmpty() ? joints_ : preview_;
+        if (target.size() != shown_.size()) {
+            shown_ = target;
+            ease_->stop();
+            update();
+            return;
+        }
+
+        constexpr double kStep = 0.055;   // rad per tick, 약 2.75 rad/s
+        bool moving = false;
+        for (int i = 0; i < shown_.size(); ++i) {
+            const double d = target.at(i) - shown_.at(i);
+            if (std::abs(d) <= kStep) {
+                shown_[i] = target.at(i);
+            } else {
+                shown_[i] += d > 0 ? kStep : -kStep;
+                moving = true;
+            }
+        }
+        if (!moving)
+            ease_->stop();
+        update();
+    });
 }
 
 void Robot3DView::setArmJoints(const QList<double> &q)
@@ -133,7 +164,7 @@ void Robot3DView::setArmJoints(const QList<double> &q)
     if (q.size() < 7)
         return;
     joints_ = q;
-    update();
+    ease_->start();
 }
 
 void Robot3DView::setSingularWarning(bool warn)
@@ -178,7 +209,7 @@ void Robot3DView::setPreviewJoints(const QList<double> &q)
     if (preview_ == q)
         return;
     preview_ = q;
-    update();
+    ease_->start();
 }
 
 void Robot3DView::mousePressEvent(QMouseEvent *ev)
@@ -312,7 +343,7 @@ void Robot3DView::paintEvent(QPaintEvent *)
     // FR3 — 몸통 위에 얹혀 있다.
     QMatrix4x4 armBase;
     armBase.translate(0.0f, 0.0f, float(kStandHeight + kBodyHgt));
-    const auto origins = jointOrigins(previewing ? preview_ : joints_);
+    const auto origins = jointOrigins(shown_);
 
     appendBox(faces, armBase, QVector3D(0, 0, 0.04f), QVector3D(0.18f, 0.18f, 0.08f),
               armColor.darker(140));
@@ -368,11 +399,8 @@ void Robot3DView::paintEvent(QPaintEvent *)
                    QStringLiteral("끌어서 회전 · Shift+끌기로 이동 · 휠로 확대"));
     }
 
-    if (previewing) {
-        p.setPen(QColor(C.accent));
-        p.drawText(rect().adjusted(8, 6, -8, 0), Qt::AlignLeft | Qt::AlignTop,
-                   QStringLiteral("보낼 자세 미리보기 — 아직 로봇은 움직이지 않습니다"));
-    }
+    // 미리보기 문구는 지웠다. 팔 색이 바뀌는 것으로 이미 드러나고, 문장이
+    // 늘 떠 있으면 3D 뷰를 가린다.
 
     if (singularWarn_) {
         p.setPen(QColor(C.warning));

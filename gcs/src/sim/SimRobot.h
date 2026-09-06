@@ -112,9 +112,9 @@ private:
     void setWaypointStatus(int index, const QString &status);
 
     // pose and motion
-    // In front of the charging station on the depot map. The previous value
-    // (-13, 0) sits in the middle of the aisle between the two trains there.
-    double x_ = -32.0, y_ = -10.0, theta_ = 0.0;
+    // In front of the charging station on the depot map, which sits past the
+    // end of the train in the corner of the shed.
+    double x_ = -82.0, y_ = -6.0, theta_ = 0.0;
     double speed_ = 0.0;
 
     // Battery policy: set by the control station, enforced here.

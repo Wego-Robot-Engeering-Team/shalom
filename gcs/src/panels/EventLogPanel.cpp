@@ -66,6 +66,19 @@ QString detailText(const QJsonObject &detail)
 constexpr int kIconSize = 15;
 constexpr int kRightPad = 8;
 
+/// 로그 목록에 찍는 등급 약어.
+QString severityCode(Severity s)
+{
+    switch (s) {
+    case Severity::Ok: return QStringLiteral("OK");
+    case Severity::Warn: return QStringLiteral("WARN");
+    case Severity::Error: return QStringLiteral("ERROR");
+    case Severity::Critical: return QStringLiteral("CRIT");
+    case Severity::Info: break;
+    }
+    return QStringLiteral("INFO");
+}
+
 QColor severityColor(Severity s)
 {
     const Colors &C = colors();
@@ -130,7 +143,10 @@ public:
         fl.setWeight(QFont::DemiBold);
         p->setFont(fl);
         p->setPen(sev == Severity::Info ? QColor(C.textMute) : sc);
-        const QString level = diag::severityLabel(sev);
+        // 등급은 영문으로 적는다. 바로 옆 코드가 영문 대문자라 한글과
+        // 섞이면 줄이 들쭉날쭉하고, INFO/WARN/ERROR 는 로그를 보는 사람에게
+        // 이미 익은 낱말이다. 조작자용 한글 표기는 알림과 코드 설명에 있다.
+        const QString level = severityCode(sev);
         const int levelW = QFontMetrics(fl).horizontalAdvance(level) + 8;
         p->drawText(QRect(x, top, levelW, 18), Qt::AlignLeft | Qt::AlignVCenter, level);
         x += levelW;
@@ -302,7 +318,7 @@ private:
             return -1;
         const QRect ic = iconRectFor(
             visualRect(idx), idx.data(kRoleTime).toString(), code,
-            diag::severityLabel(Severity(idx.data(kRoleSeverity).toInt())));
+            severityCode(Severity(idx.data(kRoleSeverity).toInt())));
         return ic.adjusted(-3, -3, 3, 3).contains(pos) ? idx.row() : -1;
     }
 
