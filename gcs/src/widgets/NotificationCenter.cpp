@@ -18,8 +18,8 @@ using namespace gcs::theme;
 
 namespace {
 
-constexpr int kBellW = 34;
-constexpr int kBellH = 30;
+constexpr int kBellW = 38;
+constexpr int kBellH = 34;
 constexpr int kPopupW = 348;
 
 constexpr int kRadius = 10;
@@ -265,15 +265,15 @@ void NotificationBell::paintEvent(QPaintEvent *)
     // 종 — 몸통 하나와 아래 선, 손잡이. 글꼴 이모지를 쓰면 플랫폼마다
     // 모양과 색이 달라져 납품물이 같아 보이지 않는다.
     QPainterPath bell;
-    bell.moveTo(cx - 5.5, cy + 4);
-    bell.cubicTo(cx - 5.5, cy - 2, cx - 4.5, cy - 5.5, cx, cy - 5.5);
-    bell.cubicTo(cx + 4.5, cy - 5.5, cx + 5.5, cy - 2, cx + 5.5, cy + 4);
+    bell.moveTo(cx - 6.5, cy + 4.6);
+    bell.cubicTo(cx - 6.5, cy - 2.4, cx - 5.3, cy - 6.4, cx, cy - 6.4);
+    bell.cubicTo(cx + 5.3, cy - 6.4, cx + 6.5, cy - 2.4, cx + 6.5, cy + 4.6);
 
     p.setPen(QPen(QColor(unread_ > 0 ? C.text : C.textDim), 1.4));
     p.setBrush(Qt::NoBrush);
     p.drawPath(bell);
-    p.drawLine(QPointF(cx - 7, cy + 4), QPointF(cx + 7, cy + 4));
-    p.drawLine(QPointF(cx - 1.6, cy + 6.6), QPointF(cx + 1.6, cy + 6.6));
+    p.drawLine(QPointF(cx - 8.2, cy + 4.6), QPointF(cx + 8.2, cy + 4.6));
+    p.drawLine(QPointF(cx - 1.9, cy + 7.5), QPointF(cx + 1.9, cy + 7.5));
 
     if (unread_ <= 0)
         return;
@@ -281,12 +281,12 @@ void NotificationBell::paintEvent(QPaintEvent *)
     // 안 읽은 건수. 두 자리를 넘으면 폭이 흔들리므로 9+ 로 자른다.
     const QString text = unread_ > 9 ? QStringLiteral("9+") : QString::number(unread_);
     QFont f;
-    f.setPointSize(7);
+    f.setPointSize(8);
     f.setWeight(QFont::Bold);
     p.setFont(f);
 
-    const double w = text.size() > 1 ? 15.0 : 12.0;
-    const QRectF dot(width() - w - 1, 1, w, 12);
+    const double w = text.size() > 1 ? 17.0 : 14.0;
+    const QRectF dot(width() - w - 1, 1, w, 14);
     p.setPen(Qt::NoPen);
     p.setBrush(QColor(C.danger));
     p.drawRoundedRect(dot, 6, 6);

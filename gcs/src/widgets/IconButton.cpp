@@ -13,8 +13,8 @@ using namespace gcs::theme;
 
 namespace {
 
-constexpr int kSize = 30;
-constexpr double kGlyph = 15.0;   ///< 글리프가 차지하는 지름
+constexpr int kSize = 34;
+constexpr double kGlyph = 18.0;   ///< 글리프가 차지하는 지름
 
 void drawSliders(QPainter &p, const QPointF &c, double r, const QColor &tone)
 {

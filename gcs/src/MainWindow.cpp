@@ -138,7 +138,7 @@ QWidget *MainWindow::buildTopBar()
     //   [ 멈춤 ]          비상정지
     auto *bar = new QWidget;
     bar->setObjectName(QStringLiteral("TopBar"));
-    bar->setFixedHeight(70);
+    bar->setFixedHeight(76);
 
     auto *lay = new QHBoxLayout(bar);
     lay->setContentsMargins(metrics::s4, 0, metrics::s3, 0);
@@ -196,7 +196,7 @@ QWidget *MainWindow::buildTopBar()
     lay->addWidget(new VLine(nullptr, metrics::s3), 0);
     lay->addSpacing(metrics::s3);
 
-    estop_ = new EStopButton(nullptr, 54);
+    estop_ = new EStopButton(nullptr, 60);
     lay->addWidget(estop_);
     return bar;
 }

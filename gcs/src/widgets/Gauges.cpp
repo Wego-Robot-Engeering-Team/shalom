@@ -133,7 +133,7 @@ void BatteryRing::paintEvent(QPaintEvent *)
 BatteryPill::BatteryPill(QWidget *parent, double lowThreshold)
     : AnimatedValue(parent), low_(lowThreshold)
 {
-    setFixedSize(82, 24);
+    setFixedSize(94, 27);
 }
 
 void BatteryPill::setState(double socPercent, bool charging)
@@ -157,14 +157,14 @@ void BatteryPill::paintEvent(QPaintEvent *)
                                           : QColor(C.success);
 
     // 셀 몸통과 오른쪽 단자.
-    const QRectF cell(0.75, 4.5, 30.0, 13.0);
+    const QRectF cell(0.75, 5.5, 34.0, 15.0);
     p.setPen(QPen(QColor(C.borderHi), 1.2));
     p.setBrush(QColor(C.surfaceHi));
     p.drawRoundedRect(cell, 3, 3);
 
     p.setPen(Qt::NoPen);
     p.setBrush(QColor(C.borderHi));
-    p.drawRoundedRect(QRectF(cell.right() + 1.0, 8.5, 2.4, 5.0), 1, 1);
+    p.drawRoundedRect(QRectF(cell.right() + 1.0, 10.0, 2.8, 6.0), 1, 1);
 
     // 잔량. 0 % 에서도 실선이 보이도록 최소 폭을 준다.
     const double inner = cell.width() - 3.0;
