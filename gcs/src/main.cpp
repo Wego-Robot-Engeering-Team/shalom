@@ -17,6 +17,7 @@
 #include "theme/Tokens.h"
 #include "views/SettingsDialog.h"
 #include "views/WelcomeDialog.h"
+#include "widgets/NotificationCenter.h"
 
 namespace {
 
@@ -94,7 +95,21 @@ int main(int argc, char *argv[])
         QWidget *dialog = nullptr;
         if (which == QLatin1String("welcome"))
             dialog = new gcs::ui::WelcomeDialog;
-        else if (which.startsWith(QLatin1String("settings"))) {
+        else if (which == QLatin1String("notifications")) {
+            using gcs::ui::Notification;
+            const QDateTime now = QDateTime::currentDateTime();
+            dialog = new gcs::ui::NotificationPopup({
+                {now, QStringLiteral("사람 접근 감지 — 일시정지"),
+                 QStringLiteral("작업 구역에서 인원을 이격시키십시오(1m 이상)"),
+                 QStringLiteral("warn")},
+                {now.addSecs(-42), QStringLiteral("우회 경로 없음 — 정지"),
+                 QStringLiteral("경로상 장애물을 제거하십시오"), QStringLiteral("error")},
+                {now.addSecs(-95), QStringLiteral("지도 불러오기 완료"), {},
+                 QStringLiteral("ok")},
+                {now.addSecs(-140), QStringLiteral("저장 위치를 찾을 수 없습니다"),
+                 QStringLiteral("/mnt/nas/inspection"), QStringLiteral("warn")},
+            });
+        } else if (which.startsWith(QLatin1String("settings"))) {
             auto *sd = new gcs::ui::SettingsDialog;
             // "settings:2" 형태로 탭을 지정한다.
             const auto parts = which.split(QLatin1Char(':'));
