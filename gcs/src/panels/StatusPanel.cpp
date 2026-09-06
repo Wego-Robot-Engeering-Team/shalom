@@ -53,7 +53,7 @@ StatusPanel::StatusPanel(QWidget *parent) : QWidget(parent)
     mem_ = new StatBar(QStringLiteral("MEM"), QStringLiteral("%"), nullptr, 80, 92);
     cpuTemp_ = new StatBar(QStringLiteral("CPU 온도"), QStringLiteral("°C"), nullptr, 75, 88);
     gpuTemp_ = new StatBar(QStringLiteral("GPU 온도"), QStringLiteral("°C"), nullptr, 75, 88);
-    rtt_ = new StatBar(QStringLiteral("링크 RTT"), QStringLiteral("ms"), nullptr, 120, 400, 500);
+    rtt_ = new StatBar(QStringLiteral("응답 시간"), QStringLiteral("ms"), nullptr, 120, 400, 500);
     grid->addWidget(cpu_, 0, 0);
     grid->addWidget(mem_, 0, 1);
     grid->addWidget(cpuTemp_, 1, 0);

@@ -129,6 +129,11 @@ QPushButton[variant="primary"] {
 }
 QPushButton[variant="primary"]:hover   { background: @accentHi; border-color: @accentHi; }
 QPushButton[variant="primary"]:pressed { background: @accentLo; }
+/* variant 규칙이 :disabled 보다 뒤에 오면 비활성 상태를 덮어써서, 누를 수 없는
+   버튼이 눌러도 되는 것처럼 보인다. variant 별로 명시한다. */
+QPushButton[variant="primary"]:disabled {
+    background: transparent; color: @textMute; border-color: @border;
+}
 QPushButton[variant="danger"] {
     background: transparent; border-color: @danger;
     color: @danger; font-weight: 600;
@@ -136,10 +141,14 @@ QPushButton[variant="danger"] {
 QPushButton[variant="danger"]:hover {
     background: @danger; border-color: @danger; color: @textOnAccent;
 }
+QPushButton[variant="danger"]:disabled {
+    background: transparent; color: @textMute; border-color: @border;
+}
 QPushButton[variant="ghost"] {
     background: transparent; border-color: transparent; color: @textDim;
 }
 QPushButton[variant="ghost"]:hover { background: @surfaceHi; color: @text; }
+QPushButton[variant="ghost"]:disabled { color: @textMute; }
 QPushButton[size="sm"] { min-height: @ctlHSm; padding: 0 8px; font-size: @fsSm; }
 
 /* ===================== 입력 ===================== */

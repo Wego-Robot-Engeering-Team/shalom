@@ -1,37 +1,24 @@
 #pragma once
 
-// TCP frame codec. Implements docs/bridge_protocol.md sections 1.1 and 1.3.
+// Qt-flavoured adapter over the shared framing implementation.
 //
-// TCP is a byte stream with no message boundaries. This file is the single
-// place where those boundaries are restored, and the protocol document names it
-// as the only new transport-layer risk introduced by this system. Any change
-// here must be reviewed together with tests/test_framing.cpp.
+// The byte layout lives in protocol/include/shalom/framing.hpp, which is
+// compiled into both this application and the robot-side bridge node. Two
+// implementations of one wire format would eventually disagree, and the
+// disagreement would show up as a corrupted stream in the field rather than as
+// a build failure, so there is exactly one and this file only converts types.
 //
-//  0        4                 8                    12
-//  +--------+-----------------+--------------------+---------------+---------+
-//  | magic  | body_len uint32 | header_len uint32  | header (JSON) | payload |
-//  +--------+-----------------+--------------------+---------------+---------+
-//           |<-------------------- body_len bytes ---------------------------|
-//
-// All integers are little-endian.
+// See docs/bridge_protocol.md sections 1.1 and 1.3.
 
 #include <QByteArray>
-#include <cstdint>
+
+#include "shalom/framing.hpp"
 
 namespace gcs::net {
 
-/// "SHLM" read as a little-endian uint32. Detects a wrong peer or a stream
-/// that has lost synchronisation.
-inline constexpr std::uint32_t kMagic = 0x4D4C4853u;
-
-/// Upper bound on a single frame body; exceeding it closes the connection
-/// (protocol section 1.3, item 4). Without this guard a single bad length
-/// field would cause an unbounded allocation.
-inline constexpr std::uint32_t kMaxBodyLen = 32u * 1024u * 1024u;
-
-/// The decoder defers trimming consumed bytes until this much has accumulated.
-/// Trimming on every frame would make decoding quadratic in the buffer size.
-inline constexpr qsizetype kCompactThreshold = 64 * 1024;
+inline constexpr std::uint32_t kMagic = shalom::kMagic;
+inline constexpr std::uint32_t kMaxBodyLen = shalom::kMaxBodyLen;
+inline constexpr qsizetype kCompactThreshold = qsizetype(shalom::kCompactThreshold);
 
 struct Frame {
     QByteArray header;   ///< UTF-8 JSON envelope
@@ -43,7 +30,10 @@ QByteArray encodeFrame(const QByteArray &header, const QByteArray &payload = {})
 
 /// Recovers frames from a byte stream.
 ///
-/// Usage:
+/// A single readyRead() may deliver several frames, so callers must drain the
+/// decoder in a loop; handling one frame per read event accumulates latency
+/// without ever reporting an error.
+///
 /// @code
 ///     decoder.append(socket->readAll());
 ///     Frame f;
@@ -54,16 +44,12 @@ QByteArray encodeFrame(const QByteArray &header, const QByteArray &payload = {})
 ///         handle(f);
 ///     }
 /// @endcode
-///
-/// A single readyRead() may deliver several frames, so callers must drain the
-/// decoder in a loop (protocol section 1.3, item 2). Handling only one frame
-/// per read event accumulates latency without ever reporting an error.
 class FrameDecoder {
 public:
     enum class Status {
         Ok,        ///< one frame was produced
         NeedMore,  ///< frame incomplete; append more data and retry
-        BadMagic,  ///< stream desynchronised - close the connection, do not resynchronise
+        BadMagic,  ///< stream desynchronised - close, do not resynchronise
         TooLarge,  ///< declared length exceeds the cap or contradicts the body
     };
 
@@ -71,17 +57,13 @@ public:
     Status next(Frame &out);
 
     /// Must be called when reconnecting. Bytes left over from a previous
-    /// connection would otherwise misalign the first frame of the new one
-    /// (protocol section 1.3, item 6).
-    void reset();
+    /// connection would otherwise misalign the first frame of the new one.
+    void reset() { inner_.reset(); }
 
-    qsizetype buffered() const { return buf_.size() - offset_; }
+    qsizetype buffered() const { return qsizetype(inner_.buffered()); }
 
 private:
-    void compact();
-
-    QByteArray buf_;
-    qsizetype offset_ = 0;
+    shalom::FrameDecoder inner_;
 };
 
 }  // namespace gcs::net

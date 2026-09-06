@@ -122,6 +122,10 @@ private:
     int reconnectDelayMs_ = 500;
     bool wantConnection_ = false;
 
+    /// Distinguishes the first connection from a reconnection, so the log does
+    /// not report "link restored" for a link that was never up.
+    bool everConnected_ = false;
+
     qint64 heartbeatSeq_ = 0;
     QHash<qint64, qint64> heartbeatSentAt_;   ///< seq -> monotonic ms
     qint64 lastHeartbeatMs_ = 0;

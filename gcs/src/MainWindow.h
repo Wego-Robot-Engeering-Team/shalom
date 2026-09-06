@@ -46,6 +46,7 @@ namespace gcs::ui {
 
 class AlertFrame;
 class ArmPanel;
+class CapturePanel;
 class Badge;
 class EStopButton;
 class DiagnosticsPanel;
@@ -120,6 +121,7 @@ private:
     WaypointPanel *waypoints_ = nullptr;
     ArmPanel *arm_ = nullptr;
     LocationPanel *locations_ = nullptr;
+    CapturePanel *capture_ = nullptr;
     DiagnosticsPanel *diagnostics_ = nullptr;
     SettingsDialog *settings_ = nullptr;
 

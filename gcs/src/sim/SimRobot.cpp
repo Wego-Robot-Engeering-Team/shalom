@@ -540,7 +540,7 @@ Telemetry SimRobot::step(double dt)
         sensor("cam_arm_2d", "암 2D 카메라", 15,
                speed_ > 0.2 ? 7.5 : 15 * jitter,
                speed_ > 0.2 ? QStringLiteral("degraded") : ok,
-               speed_ > 0.2 ? QStringLiteral("프레임 드롭") : QString()),
+               speed_ > 0.2 ? QStringLiteral("영상 끊김") : QString()),
         sensor("cam_arm_3d", "암 3D 카메라", 10, 10 * jitter, ok),
         sensor("joints_b2", "B2 관절", 50, 50 * jitter, ok),
         sensor("joints_fr3", "FR3 관절", 100, 100 * jitter, ok),
