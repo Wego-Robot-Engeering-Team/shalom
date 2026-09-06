@@ -30,9 +30,6 @@ public:
     explicit BrandMark(QWidget *parent = nullptr, int height = 26);
     ~BrandMark() override;   ///< out-of-line: QSvgRenderer is incomplete here
 
-    /// True when an official logo asset was loaded. When false the widget
-    /// paints the neutral fallback mark instead.
-    bool hasBrandAsset() const;
 
 protected:
     void paintEvent(QPaintEvent *) override;

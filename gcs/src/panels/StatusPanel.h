@@ -1,9 +1,11 @@
 #pragma once
 
-// Status monitoring panel. Statement of work 2.2.7 [5].
+// What the robot is doing right now. Statement of work 2.2.7 [5].
 //
-// Battery level, CPU/GPU temperature, link state, drive mode and AprilTag
-// detection, all refreshed well inside the three-second requirement.
+// The split is by question, not by data source. The top bar answers "is the
+// equipment alive" (battery, link), the diagnostics view answers "is anything
+// unhealthy" (load, temperature, sensor rates), and this card answers "what is
+// the robot doing and where is it". Nothing appears in two of them at once.
 
 #include <QWidget>
 
@@ -12,9 +14,7 @@ class QLabel;
 namespace gcs::ui {
 
 class Badge;
-class BatteryRing;
 class Card;
-class StatBar;
 
 class StatusPanel : public QWidget {
     Q_OBJECT
@@ -22,27 +22,33 @@ public:
     explicit StatusPanel(QWidget *parent = nullptr);
 
     void setConnected(bool ok);
-    void setBattery(double socPercent, bool charging = false);
 
     /// estop overrides mode: while engaged, the drive mode is not what the
     /// operator needs to see.
     void setMode(const QString &mode, bool estop);
 
-    void setSystem(double cpu, double mem, double cpuTemp, double gpuTemp, double rttMs);
-    void setPose(double x, double y, double thetaDeg);
+    /// Base movement, in m/s. Shown as words first, number second - "is it
+    /// moving" is the question, the speed is the detail.
+    void setMotion(double speedMps);
+
+    /// "idle" | "planning" | "executing" | "error", as reported by the arm.
+    void setArmState(const QString &state);
+
     void setTagsSeen(int count);
 
+    /// Map-frame pose. Degrees, so the operator never sees radians.
+    void setPose(double x, double y, double thetaDeg);
+
 private:
+    /// One "label ....... value" row. Returns the value label to update.
+    QLabel *addRow(const QString &label);
+
     Card *card_ = nullptr;
     Badge *conn_ = nullptr;
     Badge *mode_ = nullptr;
-    Badge *tag_ = nullptr;
-    BatteryRing *battery_ = nullptr;
-    StatBar *cpu_ = nullptr;
-    StatBar *mem_ = nullptr;
-    StatBar *cpuTemp_ = nullptr;
-    StatBar *gpuTemp_ = nullptr;
-    StatBar *rtt_ = nullptr;
+    QLabel *motion_ = nullptr;
+    QLabel *arm_ = nullptr;
+    QLabel *tag_ = nullptr;
     QLabel *pose_ = nullptr;
 };
 

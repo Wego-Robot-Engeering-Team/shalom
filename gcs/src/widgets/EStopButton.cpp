@@ -13,6 +13,10 @@ using namespace gcs::theme;
 
 namespace {
 
+/// 발동 중 맥동 링이 판 바깥으로 나가는 만큼의 여백. 이만큼 위젯을
+/// 키워두지 않으면 링이 잘려 사각형처럼 보인다.
+constexpr int kRingRoom = 6;
+
 QPropertyAnimation *makePulse(QObject *target, int durationMs)
 {
     auto *a = new QPropertyAnimation(target, "pulse", target);
@@ -28,9 +32,12 @@ QPropertyAnimation *makePulse(QObject *target, int durationMs)
 
 // ============================ EStopButton ============================
 
-EStopButton::EStopButton(QWidget *parent, int size) : QWidget(parent), size_(size)
+EStopButton::EStopButton(QWidget *parent, int height) : QWidget(parent), size_(height)
 {
-    setFixedSize(size_, size_);
+    // 버튼 하나가 상단 바에서 가장 큰 요소여야 한다. 원형 머리만으로는
+    // 1720 px 폭 화면의 구석에서 존재감이 나오지 않아, 글자를 새긴
+    // 판 위에 얹은 형태로 만든다.
+    setFixedSize(int(size_ * 3.0) + kRingRoom * 2, size_ + kRingRoom * 2);
     setCursor(Qt::PointingHandCursor);
     setToolTip(QStringLiteral("비상정지 — 1회 클릭으로 즉시 발동"));
     anim_ = makePulse(this, 760);
@@ -87,38 +94,57 @@ void EStopButton::paintEvent(QPaintEvent *)
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
 
-    const double cx = width() / 2.0;
-    const double cy = height() / 2.0;
-    const double outerR = size_ * 0.46;
-    const double btnR = size_ * 0.34;
+    const QRectF plate(kRingRoom + 0.5, kRingRoom + 0.5,
+                       width() - kRingRoom * 2 - 1.0, height() - kRingRoom * 2 - 1.0);
+    const double radius = plate.height() * 0.28;
 
-    // 베이스 링 — 물리 스위치의 받침을 중립 색으로 절제해 표현한다.
-    p.setPen(QPen(QColor(C.borderHi), 1));
-    p.setBrush(QColor(C.surfaceHi));
-    p.drawEllipse(QRectF(cx - outerR, cy - outerR, outerR * 2, outerR * 2));
+    // ---- 판 ----
+    // 평상시에도 붉은 테두리를 둘러 이 영역이 다른 버튼과 다르다는 것을
+    // 먼저 알린다. 발동 중에는 판 전체를 채워 화면에서 가장 눈에 띄게 한다.
+    QColor plateFill(C.danger);
+    if (!engaged_)
+        plateFill.setAlpha(hover_ ? 46 : 26);
+    p.setPen(QPen(QColor(engaged_ ? C.dangerLo : C.danger), engaged_ ? 1.5 : 1.4));
+    p.setBrush(plateFill);
+    p.drawRoundedRect(plate, radius, radius);
 
-    // 발동 중에만 얇은 링을 맥동시킨다. 글로우 대신 선 하나로 —
+    // 발동 중에는 판 둘레를 맥동시킨다. 글로우 대신 선 하나로 —
     // 관제 화면에서 빛 번짐은 다른 상태 표시를 덮는다.
     if (engaged_) {
         QColor ring(C.danger);
-        ring.setAlpha(int(90 + 130 * pulse_));
-        p.setPen(QPen(ring, 2.0));
+        ring.setAlpha(int(70 + 120 * (1.0 - pulse_)));
+        p.setPen(QPen(ring, 3.0));
         p.setBrush(Qt::NoBrush);
-        const double rr = outerR + 1 + 2 * pulse_;
-        p.drawEllipse(QRectF(cx - rr, cy - rr, rr * 2, rr * 2));
+        const double g = 2.0 + 3.0 * pulse_;
+        p.drawRoundedRect(plate.adjusted(-g, -g, g, g), radius + g, radius + g);
     }
+
+    // ---- 버섯 머리 ----
+    const double cy = plate.center().y();
+    const double cx = plate.left() + plate.height() * 0.5;
+    const double outerR = size_ * 0.36;
+    const double btnR = size_ * 0.27;
+
+    p.setPen(QPen(QColor(engaged_ ? C.dangerLo : C.borderHi), 1));
+    p.setBrush(QColor(engaged_ ? C.dangerHi : C.surfaceHi));
+    p.drawEllipse(QRectF(cx - outerR, cy - outerR, outerR * 2, outerR * 2));
 
     p.setPen(QPen(QColor(C.dangerLo), 1.5));
     p.setBrush(QColor((hover_ || engaged_) ? C.dangerHi : C.danger));
     p.drawEllipse(QRectF(cx - btnR, cy - btnR, btnR * 2, btnR * 2));
 
+    // ---- 글자 ----
     QFont f;
-    f.setPointSize(qMax(7, int(size_ * 0.115)));
+    f.setPointSize(qMax(9, int(size_ * 0.235)));
     f.setWeight(QFont::Bold);
     p.setFont(f);
-    p.setPen(QColor("#FFFFFF"));
-    p.drawText(QRectF(cx - btnR, cy - btnR, btnR * 2, btnR * 2), Qt::AlignCenter,
-               QStringLiteral("STOP"));
+    p.setPen(QColor(engaged_ ? QLatin1String("#FFFFFF") : C.danger));
+
+    const QRectF textRect(plate.left() + plate.height() * 0.94, plate.top(),
+                          plate.width() - plate.height() * 0.94 - radius * 0.6,
+                          plate.height());
+    p.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft,
+               engaged_ ? QStringLiteral("눌러 해제") : QStringLiteral("비상정지"));
 }
 
 // ============================ AlertFrame ============================

@@ -46,6 +46,9 @@ public:
     /// prohibited (2.2.4), so the button follows the robot's motion.
     void setCaptureAllowed(bool allowed, const QString &reason = {});
 
+    /// Integration seam: the robot returns the captured frames over
+    /// evt/capture_done. Nothing calls these while the control station runs
+    /// against the simulator, so do not remove them as unused.
     void showPreview2d(const QImage &image);
     void showPreview3d(const QImage &image);
 

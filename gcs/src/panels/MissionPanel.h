@@ -5,13 +5,15 @@
 // The drive view is where an operator sits during a run, but the point list
 // and its controls live on the locations view. Without this card the operator
 // has to leave the map to answer "how far along are we?" - so this shows the
-// answer where they already are, read-only.
+// answer where they already are, read-only. Rows are drawn by the shared
+// WaypointDelegate, so a point cannot read differently on the two views.
 
 #include <QVariantMap>
 #include <QList>
 #include <QWidget>
 
 class QLabel;
+class QListWidget;
 class QProgressBar;
 
 namespace gcs::ui {
@@ -39,8 +41,7 @@ private:
     Badge *state_ = nullptr;
     QProgressBar *bar_ = nullptr;
     QLabel *count_ = nullptr;
-    QLabel *current_ = nullptr;
-    QLabel *next_ = nullptr;
+    QListWidget *list_ = nullptr;
 
     QList<QVariantMap> points_;
     QString missionState_ = QStringLiteral("idle");

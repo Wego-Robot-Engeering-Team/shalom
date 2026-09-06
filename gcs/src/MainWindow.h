@@ -51,6 +51,8 @@ class ArmPanel;
 class CapturePanel;
 class DataPanel;
 class Badge;
+class BatteryPill;
+class NotificationBell;
 class EStopButton;
 class DiagnosticsPanel;
 class EventLogPanel;
@@ -96,7 +98,22 @@ private:
     QWidget *buildCaptureContext();
     QWidget *buildDiagnosticsContext();
     QWidget *buildDataContext();
+    /// Connects every signal, split by what the operator is touching.
+    /// One 240-line function made it impossible to see whether a panel
+    /// was wired at all - two panels were not.
     void wireSignals();
+    /// Robot link and log: telemetry, connection, mission state, incoming map.
+    void wireRobotSignals();
+    /// Top bar: theme, settings, emergency stop and the drive-mode buttons.
+    void wireChromeSignals();
+    /// Map interactions: goal placement, point placement, point clicks.
+    void wireMapSignals();
+    /// Location teaching and the fixed dock/home points.
+    void wireLocationSignals();
+    /// Jog, arm, capture and stored-data panels.
+    void wirePanelSignals();
+    /// The inspection point list and mission start/pause/resume/stop.
+    void wireMissionSignals();
 
     void engageEstop();
     void releaseEstop();
@@ -125,12 +142,20 @@ private:
 
     void startSession();
 
+    /// Opens today's JSONL log file and drops files past the retention window.
+    /// Failure is reported into the log itself and is not fatal: an operator
+    /// with no log file is still better off than one with no application.
+    void startLogFile();
+    static void pruneOldLogs(const QString &dir, int retentionDays);
+
     gcs::diag::LogStore *log_ = nullptr;
 
     NavRail *nav_ = nullptr;
     QStackedWidget *context_ = nullptr;
     MapCard *map_ = nullptr;
 
+    BatteryPill *headerBattery_ = nullptr;
+    NotificationBell *bell_ = nullptr;
     StatusPanel *status_ = nullptr;
     MissionPanel *mission_ = nullptr;
     TeleopPanel *teleop_ = nullptr;

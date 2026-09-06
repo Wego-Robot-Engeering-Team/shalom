@@ -38,15 +38,9 @@ WelcomeDialog::WelcomeDialog(QWidget *parent) : QDialog(parent)
     head->setSpacing(metrics::s3);
     head->addWidget(new BrandMark(nullptr, 40), 0, Qt::AlignVCenter);
 
-    auto *titles = new QVBoxLayout;
-    titles->setSpacing(0);
     auto *title = new QLabel(QStringLiteral("SHALOM 관제"));
     title->setObjectName(QStringLiteral("AppTitle"));
-    auto *sub = new QLabel(QStringLiteral("Unitree B2 + FR3 · 철도차량 하부 점검"));
-    sub->setObjectName(QStringLiteral("AppSubtitle"));
-    titles->addWidget(title);
-    titles->addWidget(sub);
-    head->addLayout(titles);
+    head->addWidget(title, 0, Qt::AlignVCenter);
     head->addStretch(1);
     lay->addLayout(head);
 

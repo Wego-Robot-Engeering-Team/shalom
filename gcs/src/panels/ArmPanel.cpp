@@ -44,25 +44,26 @@ ArmPanel::ArmPanel(QWidget *parent) : QWidget(parent)
     // ---- 조작성 게이지 ----
     auto *gaugeRow = new QHBoxLayout;
     gaugeRow->setSpacing(metrics::s3);
-    manip_ = new ArcGauge(nullptr, QStringLiteral("자세 여유"),
+    // 예전에는 조작성 지수와 최소 특이값을 소수 넷째 자리까지 나란히
+    // 띄웠다. 둘 다 조작자가 보고 판단할 수 있는 값이 아니었다. 지금은
+    // 상태 한 마디와 "그래서 무엇을 하라"만 보여주고, 숫자는 도구 설명에
+    // 남겨 정비 담당자가 확인할 수 있게 한다.
+    manip_ = new ArcGauge(nullptr, QStringLiteral("팔 움직임 여유"),
                           kManipWarn, kManipDanger);
-    manip_->setToolTip(QStringLiteral(
-        "현재 자세에서 팔이 얼마나 자유롭게 움직일 수 있는지를 나타냅니다.\n"
-        "값이 0 에 가까울수록 팔이 뻗치거나 접혀 움직임이 막힙니다."));
-    gaugeRow->addWidget(manip_, 1);
+    // ArcGauge 는 최소 크기를 두지 않는다. 늘어나는 쪽을 옆 설명에 주면
+    // 게이지가 폭 0 으로 접혀 사라진다.
+    manip_->setMinimumSize(132, 96);
+    gaugeRow->addWidget(manip_, 0);
 
     auto *side = new QVBoxLayout;
-    side->setSpacing(metrics::s1);
-    side->addWidget(sectionLabel(QStringLiteral("가장 좁은 방향")));
-    sigma_ = readout(QStringLiteral("—"), true);
-    sigma_->setToolTip(QStringLiteral(
-        "여러 방향 중 가장 움직이기 어려운 방향의 여유입니다.\n"
-        "전체 여유가 넉넉해도 이 값이 작으면 특정 방향으로는 못 움직입니다."));
-    side->addWidget(sigma_);
-    singular_ = new Badge(QStringLiteral("정상"), QStringLiteral("ok"));
-    side->addWidget(singular_, 0, Qt::AlignLeft);
+    side->setSpacing(metrics::s2);
+    // 게이지 안에 이미 같은 낱말이 있다. 배지까지 두면 한 상태를 두 번 말한다.
+    advice_ = new QLabel;
+    advice_->setObjectName(QStringLiteral("Hint"));
+    advice_->setWordWrap(true);
+    side->addWidget(advice_);
     side->addStretch(1);
-    gaugeRow->addLayout(side);
+    gaugeRow->addLayout(side, 1);
     card_->body()->addLayout(gaugeRow);
     card_->body()->addWidget(new HLine);
 
@@ -232,15 +233,28 @@ void ArmPanel::setArmState(const QList<double> &positions, double manipulability
     view3d_->setArmJoints(positions);
 
     const double norm = qBound(0.0, manipulability / kManipNominal, 1.0);
-    manip_->setState(norm, QString::number(manipulability, 'f', 4));
-    sigma_->setText(QString::number(sigmaMin, 'f', 4));
 
-    if (norm <= kManipDanger)
-        singular_->set(QStringLiteral("특이자세 근접"), QStringLiteral("danger"));
-    else if (norm <= kManipWarn)
-        singular_->set(QStringLiteral("주의"), QStringLiteral("warn"));
-    else
-        singular_->set(QStringLiteral("정상"), QStringLiteral("ok"));
+    QString word;
+    if (norm <= kManipDanger) {
+        word = QStringLiteral("막히기 직전");
+        advice_->setText(QStringLiteral(
+            "팔이 거의 다 펴졌거나 접혔습니다. 이 자세에서는 어떤 방향으로는 "
+            "아예 움직이지 못합니다. 팔을 조금 되돌리거나 로봇을 옮기십시오."));
+    } else if (norm <= kManipWarn) {
+        word = QStringLiteral("주의");
+        advice_->setText(QStringLiteral(
+            "움직일 수 있는 여유가 줄었습니다. 더 뻗으면 멈출 수 있으니 "
+            "로봇을 조금 옮겨 자세를 바꾸는 편이 낫습니다."));
+    } else {
+        word = QStringLiteral("여유 있음");
+        advice_->setText(QStringLiteral("지금 자세에서는 팔을 자유롭게 움직일 수 있습니다."));
+    }
+    manip_->setState(norm, word);
+
+    // 숫자는 정비 담당자용으로만 남긴다.
+    manip_->setToolTip(QStringLiteral("조작성 지수 %1 · 최소 특이값 %2")
+                           .arg(manipulability, 0, 'f', 4)
+                           .arg(sigmaMin, 0, 'f', 4));
     view3d_->setSingularWarning(norm <= kManipWarn);
 
     if (moveitState == QLatin1String("planning"))

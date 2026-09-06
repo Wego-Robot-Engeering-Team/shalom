@@ -71,10 +71,9 @@ private:
 
     Card *card_ = nullptr;
     Badge *state_ = nullptr;
-    Badge *singular_ = nullptr;
     ArcGauge *manip_ = nullptr;
     Robot3DView *view3d_ = nullptr;
-    QLabel *sigma_ = nullptr;
+    QLabel *advice_ = nullptr;
 
     QList<QSlider *> sliders_;
     QList<JointBar *> bars_;

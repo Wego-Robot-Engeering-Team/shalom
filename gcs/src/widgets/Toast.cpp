@@ -21,17 +21,21 @@ constexpr int kWidth = 380;
 constexpr int kMargin = 16;
 constexpr int kGap = 8;
 
-/// 표시 시간. 심각할수록 길게 둔다. 위험 알림이 읽기도 전에 사라지면
-/// 조작자는 무엇을 봤는지 확인하러 로그를 뒤져야 한다.
+/// 마우스를 올렸을 때 남겨 주는 최소 시간.
+constexpr int kHoverGraceMs = 2000;
+
+/// 표시 시간. 짧게 스쳐 지나가게 두고, 놓친 것은 상단 바의 알림함에서
+/// 다시 본다. 예전에는 최대 20 초씩 떠 있어 화면을 가렸고, 마우스를 올린
+/// 채로 두면 사라지지도 않았다.
 int lifetimeMs(const QString &severity)
 {
     if (severity == QLatin1String("critical"))
-        return 20000;
+        return 6000;
     if (severity == QLatin1String("error"))
-        return 12000;
+        return 5000;
     if (severity == QLatin1String("warn"))
-        return 8000;
-    return 5000;
+        return 4000;
+    return 3000;
 }
 
 QColor severityColor(const QString &severity)
@@ -101,14 +105,15 @@ void Toast::mousePressEvent(QMouseEvent *)
 
 void Toast::enterEvent(QEnterEvent *ev)
 {
-    // 읽는 동안 사라지지 않게 한다.
-    life_->stop();
+    // 읽는 동안 시간을 조금 벌어 준다. 예전처럼 타이머를 멈춰 버리면
+    // 마우스가 그 위에 놓인 채로 있는 한 알림이 영영 사라지지 않았다.
+    if (life_->remainingTime() < kHoverGraceMs)
+        life_->start(kHoverGraceMs);
     QWidget::enterEvent(ev);
 }
 
 void Toast::leaveEvent(QEvent *ev)
 {
-    life_->start();
     QWidget::leaveEvent(ev);
 }
 

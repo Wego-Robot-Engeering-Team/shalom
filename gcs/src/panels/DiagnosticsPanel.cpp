@@ -1,10 +1,12 @@
 #include "panels/DiagnosticsPanel.h"
 
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QVBoxLayout>
 
 #include "theme/Tokens.h"
+#include "widgets/Gauges.h"
 #include "widgets/HealthRow.h"
 #include "widgets/Primitives.h"
 
@@ -94,6 +96,32 @@ DiagnosticsPanel::DiagnosticsPanel(QWidget *parent) : QWidget(parent)
     linkCard->body()->addWidget(linkHint);
     outer->addWidget(linkCard);
 
+    // ---- 로봇 제어기 ----
+    // 주행 화면에 있던 지표다. 조작자가 주행 중에 CPU 백분율을 보고
+    // 할 수 있는 일이 없어서, 상태를 따지는 이 화면으로 옮겼다.
+    auto *sysCard = new Card(QStringLiteral("로봇 제어기"));
+    auto *sysGrid = new QGridLayout;
+    sysGrid->setContentsMargins(0, 0, 0, 0);
+    sysGrid->setHorizontalSpacing(metrics::s4);
+    sysGrid->setVerticalSpacing(metrics::s1);
+    cpu_ = new StatBar(QStringLiteral("CPU"), QStringLiteral("%"), nullptr, 80, 92);
+    mem_ = new StatBar(QStringLiteral("메모리"), QStringLiteral("%"), nullptr, 80, 92);
+    cpuTemp_ = new StatBar(QStringLiteral("CPU 온도"), QStringLiteral("°C"), nullptr, 75, 88);
+    gpuTemp_ = new StatBar(QStringLiteral("GPU 온도"), QStringLiteral("°C"), nullptr, 75, 88);
+    sysGrid->addWidget(cpu_, 0, 0);
+    sysGrid->addWidget(mem_, 0, 1);
+    sysGrid->addWidget(cpuTemp_, 1, 0);
+    sysGrid->addWidget(gpuTemp_, 1, 1);
+    sysCard->body()->addLayout(sysGrid);
+
+    auto *sysHint = new QLabel(QStringLiteral(
+        "온도가 계속 높게 유지되면 로봇이 스스로 성능을 낮춥니다. "
+        "주행이 느려지거나 끊기면 이 값을 먼저 확인하십시오."));
+    sysHint->setObjectName(QStringLiteral("Hint"));
+    sysHint->setWordWrap(true);
+    sysCard->body()->addWidget(sysHint);
+    outer->addWidget(sysCard);
+
     // ---- 저장 ----
     auto *storageCard = new Card(QStringLiteral("촬영 데이터"));
     nas_ = metricRow(storageCard->body(), QStringLiteral("저장 장치"));
@@ -148,6 +176,14 @@ void DiagnosticsPanel::setLink(const LinkHealth &link)
     gaps_->setText(QString::number(link.seqGaps));
     decodeErrors_->setText(QString::number(link.decodeErrors));
     reconnects_->setText(QString::number(link.reconnects));
+}
+
+void DiagnosticsPanel::setSystem(double cpu, double mem, double cpuTemp, double gpuTemp)
+{
+    cpu_->setReading(cpu);
+    mem_->setReading(mem);
+    cpuTemp_->setReading(cpuTemp);
+    gpuTemp_->setReading(gpuTemp);
 }
 
 void DiagnosticsPanel::setStorage(bool nasOnline, int pendingUploads, double spoolFreeMb)
