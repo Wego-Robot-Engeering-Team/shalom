@@ -25,24 +25,24 @@
 
 class QTimer;
 
-namespace gcs::sim {
+namespace hmi::sim {
 
-using gcs::robot::MapData;
+using hmi::robot::MapData;
 
 MapData buildMap();
 QList<QVariantMap> buildWaypoints();
 QList<QVariantMap> buildTags(const QList<QVariantMap> &waypoints);
 
-using gcs::robot::DriveMode;
-using gcs::robot::MissionState;
-using gcs::robot::Telemetry;
+using hmi::robot::DriveMode;
+using hmi::robot::MissionState;
+using hmi::robot::Telemetry;
 
 /// In-process stand-in for the robot.
 ///
 /// Implements the same interface as the real bridge client, so MainWindow does
 /// not know which one it has. Its test suite is therefore also the acceptance
 /// criteria for BridgeClient.
-class SimRobot : public gcs::robot::RobotLink {
+class SimRobot : public hmi::robot::RobotLink {
     Q_OBJECT
 public:
     explicit SimRobot(QObject *parent = nullptr);
@@ -86,6 +86,7 @@ public:
 
     QList<QVariantMap> waypoints() const override { return waypoints_; }
     void setWaypoints(const QList<QVariantMap> &waypoints) override;
+    void setLocations(const QList<QVariantMap> &locations) override;
 
     /// Always connected: there is no link to lose.
     bool isConnected() const override { return true; }
@@ -95,9 +96,10 @@ public:
     QString describe() const override;
 
     /// The stand-in depot map, so the screen is usable without a robot.
-    std::optional<gcs::robot::MapData> initialMap() const override;
+    std::optional<hmi::robot::MapData> initialMap() const override;
     QList<QVariantMap> markers() const override;
     QVariantMap dockPose() const override;
+    QVariantMap homePose() const override { return home_; }
 
     /// Advances the simulation by dt seconds and returns the new telemetry.
     /// Exposed so tests can drive it deterministically instead of waiting on
@@ -135,6 +137,8 @@ private:
     // mission
     MissionState mission_ = MissionState::Idle;
     QList<QVariantMap> waypoints_;
+    QVariantMap dock_;
+    QVariantMap home_;
     int activeIndex_ = -1;
     double dwell_ = 0.0;
     int currentCar_ = -1;
@@ -157,4 +161,4 @@ private:
     QList<QPointF> trail_;
 };
 
-}  // namespace gcs::sim
+}  // namespace hmi::sim
