@@ -11,10 +11,10 @@ cmake --install build-release --prefix dist/inspection-gcs
 ## 구조
 
 ```
-inspection-gcs/
+inspection-station/
 ├── bin/                    실행 파일과 공유 라이브러리, Qt 런타임
 ├── lib/                    링크용 라이브러리
-├── include/inspection_gcs/     공개 헤더 (인터페이스 계약)
+├── include/inspection_station/     공개 헤더 (인터페이스 계약)
 ├── share/
 │   ├── error_codes.json    진단 코드 카탈로그
 │   ├── bridge_protocol.md  통신 규약
@@ -25,7 +25,7 @@ inspection-gcs/
 
 ## 공개 헤더에 관하여
 
-`include/inspection_gcs/` 에는 **인터페이스 계약에 해당하는 헤더만** 들어간다.
+`include/inspection_station/` 에는 **인터페이스 계약에 해당하는 헤더만** 들어간다.
 화면 구성이나 시뮬레이터 같은 구현 세부는 내보내지 않는다. 고객이 알아야
 하는 것은 통신 규약, 로봇 연동 인터페이스, 진단 코드, 메타데이터 규약이다.
 
