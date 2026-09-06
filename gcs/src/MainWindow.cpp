@@ -200,9 +200,9 @@ QWidget *MainWindow::buildContextColumn()
 
 QWidget *MainWindow::buildDriveContext()
 {
-    auto *page = new QWidget;
-    auto *lay = new QVBoxLayout(page);
-    lay->setContentsMargins(0, 0, 0, 0);
+    auto *inner = new QWidget;
+    auto *lay = new QVBoxLayout(inner);
+    lay->setContentsMargins(0, 0, metrics::s2, 0);
     lay->setSpacing(metrics::s3);
 
     status_ = new StatusPanel;
@@ -221,7 +221,16 @@ QWidget *MainWindow::buildDriveContext()
     lay->addWidget(teleopHost_);
 
     lay->addStretch(1);
-    return page;
+
+    // 스크롤로 감싸지 않으면 이 열의 최소 높이가 카드 높이의 합이 된다.
+    // 수동 모드로 바꿔 조작 카드가 나타나는 순간 세로 스플리터가 밀려
+    // 지도와 로그의 높이가 같이 변한다. 나머지 다섯 화면과 같은 방식이다.
+    auto *scroll = new QScrollArea;
+    scroll->setWidget(inner);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    return scroll;
 }
 
 QWidget *MainWindow::buildLocationsContext()
@@ -716,6 +725,7 @@ void MainWindow::engageEstop()
     status_->setMode({}, true);
     teleop_->setJogEnabled(false);
     teleopHost_->setVisible(false);
+    mission_->setVisible(true);
     arm_->setControlsEnabled(false);
     autoBtn_->setChecked(false);
     manualBtn_->setChecked(false);
@@ -779,6 +789,7 @@ void MainWindow::setMode(const QString &mode)
 
     teleop_->setJogEnabled(!isAuto);
     teleopHost_->setVisible(!isAuto);
+    mission_->setVisible(isAuto);
     arm_->setControlsEnabled(true);
 
     if (isAuto) {
