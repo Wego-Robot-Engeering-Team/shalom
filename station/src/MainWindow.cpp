@@ -143,7 +143,10 @@ QWidget *MainWindow::buildTopBar()
     bar->setFixedHeight(metrics::topBarH);
 
     auto *lay = new QHBoxLayout(bar);
-    lay->setContentsMargins(metrics::s4, 0, metrics::s3, 0);
+    // 오른쪽 끝은 비상정지다. 그 위젯은 맥동 링이 잘리지 않도록 사방에
+    // 투명한 여백을 달고 있어서, 좌우에 같은 값을 주면 보이는 판은 그만큼
+    // 더 안쪽에 선다. 눈에 보이는 것끼리 맞춘다.
+    lay->setContentsMargins(metrics::s4, 0, metrics::s4 - EStopButton::kVisualInset, 0);
     lay->setSpacing(metrics::s3);
 
     // ---- 장비가 어떤가 ----
@@ -250,9 +253,10 @@ QWidget *MainWindow::buildDriveContext()
 
     // 점검 목록과 시작·정지는 위치 화면에 있다. 하지만 운용 중에는
     // 지도를 띄운 이 화면에 머무르므로, 진행 상황만이라도 여기서 읽히게 한다.
-    // 남는 세로 공간은 이 목록이 가져간다.
+    // 카드는 내용만큼만 차지한다. 남는 세로는 아래 여백으로 흘린다.
     mission_ = new MissionPanel;
-    lay->addWidget(mission_, 1);
+    lay->addWidget(mission_);
+    lay->addStretch(1);
 
     // 스크롤로 감싸지 않으면 이 열의 최소 높이가 카드 높이의 합이 된다.
     // 수동 모드로 바꿔 조작 카드가 나타나는 순간 세로 스플리터가 밀려
@@ -501,6 +505,7 @@ void MainWindow::wireMapSignals()
             loc[QStringLiteral("kind")] = kind;
             (kind == QLatin1String("dock") ? dock_ : home_) = loc;
             locations_->setDock(dock_);
+            mission_->setDockKnown(!dock_.isEmpty());
             locations_->setHome(home_);
             log_->log(QStringLiteral("LOC_CAPTURED"), QJsonObject::fromVariantMap(loc));
             return;
@@ -541,16 +546,9 @@ void MainWindow::wireLocationSignals()
             QStringLiteral("지도를 클릭해 위치를 지정하고, 드래그해 방향을 정하십시오"));
     });
     connect(locations_, &LocationPanel::gotoRequested, this, [this](const QString &kind) {
-        const QVariantMap &loc = kind == QLatin1String("dock") ? dock_ : home_;
-        if (loc.isEmpty())
-            return;
-        log_->note(diag::Severity::Info,
-                   QStringLiteral("%1 로 이동")
-                       .arg(kind == QLatin1String("dock") ? QStringLiteral("충전 스테이션")
-                                                          : QStringLiteral("시작 위치")),
-                   QJsonObject{{"channel", QStringLiteral("cmd/goto")},
-                               {"x", loc.value(QStringLiteral("x")).toDouble()},
-                               {"y", loc.value(QStringLiteral("y")).toDouble()}});
+        const bool isDock = kind == QLatin1String("dock");
+        driveTo(isDock ? dock_ : home_,
+                isDock ? QStringLiteral("충전 스테이션") : QStringLiteral("시작 위치"));
     });
 
     // 20 Hz 로 흘려보낸다. 시뮬레이터가 데드맨을 그대로 구현하므로,
@@ -660,13 +658,14 @@ void MainWindow::wireMissionSignals()
         robot_->missionStart();
         log_->log(QStringLiteral("MISSION_START"));
     });
+    // 목록을 다시 보내는 것은 시작할 때뿐이다. 일시정지·재개·중단에서도
+    // 보내면 진행 중인 점검 도중에 목록을 갈아 끼우는 셈이고, 로봇은 그때
+    // 어디까지 했는지를 잃는다 — 재개가 "이어서" 가 아니게 된다.
     connect(mission_, &MissionPanel::missionPause, this, [this] {
-        robot_->setWaypoints(waypoints_->waypoints());
         robot_->missionPause();
         log_->log(QStringLiteral("MISSION_PAUSE"));
     });
     connect(mission_, &MissionPanel::missionResume, this, [this] {
-        robot_->setWaypoints(waypoints_->waypoints());
         robot_->missionResume();
         log_->log(QStringLiteral("MISSION_RESUME"));
     });
@@ -674,10 +673,44 @@ void MainWindow::wireMissionSignals()
             &MissionPanel::setWaypoints);
 
     connect(mission_, &MissionPanel::missionStop, this, [this] {
-        robot_->setWaypoints(waypoints_->waypoints());
         robot_->missionStop();
         log_->log(QStringLiteral("MISSION_STOP"));
     });
+    connect(mission_, &MissionPanel::returnToDock, this, [this] {
+        // 점검 중이면 먼저 세운다. 목표만 걸면 로봇이 충전소로 갔다가
+        // 남은 점검을 저 혼자 다시 시작한다 — 조작자는 세운 줄 안다.
+        // 취소가 아니라 일시정지인 이유는, 충전하고 이어서 하는 것이
+        // 이 버튼을 누르는 거의 모든 이유이기 때문이다.
+        if (robot_->missionState() != MissionState::Idle) {
+            robot_->missionPause();
+            log_->log(QStringLiteral("MISSION_PAUSE"));
+        }
+        driveTo(dock_, QStringLiteral("충전 스테이션"));
+    });
+}
+
+void MainWindow::driveTo(const QVariantMap &pose, const QString &label)
+{
+    if (pose.isEmpty())
+        return;
+    if (estop_->isEngaged()) {
+        QMessageBox::warning(this, QStringLiteral("이동할 수 없습니다"),
+                             QStringLiteral("비상정지 상태입니다. 해제한 뒤에 다시 "
+                                            "시도하십시오."));
+        return;
+    }
+    // 목적지로 데려가는 것은 자율주행이다. 수동에서 눌렀다고 거절하면
+    // 조작자는 목적지를 말한 것뿐인데 모드를 탓하는 창을 보게 된다.
+    if (robot_->mode() != DriveMode::Auto)
+        setMode(QStringLiteral("auto"));
+
+    robot_->requestGoal(pose.value(QStringLiteral("x")).toDouble(),
+                        pose.value(QStringLiteral("y")).toDouble(),
+                        pose.value(QStringLiteral("theta")).toDouble());
+    log_->note(diag::Severity::Info, QStringLiteral("%1 로 이동").arg(label),
+               QJsonObject{{"channel", QStringLiteral("cmd/goto")},
+                           {"x", pose.value(QStringLiteral("x")).toDouble()},
+                           {"y", pose.value(QStringLiteral("y")).toDouble()}});
 }
 
 void MainWindow::onMissionStateChanged(MissionState state)
@@ -808,6 +841,7 @@ void MainWindow::captureLocation(const QString &kind)
     if (kind == QLatin1String("dock") || kind == QLatin1String("home")) {
         (kind == QLatin1String("dock") ? dock_ : home_) = loc;
         locations_->setDock(dock_);
+        mission_->setDockKnown(!dock_.isEmpty());
         locations_->setHome(home_);
     } else {
         auto wps = waypoints_->waypoints();
@@ -1042,6 +1076,7 @@ void MainWindow::startSession()
 
     dock_ = robot_->dockPose();
     locations_->setDock(dock_);
+    mission_->setDockKnown(!dock_.isEmpty());
     locations_->setHome({});
 
     // 이력은 저장 장치의 공유 폴더를 직접 읽는다. 로봇을 거치지 않는다.

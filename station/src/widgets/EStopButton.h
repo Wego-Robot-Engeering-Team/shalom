@@ -33,6 +33,12 @@ public:
     /// height sets the plate height; the width follows from it.
     explicit EStopButton(QWidget *parent = nullptr, int height = 56);
 
+    /// Transparent margin the widget keeps on every side so the pulsing ring
+    /// has room to grow without being clipped. The plate the operator sees is
+    /// this far inside the widget, so a layout that wants the plate to line up
+    /// with its other content has to take it off its own margin.
+    static constexpr int kVisualInset = 6;
+
     bool isEngaged() const { return engaged_; }
     void setEngaged(bool engaged);
 

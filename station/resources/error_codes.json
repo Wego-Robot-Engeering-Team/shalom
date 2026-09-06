@@ -34,6 +34,19 @@
       ]
     },
     {
+      "code": "E_ROBOT_MISMATCH",
+      "severity": "critical",
+      "category": "protocol",
+      "channel": "-",
+      "title": "다른 로봇이 응답했습니다",
+      "cause": "연결한 주소에서 처음 응답한 로봇과 다른 로봇이 응답했습니다. 주소가 잘못되었거나, 같은 주소를 두 로봇이 쓰고 있습니다.",
+      "actions": [
+        "연결을 끊었습니다. 이 상태로 조작하면 다른 로봇이 움직입니다",
+        "설정 · 연결에서 로봇 주소를 확인하십시오",
+        "주소가 맞다면 담당자에게 알리십시오 — 두 로봇이 같은 주소를 쓰고 있습니다"
+      ]
+    },
+    {
       "code": "E_BAD_PAYLOAD",
       "severity": "error",
       "category": "protocol",

@@ -127,6 +127,11 @@ private:
     /// not report "link restored" for a link that was never up.
     bool everConnected_ = false;
 
+    /// Robot id pinned from the first envelope that carried one. Cleared on
+    /// disconnect: whatever answers next is not guaranteed to be the same
+    /// machine.
+    QString robotId_;
+
     /// Last battery policy given, resent on every (re)connect. Zero means the
     /// station has not been told one yet.
     double batteryReturnAt_ = 0.0;

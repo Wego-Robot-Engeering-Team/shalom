@@ -34,6 +34,19 @@ struct Envelope {
     QString ch;                 ///< channel name, see Channels.h
     QJsonObject p;              ///< payload
     QString id;                 ///< request/response correlation id
+
+    /// Which robot this is from, or is meant for.
+    ///
+    /// Empty is allowed and means "the robot on this connection". One robot is
+    /// deployed today, so nothing needs it yet - but the field is here now
+    /// because adding it later would break bridges already delivered, while an
+    /// unused field costs a few bytes.
+    ///
+    /// It earns its place immediately in one case: the station pins the id it
+    /// first hears and refuses a different one on the same connection, which
+    /// catches being pointed at the wrong robot. Without it, a mis-set address
+    /// looks like a working system driving the wrong machine.
+    QString robot;
     double ts = 0.0;            ///< sender clock, Unix epoch seconds
     std::optional<qint64> seq;  ///< monotonic sequence, for detecting stream gaps
     QByteArray payload;         ///< binary body (map PNG, capture preview JPEG)

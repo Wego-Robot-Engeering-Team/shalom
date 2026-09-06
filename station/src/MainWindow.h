@@ -127,6 +127,12 @@ private:
     void engageEstop();
     void releaseEstop();
     void setMode(const QString &mode);
+
+    /// Sends the robot to a taught pose (dock or home). Autonomous driving is
+    /// what carries it there, so this switches the mode rather than failing on
+    /// it - the operator asked for the destination, not for a mode.
+    void driveTo(const QVariantMap &pose, const QString &label);
+
     void navigate(NavItem item);
     void openSettings();
 

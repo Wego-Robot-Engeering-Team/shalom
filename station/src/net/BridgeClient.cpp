@@ -92,7 +92,9 @@ BridgeClient::~BridgeClient() = default;
 
 QString BridgeClient::describe() const
 {
-    return QStringLiteral("%1:%2").arg(host_).arg(port_);
+    // 식별자를 알면 그것을 보여준다. 주소보다 "어느 로봇인가" 가 먼저다.
+    return robotId_.isEmpty() ? QStringLiteral("%1:%2").arg(host_).arg(port_)
+                              : robotId_;
 }
 
 bool BridgeClient::isConnected() const
@@ -175,6 +177,8 @@ void BridgeClient::onSocketError()
 
 void BridgeClient::resetLinkState()
 {
+    // 끊기면 식별자도 잊는다. 다시 붙은 상대가 같은 로봇이라는 보장이 없다.
+    robotId_.clear();
     decoder_.reset();
     pending_.clear();
     heartbeatSentAt_.clear();
@@ -200,7 +204,15 @@ void BridgeClient::sendEnvelope(const Envelope &env)
 {
     if (!isConnected())
         return;
-    const QByteArray wire = encodeFrame(env.toHeader(), env.payload);
+
+    // 아는 식별자를 실어 보낸다. 로봇 쪽에서도 자기 앞으로 온 명령인지
+    // 확인할 수 있어야, 나중에 한 대가 여러 관제를 상대하게 되어도 규약을
+    // 바꾸지 않는다.
+    Envelope out = env;
+    if (out.robot.isEmpty())
+        out.robot = robotId_;
+
+    const QByteArray wire = encodeFrame(out.toHeader(), out.payload);
     socket_->write(wire);
     txBytes_ += wire.size();
 }
@@ -272,6 +284,20 @@ void BridgeClient::handleFrame(const Frame &frame)
 
     Envelope e = *env;
     e.payload = frame.payload;
+
+    // 처음 들은 로봇 식별자를 고정하고, 같은 연결에서 다른 식별자가 오면
+    // 끊는다. 주소를 잘못 적어 옆 로봇에 붙어도 화면은 정상으로 보이는데,
+    // 그 상태로 비상정지를 누르면 엉뚱한 로봇이 선다.
+    if (!e.robot.isEmpty()) {
+        if (robotId_.isEmpty()) {
+            robotId_ = e.robot;
+        } else if (robotId_ != e.robot) {
+            emit robotEvent(QStringLiteral("E_ROBOT_MISMATCH"),
+                            {{"expected", robotId_}, {"received", e.robot}});
+            socket_->abort();
+            return;
+        }
+    }
 
     if (e.t == QLatin1String(mtype::kHb))
         handleHeartbeat(e);
