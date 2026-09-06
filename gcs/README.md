@@ -24,13 +24,28 @@ brew install qt ninja
 
 ## 빌드
 
+프리셋을 쓴다. 옵션을 손으로 넘기면 클린 빌드 때마다 빠뜨리게 된다.
+
 ```bash
 cd gcs
-cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/qt
-cmake --build build
+cmake --preset dev          # 개발용
+cmake --build --preset dev
+ctest --preset dev
 ```
 
-Ubuntu 에서는 `-DCMAKE_PREFIX_PATH` 를 Qt 설치 경로로 바꾸거나 생략한다.
+| 프리셋 | 로그인 | 빌드 타입 | 출력 |
+|---|---|---|---|
+| `dev` | **생략** | Debug | `build/` |
+| `release` | **필수** | Release | `build-release/` |
+
+납품 빌드는 `release` 프리셋을 쓴다.
+
+```bash
+cmake --preset release && cmake --build --preset release
+```
+
+Qt 경로는 프리셋에 Homebrew 기본 위치가 들어 있다. Ubuntu 에서 다른 곳에
+설치했다면 `-DCMAKE_PREFIX_PATH=<경로>` 를 덧붙인다.
 
 ### 빌드 옵션
 
@@ -39,16 +54,10 @@ Ubuntu 에서는 `-DCMAKE_PREFIX_PATH` 를 Qt 설치 경로로 바꾸거나 생�
 | `GCS_REQUIRE_LOGIN` | `ON` | 기동 시 조작자 로그인 요구 |
 | `GCS_BUILD_TESTS` | `ON` | 단위 테스트 빌드 |
 
-개발 중 로그인이 번거로우면 끌 수 있다.
-
-```bash
-cmake -S . -B build -DGCS_REQUIRE_LOGIN=OFF
-```
-
-⚠️ **런타임 플래그가 아니라 빌드 옵션이다.** 실행 인자로 끌 수 있게 두면
-납품 빌드에서도 꺼진 채 나갈 수 있고 아무도 눈치채지 못한다. 로그인을 생략한
-빌드는 상단바에 "개발 빌드" 로 표시되며, CMake 구성 시 경고가 출력된다.
-**납품 빌드는 반드시 `ON` 으로 구성한다(기본값).**
+⚠️ 로그인 생략은 **런타임 플래그가 아니라 빌드 옵션이다.** 실행 인자로 끌 수
+있게 두면 납품 빌드에서도 꺼진 채 나갈 수 있고 아무도 눈치채지 못한다.
+생략한 빌드는 상단바에 "개발 빌드" 로 표시되고, CMake 구성 시 경고가 나오며,
+조작 이력에도 실제 조작자가 아님이 드러나는 이름으로 남는다.
 
 ## 실행
 
