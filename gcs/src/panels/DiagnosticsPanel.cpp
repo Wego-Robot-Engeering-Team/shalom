@@ -77,18 +77,18 @@ DiagnosticsPanel::DiagnosticsPanel(QWidget *parent) : QWidget(parent)
     outer->addWidget(card_);
 
     // ---- 링크 ----
-    auto *linkCard = new Card(QStringLiteral("링크"));
-    rtt_ = metricRow(linkCard->body(), QStringLiteral("왕복 지연"));
+    auto *linkCard = new Card(QStringLiteral("로봇 연결"));
+    rtt_ = metricRow(linkCard->body(), QStringLiteral("응답 시간"));
     rssi_ = metricRow(linkCard->body(), QStringLiteral("무선 신호"));
     throughput_ = metricRow(linkCard->body(), QStringLiteral("수신 / 송신"));
     linkCard->body()->addWidget(new HLine);
-    gaps_ = metricRow(linkCard->body(), QStringLiteral("시퀀스 결손"));
-    decodeErrors_ = metricRow(linkCard->body(), QStringLiteral("프레임 디코드 오류"));
+    gaps_ = metricRow(linkCard->body(), QStringLiteral("데이터 유실"));
+    decodeErrors_ = metricRow(linkCard->body(), QStringLiteral("통신 오류"));
     reconnects_ = metricRow(linkCard->body(), QStringLiteral("재연결"));
 
     auto *linkHint = new QLabel(QStringLiteral(
-        "프레이밍을 자체 구현했으므로 디코드 오류는 0 이어야 정상입니다. "
-        "값이 늘어나면 운용을 멈추고 로그를 내보내십시오."));
+        "통신 오류는 0 이어야 정상입니다. 값이 늘어나면 운용을 멈추고 "
+        "로그를 내보내 담당자에게 전달하십시오."));
     linkHint->setObjectName(QStringLiteral("Hint"));
     linkHint->setWordWrap(true);
     linkCard->body()->addWidget(linkHint);
@@ -96,11 +96,11 @@ DiagnosticsPanel::DiagnosticsPanel(QWidget *parent) : QWidget(parent)
 
     // ---- 저장 ----
     auto *storageCard = new Card(QStringLiteral("촬영 데이터"));
-    nas_ = metricRow(storageCard->body(), QStringLiteral("NAS 연결"));
+    nas_ = metricRow(storageCard->body(), QStringLiteral("저장 장치"));
     spool_ = metricRow(storageCard->body(), QStringLiteral("업로드 대기"));
 
     auto *storageHint = new QLabel(QStringLiteral(
-        "촬영 원본은 로봇에서 NAS 로 직접 올라갑니다. 대기 건수가 0 이 되어야 "
+        "촬영한 사진은 로봇에서 저장 장치로 직접 전송됩니다. 대기 건수가 0 이 되어야 "
         "해당 점검이 실제로 끝난 것입니다."));
     storageHint->setObjectName(QStringLiteral("Hint"));
     storageHint->setWordWrap(true);

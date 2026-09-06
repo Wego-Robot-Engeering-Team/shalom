@@ -22,6 +22,7 @@ std::optional<MapInfo> MapInfo::create(int width, int height, double resolution,
         return fail(QStringLiteral("resolution 은 양수여야 한다: %1").arg(resolution));
     if (std::abs(originTheta) > 1e-6) {
         // v1 미지원. 브릿지가 회전을 흡수해서 발행해야 한다 (명세 §2.2).
+        // 이 문자열은 개발자용 진단이며 조작자 화면에는 노출되지 않는다.
         return fail(QStringLiteral("origin_theta=%1 — 회전된 맵은 프로토콜 v1 미지원")
                         .arg(originTheta));
     }

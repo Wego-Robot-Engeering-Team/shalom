@@ -182,7 +182,7 @@ QWidget *SettingsDialog::buildConnectionTab()
     cameraPort_ = new QSpinBox;
     cameraPort_->setRange(1, 65535);
 
-    lay->addWidget(fieldRow(QStringLiteral("브릿지 주소"), host_, 96));
+    lay->addWidget(fieldRow(QStringLiteral("로봇 주소"), host_, 96));
     lay->addWidget(fieldRow(QStringLiteral("제어 포트"), port_, 96));
     lay->addWidget(fieldRow(QStringLiteral("카메라 포트"), cameraPort_, 96));
 
@@ -295,11 +295,11 @@ QWidget *SettingsDialog::buildStorageTab()
     lay->addWidget(new HLine);
     lay->addSpacing(metrics::s2);
     lay->addWidget(sectionLabel(QStringLiteral("촬영 데이터")));
-    lay->addWidget(fieldRow(QStringLiteral("NAS 경로"), nasPath_, 84));
+    lay->addWidget(fieldRow(QStringLiteral("저장 장치 경로"), nasPath_, 84));
 
     auto *hint = new QLabel(QStringLiteral(
-        "NAS 경로는 이력 조회·다운로드에 쓰입니다. 촬영 원본을 NAS로 올리는 주체는 "
-        "로봇이며, 관제는 저장된 결과를 읽기만 합니다.\n\n"
+        "이력 조회와 내려받기에 쓰이는 경로입니다. 촬영한 사진을 저장 장치로 "
+        "보내는 주체는 로봇이며, 관제 화면은 저장된 결과를 읽기만 합니다.\n\n"
         "원격 접속에 서면 승인이 필요한 환경이므로, 로그 내보내기가 사실상 "
         "유일한 원격 진단 수단입니다. 보관 기간을 짧게 두지 마십시오."));
     hint->setObjectName(QStringLiteral("Hint"));
@@ -342,7 +342,8 @@ QWidget *SettingsDialog::buildSafetyTab()
                        "재연결 후 자율주행은 자동 재개되지 않습니다.")));
     lay->addWidget(readOnlyRow(
         QStringLiteral("수동 조작 데드맨"), QStringLiteral("300 ms"),
-        QStringLiteral("조작 명령이 끊기면 브릿지가 즉시 속도를 0 으로 래치합니다.")));
+        QStringLiteral("조작 버튼에서 손을 떼면 로봇이 즉시 멈춥니다. 관제 화면이 멈추거나 "
+                       "연결이 끊겨도 마찬가지입니다.")));
     lay->addWidget(readOnlyRow(
         QStringLiteral("비상정지 해제"), QStringLiteral("관리자 인증 필요"),
         QStringLiteral("자동 해제는 금지되어 있습니다. 발동은 인증 없이 즉시 동작합니다.")));

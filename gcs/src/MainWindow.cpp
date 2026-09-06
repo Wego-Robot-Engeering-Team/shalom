@@ -23,6 +23,7 @@
 #include "net/BridgeClient.h"
 #include "mapview/MapView.h"
 #include "panels/ArmPanel.h"
+#include "panels/CapturePanel.h"
 #include "panels/DiagnosticsPanel.h"
 #include "panels/EventLogPanel.h"
 #include "panels/StatusPanel.h"
@@ -248,21 +249,20 @@ QWidget *MainWindow::buildArmContext()
 
 QWidget *MainWindow::buildCaptureContext()
 {
-    auto *page = new QWidget;
-    auto *lay = new QVBoxLayout(page);
-    lay->setContentsMargins(0, 0, 0, 0);
+    auto *inner = new QWidget;
+    auto *lay = new QVBoxLayout(inner);
+    lay->setContentsMargins(0, 0, metrics::s2, 0);
+    lay->setSpacing(metrics::s3);
 
-    auto *card = new Card(QStringLiteral("촬영 제어"));
-    auto *note = new QLabel(QStringLiteral(
-        "촬영 트리거, 2D/3D 미리보기, 메타데이터 입력이 이 자리에 들어갑니다.\n"
-        "카메라 라이브뷰는 제어 소켓이 아니라 별도 HTTP MJPEG 경로로 받습니다."));
-    note->setObjectName(QStringLiteral("Hint"));
-    note->setWordWrap(true);
-    card->body()->addWidget(note);
-    card->body()->addStretch(1);
+    capture_ = new CapturePanel;
+    lay->addWidget(capture_);
 
-    lay->addWidget(card);
-    return page;
+    auto *scroll = new QScrollArea;
+    scroll->setWidget(inner);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    return scroll;
 }
 
 QWidget *MainWindow::buildDiagnosticsContext()
@@ -320,7 +320,7 @@ void MainWindow::wireSignals()
                     QImage img;
                     if (!img.loadFromData(png, "PNG")) {
                         log_->note(diag::Severity::Error,
-                                   QStringLiteral("맵 이미지를 해석하지 못했습니다"));
+                                   QStringLiteral("지도 이미지를 읽지 못했습니다"));
                         return;
                     }
                     const auto info = gcs::map::MapInfo::create(
@@ -334,7 +334,7 @@ void MainWindow::wireSignals()
                         0.0, meta.value(QStringLiteral("map_id")).toString());
                     if (!info) {
                         log_->note(diag::Severity::Error,
-                                   QStringLiteral("맵 메타데이터가 올바르지 않습니다"));
+                                   QStringLiteral("지도 정보가 올바르지 않습니다"));
                         return;
                     }
                     map_->view()->setMap(*info, img);
@@ -342,7 +342,7 @@ void MainWindow::wireSignals()
                                       QStringLiteral("%1×%2 m")
                                           .arg(info->extentXMeters(), 0, 'f', 0)
                                           .arg(info->extentYMeters(), 0, 'f', 0));
-                    log_->note(diag::Severity::Ok, QStringLiteral("맵 수신"),
+                    log_->note(diag::Severity::Ok, QStringLiteral("지도 수신"),
                                QJsonObject{{"map_id", info->mapId}});
                 });
     }
@@ -473,6 +473,19 @@ void MainWindow::wireSignals()
         log_->note(diag::Severity::Warn, QStringLiteral("로봇팔 정지 요청"),
                    QJsonObject{{"channel", QStringLiteral("cmd/arm/stop")}});
     });
+
+    connect(capture_, &CapturePanel::captureRequested, this, [this] {
+        logAction(QStringLiteral("CAPTURE_OK"),
+                  {{"point_id", capture_ ? QStringLiteral("수동 촬영") : QString()}});
+    });
+    connect(capture_, &CapturePanel::saveRequested, this,
+            [this](const gcs::capture::CaptureMetadata &meta) {
+                // 저장은 로봇측이 수행한다. 관제는 메타데이터를 붙여 요청만 한다
+                // — 원본이 관제를 경유하지 않는 것과 같은 이유다.
+                logAction(QStringLiteral("CAPTURE_OK"),
+                          QJsonObject::fromVariantMap(meta.toJson().toVariantMap())
+                              .toVariantMap());
+            });
 
     connect(waypoints_, &WaypointPanel::addRequested, this, [this] {
         pendingPlacementKind_ = QStringLiteral("inspection");
@@ -724,7 +737,7 @@ void MainWindow::startSession()
                               .arg(mapData_.info.extentXMeters(), 0, 'f', 0)
                               .arg(mapData_.info.extentYMeters(), 0, 'f', 0));
     } else {
-        map_->setMapLabel(QStringLiteral("맵 수신 대기"), QString());
+        map_->setMapLabel(QStringLiteral("지도 수신 대기"), QString());
     }
 
     const auto wps = robot_->waypoints();
@@ -756,13 +769,13 @@ void MainWindow::startSession()
     navigate(NavItem::Drive);
 
     if (sim) {
-        log_->note(diag::Severity::Ok, QStringLiteral("SLAM 맵 로드 완료"),
+        log_->note(diag::Severity::Ok, QStringLiteral("지도 불러오기 완료"),
                    QJsonObject{{"map_id", mapData_.info.mapId}});
         log_->note(diag::Severity::Info,
-                   QStringLiteral("브릿지 미연결 — 내장 시뮬레이터로 구동 중"));
+                   QStringLiteral("로봇 미연결 — 내장 시뮬레이터로 구동 중"));
     } else {
         log_->note(diag::Severity::Info,
-                   QStringLiteral("브릿지 연결 시도 — %1").arg(robot_->describe()));
+                   QStringLiteral("로봇 연결 시도 — %1").arg(robot_->describe()));
     }
 
     // 텔레메트리 주기는 링크가 정한다. 창이 자체 타이머를 돌리면
@@ -812,6 +825,16 @@ void MainWindow::onTelemetry(const Telemetry &tm)
     snapshot_.localizationOk = tm.localizationOk;
     snapshot_.visibleTagId = tm.seenTags.isEmpty() ? -1 : *tm.seenTags.cbegin();
     locations_->setSnapshot(snapshot_);
+
+    // 촬영은 정지 상태에서만 허용한다 (지시서 2.2.4 동적 촬영 불가).
+    const bool stationary = tm.speed < 0.05;
+    capture_->setContext(tm.x, tm.y, tm.theta,
+                         tm.seenTags.isEmpty() ? -1 : *tm.seenTags.cbegin());
+    capture_->setCaptureAllowed(stationary && !tm.estop && tm.poseFresh,
+                                tm.estop ? QStringLiteral("E-Stop 발동 중입니다.")
+                                : !tm.poseFresh
+                                    ? QStringLiteral("위치 정보가 오래되었습니다.")
+                                    : QStringLiteral("로봇이 이동 중입니다. 정지 후 촬영하십시오."));
 
     diagnostics_->setSensors(tm.sensors);
     diagnostics_->setLink(tm.link);

@@ -316,7 +316,7 @@ void MapView::drawForeground(QPainter *p, const QRectF &)
         p->setFont(f);
         p->setPen(QColor(C.textMute));
         p->drawText(viewport()->rect(), Qt::AlignCenter,
-                    QStringLiteral("지도가 없습니다\n브릿지에서 맵을 수신하면 표시됩니다"));
+                    QStringLiteral("지도가 없습니다\n로봇에서 지도를 받으면 표시됩니다"));
         p->restore();
         return;
     }

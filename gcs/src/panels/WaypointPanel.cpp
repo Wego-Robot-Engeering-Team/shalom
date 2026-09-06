@@ -122,7 +122,7 @@ WaypointPanel::WaypointPanel(QWidget *parent) : QWidget(parent)
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
 
-    card_ = new Card(QStringLiteral("점검포인트 시퀀스"));
+    card_ = new Card(QStringLiteral("점검포인트 순서"));
     count_ = new Badge(QStringLiteral("0"), QStringLiteral("neutral"));
     card_->addHeaderWidget(count_);
     outer->addWidget(card_);

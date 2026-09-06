@@ -52,6 +52,9 @@ add_library(gcs_core
     src/net/Framing.cpp
     src/net/Envelope.cpp
     src/net/BridgeClient.cpp
+    src/capture/CaptureMetadata.cpp
+    src/widgets/PreviewView.cpp
+    src/panels/CapturePanel.cpp
     src/mapview/MapInfo.cpp
     src/diag/CodeCatalog.cpp
     src/diag/LogStore.cpp
@@ -78,7 +81,7 @@ add_library(gcs_core
     src/panels/DiagnosticsPanel.cpp
     src/MainWindow.cpp
 )
-target_include_directories(gcs_core PUBLIC src)
+target_include_directories(gcs_core PUBLIC src ${CMAKE_CURRENT_SOURCE_DIR}/../protocol/include)
 target_link_libraries(gcs_core PUBLIC Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Svg)
 
 # 코드 카탈로그를 바이너리에 내장한다.
@@ -147,6 +150,7 @@ if(GCS_BUILD_TESTS)
     gcs_add_test(test_session)
 
     gcs_add_test(test_bridge)
+    gcs_add_test(test_capture_meta)
 
     gcs_add_test(test_docs)
     # 명세서 경로를 알려준다. 문서와 코드의 드리프트를 잡는 검사다.
