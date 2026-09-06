@@ -155,7 +155,7 @@ void BridgeNode::pollLink()
         handleFrame(frame);
 }
 
-void BridgeNode::handleFrame(const shalom::Frame &frame)
+void BridgeNode::handleFrame(const inspection::Frame &frame)
 {
     std::string err;
     const auto env = Envelope::fromHeader(frame.header, &err);
@@ -184,7 +184,7 @@ void BridgeNode::handleHeartbeat(const Envelope &heartbeat)
 
 void BridgeNode::sendEnvelope(const Envelope &env, bool lossy)
 {
-    server_.send(shalom::encodeFrame(env.toHeader()), lossy);
+    server_.send(inspection::encodeFrame(env.toHeader()), lossy);
 }
 
 void BridgeNode::respond(const Envelope &request, bool ok, const std::string &code,

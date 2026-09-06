@@ -1,5 +1,6 @@
 #include "theme/Tokens.h"
 
+#include <QStringList>
 #include <QtMath>
 
 namespace gcs::theme {
@@ -78,10 +79,23 @@ int scaled(int basePoints)
     return qMax(7, int(qRound(basePoints * g_uiScale)));
 }
 
-QString monoFamily()
+QFont monoFont(int pointSize)
 {
-    QString first = QString::fromLatin1(type::mono).section(QLatin1Char(','), 0, 0).trimmed();
-    return first.remove(QLatin1Char('"'));
+    QStringList families;
+    for (const auto &part : QString::fromLatin1(type::mono).split(QLatin1Char(','))) {
+        QString name = part.trimmed();
+        name.remove(QLatin1Char('"'));
+        if (!name.isEmpty() && name != QLatin1String("monospace"))
+            families << name;
+    }
+
+    QFont f;
+    f.setFamilies(families);
+    // 목록이 전부 없는 기기에서도 등폭으로 떨어지게 한다. 자릿수가
+    // 흔들리면 값이 바뀔 때마다 숫자가 좌우로 움직인다.
+    f.setStyleHint(QFont::Monospace);
+    f.setPointSize(pointSize);
+    return f;
 }
 
 }  // namespace gcs::theme

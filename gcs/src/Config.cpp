@@ -14,7 +14,14 @@ constexpr double kDefaultScale = 1.0;
 constexpr double kDefaultLinear = 0.30;
 constexpr double kDefaultAngular = 0.50;
 constexpr int kDefaultRetention = 90;
+/// 촬영 저장 장치의 기본 경로. 현장에서 설정 화면으로 바꾸는 값이지만,
+/// 기본값이 그 OS 에서 쓸 수 없는 형태면 처음 켰을 때 "찾을 수 없습니다"
+/// 부터 보게 된다. 윈도우에서는 UNC 경로가 자연스럽다.
+#ifdef Q_OS_WIN
+constexpr auto kDefaultNas = "\\\\nas\\inspection";
+#else
 constexpr auto kDefaultNas = "/mnt/nas/inspection";
+#endif
 
 /// UI 배율 허용 범위. 0.8 미만은 한글 가독성이 무너지고,
 /// 1.6 초과는 패널이 잘려 스크롤 없이는 조작이 안 된다.
@@ -24,7 +31,7 @@ constexpr double kMaxScale = 1.6;
 QSettings &store()
 {
     static QSettings s(QSettings::IniFormat, QSettings::UserScope,
-                       QStringLiteral("WEGO Robotics"), QStringLiteral("SHALOM GCS"));
+                       QStringLiteral("WEGO Robotics"), QStringLiteral("Inspection GCS"));
     return s;
 }
 

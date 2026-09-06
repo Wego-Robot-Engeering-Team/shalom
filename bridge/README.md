@@ -20,7 +20,7 @@ shalom_bridge/          ROS 2 패키지 (ament_cmake)
 standalone/             ROS 2 없이 전송 계층만 빌드·테스트
 ```
 
-프레이밍 구현은 `../protocol/include/shalom/framing.hpp` 하나뿐이며 관제와
+프레이밍 구현은 `../protocol/include/inspection/framing.hpp` 하나뿐이며 관제와
 공유한다. 같은 바이트 배치를 두 번 구현하면 언젠가 어긋나고, 그 어긋남은
 빌드가 아니라 현장에서 드러난다.
 

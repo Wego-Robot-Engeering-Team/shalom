@@ -1,5 +1,6 @@
 #include "sim/SimRobot.h"
 
+#include <cmath>
 #include <QRandomGenerator>
 #include <QTimer>
 #include <QtMath>

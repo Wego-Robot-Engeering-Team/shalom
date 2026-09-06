@@ -20,6 +20,7 @@
 // `palette()` silently resolves to Qt's and the theme is ignored. Avoiding the
 // collision entirely is safer than relying on every call site to qualify it.
 
+#include <QFont>
 #include <QLatin1String>
 #include <QString>
 
@@ -137,6 +138,13 @@ const Colors &setTheme(const QString &name);
 const Colors &toggleTheme();
 
 /// First family name from the monospace stack, for use with QFont(family).
-QString monoFamily();
+/// Monospaced font with the whole fallback list attached.
+///
+/// Returning just the first family name was wrong on every machine that does
+/// not have it installed: the stylesheet honours the full list, but code that
+/// builds a QFont by name does not, so custom-painted digits fell back to a
+/// proportional face and shifted as values changed. JetBrains Mono is not
+/// present on a stock Windows or Ubuntu.
+QFont monoFont(int pointSize);
 
 }  // namespace gcs::theme

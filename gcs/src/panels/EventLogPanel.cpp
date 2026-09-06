@@ -136,8 +136,7 @@ public:
         x += levelW;
 
         // 시각은 오른쪽 끝에. 훑을 때 세로로 줄이 맞는 편이 읽기 쉽다.
-        QFont fm(monoFamily());
-        fm.setPointSize(9);
+        QFont fm = monoFont(9);
         p->setFont(fm);
         p->setPen(QColor(C.textMute));
         const QString time = idx.data(kRoleTime).toString();
@@ -148,8 +147,7 @@ public:
         const int firstLineRight = r.right() - kRightPad - timeW - 8;
 
         if (!code.isEmpty()) {
-            QFont fc(monoFamily());
-            fc.setPointSize(9);
+            QFont fc = monoFont(9);
             fc.setWeight(QFont::DemiBold);
             p->setFont(fc);
             p->setPen(QColor(C.textDim));
@@ -182,8 +180,7 @@ public:
         const QString detail = idx.data(kRoleDetail).toString();
         const int avail = r.right() - kRightPad - (r.left() + 22);
         if (!detail.isEmpty() && avail > 260) {
-            QFont fd(monoFamily());
-            fd.setPointSize(9);
+            QFont fd = monoFont(9);
             const QFontMetrics dm(fd);
             detailW = qMin(dm.horizontalAdvance(detail) + 12, avail / 2);
             p->setFont(fd);
@@ -215,10 +212,8 @@ QRect iconRectFor(const QRect &itemRect, const QString &time, const QString &cod
 {
     if (code.isEmpty())
         return {};
-    QFont fm(monoFamily());
-    fm.setPointSize(9);
-    QFont fc(monoFamily());
-    fc.setPointSize(9);
+    QFont fm = monoFont(9);
+    QFont fc = monoFont(9);
     fc.setWeight(QFont::DemiBold);
 
     Q_UNUSED(time);
@@ -418,7 +413,7 @@ void EventLogPanel::exportLog()
     const QString dir =
         QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
     const QString suggested =
-        QStringLiteral("%1/shalom_log_%2.jsonl")
+        QStringLiteral("%1/inspection_log_%2.jsonl")
             .arg(dir, QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss")));
 
     const QString path = QFileDialog::getSaveFileName(

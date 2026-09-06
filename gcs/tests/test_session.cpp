@@ -27,7 +27,7 @@ private slots:
         // 테스트가 개발자의 실제 설정을 건드리지 않게 격리한다.
         QStandardPaths::setTestModeEnabled(true);
         QCoreApplication::setOrganizationName(QStringLiteral("WEGO Robotics"));
-        QCoreApplication::setApplicationName(QStringLiteral("SHALOM GCS"));
+        QCoreApplication::setApplicationName(QStringLiteral("Inspection GCS"));
     }
 
     /// PBKDF2 파생을 표준 벡터로 못박는다.
@@ -83,7 +83,7 @@ private slots:
         auto &s = Session::instance();
         QVERIFY(s.setAdminPassword(QStringLiteral("same-password-1")));
         QSettings store(QSettings::IniFormat, QSettings::UserScope,
-                        QStringLiteral("WEGO Robotics"), QStringLiteral("SHALOM GCS"));
+                        QStringLiteral("WEGO Robotics"), QStringLiteral("Inspection GCS"));
         const QByteArray hash1 = store.value(QStringLiteral("auth/admin_hash")).toByteArray();
 
         QVERIFY(s.setAdminPassword(QStringLiteral("same-password-1")));
@@ -101,7 +101,7 @@ private slots:
         QVERIFY(Session::instance().setAdminPassword(pw));
 
         QSettings store(QSettings::IniFormat, QSettings::UserScope,
-                        QStringLiteral("WEGO Robotics"), QStringLiteral("SHALOM GCS"));
+                        QStringLiteral("WEGO Robotics"), QStringLiteral("Inspection GCS"));
         store.sync();
         for (const auto &key : store.allKeys()) {
             const QString value = store.value(key).toString();
@@ -190,7 +190,7 @@ private slots:
     void cleanupTestCase()
     {
         QSettings store(QSettings::IniFormat, QSettings::UserScope,
-                        QStringLiteral("WEGO Robotics"), QStringLiteral("SHALOM GCS"));
+                        QStringLiteral("WEGO Robotics"), QStringLiteral("Inspection GCS"));
         store.clear();
     }
 };

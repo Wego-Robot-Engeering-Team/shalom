@@ -1,6 +1,6 @@
 #pragma once
 
-// Wire framing for the SHALOM control protocol.
+// Wire framing for the undercarriage inspection control protocol.
 //
 // Header-only and dependency-free on purpose: this is compiled into both the
 // control station (Qt) and the robot-side bridge node (ROS 2), and those two
@@ -25,7 +25,7 @@
 #include <string>
 #include <vector>
 
-namespace shalom {
+namespace inspection {
 
 /// "SHLM" read as a little-endian uint32. Detects a wrong peer or a stream
 /// that has lost synchronisation.
@@ -173,4 +173,4 @@ private:
     std::size_t offset_ = 0;
 };
 
-}  // namespace shalom
+}  // namespace inspection

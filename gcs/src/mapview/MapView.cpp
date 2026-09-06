@@ -1,5 +1,6 @@
 #include "mapview/MapView.h"
 
+#include <cmath>
 #include <QFont>
 #include <QGraphicsPathItem>
 #include <QGraphicsPixmapItem>
@@ -318,7 +319,6 @@ void MapView::drawForeground(QPainter *p, const QRectF &)
     if (!info_) {
         const Colors &C = colors();
         QFont f;
-        f.setPointSize(12);
         p->setFont(f);
         p->setPen(QColor(C.textMute));
         p->drawText(viewport()->rect(), Qt::AlignCenter,
@@ -387,7 +387,7 @@ void MapView::drawScaleBar(QPainter *p)
     p->drawLine(x0, y0 - 3, x0, y0 + 3);
     p->drawLine(int(x0 + lengthPx), y0 - 3, int(x0 + lengthPx), y0 + 3);
 
-    QFont f(monoFamily());
+    QFont f = monoFont(12);
     f.setPointSize(9);
     p->setFont(f);
     p->setPen(QColor(C.textMute));

@@ -1,5 +1,6 @@
 #include "widgets/IconButton.h"
 
+#include <cmath>
 #include <QPainter>
 #include <QPainterPath>
 #include <QtMath>
