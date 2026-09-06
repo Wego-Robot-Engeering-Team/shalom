@@ -98,6 +98,11 @@ QMessageBox { background: @surface; }
 #SectionLabel { font-size: @fsSm; color: @textMute; }
 #Hint { color: @textMute; font-size: @fsSm; }
 #HLine { background: @border; border: none; }
+
+/* 보내기 전 자세 경고. 요란하지 않게 — 배경 없이 색과 왼쪽 선만. */
+#PoseWarning { color: @warning; font-size: @fsSm; padding: 2px 0 2px 8px;
+               border-left: 2px solid @warning; }
+#PoseWarning[tone="danger"] { color: @danger; border-left-color: @danger; }
 #AppTitle { font-size: @fsXl; font-weight: 650; color: @text; }
 #AppSubtitle { font-size: @fsSm; color: @textMute; }
 

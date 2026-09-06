@@ -133,7 +133,7 @@ void BatteryRing::paintEvent(QPaintEvent *)
 BatteryPill::BatteryPill(QWidget *parent, double lowThreshold)
     : AnimatedValue(parent), low_(lowThreshold)
 {
-    setFixedSize(74, 22);
+    setFixedSize(82, 24);
 }
 
 void BatteryPill::setState(double socPercent, bool charging)
@@ -238,7 +238,7 @@ StatBar::StatBar(const QString &label, const QString &unit, QWidget *parent,
     : QWidget(parent), label_(label), unit_(unit),
       warn_(warnAbove), danger_(dangerAbove), vmax_(vmax)
 {
-    setFixedHeight(26);
+    setFixedHeight(28);
 }
 
 void StatBar::setReading(double v)
@@ -287,7 +287,7 @@ void StatBar::paintEvent(QPaintEvent *)
 JointBar::JointBar(const QString &name, double lo, double hi, QWidget *parent)
     : QWidget(parent), name_(name), lo_(lo), hi_(hi)
 {
-    setFixedHeight(22);
+    setFixedHeight(25);
 }
 
 void JointBar::setActual(double rad)

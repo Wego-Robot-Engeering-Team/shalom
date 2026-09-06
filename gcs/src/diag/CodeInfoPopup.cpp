@@ -4,6 +4,8 @@
 #include <QFrame>
 #include <QGuiApplication>
 #include <QLabel>
+#include <QPainter>
+#include <QPainterPath>
 #include <QScreen>
 #include <QVBoxLayout>
 
@@ -39,7 +41,7 @@ QString esc(const QString &s)
 }  // namespace
 
 CodeInfoPopup::CodeInfoPopup(const CodeEntry &e, QWidget *parent)
-    : QWidget(parent, Qt::Popup)
+    : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint)
 {
     setObjectName(QStringLiteral("InfoPopup"));
     setAttribute(Qt::WA_DeleteOnClose);
@@ -93,8 +95,26 @@ CodeInfoPopup::CodeInfoPopup(const CodeEntry &e, QWidget *parent)
         lay->addWidget(ch);
     }
 
-    setFixedWidth(380);
+    setFixedWidth(410);
     adjustSize();
+}
+
+void CodeInfoPopup::resizeEvent(QResizeEvent *ev)
+{
+    QWidget::resizeEvent(ev);
+    QPainterPath path;
+    path.addRoundedRect(QRectF(rect()), 10, 10);
+    setMask(QRegion(path.toFillPolygon().toPolygon()));
+}
+
+void CodeInfoPopup::paintEvent(QPaintEvent *)
+{
+    const auto &C = gcs::theme::colors();
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(QPen(QColor(C.borderHi), 1));
+    p.setBrush(QColor(C.surface));
+    p.drawRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 10, 10);
 }
 
 void CodeInfoPopup::showFor(const QString &code, const QPoint &globalPos, QWidget *parent)

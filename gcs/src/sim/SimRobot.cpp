@@ -1,5 +1,7 @@
 #include "sim/SimRobot.h"
 
+#include "mapview/MapFile.h"
+
 #include <cmath>
 #include <QRandomGenerator>
 #include <QTimer>
@@ -50,6 +52,12 @@ inline void fillRect(QList<qint8> &g, int x0, int y0, int x1, int y1, qint8 v)
 
 MapData buildMap()
 {
+    // 실제 현장에 가까운 지도를 먼저 쓴다. 검수고 안에 선로 두 개, 그 사이와
+    // 옆으로 난 통로, 차량 아래를 지나는 길이 들어 있다 — 예전의 절차적
+    // 지도는 하부 통로 하나뿐이라 편성 사이를 다니는 동작을 시험할 수 없었다.
+    if (auto loaded = gcs::map::loadRosMap(QStringLiteral(":/maps/gtxa_depot.yaml")))
+        return {loaded->info, loaded->grid};
+
     QList<qint8> g(qsizetype(kW) * kH, qint8(-1));   // 미탐색으로 시작
 
     fillRect(g, 30, 30, kW - 30, kH - 30, 0);        // 검수고 내부
@@ -85,23 +93,48 @@ MapData buildMap()
 
 QList<QVariantMap> buildWaypoints()
 {
+    // 새 지도의 배치에 맞춘다. 선로 두 개가 y = ±4.6 에 있고, 각 선로 위에
+    // 3 량 편성이 서 있다. 점검포인트는 대차 사이, 즉 차량 아래에서 로봇이
+    // 실제로 설 수 있는 자리에 둔다.
+    //
+    // 두 선로에 나눠 배치하는 것이 핵심이다. 한 선로에만 두면 편성 사이
+    // 통로를 지나는 동작이 한 번도 나오지 않아, 현장에서 처음 겪게 된다.
+    constexpr double kTrackY = 4.6;
+    constexpr double kCarLen = 20.0;
+    constexpr double kCarGap = 0.6;
+    constexpr int kCars = 3;
+    constexpr double kBogieInset = 2.6;
+    constexpr double kBogieHalf = 1.3;   // 대차 반길이 + 여유
+
+    const double trainLen = kCars * kCarLen + (kCars - 1) * kCarGap;
+    const double xStart = -trainLen / 2.0;
+
     QList<QVariantMap> wps;
     int n = 0;
-    for (int car = 1; car <= 3; ++car) {
-        for (int pt = 1; pt <= 4; ++pt) {
-            QVariantMap w;
-            w["id"] = QStringLiteral("C%1-P%2")
-                          .arg(car, 2, 10, QLatin1Char('0'))
-                          .arg(pt, 2, 10, QLatin1Char('0'));
-            w["name"] = QStringLiteral("%1량 P%2").arg(car).arg(pt);
-            w["car"] = car;
-            w["x"] = -14.0 + n * 2.35;
-            w["y"] = 0.0;
-            w["theta"] = 0.0;
-            w["tag_id"] = 10 + n;
-            w["status"] = QStringLiteral("todo");
-            wps << w;
-            ++n;
+    for (int track = 0; track < 2; ++track) {
+        const double y = track == 0 ? kTrackY : -kTrackY;
+        for (int car = 0; car < kCars; ++car) {
+            const double cx0 = xStart + car * (kCarLen + kCarGap);
+            const double lo = cx0 + kBogieInset + kBogieHalf;
+            const double hi = cx0 + kCarLen - kBogieInset - kBogieHalf;
+
+            for (int pt = 0; pt < 2; ++pt) {
+                QVariantMap w;
+                w["id"] = QStringLiteral("T%1C%2-P%3").arg(track + 1).arg(car + 1).arg(pt + 1);
+                w["name"] = QStringLiteral("%1선 %2량 P%3").arg(track + 1).arg(car + 1).arg(pt + 1);
+                // 량 번호는 두 선로를 통틀어 유일해야 한다. 선로마다 1~3 을
+                // 다시 쓰면 량 촬영 시간(CAR_START/CAR_COMPLETE)이 한 량을
+                // 두 번 센 것처럼 합쳐진다.
+                w["car"] = track * kCars + car + 1;
+                w["x"] = lo + (hi - lo) * (pt == 0 ? 0.3 : 0.7);
+                w["y"] = y;
+                // 차량 아래에서는 선로를 따라 보게 둔다. 반대편 선로는 반대 방향.
+                w["theta"] = track == 0 ? 0.0 : M_PI;
+                w["tag_id"] = 10 + n;
+                w["status"] = QStringLiteral("todo");
+                wps << w;
+                ++n;
+            }
         }
     }
     return wps;
@@ -112,9 +145,12 @@ QList<QVariantMap> buildTags(const QList<QVariantMap> &waypoints)
     QList<QVariantMap> tags;
     for (const auto &w : waypoints) {
         const int id = w.value("tag_id").toInt();
-        // 각 포인트 양옆 벽에 마커가 붙는다 (지시서 2.2.2 로봇암 제어 항목).
-        tags << QVariantMap{{"id", id}, {"x", w.value("x")}, {"y", 3.0}};
-        tags << QVariantMap{{"id", id + 100}, {"x", w.value("x")}, {"y", -3.0}};
+        const double y = w.value("y").toDouble();
+        // 마커는 점검포인트 양옆, 차량 아래 구조물에 붙는다 (지시서 2.2.2).
+        // 예전에는 지도 한가운데 통로에 붙여 놓아, 포인트가 선로로 옮겨간
+        // 지금은 로봇이 볼 수 없는 자리가 된다.
+        tags << QVariantMap{{"id", id}, {"x", w.value("x")}, {"y", y + 1.2}};
+        tags << QVariantMap{{"id", id + 100}, {"x", w.value("x")}, {"y", y - 1.2}};
     }
     return tags;
 }

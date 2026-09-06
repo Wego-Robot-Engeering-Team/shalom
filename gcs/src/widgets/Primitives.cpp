@@ -23,7 +23,7 @@ Card::Card(const QString &title, QWidget *parent, bool padded)
     if (!title.isEmpty()) {
         header_ = new QWidget;
         header_->setObjectName(QStringLiteral("CardHeader"));
-        header_->setFixedHeight(34);
+        header_->setFixedHeight(38);
         headerLayout_ = new QHBoxLayout(header_);
         headerLayout_->setContentsMargins(metrics::s3, 0, metrics::s2, 0);
         headerLayout_->setSpacing(metrics::s2);

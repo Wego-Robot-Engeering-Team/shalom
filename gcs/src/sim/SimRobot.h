@@ -111,7 +111,9 @@ private:
     void setWaypointStatus(int index, const QString &status);
 
     // pose and motion
-    double x_ = -13.0, y_ = 0.0, theta_ = 0.0;
+    // In front of the charging station on the depot map. The previous value
+    // (-13, 0) sits in the middle of the aisle between the two trains there.
+    double x_ = -32.0, y_ = -10.0, theta_ = 0.0;
     double speed_ = 0.0;
 
     // manual jog with deadman

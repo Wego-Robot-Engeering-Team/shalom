@@ -138,7 +138,7 @@ QWidget *MainWindow::buildTopBar()
     //   [ 멈춤 ]          비상정지
     auto *bar = new QWidget;
     bar->setObjectName(QStringLiteral("TopBar"));
-    bar->setFixedHeight(66);
+    bar->setFixedHeight(70);
 
     auto *lay = new QHBoxLayout(bar);
     lay->setContentsMargins(metrics::s4, 0, metrics::s3, 0);
@@ -166,7 +166,7 @@ QWidget *MainWindow::buildTopBar()
     for (auto *b : {autoBtn_, manualBtn_}) {
         b->setCheckable(true);
         b->setProperty("size", "sm");
-        b->setFixedWidth(64);
+        b->setFixedWidth(70);
     }
     autoBtn_->setChecked(true);
 
