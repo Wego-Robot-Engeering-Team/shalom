@@ -1006,11 +1006,11 @@ void MainWindow::startSession()
     // 않은 채로 운용하면 로봇은 아무 기준도 못 받는다.
     pushBatteryPolicy();
 
-    auto *sim = qobject_cast<sim::SimRobot *>(robot_);
-    if (sim) {
-        // 시뮬레이터는 맵을 자체 생성한다. 브릿지 연결 시에는 map/occupancy
-        // 채널로 도착할 때까지 지도가 비어 있다.
-        mapData_ = sim::buildMap();
+    // 로봇이 지도를 보내오기 전까지는 비어 있다. 테스트베드로 돌 때는
+    // 링크가 대역 지도를 들고 온다 — MainWindow 는 어느 쪽인지 모른다.
+    const auto initial = robot_->initialMap();
+    if (initial) {
+        mapData_ = *initial;
         map_->view()->setMap(mapData_.info,
                              gcs::map::occupancyToImage(mapData_.grid, mapData_.info.width,
                                                         mapData_.info.height));
@@ -1025,11 +1025,9 @@ void MainWindow::startSession()
     const auto wps = robot_->waypoints();
     waypoints_->setWaypoints(wps);
     map_->view()->setWaypoints(wps);
-    map_->view()->setTags(sim::buildTags(wps));
+    map_->view()->setTags(robot_->markers());
 
-    // 충전 스테이션은 맵의 좌상단 구조물 위치에 맞춘다.
-    dock_ = QVariantMap{{"kind", QStringLiteral("dock")}, {"x", -13.5}, {"y", 6.6},
-                        {"theta", 0.0}, {"captured_from", QStringLiteral("map")}};
+    dock_ = robot_->dockPose();
     locations_->setDock(dock_);
     locations_->setHome({});
 
@@ -1053,7 +1051,7 @@ void MainWindow::startSession()
     nav_->setCurrent(NavItem::Drive);
     navigate(NavItem::Drive);
 
-    if (sim) {
+    if (initial) {
         log_->note(diag::Severity::Ok, QStringLiteral("지도 불러오기 완료"),
                    QJsonObject{{"map_id", mapData_.info.mapId}});
         log_->note(diag::Severity::Info,
@@ -1065,8 +1063,7 @@ void MainWindow::startSession()
 
     // 텔레메트리 주기는 링크가 정한다. 창이 자체 타이머를 돌리면
     // 시뮬레이터와 브릿지에서 갱신 속도가 달라진다.
-    if (sim)
-        sim->start();
+    robot_->start();
 }
 
 void MainWindow::onTelemetry(const Telemetry &tm)

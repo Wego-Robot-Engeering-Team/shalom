@@ -11,7 +11,9 @@
 #include "Config.h"
 #include "MainWindow.h"
 #include "net/BridgeClient.h"
-#include "sim/SimRobot.h"
+#ifdef GCS_WITH_TESTBED
+#    include "sim/SimRobot.h"
+#endif
 #include "auth/Session.h"
 #include "theme/Style.h"
 #include "theme/Tokens.h"
@@ -162,7 +164,15 @@ int main(int argc, char *argv[])
         bridge->connectToBridge();
         link = bridge;
     } else {
+#ifdef GCS_WITH_TESTBED
         link = new gcs::sim::SimRobot;
+#else
+        // 납품 빌드에는 시뮬레이터가 없다. 로봇이 없으면 화면이 뜨지 않는
+        // 편이, 가짜 데이터로 도는 화면을 현장에서 진짜로 오해하는 것보다
+        // 낫다.
+        qCritical("로봇 주소를 지정해야 합니다: --live --host <주소> --port <포트>");
+        return 2;
+#endif
     }
 
     gcs::ui::MainWindow window(link);

@@ -24,7 +24,6 @@
 #include <QMainWindow>
 
 #include "robot/RobotLink.h"
-#include "sim/SimRobot.h"
 #include "panels/LocationPanel.h"
 #include "widgets/MapCard.h"
 #include "widgets/NavRail.h"
@@ -203,7 +202,7 @@ private:
     /// Either the built-in simulator or the real bridge client. The window
     /// deliberately does not know which: everything goes through the interface.
     gcs::robot::RobotLink *robot_ = nullptr;
-    gcs::sim::MapData mapData_;
+    gcs::robot::MapData mapData_;
 };
 
 }  // namespace gcs::ui

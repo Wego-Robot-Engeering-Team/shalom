@@ -42,7 +42,7 @@ constexpr int kRoleCode = Qt::UserRole + 2;
 constexpr int kRoleMessage = Qt::UserRole + 3;
 constexpr int kRoleDetail = Qt::UserRole + 4;
 
-constexpr int kRowHeight = 50;
+constexpr int kRowHeight = 54;
 
 /// 상세 JSON 을 한 줄 요약으로 접는다. 중첩 객체는 값이 길어지기만 하고
 /// 한 줄에서는 읽히지 않으므로 건너뛴다.
@@ -63,7 +63,7 @@ QString detailText(const QJsonObject &detail)
     return parts.join(QStringLiteral("   "));
 }
 
-constexpr int kIconSize = 15;
+constexpr int kIconSize = 16;
 constexpr int kRightPad = 8;
 
 /// 로그 목록에 찍는 등급 약어.
@@ -129,8 +129,8 @@ public:
         //
         //   ● 오류   MODE_AUTO  (i)              20:47:23
         //     자율 모드 전환                     map_id ...
-        const int top = r.top() + 6;
-        const int bottom = r.top() + 25;
+        const int top = r.top() + 7;
+        const int bottom = r.top() + 28;
 
         p->setPen(Qt::NoPen);
         p->setBrush(sev == Severity::Info ? QColor(C.textMute) : sc);
@@ -139,7 +139,7 @@ public:
         int x = r.left() + 22;
 
         QFont fl;
-        fl.setPointSize(10);
+        fl.setPointSize(11);
         fl.setWeight(QFont::DemiBold);
         p->setFont(fl);
         p->setPen(sev == Severity::Info ? QColor(C.textMute) : sc);
@@ -148,28 +148,28 @@ public:
         // 이미 익은 낱말이다. 조작자용 한글 표기는 알림과 코드 설명에 있다.
         const QString level = severityCode(sev);
         const int levelW = QFontMetrics(fl).horizontalAdvance(level) + 8;
-        p->drawText(QRect(x, top, levelW, 18), Qt::AlignLeft | Qt::AlignVCenter, level);
+        p->drawText(QRect(x, top, levelW, 19), Qt::AlignLeft | Qt::AlignVCenter, level);
         x += levelW;
 
         // 시각은 오른쪽 끝에. 훑을 때 세로로 줄이 맞는 편이 읽기 쉽다.
-        QFont fm = monoFont(10);
+        QFont fm = monoFont(11);
         p->setFont(fm);
         p->setPen(QColor(C.textMute));
         const QString time = idx.data(kRoleTime).toString();
         const int timeW = QFontMetrics(fm).horizontalAdvance(time) + 2;
-        p->drawText(QRect(r.right() - kRightPad - timeW, top, timeW, 18),
+        p->drawText(QRect(r.right() - kRightPad - timeW, top, timeW, 19),
                     Qt::AlignRight | Qt::AlignVCenter, time);
 
         const int firstLineRight = r.right() - kRightPad - timeW - 8;
 
         if (!code.isEmpty()) {
-            QFont fc = monoFont(10);
+            QFont fc = monoFont(11);
             fc.setWeight(QFont::DemiBold);
             p->setFont(fc);
             p->setPen(QColor(C.textDim));
             const int codeW = qMin(QFontMetrics(fc).horizontalAdvance(code) + 8,
                                    qMax(0, firstLineRight - x));
-            p->drawText(QRect(x, top, codeW, 18), Qt::AlignLeft | Qt::AlignVCenter,
+            p->drawText(QRect(x, top, codeW, 19), Qt::AlignLeft | Qt::AlignVCenter,
                         QFontMetrics(fc).elidedText(code, Qt::ElideRight, codeW));
             x += codeW;
 
@@ -184,7 +184,7 @@ public:
             p->drawEllipse(ic);
 
             QFont fi;
-            fi.setPointSize(9);
+            fi.setPointSize(10);
             fi.setWeight(QFont::Bold);
             p->setFont(fi);
             p->setPen(hot ? sc : QColor(C.textMute));
@@ -196,22 +196,22 @@ public:
         const QString detail = idx.data(kRoleDetail).toString();
         const int avail = r.right() - kRightPad - (r.left() + 22);
         if (!detail.isEmpty() && avail > 260) {
-            QFont fd = monoFont(10);
+            QFont fd = monoFont(11);
             const QFontMetrics dm(fd);
             detailW = qMin(dm.horizontalAdvance(detail) + 12, avail / 2);
             p->setFont(fd);
             p->setPen(QColor(C.textMute));
-            p->drawText(QRect(r.right() - kRightPad - detailW, bottom, detailW, 18),
+            p->drawText(QRect(r.right() - kRightPad - detailW, bottom, detailW, 19),
                         Qt::AlignRight | Qt::AlignVCenter,
                         dm.elidedText(detail, Qt::ElideRight, detailW));
         }
 
         QFont ft;
-        ft.setPointSize(11);
+        ft.setPointSize(12);
         ft.setWeight(loud ? QFont::DemiBold : QFont::Normal);
         p->setFont(ft);
         p->setPen(loud ? sc : QColor(C.text));
-        const QRect textRect(r.left() + 22, bottom, avail - detailW, 18);
+        const QRect textRect(r.left() + 22, bottom, avail - detailW, 19);
         if (textRect.width() > 20) {
             p->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
                         QFontMetrics(ft).elidedText(idx.data(kRoleMessage).toString(),
@@ -228,13 +228,13 @@ QRect iconRectFor(const QRect &itemRect, const QString &time, const QString &cod
 {
     if (code.isEmpty())
         return {};
-    QFont fm = monoFont(10);
-    QFont fc = monoFont(10);
+    QFont fm = monoFont(11);
+    QFont fc = monoFont(11);
     fc.setWeight(QFont::DemiBold);
 
     Q_UNUSED(time);
     QFont fl;
-    fl.setPointSize(10);
+    fl.setPointSize(11);
     fl.setWeight(QFont::DemiBold);
 
     int x = itemRect.left() + 22;
