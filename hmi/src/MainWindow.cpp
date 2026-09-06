@@ -1131,7 +1131,7 @@ void MainWindow::startSession()
     // 로봇이 알려 준 값이 출발점이다. 여기서 다시 보내지는 않는다 —
     // 방금 받은 것을 그대로 돌려주는 셈이라 의미가 없다.
     dock_ = robot_->dockPose();
-    home_.clear();
+    home_ = robot_->homePose();
     locations_->setDock(dock_);
     locations_->setHome(home_);
     mission_->setDockKnown(!dock_.isEmpty());

@@ -419,8 +419,11 @@ void BridgeClient::handlePublish(const Envelope &env)
         // 복귀할 때 쓰는 자리라 로봇이 말해 주는 것이 원본이다.
         for (const auto &v : p.value(QStringLiteral("locations")).toArray()) {
             const QVariantMap loc = v.toObject().toVariantMap();
-            if (loc.value(QStringLiteral("kind")).toString() == QLatin1String("dock"))
+            const QString kind = loc.value(QStringLiteral("kind")).toString();
+            if (kind == QLatin1String("dock"))
                 dock_ = loc;
+            else if (kind == QLatin1String("home"))
+                home_ = loc;
         }
     } else if (ch == QLatin1String(hmi::ch::kCaptureSpool)) {
         telemetry_.nasOnline = p.value(QStringLiteral("nas_online")).toBool();
@@ -530,8 +533,11 @@ void BridgeClient::setLocations(const QList<QVariantMap> &locations)
     QJsonArray arr;
     for (const auto &loc : locations) {
         arr.append(QJsonObject::fromVariantMap(loc));
-        if (loc.value(QStringLiteral("kind")).toString() == QLatin1String("dock"))
+        const QString kind = loc.value(QStringLiteral("kind")).toString();
+        if (kind == QLatin1String("dock"))
             dock_ = loc;
+        else if (kind == QLatin1String("home"))
+            home_ = loc;
     }
     sendRequest(QLatin1String(hmi::ch::kCmdLocationsSet), {{"locations", arr}});
 }

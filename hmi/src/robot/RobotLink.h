@@ -120,9 +120,14 @@ public:
     /// Markers the link knows about up front. Empty for the bridge.
     virtual QList<QVariantMap> markers() const { return {}; }
 
-    /// Charging station pose the link knows about. Comes from the robot over
-    /// state/locations, or from the operator teaching it.
+    /// Fixed poses the link knows about: the charging station the robot
+    /// returns to on its own, and the start point the operator sends it to.
+    ///
+    /// Both come from the robot over state/locations, or from the operator
+    /// teaching them - in which case they go back to the robot and come round
+    /// again, which is what makes them survive a restart of this program.
     virtual QVariantMap dockPose() const { return {}; }
+    virtual QVariantMap homePose() const { return {}; }
 
     /// Starts producing telemetry. The bridge connects on construction and
     /// does nothing here; the testbed starts its clock.

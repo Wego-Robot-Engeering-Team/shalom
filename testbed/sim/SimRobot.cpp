@@ -234,9 +234,13 @@ void SimRobot::setLocations(const QList<QVariantMap> &locations)
     // 로봇이 지키는 값이다. 배터리가 떨어지거나 점검이 끝나면 여기로
     // 돌아온다 — 관제 화면에만 적어 두면 화면이 가리키는 자리와 로봇이
     // 가는 자리가 달라진다.
-    for (const auto &loc : locations)
-        if (loc.value(QStringLiteral("kind")).toString() == QLatin1String("dock"))
+    for (const auto &loc : locations) {
+        const QString kind = loc.value(QStringLiteral("kind")).toString();
+        if (kind == QLatin1String("dock"))
             dock_ = loc;
+        else if (kind == QLatin1String("home"))
+            home_ = loc;
+    }
 }
 
 QString SimRobot::describe() const

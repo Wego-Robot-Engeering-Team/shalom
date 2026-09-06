@@ -304,19 +304,30 @@ private slots:
         QCOMPARE(client_->dockPose().value(QStringLiteral("x")).toDouble(), -12.5);
     }
 
-    /// 로봇이 알려 주는 고정 위치를 받아 둔다. 관제가 켜질 때 충전소가
-    /// 어디인지 아는 유일한 경로다.
-    void dockFromRobot_isRemembered()
+    /// 로봇이 알려 주는 고정 위치를 받아 둔다.
+    ///
+    /// 관제 화면은 등록한 위치를 스스로 저장하지 않는다. 로봇에게 보내고
+    /// 로봇이 다시 알려 주는 이 경로가, 프로그램을 껐다 켜도 위치가 남는
+    /// 유일한 이유다.
+    void fixedLocationsFromRobot_areRemembered()
     {
         connectPair();
         server_->send(pub(hmi::ch::kLocations,
-                          {{"locations", QJsonArray{QJsonObject{{"kind", QStringLiteral("dock")},
-                                                                {"x", -85.0},
-                                                                {"y", -6.0},
-                                                                {"theta", 0.0}}}}}));
+                          {{"locations",
+                            QJsonArray{QJsonObject{{"kind", QStringLiteral("dock")},
+                                                   {"x", -85.0},
+                                                   {"y", -6.0},
+                                                   {"theta", 0.0}},
+                                       QJsonObject{{"kind", QStringLiteral("home")},
+                                                   {"x", 1.5},
+                                                   {"y", 2.5},
+                                                   {"theta", 0.0}}}}}));
 
-        QVERIFY(waitFor([this] { return !client_->dockPose().isEmpty(); }));
+        QVERIFY(waitFor([this] {
+            return !client_->dockPose().isEmpty() && !client_->homePose().isEmpty();
+        }));
         QCOMPARE(client_->dockPose().value(QStringLiteral("y")).toDouble(), -6.0);
+        QCOMPARE(client_->homePose().value(QStringLiteral("x")).toDouble(), 1.5);
     }
 
     /// 거부된 명령이 조용히 사라지면 조작자는 명령이 먹은 줄 안다.

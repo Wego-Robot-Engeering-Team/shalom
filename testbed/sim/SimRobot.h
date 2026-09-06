@@ -99,6 +99,7 @@ public:
     std::optional<hmi::robot::MapData> initialMap() const override;
     QList<QVariantMap> markers() const override;
     QVariantMap dockPose() const override;
+    QVariantMap homePose() const override { return home_; }
 
     /// Advances the simulation by dt seconds and returns the new telemetry.
     /// Exposed so tests can drive it deterministically instead of waiting on
@@ -137,6 +138,7 @@ private:
     MissionState mission_ = MissionState::Idle;
     QList<QVariantMap> waypoints_;
     QVariantMap dock_;
+    QVariantMap home_;
     int activeIndex_ = -1;
     double dwell_ = 0.0;
     int currentCar_ = -1;
