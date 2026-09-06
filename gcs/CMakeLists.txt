@@ -94,7 +94,6 @@ add_library(gcs_core ${GCS_CORE_TYPE}
     src/mapview/MapFile.cpp
     src/robot/RobotLink.cpp
     src/robot/PoseCheck.cpp
-    src/sim/SimRobot.cpp
     src/panels/StatusPanel.cpp
     src/panels/MissionPanel.cpp
     src/widgets/WaypointDelegate.cpp
@@ -124,15 +123,6 @@ qt_add_resources(gcs_core "gcs_resources"
     FILES resources/error_codes.json
 )
 
-# 검수고 기본 지도. SLAM Toolbox 실물이 나오기 전까지 쓰는 대역이며,
-# 리소스에 넣어 두면 실행 위치와 무관하게 열린다. 현장 지도는 설정에서
-# 파일로 지정한다.
-qt_add_resources(gcs_core "gcs_maps"
-    PREFIX "/maps"
-    BASE resources/maps
-    FILES resources/maps/gtxa_depot.yaml resources/maps/gtxa_depot.pgm
-)
-
 # 발주기관 로고. 자산이 없으면 BrandMark 가 중립 마크로 폴백한다
 # (resources/brand/README.md 의 상표 사용 승인 절차 참조).
 qt_add_resources(gcs_core "gcs_brand"
@@ -142,12 +132,40 @@ qt_add_resources(gcs_core "gcs_brand"
 )
 
 # ---------------------------------------------------------------------------
+# 테스트베드 — 로봇 없이 화면을 돌리기 위한 것들
+# ---------------------------------------------------------------------------
+#
+# 시뮬레이터와 대역 지도는 관제 UI 가 아니다. 개발과 검수 때 로봇 없이
+# 화면을 띄우기 위한 것이고, 납품물에는 들어가면 안 된다 — 들어가면 현장에서
+# 로봇이 안 붙었을 때 조용히 가짜 데이터로 도는 화면이 만들어진다.
+#
+# 그래서 별도 타깃으로 두고 release 프리셋에서는 끈다.
+option(GCS_WITH_TESTBED "Build the robot-free simulator and stand-in map" ON)
+
+if(GCS_WITH_TESTBED)
+    add_library(gcs_testbed STATIC ../testbed/sim/SimRobot.cpp)
+    target_link_libraries(gcs_testbed PUBLIC gcs_core)
+    target_include_directories(gcs_testbed PUBLIC ../testbed)
+    set_target_properties(gcs_testbed PROPERTIES AUTOMOC ON)
+
+    qt_add_resources(gcs_testbed "testbed_maps"
+        PREFIX "/maps"
+        BASE ../testbed/maps
+        FILES ../testbed/maps/gtxa_depot.yaml ../testbed/maps/gtxa_depot.pgm
+    )
+endif()
+
+# ---------------------------------------------------------------------------
 # 실행 파일
 # ---------------------------------------------------------------------------
 add_executable(inspection_gcs
     src/main.cpp
 )
 target_link_libraries(inspection_gcs PRIVATE gcs_core)
+if(GCS_WITH_TESTBED)
+    target_link_libraries(inspection_gcs PRIVATE gcs_testbed)
+    target_compile_definitions(inspection_gcs PRIVATE GCS_WITH_TESTBED=1)
+endif()
 target_compile_definitions(inspection_gcs PRIVATE
     GCS_REQUIRE_LOGIN=$<BOOL:${GCS_REQUIRE_LOGIN}>)
 
@@ -170,6 +188,9 @@ if(GCS_BUILD_TESTS)
     function(gcs_add_test name)
         add_executable(${name} tests/${name}.cpp)
         target_link_libraries(${name} PRIVATE gcs_core Qt6::Test)
+        if(GCS_WITH_TESTBED)
+            target_link_libraries(${name} PRIVATE gcs_testbed)
+        endif()
         target_compile_options(${name} PRIVATE ${GCS_TEST_FLAGS})
         add_test(NAME ${name} COMMAND ${name})
     endfunction()

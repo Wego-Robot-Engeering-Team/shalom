@@ -27,11 +27,7 @@ class QTimer;
 
 namespace gcs::sim {
 
-/// Occupancy grid plus its metadata, as the map would arrive from the bridge.
-struct MapData {
-    gcs::map::MapInfo info;
-    QList<qint8> grid;
-};
+using gcs::robot::MapData;
 
 MapData buildMap();
 QList<QVariantMap> buildWaypoints();
@@ -53,7 +49,7 @@ public:
 
     /// Starts emitting telemetry at 20 Hz, matching the manual jog publish
     /// rate so a held control produces one command per simulated step.
-    void start();
+    void start() override;
     void stop();
 
     // ---- commands, mirroring the protocol -------------------------------
@@ -97,6 +93,11 @@ public:
     /// Defined in the implementation because the text is localised and public
     /// headers are kept in English.
     QString describe() const override;
+
+    /// The stand-in depot map, so the screen is usable without a robot.
+    std::optional<gcs::robot::MapData> initialMap() const override;
+    QList<QVariantMap> markers() const override;
+    QVariantMap dockPose() const override;
 
     /// Advances the simulation by dt seconds and returns the new telemetry.
     /// Exposed so tests can drive it deterministically instead of waiting on

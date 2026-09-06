@@ -37,7 +37,8 @@
         "CMAKE_BUILD_TYPE": "Release",
         "GCS_REQUIRE_LOGIN": "ON",
         "GCS_BUILD_TESTS": "ON",
-        "GCS_SHARED_CORE": "ON"
+        "GCS_SHARED_CORE": "ON",
+        "GCS_WITH_TESTBED": "OFF"
       }
     }
   ],

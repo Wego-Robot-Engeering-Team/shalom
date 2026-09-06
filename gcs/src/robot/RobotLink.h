@@ -21,9 +21,19 @@
 #include <QObject>
 #include <QVariantMap>
 
+#include <optional>
+
+#include "mapview/MapInfo.h"
+
 #include "robot/RobotTypes.h"
 
 namespace gcs::robot {
+
+/// An occupancy grid and its metadata, as the map arrives from the robot.
+struct MapData {
+    gcs::map::MapInfo info;
+    QList<qint8> grid;   ///< -1 unknown, 0 free, 100 occupied
+};
 
 class RobotLink : public QObject {
     Q_OBJECT
@@ -89,6 +99,29 @@ public:
     /// address and port. Localised strings live in the implementation so that
     /// this header stays a plain English API reference.
     virtual QString describe() const = 0;
+
+    /// A map the link can supply before any arrives over the wire.
+    ///
+    /// The bridge returns nothing: the real map comes on map/occupancy and the
+    /// screen says it is waiting. The testbed returns a stand-in so the screen
+    /// is usable without a robot. MainWindow does not need to know which it is
+    /// talking to - it used to test for the simulator type by hand, which put
+    /// the simulator into the delivered binary.
+    virtual std::optional<MapData> initialMap() const { return std::nullopt; }
+
+    /// Markers the link knows about up front. Empty for the bridge.
+    virtual QList<QVariantMap> markers() const { return {}; }
+
+    /// Charging station pose the link knows about up front. Empty for the
+    /// bridge - it comes from the robot, or the operator teaches it.
+    virtual QVariantMap dockPose() const { return {}; }
+
+    /// Starts producing telemetry. The bridge connects on construction and
+    /// does nothing here; the testbed starts its clock.
+    ///
+    /// The window used to reach for the simulator type to call start(), which
+    /// is how the simulator ended up compiled into every build.
+    virtual void start() {}
 
 signals:
     /// A complete snapshot. Emitted at a steady rate rather than on every

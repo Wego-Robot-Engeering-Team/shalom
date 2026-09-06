@@ -19,3 +19,7 @@ build-release/
 # 납품 패키지 산출물
 dist/
 build-release/
+
+# 로봇측 ROS2 워크스페이스. 각각 별도 git 저장소이고 수백 MB 라
+# 여기에 포함하지 않는다. 정식 편입은 서브모듈로 한다.
+nav2_gseg/

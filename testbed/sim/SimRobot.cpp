@@ -202,6 +202,23 @@ void SimRobot::stop()
     timer_->stop();
 }
 
+std::optional<gcs::robot::MapData> SimRobot::initialMap() const
+{
+    return buildMap();
+}
+
+QList<QVariantMap> SimRobot::markers() const
+{
+    return buildTags(waypoints_);
+}
+
+QVariantMap SimRobot::dockPose() const
+{
+    // 대역 지도의 충전 스테이션 자리. 편성 끝 너머 구석이다.
+    return QVariantMap{{"kind", QStringLiteral("dock")}, {"x", -85.0}, {"y", -6.0},
+                       {"theta", 0.0}, {"captured_from", QStringLiteral("map")}};
+}
+
 QString SimRobot::describe() const
 {
     return QStringLiteral("시뮬레이터");
