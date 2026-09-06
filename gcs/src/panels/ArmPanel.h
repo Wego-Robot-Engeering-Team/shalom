@@ -31,14 +31,12 @@
 class QDoubleSpinBox;
 class QLabel;
 class QPushButton;
-class QSlider;
 
 namespace gcs::ui {
 
-class ArcGauge;
 class Badge;
 class Card;
-class JointBar;
+class JointSlider;
 class Robot3DView;
 
 class ArmPanel : public QWidget {
@@ -55,6 +53,11 @@ public:
     /// make a mis-click move the arm.
     void applyPresetToSliders(const QString &name);
 
+protected:
+    /// Kills wheel events on the end-effector spin boxes, for the same reason
+    /// JointSlider does: scrolling past a control must not command the arm.
+    bool eventFilter(QObject *obj, QEvent *ev) override;
+
 signals:
     void jointGoal(const QList<double> &positions);
     void eeGoal(const QVariantMap &pose);
@@ -63,20 +66,24 @@ signals:
 
 private:
     void build3DSection();
-    void buildJointSection();
-    void buildEeSection();
     void buildPresetSection();
+    /// The joint and end-effector controls, on tabs.
+    ///
+    /// Both were stacked before, which alone made the column taller than any
+    /// screen. They are also alternatives - a pose is commanded one way or the
+    /// other - so showing both at once buys nothing.
+    void buildCommandTabs();
+    QWidget *buildJointTab();
+    QWidget *buildEeTab();
     void onSliderMoved();
     void syncSlidersToActual();
 
     Card *card_ = nullptr;
     Badge *state_ = nullptr;
-    ArcGauge *manip_ = nullptr;
     Robot3DView *view3d_ = nullptr;
     QLabel *advice_ = nullptr;
 
-    QList<QSlider *> sliders_;
-    QList<JointBar *> bars_;
+    QList<JointSlider *> sliders_;
     QHash<QString, QDoubleSpinBox *> ee_;
     QList<QPushButton *> commandButtons_;
     QList<double> actual_;

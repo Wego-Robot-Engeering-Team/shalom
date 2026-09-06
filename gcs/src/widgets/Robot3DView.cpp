@@ -157,6 +157,7 @@ void Robot3DView::resetCamera()
     azimuth_ = -0.9;
     elevation_ = 0.42;
     distance_ = 2.4;
+    target_ = QVector3D(0, 0, 0.55);
     update();
 }
 
@@ -176,14 +177,40 @@ void Robot3DView::mousePressEvent(QMouseEvent *ev)
 {
     lastMouse_ = ev->pos();
     setCursor(Qt::ClosedHandCursor);
+    ev->accept();
 }
 
 void Robot3DView::mouseMoveEvent(QMouseEvent *ev)
 {
+    const QPoint d = ev->pos() - lastMouse_;
+    if (d.isNull())
+        return;
+    lastMouse_ = ev->pos();
+
+    // 가운데·오른쪽 버튼이나 Shift 를 누른 채 끌면 시점을 옮긴다.
+    // 노트북 트랙패드에는 가운데 버튼이 없어 Shift 조합을 함께 둔다.
+    const bool panning = (ev->buttons() & (Qt::MiddleButton | Qt::RightButton))
+                         || (ev->modifiers() & Qt::ShiftModifier);
+
+    if (panning) {
+        // 화면 축을 월드 축으로 되돌린다. 카메라가 도는데 이동만 월드
+        // 축으로 하면 끄는 방향과 움직이는 방향이 어긋나 조작이 안 된다.
+        const QVector3D right(float(-std::sin(azimuth_)), float(std::cos(azimuth_)), 0.0f);
+        const QVector3D up(
+            float(-std::sin(elevation_) * std::cos(azimuth_)),
+            float(-std::sin(elevation_) * std::sin(azimuth_)),
+            float(std::cos(elevation_)));
+
+        // 멀리서 볼수록 한 픽셀이 더 먼 거리에 해당한다.
+        const float k = float(distance_ * 0.0016);
+        target_ -= right * (d.x() * k);
+        target_ += up * (d.y() * k);
+        update();
+        return;
+    }
+
     if (!(ev->buttons() & Qt::LeftButton))
         return;
-    const QPoint d = ev->pos() - lastMouse_;
-    lastMouse_ = ev->pos();
     azimuth_ -= d.x() * 0.01;
     // 위아래로 뒤집히지 않게 고도를 제한한다.
     elevation_ = qBound(-1.4, elevation_ + d.y() * 0.01, 1.4);
@@ -217,7 +244,7 @@ void Robot3DView::paintEvent(QPaintEvent *)
     p.fillRect(rect(), QColor(C.isDark() ? C.bg : C.surfaceHi));
 
     // ---- 카메라 ----
-    const QVector3D target(0, 0, 0.55);
+    const QVector3D target = target_;
     const QVector3D eye(
         float(target.x() + distance_ * std::cos(elevation_) * std::cos(azimuth_)),
         float(target.y() + distance_ * std::cos(elevation_) * std::sin(azimuth_)),
@@ -325,7 +352,7 @@ void Robot3DView::paintEvent(QPaintEvent *)
         p.setFont(f);
         p.setPen(QColor(C.textMute));
         p.drawText(rect().adjusted(8, 0, -8, -6), Qt::AlignLeft | Qt::AlignBottom,
-                   QStringLiteral("끌어서 회전 · 휠로 확대"));
+                   QStringLiteral("끌어서 회전 · Shift+끌기로 이동 · 휠로 확대"));
     }
 
     if (singularWarn_) {

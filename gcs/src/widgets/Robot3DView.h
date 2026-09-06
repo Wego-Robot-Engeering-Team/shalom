@@ -70,9 +70,14 @@ private:
     bool stale_ = false;
 
     // orbit camera
+    //
+    // The camera looks at target_, which the operator can slide sideways. With
+    // the pivot pinned to the base, zooming in on the gripper was impossible:
+    // the interesting end of the arm swung off screen as soon as it reached.
     double azimuth_ = -0.9;    ///< rad
     double elevation_ = 0.42;  ///< rad
     double distance_ = 2.4;    ///< m
+    QVector3D target_{0, 0, 0.55};
     QPoint lastMouse_;
 };
 

@@ -15,10 +15,12 @@ using namespace gcs::theme;
 
 namespace {
 
-QFont monoFont(int pt, bool demiBold = false)
+/// 이 파일 안에서만 쓰는 굵기 옵션이 붙은 편의 함수.
+/// 이름이 theme::monoFont 와 같으면 무명 네임스페이스 쪽이 먼저 잡혀
+/// 자기 자신을 부른다. 실제로 그렇게 만들어 무한 재귀로 죽은 적이 있다.
+QFont monoFontWeighted(int pt, bool demiBold = false)
 {
-    QFont f = monoFont(10);
-    f.setPointSize(pt);
+    QFont f = gcs::theme::monoFont(pt);
     if (demiBold)
         f.setWeight(QFont::DemiBold);
     return f;
@@ -110,7 +112,7 @@ void BatteryRing::paintEvent(QPaintEvent *)
     p.drawLine(QPointF(cx + rIn * std::cos(ang), cy - rIn * std::sin(ang)),
                QPointF(cx + rOut * std::cos(ang), cy - rOut * std::sin(ang)));
 
-    p.setFont(monoFont(int(size_ * 0.21), true));
+    p.setFont(monoFontWeighted(int(size_ * 0.21), true));
     p.setPen(QColor(C.text));
     p.drawText(rect.adjusted(0, -5, 0, -5), Qt::AlignCenter,
                QString::number(value(), 'f', 0));
@@ -216,7 +218,7 @@ void ArcGauge::paintEvent(QPaintEvent *)
     p.setPen(QPen(tone, thickness, Qt::SolidLine, Qt::FlatCap));
     p.drawArc(rect, 180 * 16, -int(180 * 16 * value()));
 
-    p.setFont(monoFont(12, true));
+    p.setFont(monoFontWeighted(12, true));
     p.setPen(QColor(C.text));
     p.drawText(QRectF(0, height() - 32, width(), 18), Qt::AlignCenter, rawText_);
 
@@ -259,7 +261,7 @@ void StatBar::paintEvent(QPaintEvent *)
     p.setPen(QColor(C.textMute));
     p.drawText(QRectF(0, 0, w * 0.55, 13), Qt::AlignLeft | Qt::AlignVCenter, label_);
 
-    p.setFont(monoFont(9));
+    p.setFont(monoFontWeighted(9));
     p.setPen(valid_ ? QColor(C.text) : QColor(C.textMute));
     const QString txt = valid_ ? QString::number(value_, 'f', 0) + unit_
                                : QStringLiteral("—");
@@ -353,7 +355,7 @@ void JointBar::paintEvent(QPaintEvent *)
     p.setBrush(nearLimit() ? QColor(C.warning) : QColor(C.accent));
     p.drawEllipse(QRectF(ax - 3.5, h / 2 - 3.5, 7, 7));
 
-    p.setFont(monoFont(9));
+    p.setFont(monoFontWeighted(9));
     p.setPen(QColor(C.text));
     p.drawText(QRectF(w - 52, 0, 52, h), Qt::AlignRight | Qt::AlignVCenter,
                QStringLiteral("%1°").arg(qRadiansToDegrees(actual_), 0, 'f', 1));
