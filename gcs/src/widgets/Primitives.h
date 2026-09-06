@@ -53,8 +53,23 @@ public:
     explicit HLine(QWidget *parent = nullptr);
 };
 
+/// Vertical hairline for separating groups in a toolbar.
+///
+/// Never use QFrame::VLine for this: it draws with the style's shadow colors,
+/// which under Fusion is nearly black and reads as a hard rule rather than a
+/// separator. This one is a 1 px widget painted with the border token.
+class VLine : public QFrame {
+    Q_OBJECT
+public:
+    explicit VLine(QWidget *parent = nullptr, int inset = 0);
+};
+
 /// Muted caption used above a group of controls.
 QLabel *sectionLabel(const QString &text);
+
+/// Muted caption placed beside a value, for toolbars. Same tone as
+/// sectionLabel but without the block spacing that suits a card body.
+QLabel *captionLabel(const QString &text);
 
 /// Monospaced value display, so digits do not shift as the value changes.
 QLabel *readout(const QString &text = QStringLiteral("—"), bool large = false);

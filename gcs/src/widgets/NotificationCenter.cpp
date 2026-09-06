@@ -20,7 +20,9 @@ namespace {
 
 constexpr int kBellW = 34;
 constexpr int kBellH = 30;
-constexpr int kPopupW = 340;
+constexpr int kPopupW = 348;
+
+constexpr int kRadius = 10;
 
 QColor severityColor(const QString &severity)
 {
@@ -34,7 +36,160 @@ QColor severityColor(const QString &severity)
     return QColor(C.accent);
 }
 
+/// 한 건을 그리는 줄. 점 · 제목 · 시각 · 상세를 직접 그린다.
+///
+/// 리치 텍스트 라벨로 만들면 줄 간격과 색이 플랫폼 기본 스타일에 끌려다녀
+/// 목록이 딱딱해 보인다. 여기서는 여백과 색을 전부 토큰으로 잡는다.
+class NotificationRow : public QWidget {
+public:
+    explicit NotificationRow(const Notification &n) : n_(n)
+    {
+        QFont fb;
+        fb.setPointSize(10);
+        const QFontMetrics bm(fb);
+        detailH_ = n_.detail.isEmpty()
+                       ? 0
+                       : bm.boundingRect(0, 0, kPopupW - 62, 400, Qt::TextWordWrap,
+                                         n_.detail).height() + 3;
+        setFixedHeight(24 + detailH_ + 10);
+        setAttribute(Qt::WA_Hover);
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        const Colors &C = colors();
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+
+        if (underMouse()) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(C.surfaceHi));
+            p.drawRoundedRect(rect(), metrics::rMd, metrics::rMd);
+        }
+
+        const QColor tone = severityColor(n_.severity);
+        p.setPen(Qt::NoPen);
+        p.setBrush(tone);
+        p.drawEllipse(QPointF(14, 15), 3.5, 3.5);
+
+        QFont ft;
+        ft.setPointSize(10);
+        ft.setWeight(QFont::DemiBold);
+        p.setFont(ft);
+
+        QFont fs(monoFamily());
+        fs.setPointSize(9);
+        const int timeW = QFontMetrics(fs).horizontalAdvance(QStringLiteral("00:00:00")) + 4;
+
+        const int textX = 28;
+        const int textW = width() - textX - timeW - 12;
+        p.setPen(QColor(C.text));
+        p.drawText(QRect(textX, 6, textW, 18), Qt::AlignLeft | Qt::AlignVCenter,
+                   QFontMetrics(ft).elidedText(n_.title, Qt::ElideRight, textW));
+
+        p.setFont(fs);
+        p.setPen(QColor(C.textMute));
+        p.drawText(QRect(width() - timeW - 12, 6, timeW, 18), Qt::AlignRight | Qt::AlignVCenter,
+                   n_.at.toString(QStringLiteral("HH:mm:ss")));
+
+        if (n_.detail.isEmpty())
+            return;
+
+        QFont fd;
+        fd.setPointSize(10);
+        p.setFont(fd);
+        p.setPen(QColor(C.textDim));
+        p.drawText(QRect(textX, 25, width() - textX - 12, detailH_),
+                   Qt::TextWordWrap | Qt::AlignLeft | Qt::AlignTop, n_.detail);
+    }
+
+    void enterEvent(QEnterEvent *ev) override { update(); QWidget::enterEvent(ev); }
+    void leaveEvent(QEvent *ev) override { update(); QWidget::leaveEvent(ev); }
+
+private:
+    Notification n_;
+    int detailH_ = 0;
+};
+
 }  // namespace
+
+// ========================== NotificationPopup ==========================
+
+NotificationPopup::NotificationPopup(const QList<Notification> &items)
+    : QWidget(nullptr, Qt::Popup | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint)
+{
+    // 반투명 창(WA_TranslucentBackground)은 쓰지 않는다. 컴포지터가 없는
+    // 우분투 세션에서는 투명 영역이 검게 칠해져, 부드러운 그림자를 그리려던
+    // 여백이 오히려 검은 테두리로 보인다. 불투명하게 칠하고 모서리는
+    // 마스크로 깎는다 — 세 플랫폼에서 같은 그림이 나온다.
+    auto *lay = new QVBoxLayout(this);
+    lay->setContentsMargins(metrics::s3, metrics::s3, metrics::s3, metrics::s3);
+    lay->setSpacing(metrics::s2);
+
+    auto *head = new QLabel(items.isEmpty()
+                                ? QStringLiteral("알림")
+                                : QStringLiteral("알림  %1건").arg(items.size()));
+    head->setObjectName(QStringLiteral("SectionLabel"));
+    lay->addWidget(head);
+
+    if (items.isEmpty()) {
+        auto *empty = new QLabel(QStringLiteral("아직 지나간 알림이 없습니다."));
+        empty->setObjectName(QStringLiteral("Hint"));
+        empty->setWordWrap(true);
+        lay->addWidget(empty);
+    } else {
+        auto *inner = new QWidget;
+        auto *list = new QVBoxLayout(inner);
+        list->setContentsMargins(0, 0, 0, 0);
+        list->setSpacing(1);
+
+        int wanted = 0;
+        for (const auto &n : items) {
+            auto *row = new NotificationRow(n);
+            list->addWidget(row);
+            wanted += row->height() + 1;
+        }
+
+        auto *scroll = new QScrollArea;
+        scroll->setWidget(inner);
+        scroll->setWidgetResizable(true);
+        scroll->setFrameShape(QFrame::NoFrame);
+        scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        scroll->setStyleSheet(QStringLiteral("background: transparent;"));
+        scroll->viewport()->setStyleSheet(QStringLiteral("background: transparent;"));
+        scroll->setFixedHeight(qMin(wanted, kMaxListHeight));
+        lay->addWidget(scroll);
+    }
+
+    setFixedWidth(kPopupW);
+}
+
+void NotificationPopup::resizeEvent(QResizeEvent *ev)
+{
+    QWidget::resizeEvent(ev);
+
+    // 둥근 모서리는 마스크로 만든다. 마스크는 컴포지터가 없어도 동작한다.
+    QPainterPath path;
+    path.addRoundedRect(QRectF(rect()), kRadius, kRadius);
+    setMask(QRegion(path.toFillPolygon().toPolygon()));
+}
+
+void NotificationPopup::paintEvent(QPaintEvent *)
+{
+    const Colors &C = colors();
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+
+    // 테두리는 창틀이 아니라 테마의 얇은 선이다. 예전에는 플랫폼 창틀이
+    // 그대로 나와 검은 자를 대 놓은 것처럼 보였다.
+    const QRectF card = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+    p.setPen(QPen(QColor(C.borderHi), 1));
+    p.setBrush(QColor(C.surface));
+    p.drawRoundedRect(card, kRadius, kRadius);
+}
+
+// =========================== NotificationBell ===========================
 
 NotificationBell::NotificationBell(QWidget *parent) : QWidget(parent)
 {
@@ -83,61 +238,11 @@ void NotificationBell::openPopup()
     update();
 
     delete popup_;
-    popup_ = new QWidget(nullptr, Qt::Popup);
-    popup_->setObjectName(QStringLiteral("Card"));
-    popup_->setAttribute(Qt::WA_DeleteOnClose, false);
-
-    auto *lay = new QVBoxLayout(popup_);
-    lay->setContentsMargins(metrics::s3, metrics::s3, metrics::s3, metrics::s3);
-    lay->setSpacing(metrics::s2);
-
-    auto *head = new QLabel(items_.isEmpty()
-                                ? QStringLiteral("알림 없음")
-                                : QStringLiteral("최근 알림 %1건").arg(items_.size()));
-    head->setObjectName(QStringLiteral("Hint"));
-    lay->addWidget(head);
-
-    if (items_.isEmpty()) {
-        auto *empty = new QLabel(QStringLiteral("아직 표시된 알림이 없습니다."));
-        empty->setWordWrap(true);
-        lay->addWidget(empty);
-    } else {
-        auto *inner = new QWidget;
-        auto *list = new QVBoxLayout(inner);
-        list->setContentsMargins(0, 0, 0, 0);
-        list->setSpacing(metrics::s2);
-
-        for (const auto &n : std::as_const(items_)) {
-            auto *row = new QLabel(
-                QStringLiteral("<span style='color:%1'>●</span>  "
-                               "<b>%2</b>  <span style='color:%3'>%4</span>%5")
-                    .arg(severityColor(n.severity).name(),
-                         n.title.toHtmlEscaped(),
-                         QString(colors().textMute),
-                         n.at.toString(QStringLiteral("HH:mm:ss")),
-                         n.detail.isEmpty()
-                             ? QString()
-                             : QStringLiteral("<br><span style='color:%1'>%2</span>")
-                                   .arg(QString(colors().textDim), n.detail.toHtmlEscaped())));
-            row->setTextFormat(Qt::RichText);
-            row->setWordWrap(true);
-            list->addWidget(row);
-        }
-
-        auto *scroll = new QScrollArea;
-        scroll->setWidget(inner);
-        scroll->setWidgetResizable(true);
-        scroll->setFrameShape(QFrame::NoFrame);
-        scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        scroll->setMaximumHeight(360);
-        lay->addWidget(scroll);
-    }
-
-    popup_->setFixedWidth(kPopupW);
+    popup_ = new NotificationPopup(items_);
     popup_->adjustSize();
 
-    // 종 바로 아래, 오른쪽 끝을 맞춰 연다. 창 밖으로 나가지 않게 민다.
-    QPoint at = mapToGlobal(QPoint(width() - kPopupW, height() + metrics::s1));
+    // 종 바로 아래, 오른쪽 끝을 맞춰 연다.
+    QPoint at = mapToGlobal(QPoint(width() - popup_->width(), height() + metrics::s1));
     at.setX(qMax(8, at.x()));
     popup_->move(at);
     popup_->show();
