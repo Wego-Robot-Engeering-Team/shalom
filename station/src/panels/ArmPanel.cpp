@@ -25,11 +25,21 @@ using namespace gcs::theme;
 using namespace gcs::robot;
 
 namespace {
-/// 슬라이더는 0.1도 해상도의 정수 눈금으로 다룬다.
-constexpr double kSliderScale = 10.0;
+/// 각도를 기준값과 같은 바퀴로 옮긴다.
+///
+/// -π 과 π 은 같은 자세다. 정기구학은 그 경계에서 관절이 눈금 하나만
+/// 달라져도 부호를 뒤집어 내놓는데, 그대로 두면 슬라이더에서는 손잡이와
+/// 기준 고리가 양 끝으로 벌어진다 — 아무것도 만지지 않았는데 보내지 않은
+/// 편집이 있는 것처럼 보인다.
+double wrapNear(double v, double ref)
+{
+    while (v - ref > M_PI)
+        v -= 2 * M_PI;
+    while (ref - v > M_PI)
+        v += 2 * M_PI;
+    return v;
+}
 
-int toTicks(double rad) { return int(qRadiansToDegrees(rad) * kSliderScale); }
-double fromTicks(int ticks) { return qDegreesToRadians(ticks / kSliderScale); }
 }  // namespace
 
 ArmPanel::ArmPanel(QWidget *parent) : QWidget(parent)
@@ -114,6 +124,10 @@ void ArmPanel::buildCommandTabs()
     // 두 탭은 같은 목표를 다르게 적은 것이다. 한쪽을 만지면 다른 쪽도 따라
     // 바뀌므로, 예전처럼 탭을 떠날 때 값을 되돌릴 필요가 없다 — 보이지 않는
     // 탭에 다른 값이 남아 있을 수가 없다.
+    //
+    // 화면이 열리는 순간에도 마찬가지여야 한다. 첫 텔레메트리가 오기 전에
+    // 끝단 탭을 열어 보는 것만으로도 두 탭이 어긋나 보이면 안 된다.
+    syncEeFromJoints();
 }
 
 QWidget *ArmPanel::buildJointTab()
@@ -128,6 +142,7 @@ QWidget *ArmPanel::buildJointTab()
     for (const auto &j : kFr3Joints) {
         auto *slider = new ValueSlider(QString::fromUtf8(j.label), j.lo, j.hi,
                                        QStringLiteral("°"), 1, 180.0 / M_PI);
+        slider->setObjectName(QStringLiteral("Joint%1").arg(sliders_.size() + 1));
         connect(slider, &QSlider::valueChanged, this, &ArmPanel::onSliderMoved);
         lay->addWidget(slider);
         sliders_ << slider;
@@ -167,27 +182,27 @@ QWidget *ArmPanel::buildEeTab()
     // 관절과 같은 조작으로 통일한다. 한쪽은 슬라이더, 한쪽은 스핀박스면
     // 같은 성격의 값을 다루는 방법을 두 번 배워야 한다.
     struct Spec { const char *key; const char *label; double lo, hi; const char *unit;
-                  int decimals; double scale; double def; };
+                  int decimals; double scale; };
     // 축 이름은 X/Y/Z/Roll/Pitch/Yaw 를 그대로 쓴다. 이 탭을 쓰는 사람은
     // 좌표계를 아는 사람이고, "숙임" 같은 말로 바꾸면 어느 축인지 오히려
     // 되짚어야 한다. 조작자용 표현이 필요한 곳은 프리셋 쪽이다.
     static const Spec specs[] = {
-        {"x", "X", -1.0, 1.0, " m", 2, 1.0, 0.40},
-        {"y", "Y", -1.0, 1.0, " m", 2, 1.0, 0.00},
-        {"z", "Z", -0.5, 1.5, " m", 2, 1.0, 0.50},
-        {"roll", "Roll", -M_PI, M_PI, "°", 0, 180.0 / M_PI, M_PI},
-        {"pitch", "Pitch", -M_PI, M_PI, "°", 0, 180.0 / M_PI, 0.0},
-        {"yaw", "Yaw", -M_PI, M_PI, "°", 0, 180.0 / M_PI, 0.0},
+        {"x", "X", -1.0, 1.0, " m", 2, 1.0},
+        {"y", "Y", -1.0, 1.0, " m", 2, 1.0},
+        {"z", "Z", -0.5, 1.5, " m", 2, 1.0},
+        {"roll", "Roll", -M_PI, M_PI, "°", 0, 180.0 / M_PI},
+        {"pitch", "Pitch", -M_PI, M_PI, "°", 0, 180.0 / M_PI},
+        {"yaw", "Yaw", -M_PI, M_PI, "°", 0, 180.0 / M_PI},
     };
 
     for (const auto &sp : specs) {
         auto *slider = new ValueSlider(QString::fromUtf8(sp.label), sp.lo, sp.hi,
                                        QString::fromUtf8(sp.unit), sp.decimals, sp.scale);
-        slider->setCommand(sp.def);
-        // 로봇은 끝단 좌표를 따로 보고하지 않는다. 대신 마지막으로 보낸 값을
-        // 비교 기준으로 둔다 — 관절 탭과 같은 모양으로 "만졌지만 아직 안
-        // 보낸" 구간이 보인다. 아무 기준도 없으면 무엇을 바꿨는지 알 수 없다.
-        slider->setActual(sp.def);
+        slider->setObjectName(QStringLiteral("Ee_%1").arg(QString::fromLatin1(sp.key)));
+        slider->setCyclic(qFuzzyCompare(sp.hi - sp.lo, 2 * M_PI));
+        // 값은 채우지 않는다. 명령값은 관절에서 정기구학으로(buildCommandTabs
+        // 끝), 기준값은 실제 관절에서 온다. 여기에 그럴듯한 상수를 박아 두면
+        // 두 탭이 서로 다른 자세를 말하는 채로 화면이 열린다.
         connect(slider, &QSlider::valueChanged, this, &ArmPanel::syncJointsFromEe);
         lay->addWidget(slider);
         ee_.insert(QString::fromLatin1(sp.key), slider);
@@ -226,9 +241,8 @@ QWidget *ArmPanel::buildEeTab()
             {"yaw", ee_[QStringLiteral("yaw")]->command()},
             {"frame", QStringLiteral("fr3_link0")},
         });
-        // 보낸 순간이 새 기준이 된다. 편집 표시가 사라져 "보냈다" 가 보인다.
-        for (auto *s : std::as_const(ee_))
-            s->setActual(s->command());
+        // 기준값은 건드리지 않는다. 팔이 실제로 그 자세에 닿을 때까지
+        // 편집 표시가 남아 있는 것이 맞다 — 관절 탭도 그렇게 동작한다.
     });
 
     lay->addStretch(1);
@@ -258,9 +272,21 @@ void ArmPanel::buildPresetSection()
 void ArmPanel::setArmState(const QList<double> &positions, double manipulability,
                            double sigmaMin, const QString &moveitState)
 {
+    // 생성자가 actual_ 을 0 으로 채워 두므로 비어 있는지로는 첫 보고를
+    // 가릴 수 없다. 받았는지 여부를 따로 들고 있는다.
+    const bool first = !hadArmState_;
+    hadArmState_ = true;
     actual_ = positions;
     for (int i = 0; i < sliders_.size() && i < positions.size(); ++i)
         sliders_[i]->setActual(positions.at(i));
+
+    // 아직 아무것도 지시하지 않았는데 슬라이더가 기본값에 서 있으면, 화면이
+    // 열리자마자 "보내지 않은 편집" 이 있다고 말하게 된다. 첫 보고를 받은
+    // 순간의 명령값은 지금 자세다.
+    if (first)
+        syncSlidersToActual();
+
+    syncEeActualFromJoints(positions);
     view3d_->setArmJoints(positions);
     refreshPreview();
 
@@ -327,11 +353,34 @@ void ArmPanel::syncEeFromJoints()
     ee_[QStringLiteral("x")]->setCommand(pose.x);
     ee_[QStringLiteral("y")]->setCommand(pose.y);
     ee_[QStringLiteral("z")]->setCommand(pose.z);
-    ee_[QStringLiteral("roll")]->setCommand(pose.roll);
-    ee_[QStringLiteral("pitch")]->setCommand(pose.pitch);
-    ee_[QStringLiteral("yaw")]->setCommand(pose.yaw);
+    // 각도는 지금 표시된 기준값과 같은 바퀴에 올려 둔다.
+    for (const auto &axis : {std::pair{"roll", pose.roll}, {"pitch", pose.pitch},
+                             {"yaw", pose.yaw}}) {
+        auto *s = ee_[QLatin1String(axis.first)];
+        s->setCommand(wrapNear(axis.second, s->actual()));
+    }
     syncing_ = false;
     eeReachable_ = true;
+}
+
+void ArmPanel::syncEeActualFromJoints(const QList<double> &joints)
+{
+    if (ee_.isEmpty() || joints.size() < 7)
+        return;
+
+    // 로봇은 끝단 좌표를 따로 보고하지 않는다. 그래도 관절은 보고하고 끝단은
+    // 관절에서 나오므로, 정기구학을 한 번 돌리면 두 탭이 같은 하나의 자세를
+    // 말한다. 예전에는 "마지막으로 보낸 값" 을 지금 자세라고 적어 두었는데,
+    // 그것은 팔이 실제로 어디 있는지와 아무 상관이 없는 숫자였다.
+    const auto pose = robot::forwardKinematics(joints);
+    ee_[QStringLiteral("x")]->setActual(pose.x);
+    ee_[QStringLiteral("y")]->setActual(pose.y);
+    ee_[QStringLiteral("z")]->setActual(pose.z);
+    for (const auto &axis : {std::pair{"roll", pose.roll}, {"pitch", pose.pitch},
+                             {"yaw", pose.yaw}}) {
+        auto *s = ee_[QLatin1String(axis.first)];
+        s->setActual(wrapNear(axis.second, s->command()));
+    }
 }
 
 void ArmPanel::syncJointsFromEe()

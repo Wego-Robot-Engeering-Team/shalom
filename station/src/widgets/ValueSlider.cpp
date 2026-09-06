@@ -75,8 +75,17 @@ void ValueSlider::setCommand(double v)
 
 bool ValueSlider::diverged() const
 {
+    if (!hasActual_)
+        return false;
+
+    double d = std::abs(command() - actual_);
+    // 각도는 양 끝이 같은 값이다. 그대로 빼면 같은 자세가 가장 크게 어긋난
+    // 것으로 나온다.
+    if (cyclic_)
+        d = std::min(d, (hi_ - lo_) - d);
+
     // 눈금 두 칸. 단위와 무관하게 "손으로 만졌다" 를 판정하는 크기다.
-    return hasActual_ && std::abs(command() - actual_) > (hi_ - lo_) * 2.0 / kSteps;
+    return d > (hi_ - lo_) * 2.0 / kSteps;
 }
 
 double ValueSlider::trackLeft() const
