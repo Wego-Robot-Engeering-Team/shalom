@@ -43,6 +43,12 @@ public:
     double actual() const { return actual_; }
     void setCommand(double v);
 
+    /// Marks a quantity where the two ends of the range are the same value -
+    /// an angle over a full turn. Without it, a pose sitting on the seam reads
+    /// as the widest possible disagreement between commanded and measured when
+    /// the two are in fact identical.
+    void setCyclic(bool on) { cyclic_ = on; }
+
     /// True while the commanded and measured values differ enough to matter -
     /// which is exactly "the operator has dialled something in and not sent
     /// it yet", or "the arm has not got there".
@@ -86,6 +92,7 @@ private:
     double scale_;
     double actual_ = 0.0;
     bool hasActual_ = false;
+    bool cyclic_ = false;
     QLineEdit *editor_ = nullptr;
 };
 
