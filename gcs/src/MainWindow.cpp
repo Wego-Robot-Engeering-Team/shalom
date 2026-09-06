@@ -77,17 +77,22 @@ MainWindow::MainWindow(gcs::robot::RobotLink *link, QWidget *parent)
     root->setObjectName(QStringLiteral("Root"));
     setCentralWidget(root);
 
-    auto *outer = new QVBoxLayout(root);
+    // 레일이 창 왼쪽을 위에서 아래까지 차지하고, 상단 바는 그 오른쪽에서
+    // 시작한다. 상단 바를 창 전체 폭으로 깔면 왼쪽 끝이 본문 어느 열과도
+    // 맞지 않아 혼자 뻗어 나온 것처럼 보인다.
+    auto *outer = new QHBoxLayout(root);
     outer->setContentsMargins(metrics::s3, metrics::s3, metrics::s3, metrics::s3);
     outer->setSpacing(metrics::s3);
-    outer->addWidget(buildTopBar());
-
-    // ---- 본문: 레일 | (지도 | 컨텍스트) 위에 로그 ----
-    auto *body = new QHBoxLayout;
-    body->setSpacing(metrics::s3);
 
     nav_ = new NavRail;
-    body->addWidget(nav_);
+    outer->addWidget(nav_);
+
+    auto *right = new QVBoxLayout;
+    right->setSpacing(metrics::s3);
+    right->addWidget(buildTopBar());
+
+    auto *body = new QHBoxLayout;
+    body->setSpacing(metrics::s3);
 
     map_ = new MapCard;
     map_->addModeButtons(autoBtn_, manualBtn_);
@@ -105,7 +110,8 @@ MainWindow::MainWindow(gcs::robot::RobotLink *link, QWidget *parent)
     upper->setStretchFactor(1, 1);
 
     body->addWidget(upper, 1);
-    outer->addLayout(body, 1);
+    right->addLayout(body, 1);
+    outer->addLayout(right, 1);
 
     // E-Stop 발동 시 창 전체를 감싸는 경고 테두리 (지시서 2.2.7 [5]).
     alert_ = new AlertFrame(root);
@@ -137,15 +143,6 @@ QWidget *MainWindow::buildTopBar()
     auto *lay = new QHBoxLayout(bar);
     lay->setContentsMargins(metrics::s4, 0, metrics::s3, 0);
     lay->setSpacing(metrics::s3);
-
-    // ---- 무엇인가 ----
-    // 로고만 둔다. 이름은 창 제목 표시줄에 있고, 상단 바는 상태와 조작에
-    // 쓰는 편이 낫다. 늘 같은 글자가 자리를 차지할 이유가 없다.
-    lay->addWidget(new BrandMark(nullptr, 32), 0, Qt::AlignVCenter);
-
-    lay->addSpacing(metrics::s2);
-    lay->addWidget(new VLine(nullptr, metrics::s5), 0);
-    lay->addSpacing(metrics::s2);
 
     // ---- 장비가 어떤가 ----
     // 배지에 이름을 붙인다. "시뮬레이터" 만 떠 있으면 그것이 연결 상태를

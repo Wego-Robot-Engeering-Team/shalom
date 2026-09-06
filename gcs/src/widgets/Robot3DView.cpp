@@ -161,16 +161,24 @@ void Robot3DView::resetCamera()
     update();
 }
 
-QList<QVector3D> Robot3DView::jointOrigins() const
+QList<QVector3D> Robot3DView::jointOrigins(const QList<double> &q) const
 {
     QList<QVector3D> origins;
     QMatrix4x4 t;
     origins << t.map(QVector3D(0, 0, 0));
     for (int i = 0; i < 8; ++i) {
-        t *= dhTransform(kDh[i], i < 7 ? joints_.value(i) : 0.0);
+        t *= dhTransform(kDh[i], i < 7 ? q.value(i) : 0.0);
         origins << t.map(QVector3D(0, 0, 0));
     }
     return origins;
+}
+
+void Robot3DView::setPreviewJoints(const QList<double> &q)
+{
+    if (preview_ == q)
+        return;
+    preview_ = q;
+    update();
 }
 
 void Robot3DView::mousePressEvent(QMouseEvent *ev)
@@ -275,7 +283,12 @@ void Robot3DView::paintEvent(QPaintEvent *)
 
     const QColor bodyColor(C.isDark() ? QColor(0x3A, 0x42, 0x4D) : QColor(0x9A, 0xA4, 0xB0));
     const QColor legColor(C.isDark() ? QColor(0x2E, 0x35, 0x3E) : QColor(0x84, 0x8E, 0x9A));
-    const QColor armColor = singularWarn_ ? QColor(C.warning) : QColor(C.accent);
+    // 편집 중에는 보낼 자세를 그대로 그린다. 실제 자세 위에 반투명 팔을
+    // 겹쳐 봤더니 로봇이 두 대로 보였다.
+    const bool previewing = !preview_.isEmpty();
+    const QColor armColor = singularWarn_ ? QColor(C.warning)
+                            : previewing  ? QColor(C.accentHi)
+                                          : QColor(C.accent);
 
     // B2 몸통
     QMatrix4x4 identity;
@@ -299,7 +312,7 @@ void Robot3DView::paintEvent(QPaintEvent *)
     // FR3 — 몸통 위에 얹혀 있다.
     QMatrix4x4 armBase;
     armBase.translate(0.0f, 0.0f, float(kStandHeight + kBodyHgt));
-    const auto origins = jointOrigins();
+    const auto origins = jointOrigins(previewing ? preview_ : joints_);
 
     appendBox(faces, armBase, QVector3D(0, 0, 0.04f), QVector3D(0.18f, 0.18f, 0.08f),
               armColor.darker(140));
@@ -353,6 +366,12 @@ void Robot3DView::paintEvent(QPaintEvent *)
         p.setPen(QColor(C.textMute));
         p.drawText(rect().adjusted(8, 0, -8, -6), Qt::AlignLeft | Qt::AlignBottom,
                    QStringLiteral("끌어서 회전 · Shift+끌기로 이동 · 휠로 확대"));
+    }
+
+    if (previewing) {
+        p.setPen(QColor(C.accent));
+        p.drawText(rect().adjusted(8, 6, -8, 0), Qt::AlignLeft | Qt::AlignTop,
+                   QStringLiteral("보낼 자세 미리보기 — 아직 로봇은 움직이지 않습니다"));
     }
 
     if (singularWarn_) {

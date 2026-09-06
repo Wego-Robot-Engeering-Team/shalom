@@ -39,8 +39,19 @@ class Robot3DView : public QWidget {
 public:
     explicit Robot3DView(QWidget *parent = nullptr);
 
-    /// Seven arm joint angles in radians.
+    /// Seven arm joint angles in radians, as the arm reports them.
     void setArmJoints(const QList<double> &q);
+
+    /// Seven angles the operator is dialling in but has not sent yet.
+    ///
+    /// The arm is drawn at these angles instead of the reported ones, so the
+    /// pose can be checked before committing to it, and the view says it is a
+    /// preview. Overlaying a second translucent arm was tried first and read
+    /// as two robots. Passing an empty list goes back to the reported pose.
+    ///
+    /// This never leaves the screen: the robot only moves when the operator
+    /// presses send.
+    void setPreviewJoints(const QList<double> &q);
 
     /// Highlights the arm when it is close to a singular configuration, using
     /// the same threshold as the manipulability gauge.
@@ -62,9 +73,10 @@ protected:
 private:
     /// Forward kinematics: origin of each joint frame plus the flange, in the
     /// arm base frame.
-    QList<QVector3D> jointOrigins() const;
+    QList<QVector3D> jointOrigins(const QList<double> &q) const;
 
     QList<double> joints_;
+    QList<double> preview_;
     bool hovered_ = false;
     bool singularWarn_ = false;
     bool stale_ = false;

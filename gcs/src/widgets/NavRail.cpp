@@ -8,6 +8,7 @@
 
 #include "theme/Tokens.h"
 #include "widgets/Gauges.h"
+#include "widgets/BrandMark.h"
 #include "widgets/Primitives.h"
 
 namespace gcs::ui {
@@ -261,8 +262,17 @@ NavRail::NavRail(QWidget *parent) : QWidget(parent)
     setFixedWidth(kRailWidth);
 
     auto *lay = new QVBoxLayout(this);
-    lay->setContentsMargins(0, metrics::s2, 0, metrics::s3);
+    lay->setContentsMargins(0, metrics::s3, 0, metrics::s3);
     lay->setSpacing(0);
+
+    // 로고는 상단 바가 아니라 레일 맨 위에 둔다. 상단 바가 창 전체 폭을
+    // 가로지르면 레일이 그 아래에서 시작해 왼쪽 위 모서리가 비고, 로고만
+    // 본문 바깥으로 튀어나온 것처럼 보인다.
+    auto *brand = new BrandMark(this, 40);
+    lay->addWidget(brand, 0, Qt::AlignHCenter);
+    lay->addSpacing(metrics::s4);
+    lay->addWidget(new HLine);
+    lay->addSpacing(metrics::s3);
 
     for (const auto &spec : kItems) {
         auto *btn = new NavButton(spec.item, QString::fromUtf8(spec.label), this);

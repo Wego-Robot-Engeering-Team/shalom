@@ -1,7 +1,5 @@
 #include "panels/ArmPanel.h"
 
-#include <QDoubleSpinBox>
-#include <QEvent>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -14,7 +12,7 @@
 
 #include "RobotDef.h"
 #include "theme/Tokens.h"
-#include "widgets/JointSlider.h"
+#include "widgets/ValueSlider.h"
 #include "widgets/Robot3DView.h"
 #include "widgets/Primitives.h"
 
@@ -59,6 +57,17 @@ ArmPanel::ArmPanel(QWidget *parent) : QWidget(parent)
     buildPresetSection();
     card_->body()->addWidget(new HLine);
     buildCommandTabs();
+
+    // 정지는 프리셋이 아니다. 자세를 고르는 버튼들과 같은 줄에 두면 네 번째
+    // 자세처럼 보인다. 위의 모든 조작을 되돌리는 것이므로 맨 아래에 둔다.
+    // 크기는 다른 조작과 같게 — 창 전체를 덮는 비상정지와 달리 이건
+    // 로봇팔 하나를 멈추는 보통의 조작이다.
+    auto *stop = new QPushButton(QStringLiteral("로봇팔 정지"));
+    stop->setProperty("variant", "danger");
+    stop->setProperty("size", "sm");
+    connect(stop, &QPushButton::clicked, this, &ArmPanel::stopRequested);
+    card_->body()->addSpacing(metrics::s2);
+    card_->body()->addWidget(stop);
 }
 
 void ArmPanel::build3DSection()
@@ -81,11 +90,24 @@ void ArmPanel::buildCommandTabs()
 {
     // 관절과 끝단은 같은 일을 하는 두 방법이다. 둘 다 늘어놓으면 열이
     // 어떤 화면보다 길어지고, 정작 조작자는 한 번에 하나만 쓴다.
-    auto *tabs = new QTabWidget;
-    tabs->setDocumentMode(true);
-    tabs->addTab(buildJointTab(), QStringLiteral("관절"));
-    tabs->addTab(buildEeTab(), QStringLiteral("끝단 위치"));
-    card_->body()->addWidget(tabs);
+    tabs_ = new QTabWidget;
+    tabs_->setDocumentMode(true);
+    tabs_->addTab(buildJointTab(), QStringLiteral("관절"));
+    tabs_->addTab(buildEeTab(), QStringLiteral("끝단 위치"));
+    card_->body()->addWidget(tabs_);
+
+    // 두 탭은 같은 목표를 정하는 두 가지 방법이다. 한쪽을 만지다 다른 쪽으로
+    // 넘어가면, 보이지 않는 탭에 보내지 않은 값이 남아 나중에 무엇이 갈지
+    // 알 수 없다. 떠나는 탭은 기준값으로 되돌린다.
+    connect(tabs_, &QTabWidget::currentChanged, this, [this](int index) {
+        if (index == 0) {
+            for (auto *e : std::as_const(ee_))
+                e->setCommand(e->actual());
+        } else {
+            syncSlidersToActual();
+        }
+        refreshPreview();
+    });
 }
 
 QWidget *ArmPanel::buildJointTab()
@@ -95,13 +117,16 @@ QWidget *ArmPanel::buildJointTab()
     lay->setContentsMargins(0, metrics::s2, 0, 0);
     lay->setSpacing(metrics::s1);
 
-    auto *legend = new QLabel(
-        QStringLiteral("작은 점이 지금 각도, 손잡이가 보낼 각도입니다."));
+    auto *legend = new QLabel(QStringLiteral(
+        "빈 점이 지금 각도, 채운 손잡이가 보낼 각도입니다. 숫자를 누르면 "
+        "직접 입력할 수 있습니다."));
+    legend->setWordWrap(true);
     legend->setObjectName(QStringLiteral("Hint"));
     lay->addWidget(legend);
 
     for (const auto &j : kFr3Joints) {
-        auto *slider = new JointSlider(QString::fromUtf8(j.label), j.lo, j.hi);
+        auto *slider = new ValueSlider(QString::fromUtf8(j.label), j.lo, j.hi,
+                                       QStringLiteral("°"), 1, 180.0 / M_PI);
         connect(slider, &QSlider::valueChanged, this, &ArmPanel::onSliderMoved);
         lay->addWidget(slider);
         sliders_ << slider;
@@ -113,7 +138,8 @@ QWidget *ArmPanel::buildJointTab()
     auto *send = new QPushButton(QStringLiteral("보내기"));
     send->setProperty("variant", "primary");
     send->setProperty("size", "sm");
-    auto *sync = new QPushButton(QStringLiteral("지금 자세로 되돌리기"));
+    auto *sync = new QPushButton(QStringLiteral("되돌리기"));
+    sync->setToolTip(QStringLiteral("슬라이더를 로봇의 지금 각도로 되돌립니다"));
     sync->setProperty("size", "sm");
     row->addWidget(send, 1);
     row->addWidget(sync, 1);
@@ -135,79 +161,83 @@ QWidget *ArmPanel::buildEeTab()
     auto *page = new QWidget;
     auto *lay = new QVBoxLayout(page);
     lay->setContentsMargins(0, metrics::s2, 0, 0);
-    lay->setSpacing(metrics::s2);
+    lay->setSpacing(metrics::s1);
 
-    auto *hint = new QLabel(
-        QStringLiteral("팔 끝을 보낼 자리입니다. 로봇 기준 좌표로 씁니다."));
+    auto *hint = new QLabel(QStringLiteral(
+        "팔 끝을 보낼 자리입니다. 로봇 기준 좌표이며, 숫자를 누르면 직접 "
+        "입력할 수 있습니다.\n빈 점은 마지막으로 보낸 값입니다."));
     hint->setObjectName(QStringLiteral("Hint"));
     hint->setWordWrap(true);
     lay->addWidget(hint);
 
-    auto *grid = new QGridLayout;
-    grid->setHorizontalSpacing(metrics::s2);
-    grid->setVerticalSpacing(metrics::s1);
-
-    struct Spec { const char *key; const char *label; double lo, hi, step, def; };
+    // 관절과 같은 조작으로 통일한다. 한쪽은 슬라이더, 한쪽은 스핀박스면
+    // 같은 성격의 값을 다루는 방법을 두 번 배워야 한다.
+    struct Spec { const char *key; const char *label; double lo, hi; const char *unit;
+                  int decimals; double scale; double def; };
+    // 축 이름은 X/Y/Z/Roll/Pitch/Yaw 를 그대로 쓴다. 이 탭을 쓰는 사람은
+    // 좌표계를 아는 사람이고, "숙임" 같은 말로 바꾸면 어느 축인지 오히려
+    // 되짚어야 한다. 조작자용 표현이 필요한 곳은 프리셋 쪽이다.
     static const Spec specs[] = {
-        {"x", "앞뒤 [m]", -1.0, 1.0, 0.01, 0.40},
-        {"y", "좌우 [m]", -1.0, 1.0, 0.01, 0.00},
-        {"z", "높이 [m]", -0.5, 1.5, 0.01, 0.50},
-        {"roll", "기울기 [°]", -180, 180, 1.0, 180.0},
-        {"pitch", "숙임 [°]", -180, 180, 1.0, 0.0},
-        {"yaw", "회전 [°]", -180, 180, 1.0, 0.0},
+        {"x", "X", -1.0, 1.0, " m", 2, 1.0, 0.40},
+        {"y", "Y", -1.0, 1.0, " m", 2, 1.0, 0.00},
+        {"z", "Z", -0.5, 1.5, " m", 2, 1.0, 0.50},
+        {"roll", "Roll", -M_PI, M_PI, "°", 0, 180.0 / M_PI, M_PI},
+        {"pitch", "Pitch", -M_PI, M_PI, "°", 0, 180.0 / M_PI, 0.0},
+        {"yaw", "Yaw", -M_PI, M_PI, "°", 0, 180.0 / M_PI, 0.0},
     };
 
-    int i = 0;
     for (const auto &sp : specs) {
-        // 라벨과 입력칸을 한 줄에 둔다. 위아래로 쌓으면 여섯 줄이 열두 줄이 된다.
-        grid->addWidget(captionLabel(QString::fromUtf8(sp.label)), i / 2, (i % 2) * 2);
-
-        auto *box = new QDoubleSpinBox;
-        box->setRange(sp.lo, sp.hi);
-        box->setSingleStep(sp.step);
-        box->setValue(sp.def);
-        box->setDecimals(sp.step < 1 ? 2 : 1);
-        box->setAlignment(Qt::AlignRight);
-        // 관절 슬라이더와 같은 이유로 휠을 막는다. 스크롤하다 목표 좌표가
-        // 바뀌면 팔이 엉뚱한 데로 간다.
-        box->setFocusPolicy(Qt::StrongFocus);
-        box->installEventFilter(this);
-        grid->addWidget(box, i / 2, (i % 2) * 2 + 1);
-        ee_.insert(QString::fromLatin1(sp.key), box);
-        ++i;
+        auto *slider = new ValueSlider(QString::fromUtf8(sp.label), sp.lo, sp.hi,
+                                       QString::fromUtf8(sp.unit), sp.decimals, sp.scale);
+        slider->setCommand(sp.def);
+        // 로봇은 끝단 좌표를 따로 보고하지 않는다. 대신 마지막으로 보낸 값을
+        // 비교 기준으로 둔다 — 관절 탭과 같은 모양으로 "만졌지만 아직 안
+        // 보낸" 구간이 보인다. 아무 기준도 없으면 무엇을 바꿨는지 알 수 없다.
+        slider->setActual(sp.def);
+        lay->addWidget(slider);
+        ee_.insert(QString::fromLatin1(sp.key), slider);
     }
-    lay->addLayout(grid);
 
-    auto *send = new QPushButton(QStringLiteral("여기로 보내기"));
+    lay->addSpacing(metrics::s1);
+    auto *row = new QHBoxLayout;
+    row->setSpacing(metrics::s2);
+
+    auto *send = new QPushButton(QStringLiteral("보내기"));
     send->setProperty("variant", "primary");
     send->setProperty("size", "sm");
-    lay->addWidget(send);
+
+    // 관절 탭과 같은 자리에 같은 이름으로 둔다. 되돌릴 방법이 한쪽에만
+    // 있으면, 잘못 만졌을 때 무엇을 눌러야 하는지가 탭마다 달라진다.
+    auto *revert = new QPushButton(QStringLiteral("되돌리기"));
+    revert->setProperty("size", "sm");
+    revert->setToolTip(QStringLiteral("마지막으로 보낸 값으로 되돌립니다"));
+    connect(revert, &QPushButton::clicked, this, [this] {
+        for (auto *e : std::as_const(ee_))
+            e->setCommand(e->actual());
+    });
+
+    row->addWidget(send, 1);
+    row->addWidget(revert, 1);
+    lay->addLayout(row);
     commandButtons_ << send;
 
     connect(send, &QPushButton::clicked, this, [this] {
         emit eeGoal(QVariantMap{
-            {"x", ee_[QStringLiteral("x")]->value()},
-            {"y", ee_[QStringLiteral("y")]->value()},
-            {"z", ee_[QStringLiteral("z")]->value()},
-            {"roll", qDegreesToRadians(ee_[QStringLiteral("roll")]->value())},
-            {"pitch", qDegreesToRadians(ee_[QStringLiteral("pitch")]->value())},
-            {"yaw", qDegreesToRadians(ee_[QStringLiteral("yaw")]->value())},
+            {"x", ee_[QStringLiteral("x")]->command()},
+            {"y", ee_[QStringLiteral("y")]->command()},
+            {"z", ee_[QStringLiteral("z")]->command()},
+            {"roll", ee_[QStringLiteral("roll")]->command()},
+            {"pitch", ee_[QStringLiteral("pitch")]->command()},
+            {"yaw", ee_[QStringLiteral("yaw")]->command()},
             {"frame", QStringLiteral("fr3_link0")},
         });
+        // 보낸 순간이 새 기준이 된다. 편집 표시가 사라져 "보냈다" 가 보인다.
+        for (auto *s : std::as_const(ee_))
+            s->setActual(s->command());
     });
 
     lay->addStretch(1);
     return page;
-}
-
-/// 스핀박스 위에서 휠을 돌려도 값이 바뀌지 않게 한다.
-bool ArmPanel::eventFilter(QObject *obj, QEvent *ev)
-{
-    if (ev->type() == QEvent::Wheel && qobject_cast<QDoubleSpinBox *>(obj)) {
-        ev->ignore();
-        return true;
-    }
-    return QWidget::eventFilter(obj, ev);
 }
 
 void ArmPanel::buildPresetSection()
@@ -227,12 +257,6 @@ void ArmPanel::buildPresetSection()
         connect(b, &QPushButton::clicked, this, [this, key] { emit presetRequested(key); });
         row->addWidget(b, 1);
     }
-    auto *stop = new QPushButton(QStringLiteral("정지"));
-    stop->setProperty("variant", "danger");
-    stop->setProperty("size", "sm");
-    connect(stop, &QPushButton::clicked, this, &ArmPanel::stopRequested);
-    row->addWidget(stop, 1);
-
     card_->body()->addLayout(row);
 }
 
@@ -243,6 +267,7 @@ void ArmPanel::setArmState(const QList<double> &positions, double manipulability
     for (int i = 0; i < sliders_.size() && i < positions.size(); ++i)
         sliders_[i]->setActual(positions.at(i));
     view3d_->setArmJoints(positions);
+    refreshPreview();
 
     const double norm = qBound(0.0, manipulability / kManipNominal, 1.0);
 
@@ -283,12 +308,28 @@ void ArmPanel::setControlsEnabled(bool on)
 
 void ArmPanel::onSliderMoved()
 {
-    if (syncing_)
-        return;
-    // 이제 슬라이더가 지금 각도와 보낼 각도를 함께 그린다. 갱신할 별도
-    // 위젯이 없다 — 다시 그리기만 하면 된다.
     for (auto *s : std::as_const(sliders_))
         s->update();
+    refreshPreview();
+}
+
+void ArmPanel::refreshPreview()
+{
+    // 3D 뷰에 보낼 자세를 겹쳐 보여준다. 화면에만 반영되고 로봇은 움직이지
+    // 않는다 — 실제 명령은 "보내기" 를 눌러야 나간다.
+    // 관절 탭에서만 미리보기를 띄운다. 끝단 좌표에서 자세를 얻으려면 역기구학이
+    // 필요한데 그것은 로봇이 푼다. 관제가 임의로 풀어 보여주면 실제로 나올
+    // 자세와 다를 수 있고, 그 차이를 조작자가 확인할 방법이 없다.
+    const bool onJointTab = !tabs_ || tabs_->currentIndex() == 0;
+
+    QList<double> q;
+    bool differs = false;
+    for (int i = 0; i < sliders_.size(); ++i) {
+        q << sliders_.at(i)->command();
+        if (sliders_.at(i)->diverged())
+            differs = true;
+    }
+    view3d_->setPreviewJoints(onJointTab && differs ? q : QList<double>{});
 }
 
 void ArmPanel::syncSlidersToActual()
