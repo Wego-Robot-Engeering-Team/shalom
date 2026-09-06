@@ -12,6 +12,7 @@
 // also the acceptance criteria the real BridgeClient will have to meet.
 
 #include <QSignalSpy>
+#include <QSet>
 #include <QTest>
 
 #include "sim/SimRobot.h"
@@ -280,18 +281,32 @@ private slots:
         r.missionStart();
         run(r, 4000.0);
 
+        QSet<int> started, completed;
         int starts = 0, completes = 0;
         for (const auto &sig : spy) {
             const QString code = sig.at(0).toString();
-            if (code == QLatin1String("CAR_START"))
+            const int car = sig.at(1).toMap().value(QStringLiteral("car")).toInt();
+            if (code == QLatin1String("CAR_START")) {
                 ++starts;
-            else if (code == QLatin1String("CAR_COMPLETE"))
+                started.insert(car);
+            } else if (code == QLatin1String("CAR_COMPLETE")) {
                 ++completes;
+                completed.insert(car);
+            }
         }
-        // 1량 촬영 시간 보고서가 이 구간으로 산출된다. 량마다 한 쌍이어야
-        // 한다 — 그래서 경로도 량 단위로 묶는다. 8 량 편성이다.
-        QCOMPARE(starts, 8);
-        QCOMPARE(completes, 8);
+
+        // 경로가 S 자라 한 량이 여러 구간으로 나뉜다 — 하부를 훑고, 되짚어
+        // 오며 좌측을, 다시 훑으며 우측을 본다. 그래서 량 하나에 구간이
+        // 둘이나 셋이다.
+        //
+        // 1량 촬영 시간(지시서 정밀도 요건)은 그 구간들의 **합**으로 낸다.
+        // 첫 촬영부터 마지막 촬영까지의 경과로 재면 편성 전체 시간이 나온다.
+        // 여기서 확인하는 계약은 두 가지다: 시작과 완료가 짝을 이룰 것,
+        // 그리고 여덟 량이 하나도 빠지지 않을 것.
+        QCOMPARE(starts, completes);
+        QCOMPARE(started.size(), 8);
+        QCOMPARE(completed.size(), 8);
+        QVERIFY2(starts > 8, "S 자 경로라면 량마다 구간이 여럿이어야 한다");
     }
 
     void mission_pauseHaltsProgress()

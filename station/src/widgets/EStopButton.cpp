@@ -14,10 +14,6 @@ using namespace gcs::theme;
 
 namespace {
 
-/// 발동 중 맥동 링이 판 바깥으로 나가는 만큼의 여백. 이만큼 위젯을
-/// 키워두지 않으면 링이 잘려 사각형처럼 보인다.
-constexpr int kRingRoom = 6;
-
 QPropertyAnimation *makePulse(QObject *target, int durationMs)
 {
     auto *a = new QPropertyAnimation(target, "pulse", target);
@@ -38,7 +34,7 @@ EStopButton::EStopButton(QWidget *parent, int height) : QWidget(parent), size_(h
     // 버튼 하나가 상단 바에서 가장 큰 요소여야 한다. 원형 머리만으로는
     // 1720 px 폭 화면의 구석에서 존재감이 나오지 않아, 글자를 새긴
     // 판 위에 얹은 형태로 만든다.
-    setFixedSize(int(size_ * 2.9) + kRingRoom * 2, size_ + kRingRoom * 2);
+    setFixedSize(int(size_ * 2.9) + kVisualInset * 2, size_ + kVisualInset * 2);
     setCursor(Qt::PointingHandCursor);
     setToolTip(QStringLiteral("비상정지 — 1회 클릭으로 즉시 발동"));
     anim_ = makePulse(this, 760);
@@ -95,8 +91,9 @@ void EStopButton::paintEvent(QPaintEvent *)
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
 
-    const QRectF plate(kRingRoom + 0.5, kRingRoom + 0.5,
-                       width() - kRingRoom * 2 - 1.0, height() - kRingRoom * 2 - 1.0);
+    const QRectF plate(kVisualInset + 0.5, kVisualInset + 0.5,
+                       width() - kVisualInset * 2 - 1.0,
+                       height() - kVisualInset * 2 - 1.0);
     const double radius = plate.height() * 0.28;
 
     // ---- 판 ----
@@ -131,11 +128,14 @@ void EStopButton::paintEvent(QPaintEvent *)
     f.setWeight(QFont::Bold);
     p.setFont(f);
 
+    // 글자는 폭(advance) 이 아니라 잉크로 잰다. 한글 글리프는 advance 안에
+    // 오른쪽 여백을 달고 있어서, advance 로 가운데를 잡으면 판 안에서
+    // 내용이 왼쪽으로 몇 픽셀 쏠린다 — 좌우 여백이 안 맞아 보이는 이유다.
+    const QRectF ink = QFontMetricsF(f).tightBoundingRect(label);
     const double outerR = size_ * 0.36;
     const double btnR = size_ * 0.27;
     const double gap = size_ * 0.22;
-    const double textW = QFontMetricsF(f).horizontalAdvance(label);
-    const double groupW = outerR * 2 + gap + textW;
+    const double groupW = outerR * 2 + gap + ink.width();
 
     const double left = plate.left() + (plate.width() - groupW) / 2.0;
     const double cy = plate.center().y();
@@ -149,9 +149,11 @@ void EStopButton::paintEvent(QPaintEvent *)
     p.setBrush(QColor((hover_ || engaged_) ? C.dangerHi : C.danger));
     p.drawEllipse(QRectF(cx - btnR, cy - btnR, btnR * 2, btnR * 2));
 
+    // 기준선으로 직접 놓는다. 잉크 기준으로 재 놓고 정렬은 상자에 맡기면
+    // 상자 여백이 다시 끼어든다. 세로도 같은 이유로 잉크 가운데에 맞춘다 —
+    // 한글에는 내려긋는 획이 없어 글꼴 높이로 맞추면 위로 떠 보인다.
     p.setPen(QColor(engaged_ ? QLatin1String("#FFFFFF") : C.danger));
-    p.drawText(QRectF(left + outerR * 2 + gap, plate.top(), textW + 2, plate.height()),
-               Qt::AlignVCenter | Qt::AlignLeft, label);
+    p.drawText(QPointF(left + outerR * 2 + gap - ink.left(), cy - ink.center().y()), label);
 }
 
 // ============================ AlertFrame ============================

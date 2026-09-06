@@ -93,14 +93,21 @@ MapData buildMap()
 
 QList<QVariantMap> buildWaypoints()
 {
-    // 8 량 편성 한 줄. 량마다 하부 4 곳과 좌우 측면 2 곳씩을 찍는다.
+    // 8 량 편성 한 줄. 량마다 하부 4 곳과 좌우 측면 2 곳씩, 모두 64 곳이다.
     //
-    // 순서는 량 단위다: 1량 하부 4 → 1량 좌측 2 → 1량 우측 2 → 2량 …
+    // 경로는 S 자로 한 번에 훑는다.
     //
-    // 하부 전체를 먼저 돌고 측면으로 넘어가는 편이 주행은 짧지만, 그러면 한
-    // 량의 촬영이 세 번에 나뉘어 "1량 촬영 시간"(지시서 정밀도 요건)이 편성
-    // 전체 시간으로 늘어난다. 게다가 옆 통로로 나가는 데 드는 거리는 크지
-    // 않다 — 윤축 사이로 옆으로 빠지면 되고, 편성 끝까지 갈 필요가 없다.
+    //   ①  차량 아래를 한쪽 끝에서 반대 끝까지 직선으로 (32 곳)
+    //   ②  거기서 위 통로로 올라가 되짚어 오며 (16 곳)
+    //   ③  끝난 자리 바로 아래로 내려가 다시 훑고 (16 곳)
+    //   ④  충전 스테이션으로 복귀
+    //
+    // 량 단위로 묶는 순서(하부 4 → 좌 2 → 우 2 → 다음 량)도 가능하지만,
+    // 량마다 편성 밑을 들락날락하느라 주행 거리가 크게 늘어난다.
+    //
+    // 대신 한 량의 촬영이 세 구간으로 나뉜다. "1량 촬영 시간" 은 구간의
+    // 합으로 산출해야 하며, 첫 촬영부터 마지막 촬영까지의 경과 시간으로
+    // 재면 편성 전체 시간이 나온다.
     constexpr int kCars = 8;
     constexpr double kCarLen = 20.0;
     constexpr double kCarGap = 0.6;
@@ -133,28 +140,28 @@ QList<QVariantMap> buildWaypoints()
         wps << w;
     };
 
-    for (int car = 0; car < kCars; ++car) {
-        // 하부 — 차량 아래 중앙 통로. 윤축은 좌우 레일 위에만 있어
-        // 가운데는 편성 끝에서 끝까지 뚫려 있다.
+    // ① 차량 아래 — 왼쪽 끝에서 오른쪽 끝까지. 윤축은 좌우 레일 위에만
+    //    있어 가운데 통로가 편성 끝에서 끝까지 뚫려 있다.
+    for (int car = 0; car < kCars; ++car)
         for (int i = 0; i < kUnderPerCar; ++i)
             add(QStringLiteral("U%1-%2").arg(car + 1).arg(i + 1),
                 QStringLiteral("%1량 하부 %2").arg(car + 1).arg(i + 1),
                 car, carX(car, i, kUnderPerCar), 0.0, 0.0);
 
-        // 측면 — 편성 위아래 통로에서 차체 옆면을 본다. 진행 방향(+X)
-        // 기준 좌측이 +Y, 우측이 -Y 다. 카메라는 편성 쪽을 향한다.
-        for (int side = 0; side < 2; ++side) {
-            const double y = side == 0 ? kSideY : -kSideY;
-            const double theta = side == 0 ? -M_PI_2 : M_PI_2;
-            const QString label = side == 0 ? QStringLiteral("좌측") : QStringLiteral("우측");
-            const QString key = side == 0 ? QStringLiteral("L") : QStringLiteral("R");
+    // ② 좌측 통로 — 오른쪽 끝에서 되짚어 온다. 카메라는 편성 쪽을 본다.
+    for (int car = kCars - 1; car >= 0; --car)
+        for (int i = kSidePerCar - 1; i >= 0; --i)
+            add(QStringLiteral("L%1-%2").arg(car + 1).arg(i + 1),
+                QStringLiteral("%1량 좌측 %2").arg(car + 1).arg(i + 1),
+                car, carX(car, i, kSidePerCar), kSideY, -M_PI_2);
 
-            for (int i = 0; i < kSidePerCar; ++i)
-                add(QStringLiteral("%1%2-%3").arg(key).arg(car + 1).arg(i + 1),
-                    QStringLiteral("%1량 %2 %3").arg(car + 1).arg(label).arg(i + 1),
-                    car, carX(car, i, kSidePerCar), y, theta);
-        }
-    }
+    // ③ 우측 통로 — 좌측을 끝낸 자리 바로 아래에서 시작해 다시 훑는다.
+    for (int car = 0; car < kCars; ++car)
+        for (int i = 0; i < kSidePerCar; ++i)
+            add(QStringLiteral("R%1-%2").arg(car + 1).arg(i + 1),
+                QStringLiteral("%1량 우측 %2").arg(car + 1).arg(i + 1),
+                car, carX(car, i, kSidePerCar), -kSideY, M_PI_2);
+
     return wps;
 }
 
@@ -312,8 +319,13 @@ void SimRobot::missionResume()
 
 void SimRobot::missionStop()
 {
+    // 진행 상황도 같이 버린다. 상태만 대기로 돌리면 화면에는 "24 / 64 완료"
+    // 가 그대로 남는데, 다음 시작은 1번부터다 — 화면이 거짓말을 한다.
+    for (int i = 0; i < waypoints_.size(); ++i)
+        setWaypointStatus(i, QStringLiteral("todo"));
     mission_ = MissionState::Idle;
     activeIndex_ = -1;
+    currentCar_ = -1;
     emit missionStateChanged(mission_);
 }
 
@@ -457,9 +469,18 @@ void SimRobot::stepMission(double dt)
     if (activeIndex_ < 0) {
         activeIndex_ = nextPendingWaypoint();
         if (activeIndex_ < 0) {
+            // 마지막 포인트를 찍고 그 자리에 서 있는 것이 아니라 충전
+            // 스테이션까지 돌아간다. 다음 점검은 충전된 상태에서 시작해야
+            // 하고, 편성 아래에 세워 두면 열차가 나갈 때 걸린다.
+            const QVariantMap dock = dockPose();
+            emit robotEvent(QStringLiteral("RETURN_TO_DOCK"),
+                            {{"reason", QStringLiteral("mission_complete")}});
+            requestGoal(dock.value(QStringLiteral("x")).toDouble(),
+                        dock.value(QStringLiteral("y")).toDouble(),
+                        dock.value(QStringLiteral("theta")).toDouble());
+
             mission_ = MissionState::Idle;
             emit missionStateChanged(mission_);
-            emit robotEvent(QStringLiteral("RETURN_TO_DOCK"), {});
             return;
         }
         setWaypointStatus(activeIndex_, QStringLiteral("current"));
@@ -560,14 +581,24 @@ Telemetry SimRobot::step(double dt)
 
     // 복귀 임계를 지키는 것은 로봇이다. 관제가 판단하게 두면 관제가 죽거나
     // 끊긴 사이에 방전되고, 차량 아래에서 서면 꺼내려고 열차를 움직여야 한다.
-    if (mission_ != MissionState::Idle && !returningForCharge_ && soc_ <= returnAtPct_) {
+    if (mission_ == MissionState::Running && !returningForCharge_ && soc_ <= returnAtPct_) {
         returningForCharge_ = true;
         emit robotEvent(QStringLiteral("BATTERY_LOW"),
                         {{"soc", soc_}, {"return_at", returnAtPct_}});
         emit robotEvent(QStringLiteral("RETURN_TO_DOCK"), {{"reason", QStringLiteral("battery")}});
-        mission_ = MissionState::Idle;
+
+        // 대기가 아니라 일시정지로 둔다. 대기로 떨어뜨리면 충전을 마친 뒤
+        // 이어서 할 방법이 없고, 다시 시작은 1번 지점부터다 — 64개짜리
+        // 경로에서 배터리 한 번에 하루치를 버리는 셈이 된다.
+        mission_ = MissionState::Paused;
         activeIndex_ = -1;
         emit missionStateChanged(mission_);
+
+        // 알리기만 하고 세워 두면 그 자리에 선 채로 방전된다. 실제로 보낸다.
+        const QVariantMap dock = dockPose();
+        requestGoal(dock.value(QStringLiteral("x")).toDouble(),
+                    dock.value(QStringLiteral("y")).toDouble(),
+                    dock.value(QStringLiteral("theta")).toDouble());
     }
 
     // 업로드는 주행과 무관하게 진행된다.

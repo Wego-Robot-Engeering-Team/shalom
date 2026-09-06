@@ -32,6 +32,8 @@ QByteArray Envelope::toHeader() const
         o["ch"] = ch;
     if (!id.isEmpty())
         o["id"] = id;
+    if (!robot.isEmpty())
+        o["robot"] = robot;
     if (seq.has_value())
         o["seq"] = static_cast<double>(*seq);
     if (!p.isEmpty())
@@ -74,6 +76,7 @@ std::optional<Envelope> Envelope::fromHeader(const QByteArray &json, QString *er
     e.v = v;
     e.t = o.value("t").toString();
     e.ch = o.value("ch").toString();
+    e.robot = o.value("robot").toString();
     e.id = o.value("id").toString();
     e.ts = o.value("ts").toDouble();
     e.p = pv.isObject() ? pv.toObject() : QJsonObject{};
