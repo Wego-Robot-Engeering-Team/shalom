@@ -79,10 +79,25 @@ HLine::HLine(QWidget *parent) : QFrame(parent)
     setFixedHeight(1);
 }
 
+VLine::VLine(QWidget *parent, int inset) : QFrame(parent)
+{
+    setObjectName(QStringLiteral("HLine"));   // 같은 색 규칙을 쓴다
+    setFixedWidth(1);
+    if (inset > 0)
+        setContentsMargins(0, inset, 0, inset);
+}
+
 QLabel *sectionLabel(const QString &text)
 {
     auto *l = new QLabel(text);
     l->setObjectName(QStringLiteral("SectionLabel"));
+    return l;
+}
+
+QLabel *captionLabel(const QString &text)
+{
+    auto *l = new QLabel(text);
+    l->setObjectName(QStringLiteral("Hint"));
     return l;
 }
 
