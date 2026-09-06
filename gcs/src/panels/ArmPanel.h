@@ -28,15 +28,15 @@
 
 #include <QWidget>
 
-class QDoubleSpinBox;
 class QLabel;
 class QPushButton;
+class QTabWidget;
 
 namespace gcs::ui {
 
 class Badge;
 class Card;
-class JointSlider;
+class ValueSlider;
 class Robot3DView;
 
 class ArmPanel : public QWidget {
@@ -53,10 +53,6 @@ public:
     /// make a mis-click move the arm.
     void applyPresetToSliders(const QString &name);
 
-protected:
-    /// Kills wheel events on the end-effector spin boxes, for the same reason
-    /// JointSlider does: scrolling past a control must not command the arm.
-    bool eventFilter(QObject *obj, QEvent *ev) override;
 
 signals:
     void jointGoal(const QList<double> &positions);
@@ -76,15 +72,19 @@ private:
     QWidget *buildJointTab();
     QWidget *buildEeTab();
     void onSliderMoved();
+    /// Pushes the un-sent slider pose into the 3D view as a ghost. Display
+    /// only - the arm is commanded by the send button, never by dragging.
+    void refreshPreview();
     void syncSlidersToActual();
 
     Card *card_ = nullptr;
     Badge *state_ = nullptr;
     Robot3DView *view3d_ = nullptr;
+    QTabWidget *tabs_ = nullptr;
     QLabel *advice_ = nullptr;
 
-    QList<JointSlider *> sliders_;
-    QHash<QString, QDoubleSpinBox *> ee_;
+    QList<ValueSlider *> sliders_;
+    QHash<QString, ValueSlider *> ee_;
     QList<QPushButton *> commandButtons_;
     QList<double> actual_;
     bool syncing_ = false;
