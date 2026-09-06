@@ -59,21 +59,30 @@ MissionPanel::MissionPanel(QWidget *parent) : QWidget(parent)
     // 넷을 늘어놓으면 늘 둘은 눌리지 않는 상태로 남고, 그중 "일시정지" 와
     // "정지" 는 이름만으로 구분되지 않았다.
     //
-    // 옆자리는 지금 상태에서 할 수 있는 나머지 한 가지다. 점검 중에는
-    // 그만두기(취소), 대기 중에는 충전소로 보내기(복귀). 둘은 같이 쓸
-    // 일이 없어 자리를 나눠 쓴다 — 버튼 수를 늘 둘로 묶어 두면 손이
-    // 자리를 외운다.
+    // 점검을 미는 것(시작·일시정지·재개)이 한 줄, 그 밖의 두 가지가 아랫줄이다.
+    // 셋을 한 줄에 늘어놓으면 글자가 상자에 걸리고, 무엇이 주된 조작인지도
+    // 흐려진다.
+    //
+    // 아랫줄 둘은 자리를 바꾸지 않는다. 앞서 취소와 복귀가 상태에 따라
+    // 같은 칸을 번갈아 쓰게 해 봤더니, 규칙을 설명할 수가 없었다. 둘은
+    // 서로의 대체재가 아니다 — 하나는 점검을 끝내는 일이고, 하나는 로봇을
+    // 집으로 보내는 일이다.
     run_ = new QPushButton;
     run_->setProperty("variant", "primary");
+    run_->setProperty("size", "sm");
+    run->addWidget(run_);
+    card_->body()->addLayout(run);
+
+    auto *aux = new QHBoxLayout;
+    aux->setSpacing(metrics::s2);
     stop_ = new QPushButton(QStringLiteral("점검 취소"));
     dock_ = new QPushButton(QStringLiteral("충전소 복귀"));
-    for (auto *b : {run_, stop_, dock_})
+    for (auto *b : {stop_, dock_}) {
         b->setProperty("size", "sm");
-
-    run->addWidget(run_, 2);
-    run->addWidget(stop_, 1);
-    run->addWidget(dock_, 1);
-    card_->body()->addLayout(run);
+        aux->addWidget(b);
+    }
+    card_->body()->addSpacing(metrics::s2);
+    card_->body()->addLayout(aux);
 
     connect(run_, &QPushButton::clicked, this, &MissionPanel::onRunClicked);
     connect(stop_, &QPushButton::clicked, this, &MissionPanel::confirmStop);
@@ -115,12 +124,16 @@ void MissionPanel::refresh()
     run_->setText(!running ? QStringLiteral("자율주행 시작")
                   : paused ? QStringLiteral("재개")
                            : QStringLiteral("일시정지"));
-    stop_->setVisible(running);
-    dock_->setVisible(!running);
+
+    // 취소할 점검이 없을 때도 자리는 지킨다. 버튼이 사라졌다 나타나면
+    // 손이 자리를 외우지 못한다.
+    stop_->setEnabled(running);
     dock_->setEnabled(dockKnown_);
-    dock_->setToolTip(dockKnown_
-                          ? QStringLiteral("충전 스테이션까지 자율 주행으로 돌아갑니다.")
-                          : QStringLiteral("충전 스테이션 위치가 등록되어 있지 않습니다."));
+    dock_->setToolTip(
+        !dockKnown_ ? QStringLiteral("충전 스테이션 위치가 등록되어 있지 않습니다.")
+        : running   ? QStringLiteral("점검을 일시정지하고 충전 스테이션으로 돌아갑니다.\n"
+                                     "진행 상황은 그대로 두므로 충전 뒤에 이어서 할 수 있습니다.")
+                    : QStringLiteral("충전 스테이션까지 자율 주행으로 돌아갑니다."));
 
     const int total = points_.size();
     int done = 0;

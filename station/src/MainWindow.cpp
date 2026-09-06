@@ -677,6 +677,14 @@ void MainWindow::wireMissionSignals()
         log_->log(QStringLiteral("MISSION_STOP"));
     });
     connect(mission_, &MissionPanel::returnToDock, this, [this] {
+        // 점검 중이면 먼저 세운다. 목표만 걸면 로봇이 충전소로 갔다가
+        // 남은 점검을 저 혼자 다시 시작한다 — 조작자는 세운 줄 안다.
+        // 취소가 아니라 일시정지인 이유는, 충전하고 이어서 하는 것이
+        // 이 버튼을 누르는 거의 모든 이유이기 때문이다.
+        if (robot_->missionState() != MissionState::Idle) {
+            robot_->missionPause();
+            log_->log(QStringLiteral("MISSION_PAUSE"));
+        }
         driveTo(dock_, QStringLiteral("충전 스테이션"));
     });
 }

@@ -59,9 +59,10 @@ signals:
     /// difference only shows up afterwards, so the panel asks first.
     void missionStop();
 
-    /// Send the robot back to the charging station. Offered only when no run is
-    /// under way: during one the robot already returns on its own when the
-    /// points are done or the battery gets low.
+    /// Send the robot back to the charging station. Always available: getting
+    /// the robot out from under a train is not something to make conditional
+    /// on what the run happens to be doing. During a run it pauses first, so
+    /// resume still picks up where the robot left off.
     void returnToDock();
 
 private:
@@ -87,10 +88,10 @@ private:
     /// always greyed out.
     QPushButton *run_ = nullptr;
 
-    /// Shown whenever a run is under way, paused or not.
+    /// Ending the run and sending the robot home are different things, so they
+    /// get their own buttons in fixed places. Swapping one for the other made
+    /// the row read as arbitrary.
     QPushButton *stop_ = nullptr;
-
-    /// Shown only when idle - it takes the place cancel occupies during a run.
     QPushButton *dock_ = nullptr;
 
     QList<QVariantMap> points_;

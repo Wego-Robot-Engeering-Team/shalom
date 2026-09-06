@@ -581,14 +581,24 @@ Telemetry SimRobot::step(double dt)
 
     // 복귀 임계를 지키는 것은 로봇이다. 관제가 판단하게 두면 관제가 죽거나
     // 끊긴 사이에 방전되고, 차량 아래에서 서면 꺼내려고 열차를 움직여야 한다.
-    if (mission_ != MissionState::Idle && !returningForCharge_ && soc_ <= returnAtPct_) {
+    if (mission_ == MissionState::Running && !returningForCharge_ && soc_ <= returnAtPct_) {
         returningForCharge_ = true;
         emit robotEvent(QStringLiteral("BATTERY_LOW"),
                         {{"soc", soc_}, {"return_at", returnAtPct_}});
         emit robotEvent(QStringLiteral("RETURN_TO_DOCK"), {{"reason", QStringLiteral("battery")}});
-        mission_ = MissionState::Idle;
+
+        // 대기가 아니라 일시정지로 둔다. 대기로 떨어뜨리면 충전을 마친 뒤
+        // 이어서 할 방법이 없고, 다시 시작은 1번 지점부터다 — 64개짜리
+        // 경로에서 배터리 한 번에 하루치를 버리는 셈이 된다.
+        mission_ = MissionState::Paused;
         activeIndex_ = -1;
         emit missionStateChanged(mission_);
+
+        // 알리기만 하고 세워 두면 그 자리에 선 채로 방전된다. 실제로 보낸다.
+        const QVariantMap dock = dockPose();
+        requestGoal(dock.value(QStringLiteral("x")).toDouble(),
+                    dock.value(QStringLiteral("y")).toDouble(),
+                    dock.value(QStringLiteral("theta")).toDouble());
     }
 
     // 업로드는 주행과 무관하게 진행된다.
