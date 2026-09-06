@@ -94,11 +94,13 @@ add_library(gcs_core ${GCS_CORE_TYPE}
     src/mapview/MapFile.cpp
     src/robot/RobotLink.cpp
     src/robot/PoseCheck.cpp
+    src/robot/Kinematics.cpp
     src/panels/StatusPanel.cpp
     src/panels/MissionPanel.cpp
     src/widgets/WaypointDelegate.cpp
     src/widgets/NotificationCenter.cpp
     src/widgets/IconButton.cpp
+    src/widgets/MapLegend.cpp
     src/widgets/ValueSlider.cpp
     src/panels/TeleopPanel.cpp
     src/panels/WaypointPanel.cpp
@@ -207,6 +209,7 @@ if(GCS_BUILD_TESTS)
 
     # 전 화면을 실제로 그려 보는 연기 테스트. 화면 없이 돌도록 offscreen
     # 플랫폼을 강제한다. 그리기 경로에서만 터지는 버그를 잡는 유일한 테스트다.
+    gcs_add_test(test_kinematics)
     gcs_add_test(test_render)
     set_tests_properties(test_render PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

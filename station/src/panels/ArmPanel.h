@@ -28,6 +28,8 @@
 
 #include <QWidget>
 
+#include "robot/PoseCheck.h"
+
 class QLabel;
 class QPushButton;
 class QTabWidget;
@@ -75,6 +77,18 @@ private:
     /// Pushes the un-sent slider pose into the 3D view as a ghost. Display
     /// only - the arm is commanded by the send button, never by dragging.
     void refreshPreview();
+
+    /// Keeps the two tabs describing the same target.
+    ///
+    /// Joint edits run forward kinematics into the pose fields; pose edits run
+    /// inverse kinematics back into the joints, seeded from where the arm is.
+    /// The robot still plans the move - this only stops the operator reading a
+    /// number that is not what will be sent.
+    void syncEeFromJoints();
+    void syncJointsFromEe();
+
+    /// Updates the warning badge, but only when what it says has changed.
+    void showPoseWarning(const robot::PoseWarning &warning);
     void syncSlidersToActual();
 
     Card *card_ = nullptr;
@@ -89,6 +103,9 @@ private:
     QList<QPushButton *> commandButtons_;
     QList<double> actual_;
     bool syncing_ = false;
+    /// False while the pose fields name a place the arm cannot reach.
+    bool eeReachable_ = true;
+    robot::PoseWarning lastWarning_;
 };
 
 }  // namespace gcs::ui

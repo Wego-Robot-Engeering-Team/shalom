@@ -11,6 +11,7 @@
 #include <QtMath>
 
 #include "RobotDef.h"
+#include "robot/Kinematics.h"
 #include "robot/PoseCheck.h"
 #include "theme/Style.h"
 #include "theme/Tokens.h"
@@ -110,18 +111,9 @@ void ArmPanel::buildCommandTabs()
     tabs_->addTab(buildEeTab(), QStringLiteral("끝단 위치"));
     card_->body()->addWidget(tabs_);
 
-    // 두 탭은 같은 목표를 정하는 두 가지 방법이다. 한쪽을 만지다 다른 쪽으로
-    // 넘어가면, 보이지 않는 탭에 보내지 않은 값이 남아 나중에 무엇이 갈지
-    // 알 수 없다. 떠나는 탭은 기준값으로 되돌린다.
-    connect(tabs_, &QTabWidget::currentChanged, this, [this](int index) {
-        if (index == 0) {
-            for (auto *e : std::as_const(ee_))
-                e->setCommand(e->actual());
-        } else {
-            syncSlidersToActual();
-        }
-        refreshPreview();
-    });
+    // 두 탭은 같은 목표를 다르게 적은 것이다. 한쪽을 만지면 다른 쪽도 따라
+    // 바뀌므로, 예전처럼 탭을 떠날 때 값을 되돌릴 필요가 없다 — 보이지 않는
+    // 탭에 다른 값이 남아 있을 수가 없다.
 }
 
 QWidget *ArmPanel::buildJointTab()
@@ -203,6 +195,7 @@ QWidget *ArmPanel::buildEeTab()
         // 비교 기준으로 둔다 — 관절 탭과 같은 모양으로 "만졌지만 아직 안
         // 보낸" 구간이 보인다. 아무 기준도 없으면 무엇을 바꿨는지 알 수 없다.
         slider->setActual(sp.def);
+        connect(slider, &QSlider::valueChanged, this, &ArmPanel::syncJointsFromEe);
         lay->addWidget(slider);
         ee_.insert(QString::fromLatin1(sp.key), slider);
     }
@@ -317,6 +310,71 @@ void ArmPanel::setControlsEnabled(bool on)
 
 void ArmPanel::onSliderMoved()
 {
+    if (syncing_)
+        return;
+    for (auto *s : std::as_const(sliders_))
+        s->update();
+    syncEeFromJoints();
+    refreshPreview();
+}
+
+void ArmPanel::syncEeFromJoints()
+{
+    if (ee_.isEmpty())
+        return;
+
+    // 두 탭은 같은 목표를 다르게 적은 것이다. 한쪽을 만지고 다른 쪽을 그대로
+    // 두면 조작자가 보는 숫자가 실제로 보낼 자세와 달라진다.
+    QList<double> q;
+    for (auto *s : std::as_const(sliders_))
+        q << s->command();
+
+    const auto pose = robot::forwardKinematics(q);
+    syncing_ = true;
+    ee_[QStringLiteral("x")]->setCommand(pose.x);
+    ee_[QStringLiteral("y")]->setCommand(pose.y);
+    ee_[QStringLiteral("z")]->setCommand(pose.z);
+    ee_[QStringLiteral("roll")]->setCommand(pose.roll);
+    ee_[QStringLiteral("pitch")]->setCommand(pose.pitch);
+    ee_[QStringLiteral("yaw")]->setCommand(pose.yaw);
+    syncing_ = false;
+    eeReachable_ = true;
+}
+
+void ArmPanel::syncJointsFromEe()
+{
+    if (syncing_ || sliders_.isEmpty())
+        return;
+
+    robot::EePose target;
+    target.x = ee_[QStringLiteral("x")]->command();
+    target.y = ee_[QStringLiteral("y")]->command();
+    target.z = ee_[QStringLiteral("z")]->command();
+    target.roll = ee_[QStringLiteral("roll")]->command();
+    target.pitch = ee_[QStringLiteral("pitch")]->command();
+    target.yaw = ee_[QStringLiteral("yaw")]->command();
+
+    // 지금 관절에서 출발해 가장 가까운 해를 찾는다. 팔이 갑자기 뒤집히면
+    // 조작자는 자기가 그렇게 시킨 줄 안다.
+    QList<double> seed;
+    for (auto *s : std::as_const(sliders_))
+        seed << s->command();
+
+    const auto solved = robot::inverseKinematics(target, seed);
+    if (!solved) {
+        // 닿지 않는 자리다. 관절을 억지로 옮기지 않는다 — 가장 가까운 자세로
+        // 슬쩍 옮겨 두면 조작자는 자기가 지정한 자리로 간다고 믿는다.
+        eeReachable_ = false;
+        refreshPreview();
+        return;
+    }
+
+    eeReachable_ = true;
+    syncing_ = true;
+    for (int i = 0; i < sliders_.size() && i < solved->size(); ++i)
+        sliders_[i]->setCommand(solved->at(i));
+    syncing_ = false;
+
     for (auto *s : std::as_const(sliders_))
         s->update();
     refreshPreview();
@@ -326,11 +384,6 @@ void ArmPanel::refreshPreview()
 {
     // 3D 뷰에 보낼 자세를 겹쳐 보여준다. 화면에만 반영되고 로봇은 움직이지
     // 않는다 — 실제 명령은 "보내기" 를 눌러야 나간다.
-    // 관절 탭에서만 미리보기를 띄운다. 끝단 좌표에서 자세를 얻으려면 역기구학이
-    // 필요한데 그것은 로봇이 푼다. 관제가 임의로 풀어 보여주면 실제로 나올
-    // 자세와 다를 수 있고, 그 차이를 조작자가 확인할 방법이 없다.
-    const bool onJointTab = !tabs_ || tabs_->currentIndex() == 0;
-
     QList<double> q;
     bool differs = false;
     for (int i = 0; i < sliders_.size(); ++i) {
@@ -338,20 +391,39 @@ void ArmPanel::refreshPreview()
         if (sliders_.at(i)->diverged())
             differs = true;
     }
-    view3d_->setPreviewJoints(onJointTab && differs ? q : QList<double>{});
+    // 어느 탭에서 만졌든 3D 는 보낼 자세를 보여준다. 끝단 값은 역기구학을
+    // 거쳐 이미 관절로 옮겨져 있다.
+    view3d_->setPreviewJoints(differs ? q : QList<double>{});
 
     // 보내기 전에 조용히 알린다. 로봇이 최종 판정을 하지만, 눌러 본 뒤에야
     // 거부 코드로 알게 되는 것보다 낫다. 요란하게 막지는 않는다 — 조작자가
     // 의도해서 그 자세로 가는 경우도 있다.
-    if (onJointTab && differs) {
-        const auto warning = robot::checkArmPose(q);
-        poseWarning_->setToolTip(warning.text);
-        poseWarning_->setProperty("tone", warning.severity);
-        poseWarning_->setVisible(!warning.isEmpty());
-        theme::repolish(poseWarning_);
-    } else {
-        poseWarning_->hide();
+    robot::PoseWarning warning;
+    if (!eeReachable_) {
+        warning = {QStringLiteral("danger"),
+                   QStringLiteral("팔이 닿지 않는 자리입니다. 값을 조금 되돌리십시오.")};
+    } else if (differs) {
+        warning = robot::checkArmPose(q);
     }
+    showPoseWarning(warning);
+}
+
+void ArmPanel::showPoseWarning(const robot::PoseWarning &warning)
+{
+    // 내용이 그대로면 위젯을 건드리지 않는다.
+    //
+    // 이 함수는 텔레메트리마다, 즉 초당 스무 번 불린다. 그때마다 repolish
+    // 로 위젯을 다시 칠하면 Qt 가 도구 설명을 띄우려고 세어 두는 시간이
+    // 매번 초기화되어, 아이콘에 마우스를 올려도 설명이 끝내 뜨지 않는다.
+    // 화면에는 아무 문제가 없어 보이므로 원인을 찾기 어렵다.
+    if (warning.text == lastWarning_.text && warning.severity == lastWarning_.severity)
+        return;
+    lastWarning_ = warning;
+
+    poseWarning_->setToolTip(warning.text);
+    poseWarning_->setProperty("tone", warning.severity);
+    poseWarning_->setVisible(!warning.isEmpty());
+    theme::repolish(poseWarning_);
 }
 
 void ArmPanel::syncSlidersToActual()
