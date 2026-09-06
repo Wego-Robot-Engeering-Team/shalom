@@ -30,13 +30,14 @@
     {
       "name": "release",
       "displayName": "납품",
-      "description": "납품 구성. 로그인 필수.",
+      "description": "납품 구성. 로그인 필수, 코어를 공유 라이브러리로 낸다 (과업지시서 4장의 라이브러리 모듈 요구).",
       "inherits": "base",
       "binaryDir": "${sourceDir}/build-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "GCS_REQUIRE_LOGIN": "ON",
-        "GCS_BUILD_TESTS": "ON"
+        "GCS_BUILD_TESTS": "ON",
+        "GCS_SHARED_CORE": "ON"
       }
     }
   ],

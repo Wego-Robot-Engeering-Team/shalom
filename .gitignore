@@ -15,3 +15,7 @@ compile_commands.json
 # ROS 2 colcon
 build_ros/
 build-release/
+
+# 납품 패키지 산출물
+dist/
+build-release/

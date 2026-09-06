@@ -14,6 +14,13 @@ endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network Svg)
 
+# 통신 규약 버전을 헤더에서 읽어 온다. CMake 에 따로 적어 두면 언젠가 어긋난다.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/net/Envelope.h" _envelope_header)
+string(REGEX MATCH "kProtocolVersion = ([0-9]+)" _ "${_envelope_header}")
+set(GCS_PROTOCOL_VERSION "${CMAKE_MATCH_1}")
+
+include(cmake/Version.cmake)
+
 # ---------------------------------------------------------------------------
 # 로그인 요구 여부
 #
@@ -39,10 +46,22 @@ endif()
 # ---------------------------------------------------------------------------
 # 코어 라이브러리
 #
-# UI 실행 파일과 테스트가 함께 링크한다. 납품 형태를 .so/.dll 로 요구받는
-# 경우(과업지시서 4장) BUILD_SHARED_LIBS=ON 으로 공유 라이브러리를 낸다.
+# UI 실행 파일과 테스트가 함께 링크한다. 과업지시서 4장이 관제 소프트웨어를
+# "라이브러리 모듈 파일" 로 요구하므로, 납품 구성에서는 공유 라이브러리로 낸다.
 # ---------------------------------------------------------------------------
-add_library(gcs_core
+option(GCS_SHARED_CORE "코어를 공유 라이브러리로 빌드 (납품 형태)" OFF)
+if(GCS_SHARED_CORE)
+    set(GCS_CORE_TYPE SHARED)
+    # Windows 는 명시적으로 내보내지 않은 심볼이 DLL 에 남지 않는다.
+    # 클래스마다 __declspec(dllexport) 매크로를 붙이는 대신 CMake 가 전부
+    # 내보내게 한다. 데이터 심볼은 이 방식으로 나가지 않지만, 공개 API 는
+    # 전부 함수와 클래스라 문제되지 않는다.
+    set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+else()
+    set(GCS_CORE_TYPE STATIC)
+endif()
+
+add_library(gcs_core ${GCS_CORE_TYPE}
     src/Config.cpp
     src/auth/Session.cpp
     src/views/WelcomeDialog.cpp
@@ -160,3 +179,81 @@ if(GCS_BUILD_TESTS)
     # 명세서 경로를 알려준다. 문서와 코드의 드리프트를 잡는 검사다.
     target_compile_definitions(test_docs PRIVATE GCS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
+
+
+# ---------------------------------------------------------------------------
+# 납품 패키지
+#
+# 구성과 절차는 packaging/README.md 참조.
+#
+#   cmake --preset release
+#   cmake --build --preset release
+#   cmake --install build-release --prefix dist/shalom-gcs
+# ---------------------------------------------------------------------------
+include(GNUInstallDirs)
+
+set_target_properties(gcs_core PROPERTIES
+    VERSION ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION_MAJOR})
+
+# 실행 파일이 자기 옆의 공유 라이브러리를 찾을 수 있어야 한다.
+#
+# 이것이 없으면 설치본이 아예 뜨지 않는다 — 개발 트리에서는 빌드 디렉터리
+# 경로가 박혀 있어 잘 돌기 때문에, 실제로 패키지를 풀어 실행해 보기 전까지
+# 드러나지 않는 종류의 고장이다.
+#
+# Windows 는 실행 파일과 같은 디렉터리의 DLL 을 자동으로 찾으므로 불필요하다.
+if(APPLE)
+    set(GCS_INSTALL_RPATH "@loader_path")
+elseif(UNIX)
+    set(GCS_INSTALL_RPATH "$ORIGIN")
+endif()
+
+set_target_properties(shalom_gcs PROPERTIES
+    INSTALL_RPATH "${GCS_INSTALL_RPATH}"
+    BUILD_WITH_INSTALL_RPATH OFF)
+
+install(TARGETS shalom_gcs gcs_core
+    RUNTIME DESTINATION bin
+    LIBRARY DESTINATION bin          # Windows 는 DLL 이 실행 파일 옆에 있어야 한다
+    ARCHIVE DESTINATION lib)
+
+# ---- 공개 헤더 ----
+#
+# 인터페이스 계약에 해당하는 것만 내보낸다. 화면 구성이나 시뮬레이터 같은
+# 구현 세부는 고객이 알 필요도, 의존할 이유도 없다.
+set(GCS_PUBLIC_HEADERS
+    src/net/Framing.h           # 통신 프레이밍
+    src/net/Envelope.h          # JSON 봉투
+    src/net/Channels.h          # 채널 이름
+    src/robot/RobotLink.h       # 로봇 연동 인터페이스
+    src/robot/RobotTypes.h
+    src/diag/CodeCatalog.h      # 진단 코드
+    src/capture/CaptureMetadata.h   # 메타데이터·파일명 규약
+)
+foreach(_header IN LISTS GCS_PUBLIC_HEADERS)
+    get_filename_component(_dir "${_header}" DIRECTORY)
+    string(REPLACE "src/" "" _dir "${_dir}")
+    install(FILES "${_header}" DESTINATION include/shalom_gcs/${_dir})
+endforeach()
+
+# 프레이밍은 로봇측과 공유하는 구현이라 함께 내보낸다.
+install(FILES ../protocol/include/shalom/framing.hpp
+        DESTINATION include/shalom)
+
+# ---- 참조 자료 ----
+#
+# 진단 코드는 바이너리에 내장되지만 사본을 함께 낸다. 비상대응 매뉴얼과
+# 대조하려면 문서로 읽을 수 있어야 한다.
+install(FILES resources/error_codes.json DESTINATION share/shalom_gcs)
+install(FILES ../docs/bridge_protocol.md DESTINATION share/shalom_gcs)
+
+# ---- 버전 정보 ----
+configure_file(cmake/VERSION.txt.in "${CMAKE_BINARY_DIR}/VERSION.txt" @ONLY)
+install(FILES "${CMAKE_BINARY_DIR}/VERSION.txt" DESTINATION .)
+
+# ---- 라이선스 ----
+#
+# Qt 를 LGPL v3 로 동적 링크해 쓰므로 라이선스 전문과 재링크 안내를 함께
+# 배포해야 한다. 정적 링크로 바꾸면 전체 소스 공개 의무가 생긴다.
+install(DIRECTORY licenses/ DESTINATION licenses OPTIONAL)
