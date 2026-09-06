@@ -235,6 +235,7 @@ void NotificationBell::openPopup()
     // 지워지면 자리를 비운 사이의 알림을 놓친다.
     unread_ = 0;
     update();
+    emit opened();
 
     delete popup_;
     popup_ = new NotificationPopup(items_);

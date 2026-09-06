@@ -71,6 +71,11 @@ public:
     void retheme();
 
 signals:
+    /// Double-clicking empty map asks to zoom back out. There is no button for
+    /// it: undoing a zoom is not frequent enough to hold a place in the
+    /// toolbar, and a gesture on the thing itself is where one looks first.
+    void fitRequested();
+
     void goalRequested(double x, double y, double theta);
     void waypointPlaced(double x, double y, double theta);
     void waypointClicked(const QString &id);
@@ -78,6 +83,7 @@ signals:
 
 protected:
     void wheelEvent(QWheelEvent *) override;
+    void mouseDoubleClickEvent(QMouseEvent *) override;
     void mousePressEvent(QMouseEvent *) override;
     void mouseMoveEvent(QMouseEvent *) override;
     void mouseReleaseEvent(QMouseEvent *) override;

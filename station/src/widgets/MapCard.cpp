@@ -20,6 +20,9 @@ using gcs::map::MapView;
 MapCard::MapCard(QWidget *parent) : QWidget(parent)
 {
     setObjectName(QStringLiteral("Card"));
+    // 다른 카드는 QFrame 이라 스타일시트의 테두리가 그려지지만, 이 카드는
+    // QWidget 이라 무시된다. 그래서 지도만 윤곽 없이 떠 있었다.
+    setAttribute(Qt::WA_StyledBackground, true);
 
     auto *lay = new QVBoxLayout(this);
     lay->setContentsMargins(1, 1, 1, 1);
@@ -35,16 +38,20 @@ MapCard::MapCard(QWidget *parent) : QWidget(parent)
     tb->setSpacing(metrics::s2);
     toolbarRow_ = toolbar_;
 
+    // 목표 지정은 켜고 끄는 도구다. 주행 모드 버튼과 같은 모양이면 둘이
+    // 같은 성격으로 보이는데, 하나는 로봇의 동작 방식을 바꾸고 하나는
+    // 지도에서 클릭이 무엇을 뜻하는지만 바꾼다.
     goal_ = new QPushButton(QStringLiteral("목표 지정"));
-    fit_ = new QPushButton(QStringLiteral("전체 보기"));
-    for (auto *b : {goal_, fit_}) {
-        b->setProperty("size", "sm");
-        tb->addWidget(b);
-    }
+    goal_->setProperty("size", "sm");
     goal_->setCheckable(true);
+    goal_->setToolTip(QStringLiteral("켠 뒤 지도를 클릭해 목표를 지정합니다"));
+    tb->addWidget(goal_);
 
-    tb->addSpacing(metrics::s2);
-    mapLabel_ = sectionLabel(QStringLiteral("맵 없음"));
+    // "전체 보기" 버튼은 뺐다. 확대를 되돌리는 일이 툴바 한 자리를 늘 차지할
+    // 만큼 잦지 않다. 지도를 두 번 누르면 같은 일을 한다.
+    tb->addSpacing(metrics::s3);
+    mapLabel_ = new QLabel(QStringLiteral("지도 없음"));
+    mapLabel_->setObjectName(QStringLiteral("Hint"));
     tb->addWidget(mapLabel_);
 
     // 범례. 한 번 묻고 마는 것이라 구석에 작게 둔다.
@@ -63,7 +70,7 @@ MapCard::MapCard(QWidget *parent) : QWidget(parent)
     hint_->setAlignment(Qt::AlignCenter);
     hint_->hide();
 
-    connect(fit_, &QPushButton::clicked, view_, &MapView::fitMap);
+    connect(view_, &MapView::fitRequested, view_, &MapView::fitMap);
     connect(view_, &MapView::cursorMoved, this, [this](double x, double y) {
         readout_->setText(QStringLiteral("%1, %2").arg(x, 7, 'f', 2).arg(y, 7, 'f', 2));
         readout_->show();

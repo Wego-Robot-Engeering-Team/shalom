@@ -53,7 +53,6 @@ private:
     QWidget *toolbar_ = nullptr;
     QWidget *toolbarRow_ = nullptr;
     QPushButton *goal_ = nullptr;
-    QPushButton *fit_ = nullptr;
     QLabel *mapLabel_ = nullptr;
     QLabel *readout_ = nullptr;
     QLabel *hint_ = nullptr;

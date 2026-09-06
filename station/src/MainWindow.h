@@ -187,7 +187,6 @@ private:
     AlertFrame *alert_ = nullptr;
     ToastHost *toasts_ = nullptr;
     Badge *linkBadge_ = nullptr;
-    Badge *missionBadge_ = nullptr;
     QPushButton *autoBtn_ = nullptr;
     QPushButton *manualBtn_ = nullptr;
     IconButton *themeBtn_ = nullptr;

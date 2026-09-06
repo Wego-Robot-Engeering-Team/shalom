@@ -219,7 +219,33 @@ void MapView::wheelEvent(QWheelEvent *ev)
     const double target = transform().m11() * factor;
     if (target < kMinScale || target > kMaxScale)
         return;
+
+    // 커서 아래 지점을 직접 붙잡는다.
+    //
+    // AnchorUnderMouse 에 맡기면 확대할 때 화면이 엉뚱한 데로 튄다. 두 가지가
+    // 겹치기 때문이다. 하나는 Qt 가 그 앵커에 쓰는 마우스 위치가 휠 이벤트의
+    // 위치가 아니라 마지막 마우스 이동 위치라는 것, 다른 하나는 확대한 내용이
+    // 뷰보다 작을 때 QGraphicsView 가 내용을 가운데로 되돌린다는 것이다.
+    // 이 지도는 178 × 17 m 로 가로세로 비가 커서 세로는 늘 뷰보다 작고, 그래서
+    // 확대할 때마다 세로 중심이 다시 잡히며 화면이 미끄러진다.
+    const auto anchor = transformationAnchor();
+    setTransformationAnchor(QGraphicsView::NoAnchor);
+
+    const QPointF before = mapToScene(ev->position().toPoint());
     scale(factor, factor);
+    const QPointF after = mapToScene(ev->position().toPoint());
+    translate(after.x() - before.x(), after.y() - before.y());
+
+    setTransformationAnchor(anchor);
+}
+
+void MapView::mouseDoubleClickEvent(QMouseEvent *ev)
+{
+    // 마커나 포인트 위가 아닐 때만. 포인트를 두 번 누르는 것은 그 포인트에
+    // 대한 동작이지 화면을 되돌리라는 뜻이 아니다.
+    if (ev->button() == Qt::LeftButton && !itemAt(ev->position().toPoint()))
+        emit fitRequested();
+    QGraphicsView::mouseDoubleClickEvent(ev);
 }
 
 void MapView::mousePressEvent(QMouseEvent *ev)
@@ -331,21 +357,45 @@ void MapView::drawForeground(QPainter *p, const QRectF &)
         const QPointF o = mapFromScene(dragOrigin_);
         const QPointF c = mapFromScene(dragCurrent_);
         const QColor col(colors().accent);
+        const double d = std::hypot(c.x() - o.x(), c.y() - o.y());
 
-        p->setPen(QPen(col, 1.6, Qt::DashLine));
-        p->drawLine(o, c);
+        // 화살표 길이는 고정한다. 끌수록 길어지게 두면 지도를 가로지르는
+        // 선이 되는데, 그 길이가 뜻하는 것은 아무것도 없다 — 정하는 것은
+        // 방향뿐이고 거리는 버려진다. 커서까지는 얇은 안내선만 잇는다.
+        constexpr double kArrowLen = 42.0;
+        constexpr double kHeadLen = 11.0;
+
         p->setPen(Qt::NoPen);
         p->setBrush(col);
         p->drawEllipse(o, 4, 4);
 
-        const double d = std::hypot(c.x() - o.x(), c.y() - o.y());
-        if (d > kHeadingDragThreshold) {
-            const double a = std::atan2(c.y() - o.y(), c.x() - o.x());
-            p->drawPolygon(QPolygonF{
-                c,
-                {c.x() - 11 * std::cos(a - 0.4), c.y() - 11 * std::sin(a - 0.4)},
-                {c.x() - 11 * std::cos(a + 0.4), c.y() - 11 * std::sin(a + 0.4)}});
+        if (d <= kHeadingDragThreshold) {
+            // 아직 방향이 정해지지 않았다. 커서까지 점선만 보여준다.
+            p->setPen(QPen(col, 1.2, Qt::DotLine));
+            p->drawLine(o, c);
+            return;
         }
+
+        const double a = std::atan2(c.y() - o.y(), c.x() - o.x());
+        const QPointF tip(o.x() + kArrowLen * std::cos(a), o.y() + kArrowLen * std::sin(a));
+
+        // 커서가 화살표보다 멀면, 어디를 끌고 있는지 알 수 있게 옅은 선을 남긴다.
+        if (d > kArrowLen) {
+            QColor faint(col);
+            faint.setAlpha(70);
+            p->setPen(QPen(faint, 1.0, Qt::DotLine));
+            p->drawLine(tip, c);
+        }
+
+        p->setPen(QPen(col, 2.0));
+        p->drawLine(o, tip);
+
+        p->setPen(Qt::NoPen);
+        p->setBrush(col);
+        p->drawPolygon(QPolygonF{
+            tip,
+            {tip.x() - kHeadLen * std::cos(a - 0.4), tip.y() - kHeadLen * std::sin(a - 0.4)},
+            {tip.x() - kHeadLen * std::cos(a + 0.4), tip.y() - kHeadLen * std::sin(a + 0.4)}});
     }
 
     drawScaleBar(p);

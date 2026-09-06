@@ -94,19 +94,33 @@ DiagnosticsPanel::DiagnosticsPanel(QWidget *parent) : QWidget(parent)
     sysModel->setObjectName(QStringLiteral("Hint"));
     sysCard->addHeaderWidget(sysModel);
 
-    auto *sysGrid = new QGridLayout;
-    sysGrid->setContentsMargins(0, 0, 0, 0);
-    sysGrid->setHorizontalSpacing(metrics::s4);
-    sysGrid->setVerticalSpacing(metrics::s1);
+    // 사용률과 온도를 한 격자에 섞어 놓으니 어느 막대가 무엇인지 읽히지
+    // 않았다. 단위가 다르면(% 와 °C) 눈금도 다른 뜻이라 나란히 두면 안 된다.
+    // 소제목으로 갈라 두 줄로 놓는다.
+    sysCard->body()->addWidget(sectionLabel(QStringLiteral("사용률")));
+    auto *loadGrid = new QGridLayout;
+    loadGrid->setContentsMargins(0, 0, 0, 0);
+    loadGrid->setHorizontalSpacing(metrics::s4);
+    loadGrid->setVerticalSpacing(metrics::s1);
     cpu_ = new StatBar(QStringLiteral("CPU"), QStringLiteral("%"), nullptr, 80, 92);
+    gpu_ = new StatBar(QStringLiteral("GPU"), QStringLiteral("%"), nullptr, 85, 95);
     mem_ = new StatBar(QStringLiteral("메모리"), QStringLiteral("%"), nullptr, 80, 92);
-    cpuTemp_ = new StatBar(QStringLiteral("CPU 온도"), QStringLiteral("°C"), nullptr, 75, 88);
-    gpuTemp_ = new StatBar(QStringLiteral("GPU 온도"), QStringLiteral("°C"), nullptr, 75, 88);
-    sysGrid->addWidget(cpu_, 0, 0);
-    sysGrid->addWidget(mem_, 0, 1);
-    sysGrid->addWidget(cpuTemp_, 1, 0);
-    sysGrid->addWidget(gpuTemp_, 1, 1);
-    sysCard->body()->addLayout(sysGrid);
+    loadGrid->addWidget(cpu_, 0, 0);
+    loadGrid->addWidget(gpu_, 0, 1);
+    loadGrid->addWidget(mem_, 1, 0);
+    sysCard->body()->addLayout(loadGrid);
+
+    sysCard->body()->addSpacing(metrics::s2);
+    sysCard->body()->addWidget(sectionLabel(QStringLiteral("온도")));
+    auto *tempGrid = new QGridLayout;
+    tempGrid->setContentsMargins(0, 0, 0, 0);
+    tempGrid->setHorizontalSpacing(metrics::s4);
+    tempGrid->setVerticalSpacing(metrics::s1);
+    cpuTemp_ = new StatBar(QStringLiteral("CPU"), QStringLiteral("°C"), nullptr, 75, 88);
+    gpuTemp_ = new StatBar(QStringLiteral("GPU"), QStringLiteral("°C"), nullptr, 75, 88);
+    tempGrid->addWidget(cpuTemp_, 0, 0);
+    tempGrid->addWidget(gpuTemp_, 0, 1);
+    sysCard->body()->addLayout(tempGrid);
 
     outer->addWidget(sysCard);
 
@@ -160,9 +174,11 @@ void DiagnosticsPanel::setLink(const LinkHealth &link)
     reconnects_->setText(QString::number(link.reconnects));
 }
 
-void DiagnosticsPanel::setSystem(double cpu, double mem, double cpuTemp, double gpuTemp)
+void DiagnosticsPanel::setSystem(double cpu, double gpu, double mem, double cpuTemp,
+                                double gpuTemp)
 {
     cpu_->setReading(cpu);
+    gpu_->setReading(gpu);
     mem_->setReading(mem);
     cpuTemp_->setReading(cpuTemp);
     gpuTemp_->setReading(gpuTemp);

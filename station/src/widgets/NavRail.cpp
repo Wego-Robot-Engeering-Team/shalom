@@ -269,15 +269,24 @@ NavRail::NavRail(QWidget *parent) : QWidget(parent)
     setFixedWidth(kRailWidth);
 
     auto *lay = new QVBoxLayout(this);
-    lay->setContentsMargins(0, metrics::s3, 0, metrics::s3);
+    lay->setContentsMargins(0, 0, 0, metrics::s3);
     lay->setSpacing(0);
 
     // 로고는 상단 바가 아니라 레일 맨 위에 둔다. 상단 바가 창 전체 폭을
     // 가로지르면 레일이 그 아래에서 시작해 왼쪽 위 모서리가 비고, 로고만
     // 본문 바깥으로 튀어나온 것처럼 보인다.
-    auto *brand = new BrandMark(this, 40);
-    lay->addWidget(brand, 0, Qt::AlignHCenter);
-    lay->addSpacing(metrics::s4);
+    //
+    // 로고 칸의 높이를 상단 바와 같게 잡고 여백의 절반만큼 내려 구분선을
+    // 놓는다. 그래야 왼쪽 열의 선과 오른쪽 열의 바 아래 경계가 같은 높이에
+    // 온다 — 어긋나면 두 열이 다른 격자를 쓰는 것처럼 보인다.
+    auto *brand = new QWidget(this);
+    brand->setFixedHeight(metrics::topBarH);
+    auto *brandLay = new QVBoxLayout(brand);
+    brandLay->setContentsMargins(0, 0, 0, 0);
+    brandLay->addWidget(new BrandMark(brand, 40), 0, Qt::AlignCenter);
+    lay->addWidget(brand);
+
+    lay->addSpacing(metrics::s3 / 2);
     lay->addWidget(new HLine);
     lay->addSpacing(metrics::s3);
 
