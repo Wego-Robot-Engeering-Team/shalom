@@ -99,11 +99,19 @@ MainWindow::MainWindow(gcs::robot::RobotLink *link, QWidget *parent)
     //
     // 높이는 조절할 수 있어야 한다. 평소엔 몇 줄만 보다가, 문제가 생기면
     // 끌어올려 넓게 본다.
+    // 컨텍스트 페이지는 스크롤 영역 안에서 오른쪽에 s2 만큼 여백을 둔다
+    // (스크롤바 자리). 로그에는 그 여백이 없어 카드 하나만 더 넓어 보였다.
+    // 같은 여백을 씌워 세로로 줄을 맞춘다.
+    auto *eventsHost = new QWidget;
+    auto *eventsLay = new QVBoxLayout(eventsHost);
+    eventsLay->setContentsMargins(0, 0, metrics::s2, 0);
+    eventsLay->addWidget(events_);
+
     auto *side = new QSplitter(Qt::Vertical);
     side->setChildrenCollapsible(false);
     side->setHandleWidth(metrics::s2);
     side->addWidget(context_);
-    side->addWidget(events_);
+    side->addWidget(eventsHost);
     side->setSizes({570, 290});
     side->setStretchFactor(0, 1);
 
@@ -136,6 +144,14 @@ MainWindow::MainWindow(gcs::robot::RobotLink *link, QWidget *parent)
 
 QWidget *MainWindow::buildTopBar()
 {
+    // 상단 바는 성격이 다른 것을 한 줄에 담는다. 아무 구분 없이 늘어놓으면
+    // 주행 모드 전환과 테마 토글이 같은 무게로 보인다. 세 덩어리로 나눈다.
+    //
+    //   [ 무엇인가 ]      로고 · 이름
+    //   [ 장비가 어떤가 ] 연결 · 배터리
+    //   [ 무엇을 하는가 ] 주행 모드
+    //   [ 부수적인 것 ]   사용자 · 설정 · 테마 · 알림
+    //   [ 멈춤 ]          비상정지
     auto *bar = new QWidget;
     bar->setObjectName(QStringLiteral("TopBar"));
     bar->setFixedHeight(66);
@@ -144,55 +160,60 @@ QWidget *MainWindow::buildTopBar()
     lay->setContentsMargins(metrics::s4, 0, metrics::s3, 0);
     lay->setSpacing(metrics::s3);
 
+    // ---- 무엇인가 ----
     lay->addWidget(new BrandMark(nullptr, 30), 0, Qt::AlignVCenter);
 
-    auto *t = new QLabel(QStringLiteral("SHALOM 관제"));
-    t->setObjectName(QStringLiteral("AppTitle"));
-    lay->addWidget(t, 0, Qt::AlignVCenter);
+    auto *title = new QLabel(QStringLiteral("SHALOM 관제"));
+    title->setObjectName(QStringLiteral("AppTitle"));
+    lay->addWidget(title, 0, Qt::AlignVCenter);
 
-    lay->addSpacing(metrics::s4);
-    // 배지는 '변하는' 상태에만 쓴다. 맵 이름 같은 고정 정보는 지도 툴바로 뺐다.
-    linkBadge_ = new Badge(QStringLiteral("연결 끊김"), QStringLiteral("danger"));
-    missionBadge_ = new Badge(QStringLiteral("미션 대기"), QStringLiteral("neutral"));
+    lay->addSpacing(metrics::s2);
+    lay->addWidget(new VLine(nullptr, metrics::s5), 0);
+    lay->addSpacing(metrics::s2);
+
+    // ---- 장비가 어떤가 ----
+    // 배지에 이름을 붙인다. "시뮬레이터" 만 떠 있으면 그것이 연결 상태를
+    // 말하는 것인지 알 수 없다.
+    lay->addWidget(captionLabel(QStringLiteral("연결")), 0, Qt::AlignVCenter);
+    linkBadge_ = new Badge(QStringLiteral("끊김"), QStringLiteral("danger"));
     lay->addWidget(linkBadge_);
-    lay->addWidget(missionBadge_);
 
-    // 배터리는 어느 화면에 있든 보여야 한다. 예전에는 내비게이션 레일
-    // 맨 아래에 있었는데, 라벨 없는 숫자가 구석에 놓여 무엇인지 알기
-    // 어려웠다. 연결·미션 배지와 한 덩어리로 묶어 "장비가 지금 어떤가"를
-    // 한자리에서 읽게 한다. 좌표는 성격이 달라 주행 화면이 맡는다.
     lay->addSpacing(metrics::s3);
-    auto *batteryLabel = new QLabel(QStringLiteral("배터리"));
-    batteryLabel->setObjectName(QStringLiteral("Hint"));
-    lay->addWidget(batteryLabel, 0, Qt::AlignVCenter);
-
+    lay->addWidget(captionLabel(QStringLiteral("배터리")), 0, Qt::AlignVCenter);
     headerBattery_ = new BatteryPill(nullptr, 25.0);
     lay->addWidget(headerBattery_, 0, Qt::AlignVCenter);
 
     lay->addStretch(1);
 
+    // ---- 무엇을 하는가 ----
+    // 화면에서 비상정지 다음으로 무거운 조작이다. 설정·테마와 같은 모양으로
+    // 늘어놓으면 그 무게가 드러나지 않는다.
+    lay->addWidget(captionLabel(QStringLiteral("주행 모드")), 0, Qt::AlignVCenter);
     autoBtn_ = new QPushButton(QStringLiteral("자율"));
     manualBtn_ = new QPushButton(QStringLiteral("수동"));
     for (auto *b : {autoBtn_, manualBtn_}) {
         b->setCheckable(true);
-        b->setFixedWidth(84);
+        b->setFixedWidth(76);
         lay->addWidget(b);
     }
     autoBtn_->setChecked(true);
 
+    lay->addStretch(1);
+
+    // ---- 부수적인 것 ----
+    // 테두리 없는 버튼으로 낮춘다. 조작이 아니라 도구다.
     userBadge_ = new Badge({}, QStringLiteral("neutral"));
     userBadge_->hide();
     lay->addWidget(userBadge_);
 
     settingsBtn_ = new QPushButton(QStringLiteral("설정"));
+    settingsBtn_->setProperty("variant", "ghost");
     settingsBtn_->setProperty("size", "sm");
-    settingsBtn_->setFixedWidth(52);
     lay->addWidget(settingsBtn_);
 
-    // 라벨은 "지금 상태"가 아니라 "누르면 갈 곳"이다. 저장된 설정이
-    // 다크면 처음부터 "라이트" 로 떠야 한다.
     themeBtn_ = new QPushButton(colors().isDark() ? QStringLiteral("라이트")
                                                   : QStringLiteral("다크"));
+    themeBtn_->setProperty("variant", "ghost");
     themeBtn_->setProperty("size", "sm");
     themeBtn_->setFixedWidth(58);
     themeBtn_->setToolTip(QStringLiteral("다크 / 라이트 전환"));
@@ -201,12 +222,10 @@ QWidget *MainWindow::buildTopBar()
     bell_ = new NotificationBell;
     lay->addWidget(bell_, 0, Qt::AlignVCenter);
 
-    // 다른 조작과 붙여두면 손이 잘못 간다. 구분선과 여백으로 떼어 놓는다.
+    // ---- 멈춤 ----
+    // 다른 조작과 붙여두면 손이 잘못 간다. 선과 여백으로 떼어 놓는다.
     lay->addSpacing(metrics::s3);
-    auto *estopDivider = new QFrame;
-    estopDivider->setFrameShape(QFrame::VLine);
-    estopDivider->setObjectName(QStringLiteral("VSep"));
-    lay->addWidget(estopDivider);
+    lay->addWidget(new VLine(nullptr, metrics::s3), 0);
     lay->addSpacing(metrics::s3);
 
     estop_ = new EStopButton(nullptr, 54);

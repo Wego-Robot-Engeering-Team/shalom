@@ -24,6 +24,27 @@ struct Notification {
     QString severity;   ///< info | ok | warn | error | critical
 };
 
+/// The list itself: a rounded, frameless card that hangs under the bell.
+///
+/// Painted rather than assembled from styled widgets. A top-level Qt::Popup
+/// picks up the platform's window frame, which came out as a hard black rule
+/// around the panel; painting the card means the border is the theme's own
+/// hairline on every platform.
+class NotificationPopup : public QWidget {
+    Q_OBJECT
+public:
+    explicit NotificationPopup(const QList<Notification> &items);
+
+protected:
+    void paintEvent(QPaintEvent *) override;
+    void resizeEvent(QResizeEvent *) override;
+
+private:
+    /// Height the list needs, capped so a long backlog scrolls instead of
+    /// growing past the bottom of the screen.
+    static constexpr int kMaxListHeight = 380;
+};
+
 /// Bell glyph with an unread count. Clicking opens the list below it.
 class NotificationBell : public QWidget {
     Q_OBJECT

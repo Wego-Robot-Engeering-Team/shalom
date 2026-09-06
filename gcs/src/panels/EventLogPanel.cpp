@@ -42,7 +42,7 @@ constexpr int kRoleCode = Qt::UserRole + 2;
 constexpr int kRoleMessage = Qt::UserRole + 3;
 constexpr int kRoleDetail = Qt::UserRole + 4;
 
-constexpr int kRowHeight = 32;
+constexpr int kRowHeight = 46;
 
 /// 상세 JSON 을 한 줄 요약으로 접는다. 중첩 객체는 값이 길어지기만 하고
 /// 한 줄에서는 읽히지 않으므로 건너뛴다.
@@ -102,46 +102,65 @@ public:
         const auto sev = Severity(idx.data(kRoleSeverity).toInt());
         const QString code = idx.data(kRoleCode).toString();
         const QColor sc = severityColor(sev);
+        const bool loud = sev == Severity::Error || sev == Severity::Critical;
 
         if (opt.state & QStyle::State_MouseOver) {
             p->setPen(Qt::NoPen);
             p->setBrush(QColor(C.surfaceHi));
-            p->drawRect(r);
+            p->drawRoundedRect(r.adjusted(2, 1, -2, -1), metrics::rSm, metrics::rSm);
         }
 
-        // 좌측 심각도 막대 하나로 레벨을 표시한다. 배경 전체를 물들이면
-        // 오류가 몇 건 쌓였을 때 화면이 읽히지 않는다.
+        // 예전에는 행 왼쪽에 2 px 색 막대만 세웠다. 정보인지 오류인지
+        // 구분되지 않으면서 목록만 어수선했다. 등급을 글자로 적고, 좁은
+        // 열에 다 넣기 위해 두 줄로 쓴다.
+        //
+        //   ● 오류   MODE_AUTO  (i)              20:47:23
+        //     자율 모드 전환                     map_id ...
+        const int top = r.top() + 5;
+        const int bottom = r.top() + 22;
+
         p->setPen(Qt::NoPen);
-        p->setBrush(sc);
-        p->drawRect(QRectF(r.left(), r.top() + 5, 2, r.height() - 10));
+        p->setBrush(sev == Severity::Info ? QColor(C.textMute) : sc);
+        p->drawEllipse(QPointF(r.left() + 12, top + 8), loud ? 4.0 : 3.0, loud ? 4.0 : 3.0);
 
-        int x = r.left() + 10;
+        int x = r.left() + 22;
 
-        // 시각
+        QFont fl;
+        fl.setPointSize(9);
+        fl.setWeight(QFont::DemiBold);
+        p->setFont(fl);
+        p->setPen(sev == Severity::Info ? QColor(C.textMute) : sc);
+        const QString level = diag::severityLabel(sev);
+        const int levelW = QFontMetrics(fl).horizontalAdvance(level) + 8;
+        p->drawText(QRect(x, top, levelW, 16), Qt::AlignLeft | Qt::AlignVCenter, level);
+        x += levelW;
+
+        // 시각은 오른쪽 끝에. 훑을 때 세로로 줄이 맞는 편이 읽기 쉽다.
         QFont fm(monoFamily());
         fm.setPointSize(9);
         p->setFont(fm);
         p->setPen(QColor(C.textMute));
         const QString time = idx.data(kRoleTime).toString();
-        const int timeW = QFontMetrics(fm).horizontalAdvance(time) + 10;
-        p->drawText(QRect(x, r.top(), timeW, r.height()),
-                    Qt::AlignLeft | Qt::AlignVCenter, time);
-        x += timeW;
+        const int timeW = QFontMetrics(fm).horizontalAdvance(time) + 2;
+        p->drawText(QRect(r.right() - kRightPad - timeW, top, timeW, 16),
+                    Qt::AlignRight | Qt::AlignVCenter, time);
 
-        // 코드 (있을 때). 행의 주인공이므로 등폭 + 심각도 색.
+        const int firstLineRight = r.right() - kRightPad - timeW - 8;
+
         if (!code.isEmpty()) {
             QFont fc(monoFamily());
-            fc.setPointSize(10);
+            fc.setPointSize(9);
             fc.setWeight(QFont::DemiBold);
             p->setFont(fc);
-            p->setPen(sc);
-            const int codeW = QFontMetrics(fc).horizontalAdvance(code) + 8;
-            p->drawText(QRect(x, r.top(), codeW, r.height()),
-                        Qt::AlignLeft | Qt::AlignVCenter, code);
+            p->setPen(QColor(C.textDim));
+            const int codeW = qMin(QFontMetrics(fc).horizontalAdvance(code) + 8,
+                                   qMax(0, firstLineRight - x));
+            p->drawText(QRect(x, top, codeW, 16), Qt::AlignLeft | Qt::AlignVCenter,
+                        QFontMetrics(fc).elidedText(code, Qt::ElideRight, codeW));
             x += codeW;
 
             // (i) 아이콘 — 코드 바로 옆
-            const QRect ic(x, r.center().y() - kIconSize / 2, kIconSize, kIconSize);
+            const QRect ic(x, top + 1, kIconSize, kIconSize);
             const bool hot = hoveredIconRow == idx.row();
             p->setPen(QPen(hot ? sc : QColor(C.textMute), 1.2));
             // 삼항으로 QColor 와 Qt::NoBrush 를 섞으면 안 된다.
@@ -156,37 +175,34 @@ public:
             p->setFont(fi);
             p->setPen(hot ? sc : QColor(C.textMute));
             p->drawText(ic, Qt::AlignCenter, QStringLiteral("i"));
-            x = ic.right() + 10;
         }
 
-        // 상세 — 오른쪽 끝에 붙인다. 로그가 지도 폭을 쓰다 보니 짧은
-        // 메시지 옆이 크게 비는데, 그 자리에 (i) 를 눌러야 보이던 값을
-        // 미리 꺼내 둔다. 자리가 좁으면 제목이 우선이다.
+        // 둘째 줄 — 내용, 그리고 자리가 남으면 상세 값
         int detailW = 0;
         const QString detail = idx.data(kRoleDetail).toString();
-        const int avail = r.right() - kRightPad - x;
-        if (!detail.isEmpty() && avail > 320) {
+        const int avail = r.right() - kRightPad - (r.left() + 22);
+        if (!detail.isEmpty() && avail > 260) {
             QFont fd(monoFamily());
             fd.setPointSize(9);
             const QFontMetrics dm(fd);
-            detailW = qMin(dm.horizontalAdvance(detail) + 16, avail / 2);
+            detailW = qMin(dm.horizontalAdvance(detail) + 12, avail / 2);
             p->setFont(fd);
             p->setPen(QColor(C.textMute));
-            p->drawText(QRect(r.right() - kRightPad - detailW, r.top(), detailW, r.height()),
+            p->drawText(QRect(r.right() - kRightPad - detailW, bottom, detailW, 16),
                         Qt::AlignRight | Qt::AlignVCenter,
                         dm.elidedText(detail, Qt::ElideRight, detailW));
         }
 
-        // 제목 — 상세를 뺀 나머지
         QFont ft;
         ft.setPointSize(10);
+        ft.setWeight(loud ? QFont::DemiBold : QFont::Normal);
         p->setFont(ft);
-        p->setPen(QColor(C.text));
-        const QRect textRect(x, r.top(), avail - detailW, r.height());
+        p->setPen(loud ? sc : QColor(C.text));
+        const QRect textRect(r.left() + 22, bottom, avail - detailW, 16);
         if (textRect.width() > 20) {
-            const QString msg = QFontMetrics(ft).elidedText(
-                idx.data(kRoleMessage).toString(), Qt::ElideRight, textRect.width());
-            p->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, msg);
+            p->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
+                        QFontMetrics(ft).elidedText(idx.data(kRoleMessage).toString(),
+                                                    Qt::ElideRight, textRect.width()));
         }
         p->restore();
     }
@@ -194,20 +210,26 @@ public:
 
 /// 델리게이트가 그린 (i) 아이콘의 실제 사각형을 뷰에서 다시 계산한다.
 /// 아이콘이 코드 문자열 폭에 따라 움직이므로 그때 쓴 폰트를 그대로 쓴다.
-QRect iconRectFor(const QRect &itemRect, const QString &time, const QString &code)
+QRect iconRectFor(const QRect &itemRect, const QString &time, const QString &code,
+                  const QString &level)
 {
     if (code.isEmpty())
         return {};
     QFont fm(monoFamily());
     fm.setPointSize(9);
     QFont fc(monoFamily());
-    fc.setPointSize(10);
+    fc.setPointSize(9);
     fc.setWeight(QFont::DemiBold);
 
-    int x = itemRect.left() + 10;
-    x += QFontMetrics(fm).horizontalAdvance(time) + 10;
+    Q_UNUSED(time);
+    QFont fl;
+    fl.setPointSize(9);
+    fl.setWeight(QFont::DemiBold);
+
+    int x = itemRect.left() + 22;
+    x += QFontMetrics(fl).horizontalAdvance(level) + 8;
     x += QFontMetrics(fc).horizontalAdvance(code) + 8;
-    return QRect(x, itemRect.center().y() - kIconSize / 2, kIconSize, kIconSize);
+    return QRect(x, itemRect.top() + 6, kIconSize, kIconSize);
 }
 
 /// (i) 아이콘의 호버/클릭을 처리하는 리스트.
@@ -283,7 +305,9 @@ private:
         const QString code = idx.data(kRoleCode).toString();
         if (code.isEmpty())
             return -1;
-        const QRect ic = iconRectFor(visualRect(idx), idx.data(kRoleTime).toString(), code);
+        const QRect ic = iconRectFor(
+            visualRect(idx), idx.data(kRoleTime).toString(), code,
+            diag::severityLabel(Severity(idx.data(kRoleSeverity).toInt())));
         return ic.adjusted(-3, -3, 3, 3).contains(pos) ? idx.row() : -1;
     }
 
