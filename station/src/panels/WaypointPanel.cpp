@@ -76,26 +76,6 @@ WaypointPanel::WaypointPanel(QWidget *parent) : QWidget(parent)
     connect(up, &QPushButton::clicked, this, [this] { move(-1); });
     connect(down, &QPushButton::clicked, this, [this] { move(1); });
 
-    // ---- 미션 제어 ----
-    auto *run = new QHBoxLayout;
-    run->setSpacing(metrics::s2);
-    start_ = makeButton(QStringLiteral("자율주행 시작"));
-    start_->setProperty("variant", "primary");
-    pause_ = makeButton(QStringLiteral("일시정지"));
-    resume_ = makeButton(QStringLiteral("재개"));
-    stop_ = makeButton(QStringLiteral("정지"));
-    run->addWidget(start_, 2);
-    run->addWidget(pause_, 1);
-    run->addWidget(resume_, 1);
-    run->addWidget(stop_, 1);
-    card_->body()->addLayout(run);
-
-    connect(start_, &QPushButton::clicked, this, &WaypointPanel::missionStart);
-    connect(pause_, &QPushButton::clicked, this, &WaypointPanel::missionPause);
-    connect(resume_, &QPushButton::clicked, this, &WaypointPanel::missionResume);
-    connect(stop_, &QPushButton::clicked, this, &WaypointPanel::missionStop);
-
-    setMissionState(false, false);
 }
 
 void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
@@ -137,13 +117,6 @@ void WaypointPanel::setStatus(const QString &id, const QString &status)
     }
 }
 
-void WaypointPanel::setMissionState(bool running, bool paused)
-{
-    start_->setEnabled(!running);
-    pause_->setEnabled(running && !paused);
-    resume_->setEnabled(running && paused);
-    stop_->setEnabled(running);
-}
 
 void WaypointPanel::move(int delta)
 {

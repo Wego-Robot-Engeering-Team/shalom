@@ -109,6 +109,7 @@ Qt 경로는 프리셋에 Homebrew 기본 위치가 들어 있다. Ubuntu 에서
 | `--host <주소>` `--port <포트>` | `--live` 접속 대상 override |
 | `--manual` | 수동 모드로 시작 (조작 패널 확인용) |
 | `--size <W>x<H>` | 창 크기 지정. 좁은 화면 배치 확인용 |
+| `--samples <폴더>` | 이력 화면에 표본 촬영 데이터를 띄운다 (설정에 저장하지 않는다) |
 | `--shot <경로>` | 창을 캡처하고 종료 |
 | `--shot-dialog <종류> <경로>` | 대화상자 캡처 (`welcome`, `settings`, `settings:1`, `notifications`) |
 

@@ -2,11 +2,14 @@
 
 // Inspection progress summary for the drive view. Statement of work 2.2.7 [3].
 //
-// The drive view is where an operator sits during a run, but the point list
-// and its controls live on the locations view. Without this card the operator
-// has to leave the map to answer "how far along are we?" - so this shows the
-// answer where they already are, read-only. Rows are drawn by the shared
-// WaypointDelegate, so a point cannot read differently on the two views.
+// Starting and stopping a run belongs here, not on the locations view. The two
+// screens do different jobs: locations is where the point list is decided, drive is
+// where a run is carried out and watched. Putting "start autonomous driving" in
+// the editing screen meant leaving the map to begin, and leaving it again to
+// watch - and start sat next to delete, which is not a neighbour it should have.
+//
+// Rows are drawn by the shared WaypointDelegate, so a point cannot read
+// differently on the two views.
 
 #include <QVariantMap>
 #include <QList>
@@ -15,6 +18,7 @@
 class QLabel;
 class QListWidget;
 class QProgressBar;
+class QPushButton;
 
 namespace gcs::ui {
 
@@ -31,8 +35,15 @@ public:
     /// vocabulary WaypointPanel uses, so both views agree.
     void setWaypoints(const QList<QVariantMap> &points);
 
-    /// "idle" | "running" | "paused". Drives the header badge.
+    /// "idle" | "running" | "paused". Drives the header badge and which of the
+    /// run controls are available.
     void setMissionState(const QString &state);
+
+signals:
+    void missionStart();
+    void missionPause();
+    void missionResume();
+    void missionStop();
 
 private:
     void refresh();
@@ -42,6 +53,10 @@ private:
     QProgressBar *bar_ = nullptr;
     QLabel *count_ = nullptr;
     QListWidget *list_ = nullptr;
+    QPushButton *start_ = nullptr;
+    QPushButton *pause_ = nullptr;
+    QPushButton *resume_ = nullptr;
+    QPushButton *stop_ = nullptr;
 
     QList<QVariantMap> points_;
     QString missionState_ = QStringLiteral("idle");

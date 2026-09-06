@@ -78,6 +78,13 @@ public:
     /// a specific view.
     void showView(NavItem item);
 
+    /// Points the history view at a folder for this run only.
+    ///
+    /// Used by the development sample-data flag; it deliberately does not
+    /// write to the settings, so trying samples cannot leave the delivered
+    /// storage path pointing somewhere else afterwards.
+    void setInspectionDirectory(const QString &path);
+
     /// Switches drive mode from outside the window. Used by the development
     /// screenshot options; the operator path goes through the top-bar buttons.
     void setDriveMode(const QString &mode) { setMode(mode); }

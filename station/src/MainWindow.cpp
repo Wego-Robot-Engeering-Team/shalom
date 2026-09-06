@@ -641,7 +641,7 @@ void MainWindow::wireMissionSignals()
                    QStringLiteral("점검 순서 변경 (%1개)").arg(ids.size()),
                    QJsonObject{{"channel", QStringLiteral("cmd/waypoints/set")}});
     });
-    connect(waypoints_, &WaypointPanel::missionStart, this, [this] {
+    connect(mission_, &MissionPanel::missionStart, this, [this] {
         // 로봇도 같은 값으로 거부하지만, 여기서 먼저 막아야 조작자가 이유를
         // 안다. 로봇만 거부하면 화면에서는 "눌렀는데 아무 일도 안 났다" 가 된다.
         const double departAt = Config::instance().batteryDeparturePercent();
@@ -659,12 +659,12 @@ void MainWindow::wireMissionSignals()
         robot_->missionStart();
         log_->log(QStringLiteral("MISSION_START"));
     });
-    connect(waypoints_, &WaypointPanel::missionPause, this, [this] {
+    connect(mission_, &MissionPanel::missionPause, this, [this] {
         robot_->setWaypoints(waypoints_->waypoints());
         robot_->missionPause();
         log_->log(QStringLiteral("MISSION_PAUSE"));
     });
-    connect(waypoints_, &WaypointPanel::missionResume, this, [this] {
+    connect(mission_, &MissionPanel::missionResume, this, [this] {
         robot_->setWaypoints(waypoints_->waypoints());
         robot_->missionResume();
         log_->log(QStringLiteral("MISSION_RESUME"));
@@ -672,7 +672,7 @@ void MainWindow::wireMissionSignals()
     connect(waypoints_, &WaypointPanel::waypointsChanged, mission_,
             &MissionPanel::setWaypoints);
 
-    connect(waypoints_, &WaypointPanel::missionStop, this, [this] {
+    connect(mission_, &MissionPanel::missionStop, this, [this] {
         robot_->setWaypoints(waypoints_->waypoints());
         robot_->missionStop();
         log_->log(QStringLiteral("MISSION_STOP"));
@@ -683,7 +683,7 @@ void MainWindow::onMissionStateChanged(MissionState state)
 {
     const bool running = state != MissionState::Idle;
     const bool paused = state == MissionState::Paused;
-    waypoints_->setMissionState(running, paused);
+
     mission_->setMissionState(paused   ? QStringLiteral("paused")
                               : running ? QStringLiteral("running")
                                         : QStringLiteral("idle"));
@@ -770,6 +770,12 @@ void MainWindow::showWaypointInfo(const QString &id, const QPoint &globalPos)
 void MainWindow::navigate(NavItem item)
 {
     context_->setCurrentIndex(int(item));
+}
+
+void MainWindow::setInspectionDirectory(const QString &path)
+{
+    data_->setDirectory(path);
+    log_->note(diag::Severity::Info, QStringLiteral("표본 촬영 폴더 사용 — %1").arg(path));
 }
 
 void MainWindow::showView(NavItem item)

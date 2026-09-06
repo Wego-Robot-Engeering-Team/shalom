@@ -52,9 +52,10 @@ TeleopPanel::TeleopPanel(QWidget *parent) : QWidget(parent)
                            QStringLiteral("°/s"), -1,
                            180.0 / M_PI, 0);
 
-    auto *note = new QLabel(QStringLiteral(
-        "버튼이나 키를 누르고 있는 동안만 움직입니다. 손을 떼면 즉시 멈춥니다.\n"
-        "키보드  ↑↓←→ 이동,  Q E 회전,  Space 정지"));
+    // 첫 줄("누르고 있는 동안만 움직입니다")은 지웠다. 눌러 보면 바로 아는
+    // 동작이고, 진단 화면에서 당연한 설명을 걷어낸 것과 같은 이유다.
+    // 키 배치는 남긴다 — 이건 설명이 아니라 조작 방법이고 다른 출처가 없다.
+    auto *note = new QLabel(QStringLiteral("↑↓←→ 이동    Q E 회전    Space 정지"));
     note->setObjectName(QStringLiteral("Hint"));
     note->setWordWrap(true);
     card_->body()->addWidget(note);
