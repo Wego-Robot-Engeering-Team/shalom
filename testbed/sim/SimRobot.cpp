@@ -9,10 +9,10 @@
 
 #include "RobotDef.h"
 
-namespace gcs::sim {
+namespace hmi::sim {
 
-using gcs::map::MapInfo;
-using gcs::map::normalizeAngle;
+using hmi::map::MapInfo;
+using hmi::map::normalizeAngle;
 
 namespace {
 
@@ -55,7 +55,7 @@ MapData buildMap()
     // 실제 현장에 가까운 지도를 먼저 쓴다. 검수고 안에 선로 두 개, 그 사이와
     // 옆으로 난 통로, 차량 아래를 지나는 길이 들어 있다 — 예전의 절차적
     // 지도는 하부 통로 하나뿐이라 편성 사이를 다니는 동작을 시험할 수 없었다.
-    if (auto loaded = gcs::map::loadRosMap(QStringLiteral(":/maps/gtxa_depot.yaml")))
+    if (auto loaded = hmi::map::loadRosMap(QStringLiteral(":/maps/gtxa_depot.yaml")))
         return {loaded->info, loaded->grid};
 
     QList<qint8> g(qsizetype(kW) * kH, qint8(-1));   // 미탐색으로 시작
@@ -187,7 +187,7 @@ QList<QVariantMap> buildTags(const QList<QVariantMap> &waypoints)
 
 // ============================ SimRobot ============================
 
-SimRobot::SimRobot(QObject *parent) : gcs::robot::RobotLink(parent)
+SimRobot::SimRobot(QObject *parent) : hmi::robot::RobotLink(parent)
 {
     joints_ = {robot::kArmHome.begin(), robot::kArmHome.end()};
     jointTarget_ = joints_;
@@ -209,7 +209,7 @@ void SimRobot::stop()
     timer_->stop();
 }
 
-std::optional<gcs::robot::MapData> SimRobot::initialMap() const
+std::optional<hmi::robot::MapData> SimRobot::initialMap() const
 {
     return buildMap();
 }
@@ -669,7 +669,7 @@ Telemetry SimRobot::step(double dt)
     // 그대로 흉내 내, UI 가 판정 로직을 갖지 않도록 한다.
     auto sensor = [](const char *id, const char *name, double hz, double actual,
                      const QString &state, const QString &detail = {}) {
-        gcs::ui::SensorHealth h;
+        hmi::ui::SensorHealth h;
         h.id = QString::fromLatin1(id);
         h.name = QString::fromUtf8(name);
         h.expectedHz = hz;
@@ -712,4 +712,4 @@ Telemetry SimRobot::step(double dt)
     return tm;
 }
 
-}  // namespace gcs::sim
+}  // namespace hmi::sim

@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=철도차량 하부점검 관제
-Name[en]=Undercarriage Inspection Control
-Comment=GTX-A 차량 하부 점검 로봇 관제
-Exec=inspection_gcs
-Icon=inspection-gcs
-Terminal=false
-Categories=Utility;
