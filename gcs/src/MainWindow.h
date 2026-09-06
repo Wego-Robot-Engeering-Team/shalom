@@ -98,7 +98,22 @@ private:
     QWidget *buildCaptureContext();
     QWidget *buildDiagnosticsContext();
     QWidget *buildDataContext();
+    /// Connects every signal, split by what the operator is touching.
+    /// One 240-line function made it impossible to see whether a panel
+    /// was wired at all - two panels were not.
     void wireSignals();
+    /// Robot link and log: telemetry, connection, mission state, incoming map.
+    void wireRobotSignals();
+    /// Top bar: theme, settings, emergency stop and the drive-mode buttons.
+    void wireChromeSignals();
+    /// Map interactions: goal placement, point placement, point clicks.
+    void wireMapSignals();
+    /// Location teaching and the fixed dock/home points.
+    void wireLocationSignals();
+    /// Jog, arm, capture and stored-data panels.
+    void wirePanelSignals();
+    /// The inspection point list and mission start/pause/resume/stop.
+    void wireMissionSignals();
 
     void engageEstop();
     void releaseEstop();

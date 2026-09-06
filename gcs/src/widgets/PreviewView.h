@@ -23,7 +23,6 @@ public:
     /// Replaces the placeholder text, for reporting why there is no image.
     void setPlaceholder(const QString &text);
 
-    bool hasImage() const { return !image_.isNull(); }
 
 protected:
     void paintEvent(QPaintEvent *) override;

@@ -74,7 +74,6 @@ signals:
 
     /// Overwrites an existing location with the current robot pose, keeping
     /// its id and its place in the sequence.
-    void reteachRequested(const QString &kind);
 
     void gotoRequested(const QString &kind);
 
