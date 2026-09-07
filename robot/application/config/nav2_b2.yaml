@@ -56,10 +56,28 @@ bt_navigator:
 #
 # After installing the newer policy, desired_linear_vel and the velocity_smoother
 # limits can go up together; raising one alone just moves the bottleneck.
+#
+# THE POLICY IS NO LONGER THE BINDING LIMIT -- THE CONTRACT IS
+# ---------------------------------------------------------------------------
+# The statement of work caps travel speed below anything the policy can do, and
+# those figures are written down in hmi/src/RobotDef.h so the control station
+# and this file cannot drift apart:
+#
+#     kVxMax      0.60 m/s     travel
+#     kWzMax      0.80 rad/s   turn
+#     kVxCaution  0.30 m/s     mandated near an unmapped obstacle (SOW 2.2.5)
+#
+# Every velocity below is set from those, not from what the policy could follow.
+# This file used to ask for 0.9 m/s and let the smoother pass 1.0, which the
+# robot would have done -- faster than the contract allows.  Training more
+# capable policies does not raise this ceiling; only a change to the SOW does.
 # ---------------------------------------------------------------------------
 
 controller_server:
   ros__parameters:
+    # MPPI 는 매 주기 batch_size x time_steps 궤적을 굴린다. Nav2 문서는 30 Hz
+    # 를 권하지만 이 기계에서는 시뮬레이터와 SLAM 이 같은 CPU 를 쓰므로 10 Hz
+    # 로 두고 batch 를 1000 으로 잡았다. 실기(젯슨)에서는 실측해서 다시 잡을 것.
     controller_frequency: 10.0
     min_x_velocity_threshold: 0.01
     min_y_velocity_threshold: 0.01
@@ -87,39 +105,142 @@ controller_server:
       stateful: true
 
     FollowPath:
-      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      desired_linear_vel: 0.9
-      lookahead_dist: 1.4
-      # RPP compares the carrot distance against xy_goal_tolerance to decide when
-      # to turn toward the final goal heading.  Keep this above that tolerance
-      # (0.5) or the robot spins to the goal yaw as soon as it sets off.
-      min_lookahead_dist: 1.0
-      max_lookahead_dist: 2.0
-      lookahead_time: 1.5
-      use_velocity_scaled_lookahead_dist: true
+      # ---------------------------------------------------------------------
+      # MPPI, not Regulated Pure Pursuit.
+      #
+      # RPP is a path *follower*: it tracks the global plan and, when something
+      # is in the way, stops. It cannot go around. That was tolerable while the
+      # global costmap had no memory of the map, because the plan was wrong
+      # anyway; now that the planner routes around static geometry, the gap
+      # that is left is the moving obstacle - a person in the pit, a cart, a
+      # panel someone put down since the map was built.
+      #
+      # MPPI rolls out a batch of candidate trajectories every cycle, scores
+      # them against the costmap and the path, and takes the best. It is the
+      # cheapest way to get avoidance without giving up the global plan.
+      #
+      # It costs CPU: batch_size x time_steps trajectory rollouts per control
+      # cycle. The figures below are sized for this machine at 10 Hz - see the
+      # note on controller_frequency above.
+      # ---------------------------------------------------------------------
+      plugin: "nav2_mppi_controller::MPPIController"
+      # model_dt must be >= the controller period, and MPPI refuses to configure
+      # otherwise ("Controller period more then model dt"). At 10 Hz that means
+      # 0.1 s, so 20 steps gives the same 2.0 s horizon at half the rollout cost.
+      time_steps: 20
+      model_dt: 0.1           # 2.0 s horizon, about three B2 strides
+      batch_size: 1000
+      iteration_count: 1
+
+      # B2 walks sideways as readily as forwards - the velocity policy was
+      # trained with lin_vel_y in its command range - so the model is Omni
+      # rather than DiffDrive. That is the main thing MPPI buys over RPP here:
+      # it can slide around an obstacle instead of stopping and turning.
+      motion_model: "Omni"
+
+      # Statement of work limits, the same ones in hmi/src/RobotDef.h. These are
+      # not the policy's ceiling; they are the contract's.
+      vx_max: 0.6
+      vx_min: -0.4
+      vy_max: 0.4
+      wz_max: 0.8
+      ax_max: 1.5
+      ax_min: -1.5
+      ay_max: 1.0
+      az_max: 3.2
+
+      # Exploration noise. Too little and MPPI never finds the way around an
+      # obstacle; too much and the robot wanders on an open floor.
+      vx_std: 0.2
+      vy_std: 0.2
+      wz_std: 0.4
+      temperature: 0.3
+      gamma: 0.015
+
+      # 1.0 s, the same figure both costmaps use. 0.5 was not enough: map->odom
+      # comes from slam_toolbox at its own pace and lags the control loop by a
+      # couple of hundred milliseconds under load, and the controller aborts the
+      # goal outright ("Unable to transform goal pose into costmap frame")
+      # rather than reusing the last transform.
       transform_tolerance: 1.0
+      prune_distance: 2.0
+      # Draws every candidate trajectory on /trajectories and the chosen one on
+      # /local_plan. Costs a little bandwidth and is worth it: an operator (or
+      # anyone tuning this) can see *why* the robot went the way it did, which
+      # is otherwise invisible.
+      visualize: true
+      publish_optimal_trajectory: true
 
-      min_approach_linear_velocity: 0.2
-      use_collision_detection: true
-      max_allowed_time_to_collision_up_to_carrot: 1.0
+      AckermannConstraints:
+        min_turning_r: 0.0
 
-      use_regulated_linear_velocity_scaling: true
-      use_cost_regulated_linear_velocity_scaling: false
-      # Must match local_costmap's inflation cost_scaling_factor.
-      inflation_cost_scaling_factor: 1.8
-      regulated_linear_scaling_min_radius: 0.9
-      # Without a floor the robot crawls to a halt through curves.
-      regulated_linear_scaling_min_speed: 0.35
+      critics: ["ConstraintCritic", "CostCritic", "GoalCritic", "GoalAngleCritic",
+                "PathAlignCritic", "PathFollowCritic", "PathAngleCritic",
+                "PreferForwardCritic"]
 
-      # A quadruped turns in place naturally; RPP forbids pairing this with
-      # allow_reversing.
-      use_rotate_to_heading: true
-      allow_reversing: false
-      rotate_to_heading_min_angle: 0.75
-      # Inside the policy's trained ang_vel_z range.
-      rotate_to_heading_angular_vel: 0.8
-      max_angular_accel: 3.0
-      use_interpolation: true
+      ConstraintCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 4.0
+
+      # The obstacle term. CostCritic reads the costmap directly rather than
+      # doing its own footprint check, which is what we want: the inflation
+      # radius set in local_costmap is then the single place clearance is
+      # defined.
+      CostCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.81
+        critical_cost: 300.0
+        consider_footprint: false
+        collision_cost: 1000000.0
+        near_goal_distance: 1.0
+
+      GoalCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 1.4
+
+      GoalAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.0
+        threshold_to_consider: 0.5
+
+      PathAlignCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 14.0
+        max_path_occupancy_ratio: 0.05
+        trajectory_point_step: 4
+        threshold_to_consider: 0.5
+        offset_from_furthest: 20
+        use_path_orientations: false
+
+      PathFollowCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        offset_from_furthest: 5
+        threshold_to_consider: 1.4
+
+      PathAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 2.0
+        offset_from_furthest: 4
+        threshold_to_consider: 0.5
+        max_angle_to_furthest: 1.0
+        # 0 = 전방 우선. 네 발 로봇은 제자리에서 돌 수 있지만, 돌면서 가는
+        # 것보다 앞을 보고 가는 편이 LiDAR 가 지도를 넓히기에 낫다.
+        mode: 0
+
+      PreferForwardCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 0.5
 
 planner_server:
   ros__parameters:
@@ -192,7 +313,28 @@ global_costmap:
       origin_x: -50.0
       origin_y: -50.0
       footprint: "[[0.55, 0.30], [0.55, -0.30], [-0.55, -0.30], [-0.55, 0.30]]"
-      plugins: ["obstacle_layer"]
+
+      # Order matters: static first, then live obstacles on top of it, then
+      # inflation over both.
+      #
+      # This layer list used to be `["obstacle_layer"]` alone, and the effect was
+      # that the global planner never saw the map. The obstacle layer only knows
+      # what the point cloud can see right now and, with clearing on, erases a
+      # wall as soon as the robot looks away. A goal on the far side of a
+      # partition produced a straight path through it - measured, not guessed:
+      # a plan from the origin to (-8.0, 4.5) passed through (-3.92, 3.13),
+      # which is inside part_1.
+      #
+      # The map SLAM has already built is the memory the planner was missing.
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: true
+        # slam_toolbox republishes the whole map as it grows, so the costmap has
+        # to take the new bounds rather than keep its first ones.
+        subscribe_to_updates: true
+
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         observation_sources: pointcloud
@@ -202,6 +344,23 @@ global_costmap:
           clearing: true
           marking: true
           data_type: "PointCloud2"
+          # Without a raytrace range the layer clears along the whole ray and
+          # will erase static geometry it happens to see past.
+          raytrace_max_range: 20.0
+          raytrace_min_range: 0.3
+          obstacle_max_range: 15.0
+          obstacle_min_range: 0.3
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        enabled: true
+        # The robot is 1.1 x 0.6 m and the grid is 0.3 m, so a marked obstacle
+        # is a couple of cells across. Without inflation the planner is free to
+        # route a path one cell from a wall, which puts the body inside it.
+        # 0.85 m clears the half-width plus margin.
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.85
+
       always_send_full_costmap: false
 
 behavior_server:
@@ -264,8 +423,12 @@ collision_monitor:
 # Nav2's default ceiling of 0.5 m/s -- desired_linear_vel was being clipped
 # before it ever reached the robot.  Anything set upstream must fit inside this.
 #
-#   1.0 / 1.0 : the installed policy's trained lin_vel_x / ang_vel_z range
-#   1.5       : linear accel, enough to reach 0.9 m/s in well under a stride
+#   0.6 / 0.8 : kVxMax / kWzMax from the statement of work
+#   1.5       : linear accel, enough to reach 0.6 m/s in well under a stride
+#
+# This is the last thing between Nav2 and the robot, so it is also the last
+# place a mis-set velocity upstream can be caught. Keeping it at the contract
+# figure rather than the policy's makes that catch meaningful.
 #
 # Lateral (y) is zero: RPP never commands a strafe, though the policy can do one.
 velocity_smoother:
@@ -273,8 +436,8 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
-    max_velocity: [1.0, 0.0, 1.0]
-    min_velocity: [-0.5, 0.0, -1.0]
+    max_velocity: [0.6, 0.0, 0.8]
+    min_velocity: [-0.4, 0.0, -0.8]
     max_accel: [1.5, 0.0, 3.2]
     max_decel: [-1.5, 0.0, -3.2]
     odom_topic: kiss/odometry

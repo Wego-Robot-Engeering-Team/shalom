@@ -106,6 +106,16 @@ Visualization Manager:
       Covariance:
         Value: false
     - Class: rviz_default_plugins/Map
+      Name: Global costmap
+      Enabled: true
+      Topic:
+        Value: /global_costmap/costmap
+        Depth: 1
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Color Scheme: costmap
+      Alpha: 0.35
+    - Class: rviz_default_plugins/Map
       Name: Local costmap
       Enabled: true
       Topic:
@@ -124,6 +134,24 @@ Visualization Manager:
         Durability Policy: Volatile
         Reliability Policy: Reliable
       Color: 0; 255; 130
+      Line Style: Lines
+    - Class: rviz_default_plugins/MarkerArray
+      Name: MPPI candidates
+      Enabled: true
+      Topic:
+        Value: /trajectories
+        Depth: 1
+        Durability Policy: Volatile
+        Reliability Policy: Reliable
+    - Class: rviz_default_plugins/Path
+      Name: MPPI chosen
+      Enabled: true
+      Topic:
+        Value: /local_plan
+        Depth: 5
+        Durability Policy: Volatile
+        Reliability Policy: Reliable
+      Color: 255; 190; 0
       Line Style: Lines
   Tools:
     - Class: rviz_default_plugins/MoveCamera
