@@ -32,7 +32,7 @@ add_executable(bridge_node
 # 구현하면 언젠가 어긋나고, 그 어긋남은 빌드가 아니라 현장에서 드러난다.
 target_include_directories(bridge_node PRIVATE
     include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../protocol/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/protocol/include
 )
 
 ament_target_dependencies(bridge_node

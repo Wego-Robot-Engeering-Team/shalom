@@ -9,17 +9,14 @@ GTX-A 차량 하부를 자율주행 로봇(Unitree B2 + Franka FR3)으로 점검
 걸칠 때 어디에 둘지가 매번 논쟁이 되고, 무엇을 납품하는지도 흐려진다.
 
 ```text
-hmi/                관제 PC 에서 도는 것 — C++/Qt6 관제 화면
-testbed/            로봇 없이 화면을 돌리기 위한 것 (납품 제외)
-protocol/           관제와 로봇이 함께 쓰는 프레이밍 헤더
-bridge/             로봇 위에서 도는 ROS2 ↔ 관제 브릿지
-application/        B2·인식·Nav2 조립, 로봇별 튜닝, 지도와 조종 도구
-slam_3d_to_2d/      3D LiDAR 지면분할·2D 스캔·2D SLAM 패키지
+robot/              로봇에서 도는 자율주행·SLAM·브릿지·시나리오
+hmi/                관제 PC 에서 도는 C++/Qt6 GUI와 HMI 전용 testbed
+common/             HMI와 로봇이 함께 쓰는 통신 프레이밍·데이터 계약
 docs/               통신 규격과 로봇 자율주행 문서
 ```
 
-`application/`은 B2 시뮬레이터와 실기를 하나의 launch 인자로 바꾼다.
-`slam_3d_to_2d/`는 PointCloud2와 TF 프레임만 받으므로 로봇에 독립적이다.
+`robot/application/`은 B2 시뮬레이터와 실기를 하나의 launch 인자로 바꾼다.
+`robot/slam_3d_to_2d/`는 PointCloud2와 TF 프레임만 받으므로 로봇에 독립적이다.
 
 ## 관제 HMI
 
@@ -37,7 +34,7 @@ cmake --build --preset dev
 ```
 
 자세한 내용은 [hmi/README.md](hmi/README.md)를 참조한다. 브릿지는
-[bridge/README.md](bridge/README.md), 통신 규격은
+[robot/bridge/README.md](robot/bridge/README.md), 통신 규격은
 [docs/bridge_protocol.md](docs/bridge_protocol.md)에 있다.
 
 ## 로봇 자율주행
@@ -53,8 +50,8 @@ ros2 launch application b2_navigation.launch.py robot:=real network_interface:=e
 
 | 패키지 | 역할 | 아는 것 |
 |---|---|---|
-| [`slam_3d_to_2d/`](slam_3d_to_2d/) | 3D LiDAR → 지면분할 → 2D 스캔 → 2D SLAM | 로봇을 **모름**. PointCloud2와 TF 프레임만 받는다 |
-| [`application/`](application/) | 로봇·인식·Nav2 조립, B2 튜닝, 지도, 조종 | 셋을 아는 유일한 곳 |
+| [`robot/slam_3d_to_2d/`](robot/slam_3d_to_2d/) | 3D LiDAR → 지면분할 → 2D 스캔 → 2D SLAM | 로봇을 **모름**. PointCloud2와 TF 프레임만 받는다 |
+| [`robot/application/`](robot/application/) | 로봇·인식·Nav2 조립, B2 튜닝, 지도, 조종 | 셋을 아는 유일한 곳 |
 
 ```text
 robot        b2_simulation (MuJoCo 실기 대체)  또는  b2_driver (실기)

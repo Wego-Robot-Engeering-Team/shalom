@@ -2,7 +2,7 @@
 
 // Qt-flavoured adapter over the shared framing implementation.
 //
-// The byte layout lives in protocol/include/inspection/framing.hpp, which is
+// The byte layout lives in common/protocol/include/inspection/framing.hpp, which is
 // compiled into both this application and the robot-side bridge node. Two
 // implementations of one wire format would eventually disagree, and the
 // disagreement would show up as a corrupted stream in the field rather than as

@@ -16,11 +16,6 @@ C++ / Qt 6 데스크톱 애플리케이션이며 Windows·Ubuntu 크로스 플�
 | CMake | 3.21 이상 |
 | 컴파일러 | C++17 (MSVC 2019+, GCC 11+, AppleClang) |
 
-macOS 개발 환경 준비:
-
-```bash
-brew install qt ninja
-```
 
 ## 빌드
 
@@ -168,7 +163,7 @@ resources/
 tests/
 ```
 
-시뮬레이터와 대역 지도는 여기 없다. `../testbed/` 에 있고 별도 타깃으로
+시뮬레이터와 대역 지도는 `testbed/` 에 있고 별도 타깃으로
 빌드되며, 납품 빌드(`release` 프리셋)에서는 아예 빠진다.
 
 ## 납품 패키지
