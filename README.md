@@ -1,6 +1,6 @@
 # 철도차량 하부점검 시스템
 
-Unitree B2 기반 로봇 점검 시스템.
+Unitree B2 에 FAIRINO FR3 협동로봇 팔을 얹어 철도차량 하부를 점검하는 시스템.
 
 ```text
 robot/   자율주행·SLAM·브릿지

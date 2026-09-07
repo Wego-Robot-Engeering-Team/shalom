@@ -16,6 +16,7 @@
 #include <QLabel>
 
 #include "Config.h"
+#include "RobotDef.h"
 #include "MainWindow.h"
 #include "panels/ArmPanel.h"
 #include "robot/Kinematics.h"
@@ -105,18 +106,25 @@ private slots:
     {
         ui::ArmPanel arm;
 
-        // 로봇이 홈 자세에 있다고 알린 뒤, 슬라이더를 손목 축이 일직선이
-        // 되는 자리로 옮긴다 — 경고가 떠야 하는 자세다.
-        const QList<double> home{0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785};
-        arm.setArmState(home, 0.09, 0.06);
-        arm.applyPresetToSliders(QStringLiteral("stow"));
+        // 홈 자세를 알린 뒤 J5 를 0 으로 끌어 손목 축을 일직선으로 만든다.
+        //
+        // 예전에는 "stow" 프리셋을 눌러 경고를 띄웠다. 그건 프리셋이 관절
+        // 한계에 붙어 있어서 우연히 경고가 뜬 것이었고, 검사가 아니라 설정의
+        // 결함이었다 — 조작자가 팔을 접을 때마다 "보낼 수 없습니다" 를 보게
+        // 된다. 프리셋은 이제 경고 없이 도달하도록 고른다
+        // (test_robotview::presets_raiseNoWarning). 그래서 여기서는 경고가
+        // 나야 할 자세를 직접 만든다.
+        arm.setArmState({robot::kArmHome.begin(), robot::kArmHome.end()}, 0.09, 0.06);
+        auto *j5 = arm.findChild<ui::ValueSlider *>(QStringLiteral("Joint5"));
+        QVERIFY2(j5, "J5 슬라이더를 찾지 못했다");
+        j5->setCommand(0.0);
 
         auto *badge = arm.findChild<QLabel *>(QStringLiteral("PoseWarning"));
         QVERIFY2(badge, "자세 경고 배지를 찾지 못했다");
 
         // 조건부로 검사하면 배지가 안 뜨는 채로도 통과한다. 이 자세에서는
         // 반드시 떠야 하므로 그것부터 못 박는다.
-        QVERIFY2(!badge->isHidden(), "수납 자세인데 경고가 뜨지 않았다");
+        QVERIFY2(!badge->isHidden(), "손목 특이자세인데 경고가 뜨지 않았다");
         QVERIFY2(!badge->toolTip().isEmpty(),
                  "경고 아이콘이 떴는데 설명이 비어 있다");
     }
@@ -133,7 +141,7 @@ private slots:
 
         // 이름으로 찾는다. findChildren 의 순서는 계약이 아니다.
         QList<ui::ValueSlider *> joints;
-        for (int i = 1; i <= 7; ++i) {
+        for (int i = 1; i <= robot::kArmJointCount; ++i) {
             auto *s = arm.findChild<ui::ValueSlider *>(QStringLiteral("Joint%1").arg(i));
             QVERIFY2(s, qPrintable(QStringLiteral("관절 %1 슬라이더가 없다").arg(i)));
             joints << s;

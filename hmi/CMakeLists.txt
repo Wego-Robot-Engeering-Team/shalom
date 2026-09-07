@@ -108,6 +108,7 @@ add_library(hmi_core ${HMI_CORE_TYPE}
     src/panels/LocationPanel.cpp
     src/widgets/HealthRow.cpp
     src/widgets/Robot3DView.cpp
+    src/widgets/RobotMesh.cpp
     src/panels/DiagnosticsPanel.cpp
     src/MainWindow.cpp
 )
@@ -123,6 +124,8 @@ qt_add_resources(hmi_core "hmi_resources"
     PREFIX "/"
     BASE resources
     FILES resources/error_codes.json
+    # 3D 자세 뷰의 형상. 생성 방법은 tools/make_robot_mesh.py 참조.
+    FILES resources/robot_mesh.bin
 )
 
 # 발주기관 로고. 자산이 없으면 BrandMark 가 중립 마크로 폴백한다
@@ -241,8 +244,15 @@ if(HMI_BUILD_TESTS)
         hmi_add_test(test_render)
         set_tests_properties(test_render PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
         hmi_add_test(test_sim)
     endif()
+
+    # 3D 뷰는 테스트베드에 기대지 않으므로 납품 구성에서도 돈다 — 그려지는
+    # 속도를 재는 검사가 정작 납품 빌드를 재지 않으면 의미가 없다.
+    hmi_add_test(test_robotview)
+    set_tests_properties(test_robotview PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     hmi_add_test(test_capture)
     hmi_add_test(test_session)

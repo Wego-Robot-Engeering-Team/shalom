@@ -15,13 +15,15 @@
 //   - Joint-space motion from the sliders is not affected by singularities at
 //     all. What is actually dangerous there are the FR3 position, velocity,
 //     acceleration and jerk limits: feeding raw slider values straight through
-//     makes libfranka trip its reflex. The panel therefore sends a target
-//     posture and lets the robot side generate the trajectory.
+//     trips the controller's own limit check. The panel therefore sends a
+//     target posture and lets the robot side generate the trajectory.
 //   - For a Cartesian goal, whether an IK solution exists is decided on the
-//     robot side, which returns the reason when it does not. The FR3 is
-//     seven-axis, so it has a null space and can often reconfigure around
-//     shoulder, elbow and wrist singularities - but that decision belongs to
-//     MoveIt2, not to a control panel.
+//     robot side, which returns the reason when it does not. This FR3 is
+//     six-axis, so it has no null space to reconfigure through: at a wrist or
+//     elbow singularity a direction of motion is simply gone, and no amount of
+//     re-planning recovers it. That makes the pre-flight warning in
+//     robot/PoseCheck.cpp worth more here than it would be on a seven-axis
+//     arm - but the decision still belongs to MoveIt2, not to a control panel.
 //
 // What the operator needs from this screen is simply to see that the arm is
 // straining before it stops moving.

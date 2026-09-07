@@ -365,7 +365,7 @@ void ArmPanel::syncEeFromJoints()
 
 void ArmPanel::syncEeActualFromJoints(const QList<double> &joints)
 {
-    if (ee_.isEmpty() || joints.size() < 7)
+    if (ee_.isEmpty() || joints.size() < robot::kArmJointCount)
         return;
 
     // 로봇은 끝단 좌표를 따로 보고하지 않는다. 그래도 관절은 보고하고 끝단은
@@ -479,7 +479,7 @@ void ArmPanel::syncSlidersToActual()
 
 void ArmPanel::applyPresetToSliders(const QString &name)
 {
-    const std::array<double, 7> *preset = nullptr;
+    const std::array<double, robot::kArmJointCount> *preset = nullptr;
     if (name == QLatin1String("home"))
         preset = &kArmHome;
     else if (name == QLatin1String("standby"))

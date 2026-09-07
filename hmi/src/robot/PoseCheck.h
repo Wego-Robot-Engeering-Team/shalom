@@ -27,7 +27,7 @@ struct PoseWarning {
     bool isEmpty() const { return severity.isEmpty(); }
 };
 
-/// Checks seven joint angles in radians. Returns the single most serious
+/// Checks six joint angles in radians. Returns the single most serious
 /// finding: listing three at once buries the one that matters.
 PoseWarning checkArmPose(const QList<double> &joints);
 
