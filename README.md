@@ -9,33 +9,26 @@ GTX-A 차량 하부를 자율주행 로봇(Unitree B2 + Franka FR3)으로 점검
 걸칠 때 어디에 둘지가 매번 논쟁이 되고, 무엇을 납품하는지도 흐려진다.
 
 ```text
-hmi/         관제 PC 에서 도는 것 — C++/Qt6 관제 화면
-testbed/     로봇 없이 화면을 돌리기 위한 것 (납품 제외)
-protocol/    관제와 로봇이 함께 쓰는 프레이밍 헤더
-bridge/      로봇 위에서 도는 ROS2 ↔ 관제 브릿지
-docs/        통신 규격 등 납품 문서
+hmi/                관제 PC 에서 도는 것 — C++/Qt6 관제 화면
+testbed/            로봇 없이 화면을 돌리기 위한 것 (납품 제외)
+protocol/           관제와 로봇이 함께 쓰는 프레이밍 헤더
+bridge/             로봇 위에서 도는 ROS2 ↔ 관제 브릿지
+application/        B2·인식·Nav2 조립, 로봇별 튜닝, 지도와 조종 도구
+slam_3d_to_2d/      3D LiDAR 지면분할·2D 스캔·2D SLAM 패키지
+docs/               통신 규격과 로봇 자율주행 문서
 ```
 
-로봇측 코드가 들어오면 `robot/` 아래로 모은다 — 자율주행 파라미터,
-안전 노드, 촬영·업로드 응용, 센서 캘리브레이션이 거기다. `bridge/` 도
-그때 함께 옮긴다. 지금 미리 옮기지 않는 것은, 로봇측 작업이 다른 곳에서
-진행 중이라 파일을 움직여 두면 합칠 때 삭제·수정 충돌이 나기 때문이다.
+`application/`은 B2 시뮬레이터와 실기를 하나의 launch 인자로 바꾼다.
+`slam_3d_to_2d/`는 PointCloud2와 TF 프레임만 받으므로 로봇에 독립적이다.
 
-현재 `nav2_gseg/` 는 저장소 밖에서 작업 중이며 추적하지 않는다. 그 안의
-패키지는 전부 외부 저장소(dfki-ric, PRBonn, ros-navigation) 클론이라,
-파일로 복사해 넣으면 라이선스 고지와 갱신 경로가 끊기고 저장소가 수백 MB
-늘어난다. 편입할 때는 `.repos` + `vcs import` 나 서브모듈을 쓴다.
+## 관제 HMI
 
-## 왜 testbed 가 따로인가
+시뮬레이터와 대역 지도는 관제 UI가 아니다. 개발·검수 때 로봇 없이 화면을 띄우기
+위한 것이고, 납품 빌드에는 들어가면 안 된다 — 들어가면 현장에서 로봇이 안 붙었을 때
+조용히 가짜 데이터로 도는 화면이 만들어진다.
 
-시뮬레이터와 대역 지도는 관제 UI 가 아니다. 개발·검수 때 로봇 없이 화면을
-띄우기 위한 것이고, 납품 빌드에는 들어가면 안 된다 — 들어가면 현장에서
-로봇이 안 붙었을 때 조용히 가짜 데이터로 도는 화면이 만들어진다.
-
-`release` 프리셋은 `HMI_WITH_TESTBED=OFF` 로 빌드하므로 납품 실행 파일에는
+`release` 프리셋은 `HMI_WITH_TESTBED=OFF`로 빌드하므로 납품 실행 파일에는
 시뮬레이터가 없다. 로봇 주소 없이 켜면 뜨지 않고 그렇게 말한다.
-
-## 시작하기
 
 ```bash
 cmake --preset dev -S hmi
@@ -43,6 +36,44 @@ cmake --build --preset dev
 ./hmi/build/inspection_hmi
 ```
 
-자세한 내용은 [hmi/README.md](hmi/README.md) 를 참조한다.
-브릿지는 [bridge/README.md](bridge/README.md), 통신 규격은
-[docs/bridge_protocol.md](docs/bridge_protocol.md) 에 있다.
+자세한 내용은 [hmi/README.md](hmi/README.md)를 참조한다. 브릿지는
+[bridge/README.md](bridge/README.md), 통신 규격은
+[docs/bridge_protocol.md](docs/bridge_protocol.md)에 있다.
+
+## 로봇 자율주행
+
+3D LiDAR 지면분할로 지면을 걸러 2D 지도를 만들고, 그 위에서 Nav2가 주행한다.
+
+```bash
+source ~/shalom_ws/src/b2_simulation/mujoco/b2_mujoco/b2_env.sh
+
+ros2 launch application b2_navigation.launch.py robot:=sim
+ros2 launch application b2_navigation.launch.py robot:=real network_interface:=enp3s0
+```
+
+| 패키지 | 역할 | 아는 것 |
+|---|---|---|
+| [`slam_3d_to_2d/`](slam_3d_to_2d/) | 3D LiDAR → 지면분할 → 2D 스캔 → 2D SLAM | 로봇을 **모름**. PointCloud2와 TF 프레임만 받는다 |
+| [`application/`](application/) | 로봇·인식·Nav2 조립, B2 튜닝, 지도, 조종 | 셋을 아는 유일한 곳 |
+
+```text
+robot        b2_simulation (MuJoCo 실기 대체)  또는  b2_driver (실기)
+                   │  PointCloud2 ↓        ↑ /cmd_vel
+perception   slam_3d_to_2d + kiss_icp
+                   │  /map, odom → base_link ↓
+planning     Nav2
+```
+
+로봇 계층이 launch 인자인 이유는 둘이 같은 인터페이스를 내놓기 때문이다 —
+`unitree_go/LowState`가 나가고 `/cmd_vel`이 들어간다.
+
+| 문서 | 내용 |
+|---|---|
+| [1. 설치와 빌드](docs/1_setup.md) | 워크스페이스 구성, 의존 패키지, 빌드, 시뮬레이터 venv |
+| [2. SLAM](docs/2_slam.md) | 파이프라인, 지도 만들기·저장, 튜닝 |
+| [3. 내비게이션](docs/3_nav.md) | 목표 보내기, 플래너·컨트롤러 구성 |
+| [4. 수동 조종](docs/4_teleop.md) | GUI·스크립트 조종 |
+
+`b2_simulation`과 `b2_driver`는 `~/shalom_ws/src/` 아래의 별도 저장소다.
+`ground_segmentation_ros2`와 `kiss_icp`도 워크스페이스에 설치해야 전체 파이프라인이
+뜬다. 설치 방법은 [docs/1_setup.md](docs/1_setup.md)에 있다.
