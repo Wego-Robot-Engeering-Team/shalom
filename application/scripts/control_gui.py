@@ -53,11 +53,11 @@ class CmdVelGui(Node):
         controls = ttk.Frame(frame)
         controls.grid(row=2, column=0, columnspan=3)
         self._motion_button(controls, "▲  Forward\n(W)", 0.0, 1.0, row=0, column=1)
-        self._motion_button(controls, "◀  Left\n(A)", -1.0, 0.0, row=1, column=0)
+        self._motion_button(controls, "◀  Left\n(A)", 1.0, 0.0, row=1, column=0)
         ttk.Button(controls, text="■  STOP\n(Space)", command=self.stop, width=14).grid(
             row=1, column=1, padx=4, pady=4, ipady=8
         )
-        self._motion_button(controls, "Right  ▶\n(D)", 1.0, 0.0, row=1, column=2)
+        self._motion_button(controls, "Right  ▶\n(D)", -1.0, 0.0, row=1, column=2)
         self._motion_button(controls, "▼  Reverse\n(S)", 0.0, -1.0, row=2, column=1)
 
         ttk.Separator(frame).grid(row=3, column=0, columnspan=3, sticky="ew", pady=14)

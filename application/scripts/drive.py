@@ -2,9 +2,9 @@
 """Send a timed velocity command to a simulated robot.
 
 Examples:
-  ros2 run robot_sim_tools drive forward --duration 2
-  ros2 run robot_sim_tools drive turn-left --duration 1
-  ros2 run robot_sim_tools drive custom --linear 0.3 --angular -0.4
+  ros2 run shalom drive forward --duration 2
+  ros2 run shalom drive turn-left --duration 1
+  ros2 run shalom drive custom --linear 0.3 --angular -0.4
 """
 
 import argparse
