@@ -34,7 +34,7 @@ ros2 launch application b2_navigation.launch.py robot:=sim nav2:=false
 ```
 
 RViz의 **SLAM Map**에 `/map`이 그려진다. 로봇을 움직여야 채워지므로
-[4. 수동 조종](4_teleop.md)으로 한 바퀴 돌린다.
+[수동 조종](teleop.md)으로 한 바퀴 돌린다.
 
 ## 지도 저장
 
