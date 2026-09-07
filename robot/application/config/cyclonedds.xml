@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  CycloneDDS settings for the full B2 stack.
+
+  WHY THIS EXISTS
+  ---------------
+  The stack runs about twenty processes, and rmw_cyclonedds gives each process
+  its own DDS participant. Cyclone finds a free participant index by probing
+  ports, and stops probing at MaxAutoParticipantIndex - which defaults to 9.
+  Past that, a node dies at startup with
+
+      Failed to find a free participant index for domain 0
+      rmw_create_node: failed to create domain, error Error
+
+  and the launch takes the rest of the stack down with it. The failure looks
+  like a DDS problem and is really a counting problem: there is no more room.
+
+  Raising the ceiling is the fix. It costs a longer probe at startup and
+  nothing else.
+
+  WHAT THIS IS NOT
+  ----------------
+  It does NOT pin ParticipantIndex. b2_driver ships two configs that do
+  (cyclonedds_mujoco.xml, cyclonedds_client.xml) because they exist to let a
+  single native SDK process meet a single bridge on a fixed port. Pointing this
+  stack at one of those pins every process to the same index, so the first node
+  claims it and the other eighteen die. That is exactly what happened once, and
+  b2_env.sh still clears CYCLONEDDS_URI because of it.
+-->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain id="any">
+    <Discovery>
+      <!-- 20 processes today, with room for tools attached alongside:
+           rviz2, ros2 topic echo, a teleop panel, a test client. -->
+      <MaxAutoParticipantIndex>60</MaxAutoParticipantIndex>
+    </Discovery>
+  </Domain>
+</CycloneDDS>
