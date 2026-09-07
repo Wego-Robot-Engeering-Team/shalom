@@ -13,37 +13,30 @@ namespace hmi::robot {
 
 namespace {
 
-/// FR3 수정 DH. Robot3DView·PoseCheck 와 같은 표다 — 세 곳이 갈라지면
-/// 화면과 경고와 계산이 서로 다른 팔을 말하게 된다.
-struct Dh { double a, d, alpha; };
-constexpr std::array<Dh, 8> kDh{{
-    {0.0, 0.333, 0.0},      {0.0, 0.0, -M_PI_2},      {0.0, 0.316, M_PI_2},
-    {0.0825, 0.0, M_PI_2},  {-0.0825, 0.384, -M_PI_2},
-    {0.0, 0.0, M_PI_2},     {0.088, 0.0, M_PI_2},     {0.0, 0.107, 0.0},
-}};
-
-QMatrix4x4 dhStep(const Dh &d, double theta)
+/// The fixed part of one chain step, then the joint's own rotation about z.
+///
+/// Straight out of `fairino3_v6.urdf`: each joint's `<origin xyz rpy>` followed
+/// by a revolute joint whose axis is z. Written this way rather than as a
+/// Denavit-Hartenberg table because that is the form FAIRINO publish, and a
+/// hand-derived DH table is one transcription step away from being subtly wrong
+/// with nothing to check it against.
+QMatrix4x4 linkStep(const ArmLink &link, double theta)
 {
     QMatrix4x4 m;
-    m(0, 0) = float(std::cos(theta));
-    m(0, 1) = float(-std::sin(theta));
-    m(0, 3) = float(d.a);
-    m(1, 0) = float(std::sin(theta) * std::cos(d.alpha));
-    m(1, 1) = float(std::cos(theta) * std::cos(d.alpha));
-    m(1, 2) = float(-std::sin(d.alpha));
-    m(1, 3) = float(-d.d * std::sin(d.alpha));
-    m(2, 0) = float(std::sin(theta) * std::sin(d.alpha));
-    m(2, 1) = float(std::cos(theta) * std::sin(d.alpha));
-    m(2, 2) = float(std::cos(d.alpha));
-    m(2, 3) = float(d.d * std::cos(d.alpha));
+    m.translate(float(link.x), float(link.y), float(link.z));
+    // Qt applies these in the order written, and MJCF/URDF rpy is R = Rz Ry Rx.
+    m.rotate(qRadiansToDegrees(link.yaw), 0, 0, 1);
+    m.rotate(qRadiansToDegrees(link.pitch), 0, 1, 0);
+    m.rotate(qRadiansToDegrees(link.roll), 1, 0, 0);
+    m.rotate(qRadiansToDegrees(theta), 0, 0, 1);
     return m;
 }
 
 QMatrix4x4 flangeTransform(const QList<double> &q)
 {
     QMatrix4x4 t;
-    for (int i = 0; i < 8; ++i)
-        t *= dhStep(kDh[size_t(i)], i < 7 ? q.value(i) : 0.0);
+    for (int i = 0; i < kArmJointCount; ++i)
+        t *= linkStep(kFr3Chain[size_t(i)], q.value(i));
     return t;
 }
 
@@ -139,6 +132,26 @@ bool solve6(double a[6][7], double out[6])
 
 }  // namespace
 
+QList<QMatrix4x4> jointFrames(const QList<double> &joints)
+{
+    QList<QMatrix4x4> frames;
+    QMatrix4x4 t;
+    frames << t;
+    for (int i = 0; i < kArmJointCount; ++i) {
+        t *= linkStep(kFr3Chain[size_t(i)], joints.value(i));
+        frames << t;
+    }
+    return frames;
+}
+
+QList<QVector3D> jointOrigins(const QList<double> &joints)
+{
+    QList<QVector3D> origins;
+    for (const auto &f : jointFrames(joints))
+        origins << f.map(QVector3D(0, 0, 0));
+    return origins;
+}
+
 EePose forwardKinematics(const QList<double> &joints)
 {
     const QMatrix4x4 t = flangeTransform(joints);
@@ -152,7 +165,7 @@ EePose forwardKinematics(const QList<double> &joints)
 
 std::optional<QList<double>> inverseKinematics(const EePose &target, const QList<double> &seed)
 {
-    if (seed.size() < 7)
+    if (seed.size() < kArmJointCount)
         return std::nullopt;
 
     QMatrix4x4 goal = fromRpy(target.roll, target.pitch, target.yaw);
@@ -164,6 +177,8 @@ std::optional<QList<double>> inverseKinematics(const EePose &target, const QList
 
     // 감쇠 최소자승. 특이자세 근처에서 야코비안이 나빠지는데, 감쇠가 없으면
     // 거기서 관절이 폭주한다 — 화면에서는 팔이 튕겨 나가는 것으로 보인다.
+    // 6 축은 여유자유도가 없어서 7 축보다 특이자세에 자주 닿는다. 감쇠가
+    // 하는 일이 그만큼 커졌다.
     constexpr double kDamping = 0.06;
     constexpr double kPosTol = 0.001;    // 1 mm
     constexpr double kRotTol = 0.005;    // 약 0.3도
@@ -181,11 +196,11 @@ std::optional<QList<double>> inverseKinematics(const EePose &target, const QList
         if (dp.length() < kPosTol && dw.length() < kRotTol)
             return q;
 
-        // 수치 야코비안. 해석 야코비안이 빠르지만, DH 표가 바뀌면 따로
+        // 수치 야코비안. 해석 야코비안이 빠르지만, 링크 표가 바뀌면 따로
         // 고쳐야 하는 식이 하나 더 생긴다. 갱신은 슬라이더를 끄는 동안만
         // 일어나므로 이 비용은 문제가 되지 않는다.
-        double J[6][7];
-        for (int j = 0; j < 7; ++j) {
+        double J[6][kArmJointCount];
+        for (int j = 0; j < kArmJointCount; ++j) {
             QList<double> qp = q;
             qp[j] += kDelta;
             const QMatrix4x4 pert = flangeTransform(qp);
@@ -205,7 +220,7 @@ std::optional<QList<double>> inverseKinematics(const EePose &target, const QList
         for (int r = 0; r < 6; ++r) {
             for (int c = 0; c < 6; ++c) {
                 double sum = 0.0;
-                for (int k = 0; k < 7; ++k)
+                for (int k = 0; k < kArmJointCount; ++k)
                     sum += J[r][k] * J[c][k];
                 aug[r][c] = sum + (r == c ? kDamping * kDamping : 0.0);
             }
@@ -218,7 +233,7 @@ std::optional<QList<double>> inverseKinematics(const EePose &target, const QList
         if (!solve6(aug, y))
             return std::nullopt;
 
-        for (int j = 0; j < 7; ++j) {
+        for (int j = 0; j < kArmJointCount; ++j) {
             double dq = 0.0;
             for (int r = 0; r < 6; ++r)
                 dq += J[r][j] * y[r];

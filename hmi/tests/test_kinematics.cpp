@@ -36,11 +36,55 @@ private slots:
 
     /// 홈 자세는 밑동 앞쪽 위에 있어야 한다. 부호가 뒤집혀 있으면 화면에서는
     /// 그럴듯해 보이지만 조작자가 반대쪽으로 보내게 된다.
+    ///
+    /// 좌우 치우침은 검사하지 않는다. FR3 는 UR 계열처럼 손목 두 마디가
+    /// 옆으로 물려 있어서 플랜지가 J1 축 위에 오는 일이 없다 — 어떤 자세든
+    /// y 는 0.102 m 근처다. 그걸 0 으로 기대하는 검사는 팔이 아니라 검사가
+    /// 틀린 것이다.
     void forward_homeIsInFront()
     {
         const EePose p = forwardKinematics(home());
         QVERIFY2(p.z > 0.3, "홈 자세의 끝단이 밑동보다 위에 있어야 한다");
-        QVERIFY2(std::abs(p.y) < 0.05, "홈 자세는 좌우로 치우치지 않는다");
+        QVERIFY2(p.x > 0.1, "홈 자세의 끝단이 밑동보다 앞에 있어야 한다");
+        QVERIFY2(std::abs(p.y) < 0.2, "손목 옵셋 이상으로 옆으로 벌어지면 안 된다");
+    }
+
+    /// 정기구학이 FAIRINO 의 URDF 와 같은 팔을 말하는가.
+    ///
+    /// 나머지 검사들은 전부 자기 자신과의 일관성만 본다 — 링크 표를 잘못
+    /// 옮겨 적어도 FK 와 IK 는 사이좋게 같은 오답을 내고 왕복 검사는 통과한다.
+    /// 그래서 여기서만 바깥 기준을 쓴다: `fairino3_v6.urdf`
+    /// (FAIR-INNOVATION/frcobot_ros2) 의 joint origin 을 그대로 곱해서 얻은
+    /// 플랜지 위치다. 이 값이 틀리면 화면이 실제와 다른 팔을 그린다.
+    void forward_matchesUrdf_data()
+    {
+        QTest::addColumn<QList<double>>("joints");
+        QTest::addColumn<double>("x");
+        QTest::addColumn<double>("y");
+        QTest::addColumn<double>("z");
+
+        QTest::newRow("home") << home() << 0.24757 << -0.10200 << 0.66268;
+        QTest::newRow("standby") << QList<double>{kArmStandby.begin(), kArmStandby.end()}
+                                 << 0.22069 << -0.10200 << 0.29185;
+        QTest::newRow("stow") << QList<double>{kArmStow.begin(), kArmStow.end()}
+                              << 0.27320 << -0.10200 << 0.06563;
+    }
+
+    void forward_matchesUrdf()
+    {
+        QFETCH(QList<double>, joints);
+        QFETCH(double, x);
+        QFETCH(double, y);
+        QFETCH(double, z);
+
+        const EePose p = forwardKinematics(joints);
+        // 0.5 mm. 화면이 읽히는 자릿수보다 촘촘하고, float 로 도는 QMatrix4x4
+        // 의 누적 오차보다는 넉넉하다.
+        constexpr double kTol = 5e-4;
+        QVERIFY2(std::abs(p.x - x) < kTol && std::abs(p.y - y) < kTol
+                     && std::abs(p.z - z) < kTol,
+                 qPrintable(QStringLiteral("URDF %1,%2,%3 → 계산 %4,%5,%6")
+                                .arg(x).arg(y).arg(z).arg(p.x).arg(p.y).arg(p.z)));
     }
 
     /// 관절을 바꾸면 자세가 바뀐다. 상수를 돌려주고 있지 않은지 본다.
@@ -54,7 +98,8 @@ private slots:
     }
 
     /// 왕복. FK 로 얻은 자세를 IK 에 넣으면 같은 자세로 돌아와야 한다.
-    /// 관절값 자체는 달라도 된다 — 7 축은 같은 자세에 이르는 길이 여럿이다.
+    /// 관절값 자체는 달라도 된다 — 6 축도 같은 자세를 팔꿈치·손목 방향에 따라
+    /// 여러 자세로 만들 수 있다.
     void inverse_roundTrips_data()
     {
         QTest::addColumn<QList<double>>("joints");
@@ -62,7 +107,7 @@ private slots:
         QTest::newRow("standby") << QList<double>{kArmStandby.begin(), kArmStandby.end()};
         QTest::newRow("stow") << QList<double>{kArmStow.begin(), kArmStow.end()};
         QTest::newRow("twisted")
-            << QList<double>{0.4, -0.6, 0.3, -2.0, 0.2, 1.7, 0.9};
+            << QList<double>{0.4, -1.3, -1.9, -1.0, -1.2, 0.9};
     }
 
     void inverse_roundTrips()
@@ -84,11 +129,11 @@ private slots:
     /// 조작자는 왜 안 갔는지 모른다.
     void inverse_staysWithinLimits()
     {
-        const EePose target = forwardKinematics({0.4, -0.6, 0.3, -2.0, 0.2, 1.7, 0.9});
+        const EePose target = forwardKinematics({0.4, -1.3, -1.9, -1.0, -1.2, 0.9});
         const auto solved = inverseKinematics(target, home());
         QVERIFY(solved.has_value());
 
-        for (int i = 0; i < 7; ++i) {
+        for (int i = 0; i < kArmJointCount; ++i) {
             QVERIFY2(solved->at(i) >= kFr3Joints[size_t(i)].lo
                          && solved->at(i) <= kFr3Joints[size_t(i)].hi,
                      qPrintable(QStringLiteral("%1 축이 가동 범위를 벗어났다: %2")
@@ -120,7 +165,7 @@ private slots:
         QVERIFY(solved.has_value());
 
         double moved = 0.0;
-        for (int i = 0; i < 7; ++i)
+        for (int i = 0; i < kArmJointCount; ++i)
             moved += std::abs(solved->at(i) - seed.at(i));
         QVERIFY2(moved < 1.0,
                  qPrintable(QStringLiteral("씨앗에서 %1 rad 이나 움직였다").arg(moved)));

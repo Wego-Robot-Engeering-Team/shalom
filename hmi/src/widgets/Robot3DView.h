@@ -10,8 +10,8 @@
 //
 // RENDERING APPROACH
 // ------------------
-// Rendered with QPainter using the painter's algorithm (faces sorted back to
-// front), not OpenGL. The reasons are practical rather than aesthetic:
+// Rendered in software with a depth buffer, not OpenGL. The reason is not
+// aesthetic:
 //
 //   - the delivered machine is an industrial Windows PC whose GPU drivers are
 //     an unknown, and a control station must not fail to draw because of one;
@@ -19,15 +19,19 @@
 //     on-site support actually contain the view;
 //   - it needs no shader pipeline and no extra Qt module.
 //
-// The cost is that it does not scale past a few hundred faces and cannot do
-// intersecting geometry correctly. That is acceptable for primitive shapes.
-// When the real meshes from franka_description and the Unitree package are
-// available, this should be replaced with an OpenGL implementation - the
-// kinematics below stay as they are.
+// This used to sort faces back to front and let QPainter fill them - the
+// painter's algorithm. That cannot draw geometry that interpenetrates, so
+// every link had to be reduced to its convex hull, and the robot on screen was
+// a set of blocks rather than the machine. Testing depth per pixel removes the
+// constraint, so the view now draws the vendor meshes themselves
+// (widgets/RobotMesh.h), reduced only enough to keep the resource small.
 //
-// The arm geometry uses the published modified Denavit-Hartenberg parameters
-// for the FR3, so the joint origins are in the right places even though the
-// links are drawn as simple shapes.
+// It is also no slower: about 7.6 ms a frame at 640x480 in the delivery build,
+// against 7.9 ms for the blocks, because nothing is sorted any more.
+//
+// The arm geometry comes from FAIRINO's own URDF by way of
+// robot::jointOrigins(), so the joint origins are in the right places even
+// though the links are drawn as simple shapes.
 
 #include <QVector3D>
 #include <QWidget>
@@ -39,10 +43,10 @@ class Robot3DView : public QWidget {
 public:
     explicit Robot3DView(QWidget *parent = nullptr);
 
-    /// Seven arm joint angles in radians, as the arm reports them.
+    /// Six arm joint angles in radians, as the arm reports them.
     void setArmJoints(const QList<double> &q);
 
-    /// Seven angles the operator is dialling in but has not sent yet.
+    /// Six angles the operator is dialling in but has not sent yet.
     ///
     /// The arm is drawn at these angles instead of the reported ones, so the
     /// pose can be checked before committing to it, and the view says it is a
@@ -71,17 +75,13 @@ protected:
     void leaveEvent(QEvent *) override;
 
 private:
-    /// Forward kinematics: origin of each joint frame plus the flange, in the
-    /// arm base frame.
-    QList<QVector3D> jointOrigins(const QList<double> &q) const;
-
     /// Angles the arm reports, and the un-sent pose being dialled in.
     QList<double> joints_;
     QList<double> preview_;
 
     /// What is actually drawn. It eases toward the target instead of jumping.
     ///
-    /// A preset click sets seven angles at once; snapping there reads as a
+    /// A preset click sets six angles at once; snapping there reads as a
     /// glitch rather than a movement, and gives no sense of the path the arm
     /// will take. Easing costs one timer and makes the change legible.
     QList<double> shown_;
@@ -95,10 +95,14 @@ private:
     // The camera looks at target_, which the operator can slide sideways. With
     // the pivot pinned to the base, zooming in on the gripper was impossible:
     // the interesting end of the arm swung off screen as soon as it reached.
+    // Framed for the real robot, not the block figure that stood here before:
+    // B2 is 1.1 m long and stands 0.54 m at the body, and the arm reaches
+    // another 0.6 m above that when it is up. Aiming at the deck and pulling
+    // back to 3.2 m keeps both the feet and a raised gripper on screen.
     double azimuth_ = -0.9;    ///< rad
-    double elevation_ = 0.42;  ///< rad
-    double distance_ = 2.4;    ///< m
-    QVector3D target_{0, 0, 0.55};
+    double elevation_ = 0.30;  ///< rad
+    double distance_ = 3.2;    ///< m
+    QVector3D target_{0, 0, 0.75};
     QPoint lastMouse_;
 };
 

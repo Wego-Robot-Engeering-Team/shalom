@@ -2,16 +2,21 @@
 
 #include <cmath>
 #include <QFont>
+#include <QMatrix3x3>
 #include <QMatrix4x4>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QTimer>
-#include <QPolygonF>
 #include <QWheelEvent>
 #include <QtMath>
 
 #include <algorithm>
+#include <limits>
+#include <vector>
 
+#include "RobotDef.h"
+#include "robot/Kinematics.h"
+#include "widgets/RobotMesh.h"
 #include "theme/Tokens.h"
 
 namespace hmi::ui {
@@ -20,105 +25,110 @@ using namespace hmi::theme;
 
 namespace {
 
-/// FR3 수정 DH 파라미터 (Craig 표기).
-/// i 번째 관절: a_{i-1}, d_i, alpha_{i-1}. 마지막 행은 플랜지다.
-struct DhRow {
-    double a, d, alpha;
-};
 
-constexpr DhRow kDh[8] = {
-    {0.0,     0.333, 0.0},
-    {0.0,     0.0,   -M_PI_2},
-    {0.0,     0.316, M_PI_2},
-    {0.0825,  0.0,   M_PI_2},
-    {-0.0825, 0.384, -M_PI_2},
-    {0.0,     0.0,   M_PI_2},
-    {0.088,   0.0,   M_PI_2},
-    {0.0,     0.107, 0.0},     // 플랜지
-};
-
-/// B2 몸통 치수 (m). 공개 사양 기준의 근사값이며, 실측 메시로 교체할 때
-/// 함께 정정한다.
-constexpr double kBodyLen = 1.10;
-constexpr double kBodyWid = 0.50;
-constexpr double kBodyHgt = 0.30;
-constexpr double kStandHeight = 0.55;   ///< 서 있을 때 몸통 바닥 높이
-constexpr double kUpperLeg = 0.35;
-
-/// 화가 알고리즘으로 그릴 하나의 면.
-struct Face {
-    QList<QVector3D> pts;
+/// 삼각형 하나. 좌표는 월드, 밝기는 코너별로 미리 계산해 둔다.
+struct Tri3 {
+    QVector3D a, b, c;
+    float la, lb, lc;   ///< 코너별 밝기 (0~1)
     QColor color;
-    double depth = 0.0;   ///< 카메라까지 거리. 큰 것부터 그린다.
 };
 
-QMatrix4x4 dhTransform(const DhRow &row, double theta)
-{
-    // T = Rx(alpha) * Tx(a) * Rz(theta) * Tz(d)
-    QMatrix4x4 m;
-    m.rotate(qRadiansToDegrees(row.alpha), 1, 0, 0);
-    m.translate(float(row.a), 0, 0);
-    m.rotate(qRadiansToDegrees(theta), 0, 0, 1);
-    m.translate(0, 0, float(row.d));
-    return m;
-}
-
-/// 축 정렬 상자의 여섯 면. center 는 중심, size 는 각 축 길이.
-void appendBox(QList<Face> &out, const QMatrix4x4 &frame, const QVector3D &center,
-               const QVector3D &size, const QColor &color)
-{
-    const QVector3D h = size / 2.0f;
-    const QVector3D c[8] = {
-        {center.x() - h.x(), center.y() - h.y(), center.z() - h.z()},
-        {center.x() + h.x(), center.y() - h.y(), center.z() - h.z()},
-        {center.x() + h.x(), center.y() + h.y(), center.z() - h.z()},
-        {center.x() - h.x(), center.y() + h.y(), center.z() - h.z()},
-        {center.x() - h.x(), center.y() - h.y(), center.z() + h.z()},
-        {center.x() + h.x(), center.y() - h.y(), center.z() + h.z()},
-        {center.x() + h.x(), center.y() + h.y(), center.z() + h.z()},
-        {center.x() - h.x(), center.y() + h.y(), center.z() + h.z()},
-    };
-    static const int idx[6][4] = {
-        {0, 1, 2, 3}, {4, 5, 6, 7}, {0, 1, 5, 4},
-        {2, 3, 7, 6}, {1, 2, 6, 5}, {0, 3, 7, 4},
-    };
-    // 면마다 밝기를 살짝 달리해 입체감을 준다. 조명 계산 대신이다.
-    static const double shade[6] = {0.72, 1.00, 0.86, 0.78, 0.92, 0.82};
-
-    for (int f = 0; f < 6; ++f) {
-        Face face;
-        for (int k = 0; k < 4; ++k)
-            face.pts << frame.map(c[idx[f][k]]);
-        face.color = QColor::fromHslF(color.hslHueF() < 0 ? 0 : color.hslHueF(),
-                                      color.hslSaturationF(),
-                                      qBound(0.0, color.lightnessF() * shade[f], 1.0));
-        out << face;
+/// 깊이 버퍼를 가진 소프트웨어 래스터라이저.
+///
+/// 왜 이것이 필요한가: 이전에는 면을 카메라 거리로 정렬해 뒤에서 앞으로
+/// 그렸다(화가 알고리즘). 그 방식은 두 가지를 못 한다 — 수백 면을 넘으면
+/// 정렬이 비싸지고, 서로 파고드는 형상을 올바로 그리지 못한다. 두 번째
+/// 제약 때문에 로봇의 각 마디를 볼록껍질로 뭉개서 그려야 했고, 화면의
+/// 로봇은 실제와 눈에 띄게 달랐다.
+///
+/// 픽셀마다 깊이를 재면 두 제약이 함께 사라진다. OpenGL 이 하는 일이지만
+/// 여기서는 직접 한다 — 납품 장비의 GPU 드라이버를 알 수 없고, 관제 화면이
+/// 그것 하나 때문에 안 뜨면 안 된다(Robot3DView.h). QImage 에 쓰므로
+/// QWidget::grab() 으로 찍는 현장 지원용 스크린샷에도 그대로 담긴다.
+class DepthRaster {
+public:
+    DepthRaster(int w, int h)
+        : w_(w), h_(h), img_(w, h, QImage::Format_ARGB32_Premultiplied),
+          depth_(size_t(w) * size_t(h), std::numeric_limits<float>::max())
+    {
+        img_.fill(Qt::transparent);
     }
-}
 
-/// 두 점을 잇는 사각 단면 링크.
-void appendSegment(QList<Face> &out, const QVector3D &a, const QVector3D &b,
-                   double thickness, const QColor &color)
-{
-    const QVector3D dir = b - a;
-    const float len = dir.length();
-    if (len < 1e-5f)
-        return;
+    /// 화면 좌표 (x, y) 와 NDC 깊이 z 를 받는다.
+    ///
+    /// z 를 화면 좌표에 대해 선형 보간해도 정확하다: 원근 투영에서 평면
+    /// 삼각형의 NDC z 는 화면 x, y 의 아핀 함수다. 색까지 보간해야 한다면
+    /// 1/w 로 나눠 줘야 하지만, 여기서는 면 단위 음영이라 필요 없다.
+    /// 밝기까지 보간한다(Gouraud).
+    ///
+    /// 삼각형마다 하나의 밝기를 쓰면 면이 통째로 한 톤이 되어, 아무리 촘촘한
+    /// 메시라도 각져 보인다. 코너 밝기를 보간하면 같은 삼각형 수로 곡면이
+    /// 곡면처럼 보인다 — 이것은 OpenGL 이냐 아니냐와 무관한, 음영 방식의
+    /// 문제다.
+    void triangle(const QVector3D &p0, const QVector3D &p1, const QVector3D &p2,
+                  float l0, float l1, float l2, const QColor &base)
+    {
+        const float det = (p1.y() - p2.y()) * (p0.x() - p2.x())
+                          + (p2.x() - p1.x()) * (p0.y() - p2.y());
+        if (std::abs(det) < 1e-9f)
+            return;
 
-    QMatrix4x4 frame;
-    frame.translate(a);
-    // +z 를 링크 방향으로 돌린다.
-    const QVector3D z(0, 0, 1);
-    const QVector3D axis = QVector3D::crossProduct(z, dir.normalized());
-    const float dot = qBound(-1.0f, QVector3D::dotProduct(z, dir.normalized()), 1.0f);
-    if (axis.length() > 1e-6f)
-        frame.rotate(qRadiansToDegrees(std::acos(dot)), axis.normalized());
-    else if (dot < 0)
-        frame.rotate(180, 1, 0, 0);
+        int x0 = int(std::floor(std::min({p0.x(), p1.x(), p2.x()})));
+        int x1 = int(std::ceil(std::max({p0.x(), p1.x(), p2.x()})));
+        int y0 = int(std::floor(std::min({p0.y(), p1.y(), p2.y()})));
+        int y1 = int(std::ceil(std::max({p0.y(), p1.y(), p2.y()})));
+        x0 = std::max(0, x0);
+        y0 = std::max(0, y0);
+        x1 = std::min(w_ - 1, x1);
+        y1 = std::min(h_ - 1, y1);
+        if (x1 < x0 || y1 < y0)
+            return;
 
-    appendBox(out, frame, QVector3D(0, 0, len / 2),
-              QVector3D(float(thickness), float(thickness), len), color);
-}
+        // 무게중심 좌표는 화면 좌표의 아핀 함수다. 픽셀마다 다시 계산하는
+        // 대신 x 로 한 칸 갈 때의 증분을 미리 구해 더한다 — 안쪽 루프에서
+        // 곱셈 여섯 번이 사라진다. 디버그 빌드에서 특히 크게 차이 난다.
+        const float inv = 1.0f / det;
+        const float dadx = (p1.y() - p2.y()) * inv;
+        const float dbdx = (p2.y() - p0.y()) * inv;
+        const float dady = (p2.x() - p1.x()) * inv;
+        const float dbdy = (p0.x() - p2.x()) * inv;
+        const float dzda = p0.z() - p2.z();
+        const float dzdb = p1.z() - p2.z();
+
+        const float dlda = l0 - l2;
+        const float dldb = l1 - l2;
+        const int r = base.red(), g = base.green(), b_ = base.blue();
+
+        float aRow = ((p1.y() - p2.y()) * (float(x0) + 0.5f - p2.x())
+                      + (p2.x() - p1.x()) * (float(y0) + 0.5f - p2.y())) * inv;
+        float bRow = ((p2.y() - p0.y()) * (float(x0) + 0.5f - p2.x())
+                      + (p0.x() - p2.x()) * (float(y0) + 0.5f - p2.y())) * inv;
+
+        for (int y = y0; y <= y1; ++y, aRow += dady, bRow += dbdy) {
+            auto *row = reinterpret_cast<QRgb *>(img_.scanLine(y));
+            float *drow = depth_.data() + size_t(y) * size_t(w_);
+            float a = aRow;
+            float b = bRow;
+            for (int x = x0; x <= x1; ++x, a += dadx, b += dbdx) {
+                if (a < 0.0f || b < 0.0f || a + b > 1.0f)
+                    continue;
+                const float z = p2.z() + a * dzda + b * dzdb;
+                if (z >= drow[x])
+                    continue;
+                drow[x] = z;
+                const float l = l2 + a * dlda + b * dldb;
+                row[x] = qRgb(int(float(r) * l), int(float(g) * l), int(float(b_) * l));
+            }
+        }
+    }
+
+    const QImage &image() const { return img_; }
+
+private:
+    int w_, h_;
+    QImage img_;
+    std::vector<float> depth_;
+};
 
 }  // namespace
 
@@ -126,7 +136,7 @@ Robot3DView::Robot3DView(QWidget *parent) : QWidget(parent)
 {
     setMinimumHeight(240);
     setCursor(Qt::OpenHandCursor);
-    joints_ = {0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785};
+    joints_ = {robot::kArmHome.begin(), robot::kArmHome.end()};
     shown_ = joints_;
 
     // 표시용 보간. 실제 팔의 속도가 아니라 "움직였다" 를 읽히게 하는 것이
@@ -161,7 +171,7 @@ Robot3DView::Robot3DView(QWidget *parent) : QWidget(parent)
 
 void Robot3DView::setArmJoints(const QList<double> &q)
 {
-    if (q.size() < 7)
+    if (q.size() < robot::kArmJointCount)
         return;
     joints_ = q;
     ease_->start();
@@ -186,22 +196,10 @@ void Robot3DView::setStale(bool stale)
 void Robot3DView::resetCamera()
 {
     azimuth_ = -0.9;
-    elevation_ = 0.42;
-    distance_ = 2.4;
-    target_ = QVector3D(0, 0, 0.55);
+    elevation_ = 0.30;
+    distance_ = 3.2;
+    target_ = QVector3D(0, 0, 0.75);
     update();
-}
-
-QList<QVector3D> Robot3DView::jointOrigins(const QList<double> &q) const
-{
-    QList<QVector3D> origins;
-    QMatrix4x4 t;
-    origins << t.map(QVector3D(0, 0, 0));
-    for (int i = 0; i < 8; ++i) {
-        t *= dhTransform(kDh[i], i < 7 ? q.value(i) : 0.0);
-        origins << t.map(QVector3D(0, 0, 0));
-    }
-    return origins;
 }
 
 void Robot3DView::setPreviewJoints(const QList<double> &q)
@@ -310,7 +308,14 @@ void Robot3DView::paintEvent(QPaintEvent *)
     }
 
     // ---- 형상 수집 ----
-    QList<Face> faces;
+    const auto &model = mesh::model();
+    if (model.isEmpty()) {
+        // 형상을 못 읽어도 화면은 뜬다 — 이 위젯은 관제 화면의 한 칸일 뿐이고,
+        // 팔 그림이 없다고 로봇이 섰는지 보여주는 화면까지 잃을 수는 없다.
+        p.setPen(QColor(C.textMute));
+        p.drawText(rect(), Qt::AlignCenter, QStringLiteral("3D 형상을 읽지 못했습니다"));
+        return;
+    }
 
     const QColor bodyColor(C.isDark() ? QColor(0x3A, 0x42, 0x4D) : QColor(0x9A, 0xA4, 0xB0));
     const QColor legColor(C.isDark() ? QColor(0x2E, 0x35, 0x3E) : QColor(0x84, 0x8E, 0x9A));
@@ -321,71 +326,117 @@ void Robot3DView::paintEvent(QPaintEvent *)
                             : previewing  ? QColor(C.accentHi)
                                           : QColor(C.accent);
 
-    // B2 몸통
-    QMatrix4x4 identity;
-    appendBox(faces, identity, QVector3D(0, 0, float(kStandHeight + kBodyHgt / 2)),
-              QVector3D(float(kBodyLen), float(kBodyWid), float(kBodyHgt)), bodyColor);
+    QMatrix4x4 b2Frame;
+    b2Frame.translate(0.0f, 0.0f, model.baseHeight);
+    QMatrix4x4 armBase = b2Frame;
+    armBase.translate(model.armMount);
+    const auto frames = robot::jointFrames(shown_);
 
-    // 다리 4개. 서 있는 자세를 고정으로 그린다 — 다리 관절값은 아직
-    // 텔레메트리에 없고, 팔 자세 확인이 이 뷰의 목적이다.
-    for (int sx = -1; sx <= 1; sx += 2) {
-        for (int sy = -1; sy <= 1; sy += 2) {
-            const QVector3D hip(float(sx * kBodyLen * 0.38), float(sy * kBodyWid * 0.5),
-                                float(kStandHeight));
-            const QVector3D knee(hip.x(), float(sy * kBodyWid * 0.62),
-                                 float(kStandHeight - kUpperLeg * 0.8));
-            const QVector3D foot(hip.x(), knee.y(), 0.0f);
-            appendSegment(faces, hip, knee, 0.07, legColor);
-            appendSegment(faces, knee, foot, 0.055, legColor);
+    std::vector<Tri3> tris;
+    tris.reserve(size_t(model.faceCount()));
+
+    const QVector3D light = QVector3D(0.4f, -0.5f, 0.8f).normalized();
+    const auto lit = [&light](const QVector3D &n) {
+        // 양면을 다 밝힌다. 감면 과정에서 일부 면의 방향이 뒤집힐 수 있는데,
+        // 한 면만 밝히면 그 자리가 검게 남아 구멍처럼 보인다.
+        return 0.42f + 0.58f * std::abs(QVector3D::dotProduct(n, light));
+    };
+
+    const auto collect = [&tris, &lit](const mesh::Part &part, const QMatrix4x4 &xf,
+                                       const QColor &base) {
+        const QMatrix3x3 nm = xf.normalMatrix();
+        const auto rotate = [&nm](const QVector3D &v) {
+            return QVector3D(nm(0, 0) * v.x() + nm(0, 1) * v.y() + nm(0, 2) * v.z(),
+                             nm(1, 0) * v.x() + nm(1, 1) * v.y() + nm(1, 2) * v.z(),
+                             nm(2, 0) * v.x() + nm(2, 1) * v.y() + nm(2, 2) * v.z())
+                .normalized();
+        };
+        for (size_t i = 0; i < part.faces.size(); ++i) {
+            const auto &f = part.faces[i];
+            const auto &n = part.normals[i];
+            Tri3 t;
+            t.a = xf.map(part.vertices[f.a]);
+            t.b = xf.map(part.vertices[f.b]);
+            t.c = xf.map(part.vertices[f.c]);
+            t.la = lit(rotate(n.a));
+            t.lb = lit(rotate(n.b));
+            t.lc = lit(rotate(n.c));
+            t.color = base;
+            tris.push_back(t);
+        }
+    };
+
+    // B2 는 기립 자세 그대로 구워져 있다 — 네 발 관절값은 프로토콜에 없고,
+    // 이 뷰의 목적은 팔 자세 확인이다.
+    for (const auto &part : model.b2)
+        collect(part, b2Frame, part.group == 1 ? legColor : bodyColor);
+    for (int i = 0; i < int(model.fr3.size()) && i < frames.size(); ++i)
+        collect(model.fr3[size_t(i)], armBase * frames.at(i), armColor);
+
+    // 끝단(카메라) 표시. 팔 색과 구분되는 한 덩이라, 조작자가 "지금 어디를
+    // 보고 있나" 를 형상 속에서 찾지 않아도 된다. 깊이 버퍼로 넘어오면서
+    // 한 번 빠뜨렸는데, 없으면 끝단 탭의 좌표가 그림의 어디를 말하는지
+    // 알 수 없다.
+    if (!frames.isEmpty()) {
+        const QMatrix4x4 ee = armBase * frames.last();
+        const QVector3D h(0.045f, 0.030f, 0.025f);
+        const QVector3D c[8] = {{-h.x(), -h.y(), -h.z()}, {h.x(), -h.y(), -h.z()},
+                                {h.x(), h.y(), -h.z()},   {-h.x(), h.y(), -h.z()},
+                                {-h.x(), -h.y(), h.z()},  {h.x(), -h.y(), h.z()},
+                                {h.x(), h.y(), h.z()},    {-h.x(), h.y(), h.z()}};
+        static const int quads[6][4] = {{0, 3, 2, 1}, {4, 5, 6, 7}, {0, 1, 5, 4},
+                                        {2, 3, 7, 6}, {1, 2, 6, 5}, {0, 4, 7, 3}};
+        const QColor eeColor(C.success);
+        for (const auto &q : quads) {
+            const QVector3D p0 = ee.map(c[q[0]]), p1 = ee.map(c[q[1]]);
+            const QVector3D p2 = ee.map(c[q[2]]), p3 = ee.map(c[q[3]]);
+            const QVector3D n = QVector3D::crossProduct(p1 - p0, p2 - p0).normalized();
+            const float l = lit(n);
+            tris.push_back({p0, p1, p2, l, l, l, eeColor});
+            tris.push_back({p0, p2, p3, l, l, l, eeColor});
         }
     }
 
-    // FR3 — 몸통 위에 얹혀 있다.
-    QMatrix4x4 armBase;
-    armBase.translate(0.0f, 0.0f, float(kStandHeight + kBodyHgt));
-    const auto origins = jointOrigins(shown_);
+    // ---- 래스터화 ----
+    //
+    // 위젯보다 2 배로 그린 뒤 줄인다. 깊이 버퍼는 픽셀 단위로 잘라내므로
+    // 가장자리가 계단으로 남는데, 이렇게 하면 QPainter 의 안티앨리어싱과
+    // 비슷한 결과를 4 배의 채우기 비용으로 얻는다.
+    constexpr int kSuperSample = 2;
+    const int rw = width() * kSuperSample;
+    const int rh = height() * kSuperSample;
+    DepthRaster raster(rw, rh);
 
-    appendBox(faces, armBase, QVector3D(0, 0, 0.04f), QVector3D(0.18f, 0.18f, 0.08f),
-              armColor.darker(140));
+    const QColor staleColor(C.textMute);
 
-    for (int i = 0; i + 1 < origins.size(); ++i) {
-        const QVector3D a = armBase.map(origins.at(i));
-        const QVector3D b = armBase.map(origins.at(i + 1));
-        // 뒤로 갈수록 가늘게. 실제 FR3 도 손목이 가늘다.
-        const double thick = 0.085 - i * 0.006;
-        appendSegment(faces, a, b, qMax(0.035, thick), armColor);
+    for (const auto &t : tris) {
+        const QVector3D pts[3] = {mvp.map(t.a), mvp.map(t.b), mvp.map(t.c)};
+        // NDC 를 벗어난 삼각형은 버린다. 카메라 뒤로 넘어간 정점은 투영이
+        // 뒤집혀 화면 반대편에 거대한 삼각형을 그린다.
+        bool clipped = false;
+        for (const auto &q : pts)
+            clipped |= (q.z() < -1.0f || q.z() > 1.0f);
+        if (clipped)
+            continue;
+
+        QVector3D sp[3];
+        for (int k = 0; k < 3; ++k) {
+            sp[k] = QVector3D(float((pts[k].x() * 0.5 + 0.5) * rw),
+                              float((1.0 - (pts[k].y() * 0.5 + 0.5)) * rh),
+                              pts[k].z());
+        }
+        // 뒤를 향한 면은 그리지 않는다. 닫힌 형상이라 결과는 같고 채우기는
+        // 절반이 된다.
+        const float area = (sp[1].x() - sp[0].x()) * (sp[2].y() - sp[0].y())
+                           - (sp[2].x() - sp[0].x()) * (sp[1].y() - sp[0].y());
+        if (area <= 0.0f)
+            continue;
+
+        raster.triangle(sp[0], sp[1], sp[2], t.la, t.lb, t.lc,
+                        stale_ ? staleColor : t.color);
     }
 
-    // 엔드이펙터(카메라) 표시
-    if (origins.size() >= 2) {
-        QMatrix4x4 eeFrame;
-        eeFrame.translate(armBase.map(origins.last()));
-        appendBox(faces, eeFrame, QVector3D(0, 0, 0), QVector3D(0.09f, 0.06f, 0.05f),
-                  QColor(C.success));
-    }
-
-    // ---- 화가 알고리즘: 카메라에서 먼 면부터 ----
-    for (auto &f : faces) {
-        QVector3D c;
-        for (const auto &v : f.pts)
-            c += v;
-        c /= float(f.pts.size());
-        f.depth = (c - eye).length();
-    }
-    std::sort(faces.begin(), faces.end(),
-              [](const Face &a, const Face &b) { return a.depth > b.depth; });
-
-    for (const auto &f : faces) {
-        QPolygonF poly;
-        for (const auto &v : f.pts)
-            poly << project(v);
-        QColor col = f.color;
-        if (stale_)
-            col = QColor(C.textMute);
-        p.setPen(QPen(col.darker(125), 0.8));
-        p.setBrush(col);
-        p.drawPolygon(poly);
-    }
+    p.drawImage(rect(), raster.image());
 
     // ---- 조작 안내 ----
     // 한 번 읽으면 그만인 문구다. 늘 띄워두면 화면만 지저분해지므로

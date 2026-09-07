@@ -350,7 +350,7 @@ void JointBar::paintEvent(QPaintEvent *)
     }
 
     // 실제값. 한계 근접은 마커 색으로만 알린다 — 막대에 음영을 깔면
-    // 7 축이 세로로 쌓였을 때 얼룩처럼 보인다.
+    // 관절 막대가 세로로 쌓였을 때 얼룩처럼 보인다.
     const double ax = barX + barW * fraction(actual_);
     p.setBrush(nearLimit() ? QColor(C.warning) : QColor(C.accent));
     p.drawEllipse(QRectF(ax - 3.5, h / 2 - 3.5, 7, 7));
