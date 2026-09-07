@@ -22,7 +22,7 @@ add_executable(test_tcp_server
 )
 target_include_directories(test_tcp_server PRIVATE
     ../shalom_bridge/include
-    ../../protocol/include
+    ../../../common/protocol/include
 )
 target_link_libraries(test_tcp_server PRIVATE Threads::Threads)
 

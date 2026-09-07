@@ -111,7 +111,7 @@ add_library(hmi_core ${HMI_CORE_TYPE}
     src/panels/DiagnosticsPanel.cpp
     src/MainWindow.cpp
 )
-target_include_directories(hmi_core PUBLIC src ${CMAKE_CURRENT_SOURCE_DIR}/../protocol/include)
+target_include_directories(hmi_core PUBLIC src ${CMAKE_CURRENT_SOURCE_DIR}/../common/protocol/include)
 target_link_libraries(hmi_core PUBLIC Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Svg)
 
 # 코드 카탈로그를 바이너리에 내장한다.
@@ -145,21 +145,21 @@ qt_add_resources(hmi_core "hmi_brand"
 option(HMI_WITH_TESTBED "Build the robot-free simulator and stand-in map" ON)
 
 if(HMI_WITH_TESTBED)
-    add_library(hmi_testbed STATIC ../testbed/sim/SimRobot.cpp)
+    add_library(hmi_testbed STATIC testbed/sim/SimRobot.cpp)
     target_link_libraries(hmi_testbed PUBLIC hmi_core)
-    target_include_directories(hmi_testbed PUBLIC ../testbed)
+    target_include_directories(hmi_testbed PUBLIC testbed)
     set_target_properties(hmi_testbed PROPERTIES AUTOMOC ON)
 
     # 브랜드 아이콘 생성기. 로고가 바뀔 때 사람이 한 번 돌리는 도구이고,
     # 결과물은 저장소에 커밋한다 — 빌드 환경에 SVG 래스터라이저를 요구하지
     # 않기 위해서다.
-    add_executable(make_brand_icon ../testbed/brand/make_icon.cpp)
+    add_executable(make_brand_icon testbed/brand/make_icon.cpp)
     target_link_libraries(make_brand_icon PRIVATE Qt6::Gui Qt6::Svg)
 
     qt_add_resources(hmi_testbed "testbed_maps"
         PREFIX "/maps"
-        BASE ../testbed/maps
-        FILES ../testbed/maps/gtxa_depot.yaml ../testbed/maps/gtxa_depot.pgm
+        BASE testbed/maps
+        FILES testbed/maps/gtxa_depot.yaml testbed/maps/gtxa_depot.pgm
     )
 endif()
 
@@ -314,7 +314,7 @@ foreach(_header IN LISTS HMI_PUBLIC_HEADERS)
 endforeach()
 
 # 프레이밍은 로봇측과 공유하는 구현이라 함께 내보낸다.
-install(FILES ../protocol/include/inspection/framing.hpp
+install(FILES ../common/protocol/include/inspection/framing.hpp
         DESTINATION include/inspection)
 
 # ---- 참조 자료 ----

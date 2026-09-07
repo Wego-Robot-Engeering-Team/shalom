@@ -5,8 +5,13 @@
 ```
 ~/shalom_ws/src/
 ├── shalom/                 이 저장소
-│   ├── slam_3d_to_2d/      3D LiDAR 인식 → 2D SLAM (로봇 무관)
-│   └── application/        B2 주행 조립 + B2 전용 튜닝
+│   ├── robot/
+│   │   ├── slam_3d_to_2d/  3D LiDAR 인식 → 2D SLAM (로봇 무관)
+│   │   ├── application/    B2 주행 조립 + B2 전용 튜닝
+│   │   └── bridge/         HMI TCP ↔ ROS 2 브릿지
+│   ├── hmi/                관제 GUI와 HMI 전용 testbed
+│   ├── common/             HMI·로봇 공통 통신 계약
+│   └── docs/               운용·통신 문서
 ├── b2_simulation/          실기 대체 시뮬레이터 + RL 학습
 └── b2_driver/              실기 드라이버
     └── unitree_msgs/       unitree_go / unitree_api 메시지 (벤더링, BSD-3)
@@ -49,7 +54,7 @@ vcs import . < navigation2_tutorials/nav2_lidar_ground_segmentation_demo/depende
 cd .. && rosdep install --from-paths src --ignore-src --rosdistro jazzy -y
 ```
 
-`nav2_ground_consistency_costmap_plugin`도 같이 온다. `application/config/nav2_b2.yaml`의
+`nav2_ground_consistency_costmap_plugin`도 같이 온다. `robot/application/config/nav2_b2.yaml`의
 local costmap이 그 플러그인을 쓴다.
 
 ## 빌드
