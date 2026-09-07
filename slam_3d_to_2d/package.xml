@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>slam_3d_to_2d</name>
+  <version>0.1.0</version>
+  <description>
+    3D LiDAR ground segmentation for Nav2.  Splits the cloud into ground and
+    obstacles, then keeps only obstacles inside a height band measured against the
+    locally observed ground -- filtering against local ground rather than a fixed
+    world height is what makes this hold up on slopes.
+
+    Robot- and simulator-agnostic: it consumes a PointCloud2 and a TF frame, so the
+    same chain runs on Gazebo, MuJoCo and hardware.
+  </description>
+  <maintainer email="hw.jo@wego-robotics.com">juno</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+
+  <exec_depend>ground_segmentation_ros2</exec_depend>
+  <exec_depend>pointcloud_to_laserscan</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
