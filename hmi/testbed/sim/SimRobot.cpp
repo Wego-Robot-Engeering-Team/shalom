@@ -399,7 +399,7 @@ void SimRobot::setArmPreset(const QString &name)
         emit robotEvent(QStringLiteral("E_ESTOP_ENGAGED"), {});
         return;
     }
-    const std::array<double, 7> *preset = nullptr;
+    const std::array<double, robot::kArmJointCount> *preset = nullptr;
     if (name == QLatin1String("home"))
         preset = &robot::kArmHome;
     else if (name == QLatin1String("standby"))
@@ -656,10 +656,18 @@ Telemetry SimRobot::step(double dt)
         tm.plan << QPointF(x_, y_) << QPointF(goalX_, goalY_);
     }
 
-    // 팔꿈치(J4)가 펴질수록 조작성이 급감하는 특이자세를 모사한다.
-    const double elbow = qAbs(joints_.value(3) + 0.1518) / 2.89;
-    tm.manipulability = qMax(0.004, 0.115 * std::pow(elbow, 0.7));
-    tm.sigmaMin = qMax(0.002, 0.085 * std::pow(elbow, 0.8));
+    // 이 팔이 자유도를 잃는 두 자리를 모사한다: 팔꿈치(J3)가 다 펴졌을 때와
+    // 손목(J5)이 일직선일 때. 어느 관절인지는 URDF 체인의 야코비안을 훑어
+    // 확인한 값이다 — RobotDef.h 의 kManipNominal 주석 참조.
+    //
+    // 최댓값은 kManipNominal 을 따라간다. 예전에는 Franka 의 0.12 에 맞춘
+    // 0.115 를 곱하고 있었는데, 정규화 기준이 FAIRINO 실측(0.0335)으로 바뀌자
+    // norm 이 늘 1.0 으로 포화돼 특이자세 경고가 영영 뜨지 않았다.
+    const double elbow = qMin(1.0, qAbs(joints_.value(2)) / 1.2);
+    const double wrist = qMin(1.0, qAbs(joints_.value(4)) / 1.2);
+    const double reach = std::pow(elbow * wrist, 0.7);
+    tm.manipulability = qMax(0.0012, hmi::robot::kManipNominal * reach);
+    tm.sigmaMin = qMax(0.0008, 0.7 * hmi::robot::kManipNominal * std::pow(reach, 1.2));
 
     // 정지해 있고 포인트 근처일 때만 마커가 잡힌다고 본다.
     if (speed_ < 0.05) {

@@ -15,6 +15,7 @@
 #include <QSet>
 #include <QTest>
 
+#include "RobotDef.h"
 #include "sim/SimRobot.h"
 
 using namespace hmi::sim;
@@ -330,7 +331,51 @@ private slots:
         const QList<double> home = r.step(kDt).joints;
         r.setArmPreset(QStringLiteral("stow"));
         const QList<double> stowed = run(r, 6.0).joints;
-        QVERIFY2(qAbs(stowed.at(1) - home.at(1)) > 0.5, "관절이 프리셋을 향해 움직여야 한다");
+
+        // 어느 한 축을 지목하지 않는다. 프리셋 값이 바뀌면 그 축만 우연히
+        // 같아질 수 있고, 그러면 팔이 멈춰 있어도 통과한다.
+        double toward = 0.0, away = 0.0;
+        for (int i = 0; i < hmi::robot::kArmJointCount; ++i) {
+            toward += qAbs(stowed.at(i) - hmi::robot::kArmStow[size_t(i)]);
+            away += qAbs(home.at(i) - hmi::robot::kArmStow[size_t(i)]);
+        }
+        QVERIFY2(away > 0.5, "홈과 스토우가 사실상 같은 자세다 — 검사가 성립하지 않는다");
+        QVERIFY2(toward < away * 0.5,
+                 qPrintable(QStringLiteral("프리셋에 가까워지지 않았다: %1 -> %2")
+                                .arg(away).arg(toward)));
+    }
+
+    // 조작성은 화면의 특이자세 경고를 켜는 유일한 입력이다. 테스트베드가
+    // 내보내는 값의 크기가 kManipNominal 과 어긋나면 norm 이 늘 1.0 으로
+    // 포화돼 경고가 영영 뜨지 않는데, 화면은 멀쩡해 보이므로 눈으로는
+    // 잡히지 않는다. 실제로 한 번 그렇게 깨졌다.
+    void arm_manipulabilitySpansTheWarningBand()
+    {
+        using namespace hmi::robot;
+        SimRobot r;
+
+        // 프리셋 세 자세는 쓸만한 자세여야 한다 — 경고가 뜨면 안 된다.
+        for (const char *name : {"home", "standby", "stow"}) {
+            SimRobot p;
+            p.setArmPreset(QString::fromLatin1(name));
+            const Telemetry tm = run(p, 6.0);
+            const double norm = tm.manipulability / kManipNominal;
+            QVERIFY2(norm > kManipWarn,
+                     qPrintable(QStringLiteral("%1 프리셋에서 경고가 뜬다 (norm %2)")
+                                    .arg(QLatin1String(name)).arg(norm)));
+            QVERIFY2(norm <= 1.0 + 1e-9,
+                     qPrintable(QStringLiteral("%1 에서 norm 이 1 을 넘는다 (%2) — "
+                                               "정규화 기준이 어긋났다")
+                                    .arg(QLatin1String(name)).arg(norm)));
+        }
+
+        // 팔꿈치(J3)를 펴면 경고 구간으로 떨어져야 한다.
+        QList<double> straight{0.0, -1.2, 0.0, -1.4, -1.571, 0.0};
+        r.setArmJointGoal(straight);
+        const double flat = run(r, 8.0).manipulability / kManipNominal;
+        QVERIFY2(flat <= kManipDanger,
+                 qPrintable(QStringLiteral("팔꿈치를 다 폈는데 위험 구간에 못 미친다 (norm %1)")
+                                .arg(flat)));
     }
 
     void arm_stopHoldsCurrentPosition()
