@@ -162,6 +162,7 @@ private:
     // last edit.
     void publishWaypoints();
     void publishLocations();
+    void publishMarkers();
 
     /// Accumulated driven path, in map coordinates.
     void publishTrail();
@@ -249,6 +250,8 @@ private:
     std::string mapId_ = "live";
 
     json waypoints_ = json::array();
+    json markers_ = json::array();
+    bool wasConnected_ = false;
     json locations_ = json::array();
     double returnAtPct_ = 25.0;   ///< battery level that sends the robot back
     double departAtPct_ = 80.0;   ///< level it will set out again at

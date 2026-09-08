@@ -216,7 +216,14 @@ std::optional<hmi::robot::MapData> SimRobot::initialMap() const
 
 QList<QVariantMap> SimRobot::markers() const
 {
-    return buildTags(waypoints_);
+    // 조작자가 측량해 넣었으면 그것이 원본이다. 아직 없으면 점검포인트에서
+    // 만들어 낸 대역 값을 쓴다 — 빈 지도로 화면을 보게 하지 않으려는 것뿐이다.
+    return markers_.isEmpty() ? buildTags(waypoints_) : markers_;
+}
+
+void SimRobot::setMarkers(const QList<QVariantMap> &markers)
+{
+    markers_ = markers;
 }
 
 QVariantMap SimRobot::dockPose() const

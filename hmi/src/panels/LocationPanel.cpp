@@ -1,7 +1,9 @@
 #include "panels/LocationPanel.h"
 
+#include <QAbstractItemView>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QListWidget>
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QtMath>
@@ -110,9 +112,89 @@ LocationPanel::LocationPanel(QWidget *parent) : QWidget(parent)
                                            QStringLiteral("충전 스테이션")));
     card_->body()->addWidget(buildFixedRow(QStringLiteral("home"),
                                            QStringLiteral("시작 위치")));
+
+    card_->body()->addSpacing(metrics::s2);
+    card_->body()->addWidget(new HLine);
+    card_->body()->addWidget(buildMarkerSection());
     card_->body()->addStretch(1);
 
     refreshEnabled();
+}
+
+QWidget *LocationPanel::buildMarkerSection()
+{
+    // 마커는 현장에서 벽에 붙이고 줄자로 재어 오는 물건이다. 로봇 위치로
+    // 잡는 방법은 두지 않는다 — 로봇이 선 자리는 마커가 붙은 자리가 아니라
+    // 마커를 바라보는 자리라, 그걸로 등록하면 처음부터 틀린 값이 들어간다.
+    auto *host = new QWidget;
+    auto *lay = new QVBoxLayout(host);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->setSpacing(metrics::s1);
+
+    auto *head = new QHBoxLayout;
+    head->addWidget(sectionLabel(QStringLiteral("마커")), 1);
+    markerCount_ = new QLabel;
+    markerCount_->setObjectName(QStringLiteral("Value"));
+    head->addWidget(markerCount_);
+    lay->addLayout(head);
+
+    markerList_ = new QListWidget;
+    markerList_->setObjectName(QStringLiteral("MarkerList"));
+    markerList_->setMaximumHeight(112);
+    markerList_->setSelectionMode(QAbstractItemView::SingleSelection);
+    lay->addWidget(markerList_);
+
+    auto *row = new QHBoxLayout;
+    row->setSpacing(metrics::s2);
+    auto *add = new QPushButton(QStringLiteral("지도에서 추가"));
+    add->setProperty("size", "sm");
+    markerDelete_ = new QPushButton(QStringLiteral("삭제"));
+    markerDelete_->setProperty("size", "sm");
+    markerDelete_->setEnabled(false);
+    row->addWidget(add, 2);
+    row->addWidget(markerDelete_, 1);
+    lay->addLayout(row);
+
+    connect(add, &QPushButton::clicked, this, &LocationPanel::addMarkerFromMap);
+    connect(markerList_, &QListWidget::currentRowChanged, this, [this](int row) {
+        markerDelete_->setEnabled(row >= 0 && row < markers_.size());
+    });
+    connect(markerDelete_, &QPushButton::clicked, this, [this] {
+        const int row = markerList_->currentRow();
+        if (row < 0 || row >= markers_.size())
+            return;
+        markers_.removeAt(row);
+        refreshMarkerList();
+        emit markersChanged(markers_);
+    });
+
+    refreshMarkerList();
+    return host;
+}
+
+void LocationPanel::setMarkers(const QList<QVariantMap> &markers)
+{
+    markers_ = markers;
+    refreshMarkerList();
+}
+
+void LocationPanel::refreshMarkerList()
+{
+    if (!markerList_)
+        return;
+    const int keep = markerList_->currentRow();
+    markerList_->clear();
+    for (const auto &m : std::as_const(markers_)) {
+        markerList_->addItem(QStringLiteral("#%1    %2, %3")
+                                 .arg(m.value(QStringLiteral("id")).toInt())
+                                 .arg(m.value(QStringLiteral("x")).toDouble(), 0, 'f', 2)
+                                 .arg(m.value(QStringLiteral("y")).toDouble(), 0, 'f', 2));
+    }
+    markerCount_->setText(markers_.isEmpty() ? QStringLiteral("없음")
+                                             : QStringLiteral("%1개").arg(markers_.size()));
+    if (keep >= 0 && keep < markers_.size())
+        markerList_->setCurrentRow(keep);
+    markerDelete_->setEnabled(markerList_->currentRow() >= 0);
 }
 
 QWidget *LocationPanel::buildFixedRow(const QString &kind, const QString &title)
