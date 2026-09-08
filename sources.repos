@@ -15,6 +15,10 @@ repositories:
     type: git
     url: https://github.com/PRBonn/kiss-icp.git
     version: 1ffa7d7512f10bfc8b1185095011fa31184019e3
+  third_party/aurora_ros:
+    type: git
+    url: https://github.com/Slamtec/aurora_ros.git
+    version: 1ecd0c7a96b6ec8f468480e13437722a69584991
   third_party/librealsense:
     type: git
     url: https://github.com/IntelRealSense/librealsense.git
