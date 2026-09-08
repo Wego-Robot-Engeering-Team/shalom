@@ -53,6 +53,9 @@ constexpr auto kCmdNavCancel = "cmd/nav_cancel";
 constexpr auto kCmdWaypointsSet = "cmd/waypoints/set";
 constexpr auto kCmdLocationsSet = "cmd/locations/set";
 constexpr auto kCmdMarkersSet = "cmd/markers/set";
+constexpr auto kChPreview = "capture/preview";
+constexpr auto kChCaptureSpool = "state/capture_spool";
+constexpr auto kCmdCapture = "cmd/capture/trigger";
 constexpr auto kCmdVideoQuality = "cmd/video/quality";
 constexpr auto kCmdMissionStart = "cmd/mission/start";
 constexpr auto kCmdMissionPause = "cmd/mission/pause";
@@ -183,6 +186,31 @@ BridgeNode::BridgeNode() : rclcpp::Node("shalom_bridge")
     // 팔은 이름으로 지시한다. 받는 쪽(시뮬레이터든 실기 드라이버든)이 자기
     // 순서를 쓰므로, 색인으로 보내면 언젠가 다른 축이 움직인다.
     armCmdPub_ = create_publisher<sensor_msgs::msg::JointState>("fr3/joint_command", 10);
+
+    // ---- 촬영 -------------------------------------------------------------
+    spoolDir_ = declare_parameter("capture.spool_dir",
+                                  std::string(std::getenv("HOME") ? std::getenv("HOME") : "/tmp")
+                                      + "/inspection");
+    maxCaptureLinear_ = declare_parameter("capture.max_linear_speed", maxCaptureLinear_);
+    maxCaptureAngular_ = declare_parameter("capture.max_angular_speed", maxCaptureAngular_);
+    const auto colorTopic = declare_parameter(
+        "capture.color_topic", std::string("/fr3/camera/arm_camera/color/image_raw/compressed"));
+    const auto depthTopic = declare_parameter(
+        "capture.depth_topic",
+        std::string("/fr3/camera/arm_camera/aligned_depth_to_color/image_raw"));
+
+
+    // 압축 이미지를 그대로 들고 있다가 그대로 쓴다. 다시 인코딩하면 같은
+    // 그림을 두 번 누르는 셈이고, 화질만 잃는다.
+    colorSub_ = create_subscription<sensor_msgs::msg::CompressedImage>(
+        colorTopic, rclcpp::SensorDataQoS(),
+        [this](const sensor_msgs::msg::CompressedImage::ConstSharedPtr &msg) {
+            lastColor_ = msg;
+        });
+    depthSub_ = create_subscription<sensor_msgs::msg::Image>(
+        depthTopic, rclcpp::SensorDataQoS(),
+        [this](const sensor_msgs::msg::Image::ConstSharedPtr &msg) { lastDepth_ = msg; });
+
 
     // 액션 이름은 Nav2 기본값이다. 다른 이름을 쓰는 스택에 붙일 때는 런치에서
     // 리매핑한다 — 여기에 파라미터를 하나 더 만들면 프로토콜 문서와 어긋날
@@ -430,6 +458,11 @@ void BridgeNode::handleRequest(const Envelope &request)
         respond(request, true);
         publishMarkers();
         RCLCPP_INFO(get_logger(), "마커 %zu개 등록", markers_.size());
+        return;
+    }
+
+    if (request.ch == kCmdCapture) {
+        handleCapture(request);
         return;
     }
 
@@ -692,6 +725,155 @@ const char *BridgeNode::missionStateName() const
     case Mission::Idle:    break;
     }
     return "idle";
+}
+
+bool BridgeNode::isMoving() const
+{
+    // 오도메트리가 끊겼으면 움직이는 것으로 본다. 모르는 채로 찍어 흔들린
+    // 사진을 남기는 것보다, 거절하고 이유를 말하는 편이 낫다.
+    if (lastOdomAt_.nanoseconds() == 0 || (now() - lastOdomAt_).seconds() > 1.0)
+        return true;
+    return speedLinear_ > maxCaptureLinear_ || speedAngular_ > maxCaptureAngular_;
+}
+
+double BridgeNode::centreDistanceMm() const
+{
+    // 정렬된 깊이 이미지 한가운데 값. 대상이 화면 중앙에 있다는 가정인데,
+    // Apriltag 보정이 붙기 전까지는 이보다 나은 근거가 없다. 과업지시서의
+    // 필수 메타데이터에 촬영거리가 있어 빈 값으로 둘 수도 없다.
+    if (!lastDepth_ || lastDepth_->encoding != "16UC1")
+        return -1.0;
+    const auto w = lastDepth_->width, h = lastDepth_->height;
+    if (w == 0 || h == 0)
+        return -1.0;
+    const std::size_t offset = std::size_t(h / 2) * lastDepth_->step
+                               + std::size_t(w / 2) * 2;
+    if (offset + 1 >= lastDepth_->data.size())
+        return -1.0;
+    const std::uint16_t mm = std::uint16_t(lastDepth_->data[offset])
+                             | std::uint16_t(lastDepth_->data[offset + 1] << 8);
+    return mm == 0 ? -1.0 : double(mm);   // 0 은 "측정 못 함" 이다
+}
+
+void BridgeNode::publishCaptureSpool()
+{
+    std::error_code ec;
+    const auto space = std::filesystem::space(spoolDir_, ec);
+    sendEnvelope(makePublish(kChCaptureSpool,
+                             json{{"nas_online", !ec},
+                                  {"pending", capturesTaken_},
+                                  {"spool_free_mb",
+                                   ec ? 0.0 : double(space.available) / (1024.0 * 1024.0)}}));
+}
+
+void BridgeNode::handleCapture(const Envelope &request)
+{
+    if (!lastColor_) {
+        respond(request, false, err::kUnreachable,
+                "카메라 영상이 없습니다. 카메라 연결을 확인하십시오");
+        return;
+    }
+    if (estopEngaged_) {
+        respond(request, false, err::kMode, "비상정지 상태에서는 촬영하지 않습니다");
+        return;
+    }
+    // 과업지시서 2.2.4: 반드시 정지 상태에서 촬영한다. 화면에서도 버튼을
+    // 잠그지만, 규칙은 로봇이 지켜야 한다 — 화면만 막으면 다른 경로로 들어온
+    // 요청은 그대로 통과한다.
+    if (isMoving()) {
+        respond(request, false, err::kMode,
+                "이동 중에는 촬영하지 않습니다. 정지한 뒤 다시 시도하십시오");
+        return;
+    }
+
+    // 파일명은 과업지시서가 정한 형식이다.
+    //   차량번호_량번호_포인트ID,YYYYMMDDHHMMSS.확장자
+    const auto text = [&request](const char *key, const char *fallback) {
+        const std::string v = request.p.value(key, std::string());
+        return v.empty() ? std::string(fallback) : v;
+    };
+    const std::string vehicle = text("vehicle_number", "UNKNOWN");
+    const std::string car = text("car_number", "00");
+    const std::string point = text("point_id", "MANUAL");
+
+    const auto t = std::time(nullptr);
+    std::tm tm{};
+    localtime_r(&t, &tm);
+    char stamp[16];
+    std::strftime(stamp, sizeof(stamp), "%Y%m%d%H%M%S", &tm);
+
+    const std::string base = vehicle + "_" + car + "_" + point + "," + stamp;
+
+    std::error_code ec;
+    std::filesystem::create_directories(spoolDir_, ec);
+    if (ec) {
+        respond(request, false, err::kHardware,
+                "저장 폴더를 만들지 못했습니다: " + spoolDir_);
+        return;
+    }
+
+    const std::string imagePath = spoolDir_ + "/" + base + ".jpg";
+    {
+        std::ofstream out(imagePath, std::ios::binary);
+        if (!out) {
+            respond(request, false, err::kHardware, "사진을 저장하지 못했습니다");
+            return;
+        }
+        out.write(reinterpret_cast<const char *>(lastColor_->data.data()),
+                  std::streamsize(lastColor_->data.size()));
+    }
+
+    // 사이드카. 파일명에 담기지 않는 값들이 여기 들어간다 — 과업지시서의
+    // 필수 메타데이터 중 로봇좌표, 촬영거리, Apriltag ID 가 그것이다.
+    double x = 0.0, y = 0.0, theta = 0.0;
+    try {
+        const auto tf = tfBuffer_->lookupTransform(mapFrame_, baseFrame_,
+                                                   tf2::TimePointZero);
+        x = tf.transform.translation.x;
+        y = tf.transform.translation.y;
+        // 기존 자세 발행부와 같은 방식으로 만든다. tf2::fromMsg 의 이 조합은
+        // 헤더에 선언만 있고 구현이 없어 링크가 깨진다.
+        const tf2::Quaternion q(tf.transform.rotation.x, tf.transform.rotation.y,
+                                tf.transform.rotation.z, tf.transform.rotation.w);
+        double roll = 0, pitch = 0, yaw = 0;
+        tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+        theta = yaw;
+    } catch (const tf2::TransformException &e) {
+        // 자리를 모른 채로도 사진은 남긴다. 좌표가 빠진 사실은 사이드카에
+        // 그대로 드러나고, 화면이 그것을 "메타데이터 누락" 으로 표시한다.
+        RCLCPP_WARN(get_logger(), "촬영 시각의 자세를 읽지 못했다: %s", e.what());
+    }
+    const double distance = centreDistanceMm();
+    const json meta{
+        {"file", base + ".jpg"},
+        {"vehicle_number", vehicle},
+        {"car_number", car},
+        {"point_id", point},
+        {"captured_at", std::string(stamp)},
+        {"robot", json{{"x", x}, {"y", y}, {"theta", theta}}},
+        {"distance_mm", distance > 0.0 ? json(distance) : json(nullptr)},
+        {"tag_id", request.p.contains("tag_id") ? request.p["tag_id"] : json(nullptr)},
+        {"map_id", mapId_},
+    };
+    {
+        std::ofstream out(spoolDir_ + "/" + base + ".json");
+        out << meta.dump(2);
+    }
+
+    ++capturesTaken_;
+    // 성공 응답에는 오류 코드가 없다. nullptr 을 넘기면 std::string 이
+    // 널에서 만들어져 노드가 죽는다 — 실제로 사진은 저장되고 그 직후
+    // 브릿지가 내려앉았다.
+    respond(request, true, std::string(), base + ".jpg");
+    RCLCPP_INFO(get_logger(), "촬영 저장: %s (%zu 바이트)", imagePath.c_str(),
+                lastColor_->data.size());
+
+    // 미리보기는 방금 저장한 그 바이트를 그대로 보낸다. 다시 만들면 화면에
+    // 보이는 것과 저장된 것이 다를 수 있다.
+    sendEnvelope(makePublish(kChPreview, meta), false,
+                 std::string(reinterpret_cast<const char *>(lastColor_->data.data()),
+                             lastColor_->data.size()));
+    publishCaptureSpool();
 }
 
 void BridgeNode::publishMission()
@@ -1169,8 +1351,42 @@ void BridgeNode::publishPose()
     double roll = 0, pitch = 0, yaw = 0;
     tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
 
+    // 자세가 얼마나 움직였는지로 속도를 낸다. 한 표본만 보면 값이 튀므로
+    // 지수이동평균으로 눌러 준다 — 촬영 허용 판정에 쓰는 값이라, 잠깐의
+    // 튐으로 버튼이 깜빡이면 조작자가 못 누른다.
+    {
+        const rclcpp::Time nowT = now();
+        const double x = tf.transform.translation.x;
+        const double y = tf.transform.translation.y;
+        if (lastPoseAt_.nanoseconds() != 0) {
+            const double dt = (nowT - lastPoseAt_).seconds();
+            if (dt > 1e-3 && dt < 2.0) {
+                const double v = std::hypot(x - lastPoseX_, y - lastPoseY_) / dt;
+                double dth = yaw - lastPoseTheta_;
+                while (dth > M_PI) dth -= 2 * M_PI;
+                while (dth < -M_PI) dth += 2 * M_PI;
+                const double w = std::abs(dth) / dt;
+                speedLinear_ = 0.7 * speedLinear_ + 0.3 * v;
+                speedAngular_ = 0.7 * speedAngular_ + 0.3 * w;
+                lastOdomAt_ = nowT;
+            }
+        }
+        lastPoseX_ = x;
+        lastPoseY_ = y;
+        lastPoseTheta_ = yaw;
+        lastPoseAt_ = nowT;
+    }
+
+    // 속도를 함께 보낸다. 이것이 없으면 관제는 로봇이 늘 멈춰 있는 줄 알고,
+    // 이동 중에도 촬영 버튼이 열려 있다 — 과업지시서 2.2.4 가 금지하는
+    // 동적 촬영이 화면에서는 막히지 않는다는 뜻이다.
+    const bool odomFresh = lastOdomAt_.nanoseconds() != 0
+                           && (now() - lastOdomAt_).seconds() < 1.0;
     sendEnvelope(makePublish(kChPose,
-                             json{{"x", tf.transform.translation.x},
+                             json{{"speed", odomFresh ? speedLinear_ : 0.0},
+                                  {"yaw_rate", odomFresh ? speedAngular_ : 0.0},
+                                  {"moving", isMoving()},
+                                  {"x", tf.transform.translation.x},
                                   {"y", tf.transform.translation.y},
                                   {"theta", yaw},
                                   {"frame", mapFrame_}},

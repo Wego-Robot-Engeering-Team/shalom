@@ -454,6 +454,8 @@ void BridgeClient::handlePublish(const Envelope &env)
         telemetry_.link.rssiDbm = link.value(QStringLiteral("rssi_dbm")).toDouble();
     } else if (ch == QLatin1String(hmi::ch::kMap)) {
         emit mapReceived(env.payload, p);
+    } else if (ch == QLatin1String(hmi::ch::kPreview)) {
+        emit previewReceived(env.payload, p);
     } else if (ch == QLatin1String(hmi::ch::kLog)) {
         emit robotEvent(p.value(QStringLiteral("code")).toString(), p.toVariantMap());
     }
@@ -561,6 +563,12 @@ void BridgeClient::setMarkers(const QList<QVariantMap> &markers)
 void BridgeClient::setVideoQuality(const QString &preset)
 {
     sendRequest(QLatin1String(hmi::ch::kCmdVideoQuality), {{"preset", preset}});
+}
+
+void BridgeClient::triggerCapture(const QVariantMap &metadata)
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdCapture),
+                QJsonObject::fromVariantMap(metadata));
 }
 
 void BridgeClient::setBatteryPolicy(double returnAt, double departAt)

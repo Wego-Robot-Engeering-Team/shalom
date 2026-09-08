@@ -79,16 +79,16 @@
       # 눈으로는 늦게 발견된다.
       cam_body:
         name: "본체 카메라"
-        topic: "/b2/camera/body_camera/color/image_raw"
+        topic: "/b2/camera/image_raw"
         type: "sensor_msgs/msg/Image"
         expected_hz: 15.0
       cam_arm_2d:
         name: "암 2D 카메라"
-        topic: "/fr3/camera/arm_camera/color/image_raw"
+        topic: "/fr3/camera_2d/image_raw"
         type: "sensor_msgs/msg/Image"
         expected_hz: 15.0
       cam_arm_3d:
         name: "암 3D 카메라"
-        topic: "/fr3/camera/arm_camera/depth/color/points"
+        topic: "/fr3/camera_3d/points"
         type: "sensor_msgs/msg/PointCloud2"
         expected_hz: 10.0

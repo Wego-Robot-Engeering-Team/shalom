@@ -88,13 +88,8 @@ source install/setup.bash
 
 ```bash
 ros2 pkg list | rg 'application|shalom_bridge|video_streamer|realsense2_camera'
-gst-inspect-1.0 nvv4l2h264enc
 realsense-viewer
 ```
-
-`gst-inspect-1.0 nvv4l2h264enc` 명령은 Jetson 하드웨어 H.264 인코더가 보이는지 확인한다. 보이지 않으면
-JetPack의 GStreamer 구성요소가 끝나지 않았거나, JetPack/보드 조합이 맞지 않는
-상태이므로 영상 노드를 먼저 실행하지 않는다.
 
 `realsense-viewer`에서 D455가 보이면 RGB·Depth 스트림을 켜서 확인한다. UDEV 규칙을
 막 설치했거나 권한 경고가 보이면 카메라 USB를 한 번 뺐다가 다시 연결한다.
@@ -107,6 +102,18 @@ SDK 소스에는 `COLCON_IGNORE`를 둔다. 따라서 ROS 빌드에서 SDK가 �
 고정한 B2 드라이버 커밋에는 더는 쓰지 않는 `dae/` 디렉터리를 CMake 설치 목록에
 남긴 부분이 있다. 설치 스크립트가 빈 호환 디렉터리를 자동 생성하므로, 첫 빌드도
 별도 수동 수정 없이 진행된다.
+
+## Jetson별 H.264 인코더
+
+현재 설치 대상인 **Orin Nano에는 H.264 하드웨어 인코더(NVENC)가 없다.**
+`nvv4l2h264enc`가 보이지 않는 것은 JetPack 설치 실패가 아니라 보드 제약이다.
+Nano에서 RTSP를 송신하려면 CPU 소프트웨어 인코더를 별도로 승인·성능 검증한다.
+AGX Orin처럼 하드웨어 인코더가 있는 목표 장비에서만 아래 확인 후 NVENC 파이프라인을
+선택한다.
+
+```bash
+gst-inspect-1.0 nvv4l2h264enc
+```
 
 ## ROS와 도구 설치
 
@@ -177,12 +184,12 @@ sudo apt install -y libgstrtspserver-1.0-dev gstreamer1.0-rtsp
 ```
 
 ```bash
-# 젯슨 (NVENC)
+# NVENC 요소가 확인된 AGX Orin
 ros2 launch video_streamer video_streamer.launch.py
-
-# 개발 PC — NVENC 가 없으므로 x264 로 검증만
-ros2 launch video_streamer video_streamer.launch.py encoder:=x264enc
 ```
+
+현재 Orin Nano에는 위 명령을 쓰지 않는다. 소프트웨어 H.264 인코더를 납품 경로에
+넣을지는 CPU 부하·라이선스·지연 측정을 마친 뒤 별도 결정한다.
 
 `~/enable` 서비스로 켜고 끈다. 자율주행 중에는 꺼 둔다 — 대역폭은 항법의
 것이고 어차피 촬영은 정지 상태에서만 한다.
@@ -218,12 +225,11 @@ rtspsrc latency=50 drop-on-latency=true
 디코더는 소프트웨어(`avdec_h264`, LGPL)를 쓴다. 720p 15 fps 에서 충분히
 가볍고, 납품 PC 의 GPU·드라이버 상태를 전제하지 않는다.
 
-### x264enc 은 개발용이다
+### x264enc 은 납품 경로가 아니다
 
 `x264enc` 은 `libx264`(**GPL-2+**)를 링크한다. 개발 PC 검증에만 쓰고 납품
 파이프라인에는 넣지 말 것. "NVENC 가 없으면 x264 로" 같은 폴백을 넣는
-순간 로봇 소프트웨어 전체가 GPL 이 된다. 납품 경로는 젯슨의
-`nvv4l2h264enc`(JetPack 동봉) 하나뿐이다.
+순간 로봇 소프트웨어 전체가 GPL 이 된다. Nano용 대안은 별도 검토가 필요하다.
 
 ## 제3자 ROS 패키지
 
