@@ -9,6 +9,7 @@
 │   │   ├── slam_3d_to_2d/  3D LiDAR 인식 → 2D SLAM (로봇 무관)
 │   │   ├── application/    B2 주행 조립 + B2 전용 튜닝
 │   │   └── bridge/         HMI TCP ↔ ROS 2 브릿지
+│   │   └── video_streamer/ RealSense RGB → H.264/RTSP 뷰파인더
 │   ├── hmi/                관제 GUI와 HMI 전용 testbed
 │   ├── common/             HMI·로봇 공통 통신 계약
 │   └── docs/               운용·통신 문서
@@ -43,6 +44,50 @@ cd ~/shalom_ws/src/shalom
 
 아래 절들은 각 명령이 왜 필요한지를 남겨 둔 것이다. 스크립트를 쓰면
 따로 실행할 필요는 없다.
+
+## Jetson 로봇에 새로 설치하기
+
+이 절은 Jetson Orin Nano/AGX에 JetPack 7.2.1 (Ubuntu 24.04)을 설치한 직후의
+재현 가능한 절차다. **Nano용 SSD를 AGX로 옮겨 부팅하지 않는다.** 각 보드는
+자기 보드 대상으로 JetPack을 플래시한 뒤 아래를 각각 수행한다.
+
+SDK Manager의 JetPack 추가 구성요소 설치가 끝난 뒤, Jetson에서 실행한다.
+처음에는 유선망 또는 인터넷이 필요하다.
+
+```bash
+mkdir -p ~/shalom_ws/src
+cd ~/shalom_ws/src
+
+git clone https://github.com/Wego-Robot-Engeering-Team/shalom.git shalom
+
+cd shalom
+./scripts/install.sh --role robot
+```
+
+`sources.repos`는 실제 로봇 실행에 필요한 B2 드라이버와 apt에 없는 ROS 패키지의
+검증된 커밋을 함께 받는다. 설치 스크립트가 ROS의 `vcs` 도구를 먼저 설치한 뒤
+자동으로 가져온다. `--role robot`은 ROS Jazzy, Nav2, SLAM, RealSense 래퍼,
+GStreamer/RTSP 개발 헤더만 설치하며 HMI와 시뮬레이터는 설치하지 않는다.
+
+설치가 끝나면 새 셸을 열거나 아래를 실행한 뒤 빌드한다.
+
+```bash
+source /opt/ros/jazzy/setup.bash
+cd ~/shalom_ws
+colcon build --symlink-install
+source install/setup.bash
+```
+
+확인:
+
+```bash
+ros2 pkg list | rg 'application|shalom_bridge|video_streamer|realsense2_camera'
+gst-inspect-1.0 nvv4l2h264enc
+```
+
+마지막 명령은 Jetson 하드웨어 H.264 인코더가 보이는지 확인한다. 보이지 않으면
+JetPack의 GStreamer 구성요소가 끝나지 않았거나, JetPack/보드 조합이 맞지 않는
+상태이므로 영상 노드를 먼저 실행하지 않는다.
 
 ## ROS와 도구 설치
 
