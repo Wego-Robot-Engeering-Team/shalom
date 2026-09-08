@@ -164,6 +164,26 @@ private:
     void publishLocations();
     void publishMarkers();
 
+    // ---- 점검 순회 -----------------------------------------------------
+    //
+    // 관제는 점검포인트를 순서대로 도는 하나의 작업으로 다룬다. 여기가
+    // 없으면 화면의 시작·일시정지·재개·취소가 눌리는 곳이 없고, 상태를
+    // 알려주지 않으니 버튼 글자도 영영 "자율주행 시작" 에 머문다.
+    void startMission();
+    void pauseMission(const char *why);
+    void resumeMission();
+    void stopMission(const char *why);
+
+    /// 목표 하나가 끝났을 때 다음으로 넘긴다.
+    void onMissionGoalFinished(bool succeeded, bool canceled);
+
+    /// index 번째 점검포인트로 보낸다. 보낼 수 없으면 false.
+    bool navigateToWaypoint(std::size_t index);
+    void setWaypointStatus(std::size_t index, const char *status);
+    void publishMission();
+
+    const char *missionStateName() const;
+
     /// Accumulated driven path, in map coordinates.
     void publishTrail();
 
@@ -252,6 +272,13 @@ private:
     json waypoints_ = json::array();
     json markers_ = json::array();
     bool wasConnected_ = false;
+
+    enum class Mission { Idle, Running, Paused };
+    Mission mission_ = Mission::Idle;
+    std::size_t missionIndex_ = 0;
+    /// 지금 Nav2 에 걸린 목표가 순회의 것인지. 조작자가 지도를 눌러 보낸
+    /// 목표와 구분해야, 그 목표가 끝났다고 순회가 한 칸 넘어가지 않는다.
+    bool missionOwnsGoal_ = false;
 
     // 마지막으로 보낸 지도. /map 은 transient_local 이라 구독 콜백이 브릿지
     // 기동 때 한 번만 뜬다. 관제가 그 뒤에 붙으면 지도를 영영 못 받으므로

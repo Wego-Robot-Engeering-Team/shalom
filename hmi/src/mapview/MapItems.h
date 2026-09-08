@@ -41,6 +41,11 @@ public:
     void setStatus(const QString &status);
     QString status() const { return status_; }
 
+    /// Which way the robot will face when it gets there, in world radians.
+    /// Drawn as a notch outside the disc: the operator sets this by dragging
+    /// when placing the point, and until now had no way to see what they set.
+    void setHeading(double theta);
+
     /// Drawn with a ring when the operator has this row picked in the list.
     /// Kept separate from status: a point can be selected in any state, and
     /// borrowing the "current" color would lie about what the robot is doing.
@@ -61,6 +66,8 @@ private:
     double r_;
     bool hover_ = false;
     bool selected_ = false;
+    double theta_ = 0.0;
+    bool hasHeading_ = false;
 };
 
 /// AprilTag marker position, filled while the tag is currently detected.
