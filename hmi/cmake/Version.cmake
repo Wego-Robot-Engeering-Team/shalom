@@ -33,3 +33,13 @@ endif()
 string(TIMESTAMP HMI_BUILD_DATE "%Y-%m-%d %H:%M:%S" UTC)
 
 message(STATUS "Inspection HMI ${PROJECT_VERSION} (${HMI_GIT_HASH}${HMI_GIT_DIRTY})")
+
+# 납품 문서와 화면에 함께 쓸 이름. 계약 명의가 확정되면 여기만 고친다.
+set(HMI_PRODUCT_NAME "철도차량 하부점검 관제 시스템" CACHE STRING "제품명")
+set(HMI_VENDOR "위고로보틱스" CACHE STRING "개발사")
+set(HMI_CLIENT "샬롬엔지니어링주식회사" CACHE STRING "발주기관")
+
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildInfo.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/BuildInfo.h"
+    @ONLY)
