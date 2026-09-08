@@ -395,6 +395,23 @@ void MainWindow::wireSignals()
     wireMapSignals();
     // 영상은 관제 링크가 아니라 RTSP 로 따로 온다. 화면은 그 사실을 모르고
     // QImage 만 받는다.
+    // 촬영 결과는 로봇이 되돌려 준다. 저장한 그 바이트를 그대로 받으므로,
+    // 화면에 보이는 것과 파일에 남은 것이 같다.
+    if (auto *bridge = qobject_cast<hmi::net::BridgeClient *>(robot_)) {
+        connect(bridge, &hmi::net::BridgeClient::previewReceived, this,
+                [this](const QByteArray &jpeg, const QJsonObject &meta) {
+                    QImage img;
+                    if (!img.loadFromData(jpeg, "JPG")) {
+                        log_->note(diag::Severity::Warn,
+                                   QStringLiteral("촬영 미리보기를 읽지 못했습니다"));
+                        return;
+                    }
+                    capture_->showPreview2d(img);
+                    log_->note(diag::Severity::Ok, QStringLiteral("촬영 저장"),
+                               meta);
+                });
+    }
+
     video_ = new hmi::video::VideoClient(this);
     connect(video_, &hmi::video::VideoClient::frameReady,
             capture_, &CapturePanel::setLiveFrame);
@@ -701,9 +718,15 @@ void MainWindow::wirePanelSignals()
                            QJsonObject{{"channel", QStringLiteral("cmd/video/quality")}});
             });
 
+    // 촬영은 로봇이 한다. 원본이 관제를 거치지 않는 것과 같은 이유이고,
+    // 정지 상태 여부도 로봇이 판단한다 — 화면만 막으면 다른 경로로 들어온
+    // 요청은 그대로 통과한다.
     connect(capture_, &CapturePanel::captureRequested, this, [this] {
-        logAction(QStringLiteral("CAPTURE_OK"),
-                  {{"point_id", capture_ ? QStringLiteral("수동 촬영") : QString()}});
+        QVariantMap meta = capture_->currentMetadata().toJson().toVariantMap();
+        meta[QStringLiteral("tag_id")] = snapshot_.visibleTagId;
+        robot_->triggerCapture(meta);
+        log_->note(diag::Severity::Info, QStringLiteral("촬영 요청"),
+                   QJsonObject{{"channel", QStringLiteral("cmd/capture/trigger")}});
     });
     connect(capture_, &CapturePanel::saveRequested, this,
             [this](const hmi::capture::CaptureMetadata &meta) {

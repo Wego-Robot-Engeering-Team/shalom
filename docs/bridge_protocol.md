@@ -101,6 +101,11 @@ Nav2 / 브릿지 → /cmd_vel_raw → 안전 게이트 → /cmd_vel → 로봇
 ## 촬영 데이터·위치·건강 상태
 
 - 미리보기는 `capture/preview`로 관제에 보낸다. 원본은 로봇에서 NAS로 직접 전송한다.
+- `cmd/capture/trigger`로 촬영을 요청한다. 로봇은 움직이는 중이면 `E_MODE`로
+  거절한다 — 과업지시서 2.2.4가 정지 상태 촬영을 요구하므로, 화면이 버튼을
+  잠그는 것과 별개로 규칙 자체는 로봇이 지킨다.
+- 저장 파일명은 `차량번호_량번호_포인트ID,YYYYMMDDHHMMSS.jpg`이고, 같은
+  이름의 `.json`에 로봇좌표·촬영거리·Apriltag ID가 들어간다.
 - 원본은 로컬 스풀에 보관하고, NAS 체크섬 검증 뒤 삭제한다.
 - `dock`, `home`, 점검 지점은 로봇이 보관한다.
 - `state/health`는 센서별 `expected_hz`, `actual_hz`, `last_seen_ms`, `state`와 링크 지표를 보낸다.

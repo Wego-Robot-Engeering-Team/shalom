@@ -19,6 +19,58 @@ ros2 launch application b2_navigation.launch.py robot:=real \
 `robot` 인자만 바꾸면 인식·계획·관제 브릿지는 같은 인터페이스를 사용한다. 실기에서는
 반드시 `use_sim_time:=false`를 지정한다.
 
+## Nano에서 로봇·노트북 HMI 통합 시험
+
+Nano는 AGX 실기 투입 전의 통합 시험기다. Nano와 개발 노트북에 시뮬레이터가 동시에
+떠 있으면 기본 ROS 도메인(0)에서 `/clock`과 TF가 섞인다. Nano 시험 스택은 반드시
+전용 도메인으로 격리한다. HMI는 ROS가 아니라 TCP 9090만 쓰므로 이 도메인 값과
+무관하다.
+
+Nano에서 먼저 D455를 암 카메라 역할로 올린다. 실제 H.264 송신은 Nano에서 켜지지
+않는다. Nano에는 NVENC가 없으며, 이 시험은 ROS 카메라 토픽과 HMI 센서 상태를
+확인하는 목적이다.
+
+```bash
+export ROS_DOMAIN_ID=41
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+source /opt/ros/jazzy/setup.bash
+source ~/shalom_ws/install/setup.bash
+
+ros2 launch application cameras.launch.py role:=arm serial:=<D455-serial>
+```
+
+다른 Nano 터미널에서 시뮬레이터·SLAM·Nav2·TCP 브릿지를 올린다.
+
+```bash
+export ROS_DOMAIN_ID=41
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+source /opt/ros/jazzy/setup.bash
+source ~/shalom_ws/install/setup.bash
+
+ros2 launch application b2_navigation.launch.py \
+  robot:=sim payload:=fr3 map:=none rviz:=false viewer:=false \
+  cameras:=false video:=false
+```
+
+노트북에서는 ROS를 실행하거나 같은 도메인에 넣지 않는다. HMI만 Nano 브릿지에
+붙인다.
+
+```bash
+cd ~/shalom_ws/src/shalom/hmi
+./build/inspection_hmi --host <NANO-IP> --port 9090
+```
+
+Nano에서 아래가 확인되면 시험 경로가 완성된 것이다.
+
+```bash
+ros2 topic echo --once /b2/points --field header.stamp
+ros2 run tf2_ros tf2_echo odom base_link
+ros2 topic list | rg '^/(map|fr3/camera_2d/image_raw|fr3/camera_3d/points)$'
+ss -tn sport = :9090
+```
+
+마지막 명령의 peer가 노트북 IP이면 HMI TCP 연결이 실제로 성립한 것이다.
+
 | 인자 | 기본 | 뜻 |
 |---|---|---|
 | `robot` | `sim` | `sim`(MuJoCo) 또는 `real`(실기) |

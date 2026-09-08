@@ -24,9 +24,11 @@
     enable_infra1: false
     enable_infra2: false
 
-    # 포인트클라우드. 암 3D 카메라 항목이 이것을 기다린다.
-    pointcloud.enable: true
-    pointcloud.stream_filter: 2      # 컬러 스트림에 정렬
+    # 포인트클라우드. Jazzy의 realsense2_camera 4.58부터 이 필터 이름은
+    # pointcloud__neon_ 이다. 예전 pointcloud.enable은 조용히 무시되어
+    # RGB만 나오고 암 3D 센서가 "신호 없음"으로 남는다.
+    pointcloud__neon_.enable: true
+    pointcloud__neon_.stream_filter: 2      # 컬러 스트림에 정렬
     align_depth.enable: true
 
     # IMU 는 끈다. B2 자체 IMU 가 이미 200 Hz 로 오고 있고, 둘을 함께
