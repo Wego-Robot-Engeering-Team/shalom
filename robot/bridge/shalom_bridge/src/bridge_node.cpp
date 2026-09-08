@@ -35,6 +35,7 @@ constexpr auto kChSystem = "state/system";
 constexpr auto kChTrail = "state/trail";
 constexpr auto kChWaypoints = "state/waypoints";
 constexpr auto kChLocations = "state/locations";
+constexpr auto kChMarkers = "state/markers";
 
 /// Nav2 has this long to say whether it accepts a goal before the station's
 /// request is answered with a failure. Goal acceptance is a planner-side
@@ -50,6 +51,7 @@ constexpr auto kCmdGoto = "cmd/goto";
 constexpr auto kCmdNavCancel = "cmd/nav_cancel";
 constexpr auto kCmdWaypointsSet = "cmd/waypoints/set";
 constexpr auto kCmdLocationsSet = "cmd/locations/set";
+constexpr auto kCmdMarkersSet = "cmd/markers/set";
 constexpr auto kCmdPowerPolicy = "cmd/power/policy";
 constexpr auto kCmdArmPreset = "cmd/arm/preset";
 constexpr auto kCmdArmJointGoal = "cmd/arm/joint_goal";
@@ -406,6 +408,17 @@ void BridgeNode::handleRequest(const Envelope &request)
         return;
     }
 
+    if (request.ch == kCmdMarkersSet) {
+        // 측량해 넣은 마커 자리다. 관제에서 통째로 갈아 끼우고, 로봇은 그것을
+        // 그대로 들고 있다가 되돌려 준다 — 어느 태그가 어디 붙어 있는지는
+        // 사람이 재어 오는 값이라 로봇이 스스로 정할 수 있는 것이 아니다.
+        markers_ = request.p.value("markers", json::array());
+        respond(request, true);
+        publishMarkers();
+        RCLCPP_INFO(get_logger(), "마커 %zu개 등록", markers_.size());
+        return;
+    }
+
     if (request.ch == kCmdPowerPolicy) {
         returnAtPct_ = request.p.value("return_at", returnAtPct_);
         departAtPct_ = request.p.value("depart_at", departAtPct_);
@@ -579,6 +592,11 @@ void BridgeNode::publishWaypoints()
 void BridgeNode::publishLocations()
 {
     sendEnvelope(makePublish(kChLocations, json{{"locations", locations_}}));
+}
+
+void BridgeNode::publishMarkers()
+{
+    sendEnvelope(makePublish(kChMarkers, json{{"markers", markers_}}));
 }
 
 void BridgeNode::publishTrail()
@@ -900,7 +918,18 @@ void BridgeNode::markSeen(Sensor &sensor)
 
 void BridgeNode::publishHealth()
 {
-    if (!server_.isConnected())
+    // 관제가 새로 붙으면 로봇이 들고 있던 목록을 한 번 밀어 준다. 예전에는
+    // 관제가 설정을 보낼 때만 오갔던 탓에, 갓 접속한 화면에는 점검포인트도
+    // 마커도 없는 빈 지도가 떴다 — 로봇은 알고 있는데 화면만 몰랐다.
+    const bool connected = server_.isConnected();
+    if (connected && !wasConnected_) {
+        publishWaypoints();
+        publishLocations();
+        publishMarkers();
+    }
+    wasConnected_ = connected;
+
+    if (!connected)
         return;
 
     json list = json::array();

@@ -425,6 +425,11 @@ void BridgeClient::handlePublish(const Envelope &env)
             else if (kind == QLatin1String("home"))
                 home_ = loc;
         }
+    } else if (ch == QLatin1String(hmi::ch::kMarkers)) {
+        QList<QVariantMap> ms;
+        for (const auto &v : p.value(QStringLiteral("markers")).toArray())
+            ms << v.toObject().toVariantMap();
+        markers_ = ms;
     } else if (ch == QLatin1String(hmi::ch::kCaptureSpool)) {
         telemetry_.nasOnline = p.value(QStringLiteral("nas_online")).toBool();
         telemetry_.pendingUploads = p.value(QStringLiteral("pending")).toInt();
@@ -540,6 +545,17 @@ void BridgeClient::setLocations(const QList<QVariantMap> &locations)
             home_ = loc;
     }
     sendRequest(QLatin1String(hmi::ch::kCmdLocationsSet), {{"locations", arr}});
+}
+
+void BridgeClient::setMarkers(const QList<QVariantMap> &markers)
+{
+    // 화면 값을 먼저 갱신한다. 로봇이 되돌려 줄 때까지 기다리면 방금 찍은
+    // 마커가 잠깐 사라졌다 나타나 조작자가 실패한 줄 안다.
+    markers_ = markers;
+    QJsonArray arr;
+    for (const auto &m : markers)
+        arr.append(QJsonObject::fromVariantMap(m));
+    sendRequest(QLatin1String(hmi::ch::kCmdMarkersSet), {{"markers", arr}});
 }
 
 void BridgeClient::setBatteryPolicy(double returnAt, double departAt)
