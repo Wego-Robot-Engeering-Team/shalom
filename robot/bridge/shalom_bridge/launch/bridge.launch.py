@@ -29,6 +29,12 @@ def generate_launch_description():
     # 쓰면 TF 조회가 시뮬 시각과 어긋나 위치가 나가지 않는다. 실기에서는
     # false 로 둔다 — true 로 두면 오지 않는 /clock 을 기다리며 멈춘다.
     sim_time_arg = DeclareLaunchArgument(
+        "robot_id", default_value="R1",
+        description="로봇 식별자. 여러 대가 되면 관제가 이것으로 구분한다."),
+    DeclareLaunchArgument(
+        "robot_name", default_value="1호기",
+        description="화면에 보일 이름"),
+    DeclareLaunchArgument(
         "use_sim_time",
         default_value="false",
         description="시뮬레이터와 함께 돌 때만 true",
@@ -51,7 +57,9 @@ def generate_launch_description():
         output="screen",
         remappings=remaps,
         parameters=[LaunchConfiguration("config"),
-                    {"use_sim_time": LaunchConfiguration("use_sim_time")}],
+                    {"use_sim_time": LaunchConfiguration("use_sim_time"),
+                     "robot_id": LaunchConfiguration("robot_id"),
+                     "robot_name": LaunchConfiguration("robot_name")}],
         # 브릿지가 죽으면 생존 신호가 끊기고 안전 노드가 로봇을 정지시킨다.
         # 그 뒤 자동으로 다시 올라와 관제가 재연결할 수 있게 한다.
         respawn=True,
