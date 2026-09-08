@@ -29,10 +29,53 @@
 -->
 <CycloneDDS xmlns="https://cdds.io/config">
   <Domain id="any">
+    <!--
+      DDS 를 이 기계 안에 가둔다.
+      ===========================
+      ROS 2 트래픽이 네트워크로 나갈 이유가 없다. 관제 화면은 ROS 를 전혀
+      쓰지 않고(rclcpp/rclpy 의존 0), 로봇과는 브릿지의 TCP 한 줄로만
+      대화한다. 스택의 모든 노드는 같은 기계 안에 있다.
+
+      가두면 두 가지를 얻는다.
+
+      하나. 로봇이 여러 대가 되어도 서로를 망치지 않는다. 토픽 이름이
+      절대경로로 고정돼 있어서(/b2/points, /tf, /cmd_vel ...) 같은 망에 두
+      대를 올리면 서로의 라이다와 TF 를 구독한다. /tf 가 특히 치명적이다 —
+      두 로봇의 map->odom->base_link 가 한 트리에 섞이면 위치추정이 통째로
+      깨지고, 1 호기에 보낸 속도 명령을 2 호기가 받는다. 도메인을 갈라도
+      막히지만, 그때도 디스커버리 패킷은 무선에 계속 흐른다.
+
+      둘. 과업지시서 7.1 의 통신 차단 검증이 간단해진다. "DDS 는 아예 나가지
+      않는다" 는 패킷 캡처로 한 줄에 증명된다.
+
+      대신 잃는 것: 다른 기계의 rviz2 나 ros2 topic echo 로 이 로봇을 볼 수
+      없다. 그런 도구는 로봇에서 직접 띄운다.
+    -->
+    <General>
+      <Interfaces>
+        <NetworkInterface name="lo"/>
+      </Interfaces>
+      <!--
+        멀티캐스트를 끄고 localhost 로만 찾는다.
+
+        루프백에서 멀티캐스트를 켜 봤더니 발견이 반만 됐다 — 프로세스는
+        스무 개가 살아 있는데 ros2 node list 에는 열넷만 보이고, 브릿지가
+        그중에 없었다. 증상이 "노드가 없다" 가 아니라 "몇 개만 없다" 라
+        원인을 짚기 어렵다.
+
+        유니캐스트 피어로 두면 각 참가자가 localhost 의 포트 범위를 훑는다.
+        느리지도 않고, 무엇보다 결과가 늘 같다.
+      -->
+      <AllowMulticast>false</AllowMulticast>
+    </General>
+
     <Discovery>
-      <!-- 20 processes today, with room for tools attached alongside:
-           rviz2, ros2 topic echo, a teleop panel, a test client. -->
+      <!-- 스무 개 남짓의 프로세스에, 옆에 붙는 도구(rviz2, ros2 topic echo,
+           테스트 클라이언트)까지 들어갈 자리. -->
       <MaxAutoParticipantIndex>60</MaxAutoParticipantIndex>
+      <Peers>
+        <Peer address="localhost"/>
+      </Peers>
     </Discovery>
   </Domain>
 </CycloneDDS>
