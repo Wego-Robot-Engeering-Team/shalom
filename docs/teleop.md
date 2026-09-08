@@ -1,4 +1,4 @@
-# 4. 수동 조종
+# 수동 조종
 
 시뮬레이터나 실기가 떠 있는 상태에서, 별도 터미널로 실행한다.
 
@@ -18,8 +18,9 @@ ros2 run application control_gui
 ros2 run application control_gui --topic /b2/cmd_vel
 ```
 
-`geometry_msgs/Twist`를 발행한다. Nav2에 목표를 보낸 상태에서는 Nav2도 같은 토픽을
-쓰므로, 수동 조종 중에는 목표 전송을 멈춘다.
+`geometry_msgs/Twist`를 발행한다. Nav2도 최종적으로 `/cmd_vel`을 발행하므로, 수동
+조종 전에는 현재 목표를 취소하거나 Nav2를 끈 상태에서 사용한다. 두 명령원을 동시에
+쓰면 마지막에 도착한 명령이 로봇을 움직인다.
 
 짧은 스크립트 조종은 다음처럼 한다.
 
