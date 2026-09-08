@@ -1,0 +1,34 @@
+# SLAMTEC Aurora S 원본 odom 출력.
+#
+# 이 드라이버는 Aurora 장착점의 6DoF pose를 낸다. 기존 KISS-ICP가 소유하는
+# odom -> base_link와 절대로 같은 프레임을 쓰지 않는다. 장착 외부파라미터를
+# 실측·검증한 뒤에만 별도 어댑터로 표준 odom -> base_link에 승격한다.
+/aurora_driver:
+  ros__parameters:
+    ip_address: "192.168.11.1"
+    reconn_wait_ms: 3000
+
+    # 원시 Aurora 좌표계: 기존 내비게이션 TF와 충돌하지 않게 분리한다.
+    map_frame: "aurora_map"
+    odom_frame: "aurora_odom"
+    robot_frame: "aurora_link"
+    laser_frame: "aurora_laser"
+    imu_frame: "aurora_imu_link"
+    camera_left: "aurora_camera_left"
+    camera_right: "aurora_camera_right"
+
+    odom_topic: "/aurora/odom"
+    robot_pose_topic: "/aurora/pose"
+    system_status_topic_name: "/aurora/system_status"
+
+    # odom 검증 단계에서는 대역폭 큰 지도·카메라·점군을 받지 않는다.
+    # 0은 해당 worker 비활성화다.
+    odometry_pub_period: 0.05
+    robot_pose_pub_period: 0.05
+    scan_pub_period: 0.0
+    map_update_period: 0.0
+    map_pub_period: 0.0
+    stereo_image_pub_period: 0.0
+    point_cloud_pub_period: 0.0
+    raw_image_on: false
+    no_preview_image: true

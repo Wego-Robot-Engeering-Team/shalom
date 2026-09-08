@@ -1,5 +1,5 @@
 #!/bin/bash
-# b2_navigation 스택을 내린다.
+# bringup 으로 띄운 스택을 내린다.
 #
 #     ros2 run application stop_stack          이 셸이 띄운 것만
 #     ros2 run application stop_stack --all    DDS 를 쓰는 것 전부
