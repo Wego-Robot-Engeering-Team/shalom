@@ -1,0 +1,48 @@
+# Intel RealSense D455 — 점검 촬영용 설정.
+#
+# 과업지시서 하드웨어 구성이 요구하는 카메라는 셋이다: 본체 카메라,
+# 로봇암 끝단의 2D·3D 카메라. D455 는 컬러와 깊이를 함께 내므로 한 대가
+# 2D 와 3D 를 겸할 수 있다 — 암 끝단에 다는 것이 이 장비의 자리다.
+#
+# 이 파일은 역할과 무관한 값만 담는다. 어느 토픽으로 나갈지는 런치가
+# 리맵으로 정한다.
+/**:
+  ros__parameters:
+    # 촬영은 정지 상태에서만 한다(과업지시서 2.2.4). 주행 중 프레임을
+    # 흘리는 것이 목적이 아니라 서 있을 때 선명한 한 장을 얻는 것이므로,
+    # 해상도를 높이고 프레임률은 브릿지가 기대하는 15 Hz 에 맞춘다.
+    rgb_camera.color_profile: "1280,720,15"
+    rgb_camera.enable_auto_exposure: true
+
+    # 깊이는 D455 의 기본 해상도를 쓴다. 848x480 이 이 장비의 교정
+    # 기준 해상도라, 다른 값으로 올리면 오히려 잡음이 는다.
+    depth_module.depth_profile: "848,480,15"
+    depth_module.enable_auto_exposure: true
+
+    enable_color: true
+    enable_depth: true
+    enable_infra1: false
+    enable_infra2: false
+
+    # 포인트클라우드. 암 3D 카메라 항목이 이것을 기다린다.
+    pointcloud.enable: true
+    pointcloud.stream_filter: 2      # 컬러 스트림에 정렬
+    align_depth.enable: true
+
+    # IMU 는 끈다. B2 자체 IMU 가 이미 200 Hz 로 오고 있고, 둘을 함께
+    # 켜면 robot_localization 에 어느 것을 먹일지부터 정해야 한다.
+    enable_gyro: false
+    enable_accel: false
+
+    # 시각 정보는 로봇 시계를 따른다. 촬영 메타데이터의 촬영시간이
+    # 로봇 좌표와 같은 시계 위에 있어야 나중에 대조가 된다.
+    #
+    # 과업지시서 필수 메타데이터에 "촬영시간(YYYY-MM-DD HH:MM:SS)" 과
+    # "로봇좌표(X,Y,θ)" 가 함께 들어간다.
+    device_type: "D455"
+    initial_reset: true
+
+    # 진단 화면이 주기를 재고 있으므로 실제로 그 주기가 나와야 한다.
+    # 값을 바꾸면 bridge.yaml 의 expected_hz 도 함께 고칠 것.
+    publish_tf: true
+    tf_publish_rate: 10.0
