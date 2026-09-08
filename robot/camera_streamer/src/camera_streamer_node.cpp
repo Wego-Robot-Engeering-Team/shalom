@@ -1,8 +1,8 @@
-#include "video_streamer/video_streamer_node.hpp"
+#include "camera_streamer/camera_streamer_node.hpp"
 
 #include <thread>
 
-namespace video_streamer {
+namespace camera_streamer {
 
 namespace {
 
@@ -34,13 +34,13 @@ void onMediaConfigure(GstRTSPMediaFactory *, GstRTSPMedia *media, gpointer user)
 // 뷰파인더의 값은 화질이 아니라 지연이다. 실제 점검 사진은 정지 상태에서
 // 원본으로 찍어 NAS 로 가므로(과업지시서 2.2.4), 링크가 좁으면 화질을
 // 버리는 편이 옳다.
-const VideoStreamerNode::Quality kQualities[] = {
+const CameraStreamerNode::Quality kQualities[] = {
     {"high",  1280, 720, 15, 4000},   // 기본. 여유 있을 때.
     {"low",    848, 480, 30, 3000},   // 프레임을 올려 조작감을 얻는다.
     {"saver",  640, 360, 15, 1500},   // 무선이 좁을 때.
 };
 
-const VideoStreamerNode::Quality *VideoStreamerNode::findQuality(const std::string &name)
+const CameraStreamerNode::Quality *CameraStreamerNode::findQuality(const std::string &name)
 {
     for (const auto &q : kQualities)
         if (name == q.name)
@@ -48,15 +48,15 @@ const VideoStreamerNode::Quality *VideoStreamerNode::findQuality(const std::stri
     return nullptr;
 }
 
-const VideoStreamerNode::Quality &VideoStreamerNode::quality() const
+const CameraStreamerNode::Quality &CameraStreamerNode::quality() const
 {
     if (const Quality *q = findQuality(quality_))
         return *q;
     return kQualities[0];
 }
 
-VideoStreamerNode::VideoStreamerNode(const rclcpp::NodeOptions &options)
-    : rclcpp::Node("video_streamer", options), lastFrame_(now())
+CameraStreamerNode::CameraStreamerNode(const rclcpp::NodeOptions &options)
+    : rclcpp::Node("camera_streamer", options), lastFrame_(now())
 {
     // 인코더는 바꿔 낄 수 있어야 한다. 젯슨에는 NVENC 가 있고 개발 PC 에는
     // 없다. 개발 PC 의 x264enc 는 libx264(GPL-2+) 를 링크하므로 검증에만
@@ -148,12 +148,12 @@ VideoStreamerNode::VideoStreamerNode(const rclcpp::NodeOptions &options)
                 encoder_.c_str());
 }
 
-VideoStreamerNode::~VideoStreamerNode()
+CameraStreamerNode::~CameraStreamerNode()
 {
     stopServer();
 }
 
-std::string VideoStreamerNode::encoderChain() const
+std::string CameraStreamerNode::encoderChain() const
 {
     // 저지연 설정은 기본값에 기대지 않고 전부 명시한다. JetPack 판본마다
     // 속성 기본값이 달라, 한쪽에서 되던 것이 다른 쪽에서 2 초씩 밀린다.
@@ -173,7 +173,7 @@ std::string VideoStreamerNode::encoderChain() const
            + " key-int-max=" + std::to_string(keyframeInterval_);
 }
 
-bool VideoStreamerNode::startServer()
+bool CameraStreamerNode::startServer()
 {
     if (server_)
         return true;
@@ -236,7 +236,7 @@ bool VideoStreamerNode::startServer()
     return true;
 }
 
-void VideoStreamerNode::applyQuality(const std::string &name)
+void CameraStreamerNode::applyQuality(const std::string &name)
 {
     if (name == quality_)
         return;
@@ -252,7 +252,7 @@ void VideoStreamerNode::applyQuality(const std::string &name)
     }
 }
 
-void VideoStreamerNode::stopServer()
+void CameraStreamerNode::stopServer()
 {
     streaming_ = false;
     if (loop_) {
@@ -277,7 +277,7 @@ void VideoStreamerNode::stopServer()
     }
 }
 
-void VideoStreamerNode::onImage(const sensor_msgs::msg::Image::ConstSharedPtr &msg)
+void CameraStreamerNode::onImage(const sensor_msgs::msg::Image::ConstSharedPtr &msg)
 {
     ++framesIn_;
     lastFrame_ = now();
@@ -324,7 +324,7 @@ void VideoStreamerNode::onImage(const sensor_msgs::msg::Image::ConstSharedPtr &m
         ++framesPushed_;
 }
 
-void VideoStreamerNode::publishState()
+void CameraStreamerNode::publishState()
 {
     // 상태는 브릿지가 state/video 로 관제에 올린다. 여기서는 로그만 남긴다 —
     // 영상이 안 보일 때 "링크가 끊긴 것" 과 "카메라가 안 오는 것" 과
@@ -343,7 +343,7 @@ void VideoStreamerNode::publishState()
                  lastError_.empty() ? "" : (" / " + lastError_).c_str());
 }
 
-}  // namespace video_streamer
+}  // namespace camera_streamer
 
 #include <rclcpp_components/register_node_macro.hpp>
-RCLCPP_COMPONENTS_REGISTER_NODE(video_streamer::VideoStreamerNode)
+RCLCPP_COMPONENTS_REGISTER_NODE(camera_streamer::CameraStreamerNode)

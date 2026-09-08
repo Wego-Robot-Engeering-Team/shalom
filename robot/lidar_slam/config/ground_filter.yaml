@@ -1,3 +1,4 @@
+# lidar_slam 기본 지면 기준 장애물 필터.
 ground_filter:
   ros__parameters:
     # Obstacles are accepted only in this band above the nearby, locally

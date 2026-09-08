@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(video_streamer)
+project(camera_streamer)
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
@@ -19,16 +19,16 @@ pkg_check_modules(GST REQUIRED IMPORTED_TARGET
 # 요구를 만족하면서, realsense2_camera 와 한 컨테이너에 합성해 프레임이
 # DDS 를 타지 않게 할 수 있다 — 720p RGB8 한 장이 2.76 MB 라, 루프백
 # UDP 로 조각내 보내면 그것만으로 CPU 를 먹는다.
-add_library(video_streamer_component SHARED src/video_streamer_node.cpp)
-target_include_directories(video_streamer_component PUBLIC include)
-target_link_libraries(video_streamer_component PkgConfig::GST)
-ament_target_dependencies(video_streamer_component
+add_library(camera_streamer_component SHARED src/camera_streamer_node.cpp)
+target_include_directories(camera_streamer_component PUBLIC include)
+target_link_libraries(camera_streamer_component PkgConfig::GST)
+ament_target_dependencies(camera_streamer_component
   rclcpp rclcpp_components sensor_msgs std_srvs)
-rclcpp_components_register_node(video_streamer_component
-  PLUGIN "video_streamer::VideoStreamerNode"
-  EXECUTABLE video_streamer_node)
+rclcpp_components_register_node(camera_streamer_component
+  PLUGIN "camera_streamer::CameraStreamerNode"
+  EXECUTABLE camera_streamer_node)
 
-install(TARGETS video_streamer_component
+install(TARGETS camera_streamer_component
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin)

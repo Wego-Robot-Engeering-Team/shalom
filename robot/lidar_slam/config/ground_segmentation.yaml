@@ -1,4 +1,4 @@
-# Default GSeg3D parameters.  Robot-specific values -- above all `robot_frame`
+# lidar_slam 기본 GSeg3D parameters.  Robot-specific values -- above all `robot_frame`
 # and `lidar_to_ground` -- belong in the caller's own params file, passed as
 # `gseg_params_file:=`.  See shalom/config/gseg3d_b2.yaml for a worked example.
 ground_segmentation:

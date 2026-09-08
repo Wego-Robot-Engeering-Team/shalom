@@ -1,18 +1,22 @@
-"""Autonomy bring-up for the Unitree B2.
+"""Brings the whole inspection system up.
 
-Ties four layers together:
+This is the one command that starts everything. Navigation is one layer of it,
+not the point of it - the file was called b2_navigation for a while and that
+name undersold what it does.
 
     robot        b2_simulation (MuJoCo stand-in) or b2_driver (hardware)
-    perception   nav2_3d  -- ground segmentation, ground-relative filter, 2D SLAM
+    perception   ground segmentation, ground-relative filter, 2D SLAM
+    localisation saved map + AMCL, or live SLAM
     planning     Nav2
+    camera       RealSense and the H.264/RTSP viewfinder
     station      shalom_bridge -- the TCP boundary the control station connects to
 
 The robot layer is a launch argument because both options expose the same
 interface: a PointCloud2 out, `/cmd_vel` in.  Nothing below this file knows which
 one is running.
 
-    ros2 launch application b2_navigation.launch.py robot:=sim
-    ros2 launch application b2_navigation.launch.py robot:=real
+    ros2 launch application bringup.launch.py robot:=sim
+    ros2 launch application bringup.launch.py robot:=real
 
 `payload:=fr3` runs the B2 that carries a FAIRINO FR3 arm, with the policy
 trained for its 105 kg and higher centre of mass.  Simulator only -- on hardware
@@ -23,7 +27,7 @@ TWO WAYS TO HAVE A MAP
     (default)        slam_toolbox builds one as the robot drives
     map:=<file.yaml> map_server serves a saved one and AMCL localises in it
 
-    ros2 launch application b2_navigation.launch.py \
+    ros2 launch application bringup.launch.py \
         map:=$(ros2 pkg prefix application)/share/application/maps/2026-09-07.yaml
 
 Which of the two is running is the *robot's* state, not a display option: the
@@ -52,7 +56,8 @@ from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
-                            OpaqueFunction, SetLaunchConfiguration)
+                            OpaqueFunction, SetEnvironmentVariable,
+                            SetLaunchConfiguration)
 from launch.conditions import IfCondition, LaunchConfigurationEquals
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
@@ -105,8 +110,9 @@ def _resolve_map(context, *_a, **_k):
 
 def generate_launch_description():
     bringup = FindPackageShare("application")
-    ground_seg = FindPackageShare("slam_3d_to_2d")
-    video_streamer = FindPackageShare("video_streamer")
+    lidar_slam = FindPackageShare("lidar_slam")
+    camera_streamer = FindPackageShare("camera_streamer")
+    aurora_odometry = FindPackageShare("aurora_odometry")
     nav2_bringup = FindPackageShare("nav2_bringup")
     kiss_icp = FindPackageShare("kiss_icp")
     shalom_bridge = FindPackageShare("shalom_bridge")
@@ -142,7 +148,7 @@ def generate_launch_description():
 
     # --- perception ----------------------------------------------------------
     perception = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource([ground_seg, "/launch/ground_slam.launch.py"]),
+        PythonLaunchDescriptionSource([lidar_slam, "/launch/ground_slam.launch.py"]),
         launch_arguments={
             "pointcloud_topic": LaunchConfiguration("pointcloud_topic"),
             "base_frame": BASE_FRAME,
@@ -235,32 +241,37 @@ def generate_launch_description():
     bridge = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([shalom_bridge, "launch", "bridge.launch.py"])),
-        launch_arguments={"use_sim_time": use_sim_time}.items(),
+        launch_arguments={"use_sim_time": use_sim_time,
+                          "robot_id": LaunchConfiguration("robot_id"),
+                          "robot_name": LaunchConfiguration("robot_name")}.items(),
         condition=IfCondition(LaunchConfiguration("bridge")),
     )
 
-    # 카메라와 영상 송신은 한 런치가 함께 띄운다.
-    #
-    # 예전에는 둘을 따로 두었는데, video_streamer.launch.py 도 자기
-    # realsense2_camera 를 띄우기 때문에 이 스택의 cameras:=true 와 같이 켜면
-    # 같은 장치를 두 프로세스가 열려다 실패했다. RealSense 는 한 프로세스만
-    # 스트림을 소유한다.
-    #
-    # 이제 cameras:=true 하나가 카메라와 스트리머를 같은 컴포넌트 컨테이너에
-    # 올린다. 프레임이 DDS 를 타지 않고(720p RGB8 한 장이 2.76 MB 다), 산출물이
-    # .so 라 과업지시서 4장의 납품 형태와도 맞는다.
-    #
-    # 영상만 빼고 카메라 토픽만 쓰려면 video:=false.
+    # 카메라 역할 설정과 영상 송신은 camera_streamer만 소유한다. RealSense와
+    # 송신 컴포넌트를 한 컨테이너에 올려 프레임이 DDS를 경유하지 않게 한다.
+    # Nano 시험처럼 RTSP만 빼려면 video:=false로 둔다.
     cameras = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            PathJoinSubstitution([video_streamer, "launch", "video_streamer.launch.py"])),
+            PathJoinSubstitution(
+                [camera_streamer, "launch", "camera_streamer.launch.py"])),
         launch_arguments={
+            "role": "arm",
             "encoder": LaunchConfiguration("encoder"),
             "bind_address": LaunchConfiguration("video_bind_address"),
             "serial": LaunchConfiguration("arm_camera_serial"),
             "autostart": LaunchConfiguration("video"),
         }.items(),
         condition=IfCondition(LaunchConfiguration("cameras")),
+    )
+
+    # Aurora는 초기에는 원시 odom만 별도 프레임으로 올린다. KISS-ICP의
+    # odom -> base_link와 충돌시키지 않고 장착 외부파라미터를 검증하기 위한
+    # 단계다. 주 odom 전환은 calibration 뒤에 별도로 한다.
+    aurora = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([aurora_odometry, "launch", "aurora_s.launch.py"])),
+        launch_arguments={"ip_address": LaunchConfiguration("aurora_ip")}.items(),
+        condition=IfCondition(LaunchConfiguration("aurora")),
     )
 
     rviz = IncludeLaunchDescription(
@@ -274,6 +285,36 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        # DDS 도메인. 로봇 한 대일 때는 기본값 그대로 두면 된다.
+        #
+        # 여러 대를 같은 망에 올릴 때 반드시 갈라야 하는 값이다. 토픽 이름이
+        # 절대경로로 고정돼 있어서(/b2/points, /tf, /cmd_vel ...) 같은
+        # 도메인에 둘을 올리면 서로의 라이다와 TF 를 구독한다. /tf 가 특히
+        # 치명적이다 — 두 로봇의 map->odom->base_link 가 한 트리에 섞이면
+        # 위치추정이 통째로 깨지고, 1 호기에 보낸 속도 명령을 2 호기가 받는다.
+        #
+        # 네임스페이스로 이름만 가르는 방법도 있지만 DDS 디스커버리는 여전히
+        # 공유한다. 로봇이 늘수록 무선 대역을 서로 갉아먹으므로, 검수고
+        # 환경에서는 도메인을 나누는 편이 맞다.
+        DeclareLaunchArgument("domain_id", default_value="0",
+                              description="ROS_DOMAIN_ID. 로봇마다 다르게 준다."),
+        SetEnvironmentVariable("ROS_DOMAIN_ID", LaunchConfiguration("domain_id")),
+
+        # DDS 설정을 실제로 물린다.
+        #
+        # config/cyclonedds.xml 은 진작 있었는데 아무도 읽지 않고 있었다.
+        # 참가자 한도를 60 으로 올린 것도, DDS 를 루프백에 가두는 것도 이
+        # 줄이 없으면 적용되지 않는다 — 파일만 두고 적용을 잊으면 증상이
+        # 없으므로 그대로 넘어간다.
+        SetEnvironmentVariable(
+            "CYCLONEDDS_URI",
+            PathJoinSubstitution(["file://", bringup, "config", "cyclonedds.xml"])),
+
+        DeclareLaunchArgument("robot_id", default_value="R1",
+                              description="로봇 식별자. 관제가 어느 로봇인지 안다."),
+        DeclareLaunchArgument("robot_name", default_value="1호기",
+                              description="화면에 보일 이름"),
+
         DeclareLaunchArgument("robot", default_value="sim",
                               choices=["sim", "real"],
                               description="MuJoCo stand-in or the physical B2."),
@@ -294,10 +335,14 @@ def generate_launch_description():
                               description="뷰파인더 RTSP 송신을 바로 켤지"),
         DeclareLaunchArgument("arm_camera_serial", default_value="",
                               description="두 대 이상 달았으면 반드시 지정"),
-        DeclareLaunchArgument("encoder", default_value="x264enc",
-                              description="젯슨은 nvv4l2h264enc, 개발 PC 는 x264enc"),
+        DeclareLaunchArgument("encoder", default_value="nvv4l2h264enc",
+                              description="AGX는 nvv4l2h264enc; Nano 시험은 video:=false"),
         DeclareLaunchArgument("video_bind_address", default_value="127.0.0.1",
                               description="RTSP 서버가 들을 주소. 내부망만."),
+        DeclareLaunchArgument("aurora", default_value="false",
+                              description="Aurora S 원시 odom을 함께 올릴지"),
+        DeclareLaunchArgument("aurora_ip", default_value="192.168.11.1",
+                              description="Aurora S SDK 주소"),
         DeclareLaunchArgument("bridge", default_value="true",
                               description="Accept the control station on TCP 9090."),
         DeclareLaunchArgument("viewer", default_value="true",
@@ -313,5 +358,5 @@ def generate_launch_description():
 
         sim_robot, real_robot, perception, odometry,
         map_server, amcl, localisation_manager,
-        nav2, bridge, cameras, rviz,
+        nav2, bridge, cameras, aurora, rviz,
     ])

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(slam_3d_to_2d)
+project(lidar_slam)
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)

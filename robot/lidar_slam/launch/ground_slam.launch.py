@@ -5,7 +5,7 @@ Nothing here knows about a particular robot or simulator, so the same chain runs
 against Gazebo, MuJoCo or hardware -- point `pointcloud_topic` at whatever
 publishes the scan.
 
-    ros2 launch slam_3d_to_2d ground_slam.launch.py \
+    ros2 launch lidar_slam ground_slam.launch.py \
         pointcloud_topic:=/b2/points base_frame:=base_link
 
 Chain:
@@ -28,7 +28,7 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
-    pkg = FindPackageShare("slam_3d_to_2d")
+    pkg = FindPackageShare("lidar_slam")
     ground_seg = FindPackageShare("ground_segmentation_ros2")
     slam = FindPackageShare("slam_toolbox")
 
@@ -45,7 +45,7 @@ def generate_launch_description():
     )
 
     ground_filter = Node(
-        package="slam_3d_to_2d",
+        package="lidar_slam",
         executable="ground_filter",
         name="ground_filter",
         remappings=[

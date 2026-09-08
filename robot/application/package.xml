@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>
     Autonomy bring-up for the Unitree B2.  Assembles a robot (the MuJoCo stand-in
-    or the physical machine), the slam_3d_to_2d perception chain, LiDAR
+    or the physical machine), the lidar_slam perception chain, LiDAR
     odometry, SLAM and Nav2 into one launch.  The robot layer is a launch argument
     because both options expose the same interface, so nothing below this package
     knows which one is running.  Also carries the B2-specific tuning, saved maps
@@ -18,7 +18,9 @@
 
   <exec_depend>shalom_bridge</exec_depend>
 
-  <exec_depend>slam_3d_to_2d</exec_depend>
+  <exec_depend>lidar_slam</exec_depend>
+  <exec_depend>camera_streamer</exec_depend>
+  <exec_depend>aurora_odometry</exec_depend>
   <exec_depend>kiss_icp</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>
   <exec_depend>nav2_bringup</exec_depend>

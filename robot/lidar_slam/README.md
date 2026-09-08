@@ -1,4 +1,4 @@
-# slam_3d_to_2d
+# lidar_slam
 
 Nav2를 3D LiDAR로 확장하는 인식 패키지. **로봇과 시뮬레이터에 무관하다** —
 PointCloud2 하나와 TF 프레임만 주면 Gazebo, MuJoCo, 실기에서 똑같이 돈다.
@@ -27,7 +27,7 @@ PointCloud2
 ## 실행
 
 ```bash
-ros2 launch slam_3d_to_2d ground_slam.launch.py \
+ros2 launch lidar_slam ground_slam.launch.py \
   pointcloud_topic:=/b2/points \
   base_frame:=base_link
 ```
@@ -36,7 +36,7 @@ ros2 launch slam_3d_to_2d ground_slam.launch.py \
 `lidar_to_ground`(LiDAR 장착 높이)는 반드시 맞춰야 한다.
 
 ```bash
-ros2 launch slam_3d_to_2d ground_slam.launch.py \
+ros2 launch lidar_slam ground_slam.launch.py \
   pointcloud_topic:=/b2/points \
   gseg_params_file:=$(ros2 pkg prefix application)/share/shalom/config/gseg3d_b2.yaml \
   ground_filter_params_file:=$(ros2 pkg prefix application)/share/shalom/config/ground_filter_b2.yaml

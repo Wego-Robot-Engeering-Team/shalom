@@ -1,4 +1,4 @@
-# Intel RealSense D455 — 점검 촬영용 설정.
+# Intel RealSense D455 — camera_streamer 점검 촬영용 설정.
 #
 # 과업지시서 하드웨어 구성이 요구하는 카메라는 셋이다: 본체 카메라,
 # 로봇암 끝단의 2D·3D 카메라. D455 는 컬러와 깊이를 함께 내므로 한 대가

@@ -11,8 +11,8 @@ Nav2가 경로를 계획하고 속도 명령을 낸다. B2에서는 보행 정�
 source /opt/ros/jazzy/setup.bash
 source ~/shalom_ws/install/setup.bash
 
-ros2 launch application b2_navigation.launch.py robot:=sim
-ros2 launch application b2_navigation.launch.py robot:=real \
+ros2 launch application bringup.launch.py robot:=sim
+ros2 launch application bringup.launch.py robot:=real \
   network_interface:=enp3s0 use_sim_time:=false
 ```
 
@@ -36,7 +36,8 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 source /opt/ros/jazzy/setup.bash
 source ~/shalom_ws/install/setup.bash
 
-ros2 launch application cameras.launch.py role:=arm serial:=<D455-serial>
+ros2 launch camera_streamer camera_streamer.launch.py \
+  role:=arm serial:=<D455-serial> autostart:=false
 ```
 
 다른 Nano 터미널에서 시뮬레이터·SLAM·Nav2·TCP 브릿지를 올린다.
@@ -47,7 +48,7 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 source /opt/ros/jazzy/setup.bash
 source ~/shalom_ws/install/setup.bash
 
-ros2 launch application b2_navigation.launch.py \
+ros2 launch application bringup.launch.py \
   robot:=sim payload:=fr3 map:=none rviz:=false viewer:=false \
   cameras:=false video:=false
 ```

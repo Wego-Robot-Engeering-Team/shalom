@@ -122,12 +122,23 @@ apt_install \
 if { [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; } \
     && [ -f "$REPO_ROOT/sources.repos" ] \
     && { [ ! -d "$WORKSPACE/src/b2_driver" ] \
-      || [ ! -d "$WORKSPACE/src/third_party/librealsense" ]; }; then
+      || [ ! -d "$WORKSPACE/src/third_party/librealsense" ] \
+      || [ ! -d "$WORKSPACE/src/third_party/aurora_ros" ]; }; then
   say "로봇 소스 의존성"
   if [ "$DRY_RUN" = 1 ]; then
     note "vcs import --skip-existing < $REPO_ROOT/sources.repos"
   else
     (cd "$WORKSPACE/src" && vcs import --skip-existing < "$REPO_ROOT/sources.repos")
+  fi
+fi
+
+# Aurora 공식 ROS2 드라이버는 Jazzy에서 cv_bridge 헤더 확장자가 바뀐 전
+# 배포본이다. 동일 API의 .hpp 헤더를 쓰도록 최소 호환 보정을 적용한다.
+if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
+  AURORA_SRC="$WORKSPACE/src/third_party/aurora_ros/src/slamware_ros_sdk/src/server"
+  if [ -f "$AURORA_SRC/server_workers.cpp" ]; then
+    run sed -i 's|cv_bridge/cv_bridge\.h|cv_bridge/cv_bridge.hpp|g' \
+      "$AURORA_SRC/server_workers.cpp" "$AURORA_SRC/slamware_ros_sdk_server.cpp"
   fi
 fi
 
@@ -192,7 +203,7 @@ if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
   apt_install \
     "ros-$ROS-navigation2" "ros-$ROS-nav2-bringup" \
     "ros-$ROS-slam-toolbox" "ros-$ROS-pointcloud-to-laserscan" \
-    "ros-$ROS-rosidl-generator-dds-idl"
+    "ros-$ROS-rosidl-generator-dds-idl" "ros-$ROS-cv-bridge"
 
   say "카메라 (RealSense D455)"
   note "librealsense SDK 를 따로 빌드했더라도 ROS 래퍼는 있어야 토픽이 나온다."
