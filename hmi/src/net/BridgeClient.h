@@ -57,6 +57,7 @@ public:
     void setLocations(const QList<QVariantMap> &locations) override;
     void setMarkers(const QList<QVariantMap> &markers) override;
     void setVideoQuality(const QString &preset) override;
+    void triggerCapture(const QVariantMap &metadata) override;
     QList<QVariantMap> markers() const override { return markers_; }
     void setBatteryPolicy(double returnAt, double departAt) override;
     QList<QVariantMap> waypoints() const override { return waypoints_; }
@@ -86,6 +87,8 @@ public:
 signals:
     /// A map arrived. Separate from telemetry because it is large and rare.
     void mapReceived(const QByteArray &pngBytes, const QJsonObject &meta);
+    /// A photograph was taken: the JPEG bytes and its sidecar metadata.
+    void previewReceived(const QByteArray &jpegBytes, const QJsonObject &meta);
 
 private:
     void onConnected();

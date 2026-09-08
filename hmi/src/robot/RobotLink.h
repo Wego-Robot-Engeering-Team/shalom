@@ -72,6 +72,11 @@ public:
     /// end up disagreeing about the numbers.
     virtual void setVideoQuality(const QString &preset) { Q_UNUSED(preset); }
 
+    /// Takes a photograph. The robot decides whether it may - it refuses while
+    /// moving (statement of work 2.2.4) - and saves the original itself; only
+    /// a preview comes back over the link.
+    virtual void triggerCapture(const QVariantMap &metadata) { Q_UNUSED(metadata); }
+
     /// Battery policy, in percent.
     ///
     /// returnAt: below this the robot abandons the run and drives to the dock.
