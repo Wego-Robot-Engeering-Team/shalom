@@ -47,7 +47,12 @@ corrupt the tree, so `b2_sim.launch.py` is started here with that turned off.
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+import os
+from pathlib import Path
+
+from ament_index_python.packages import get_package_share_directory
+from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
+                            OpaqueFunction, SetLaunchConfiguration)
 from launch.conditions import IfCondition, LaunchConfigurationEquals
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
@@ -62,9 +67,46 @@ POINTS_TOPIC = "/b2/points"
 BASE_FRAME = "base_link"
 
 
+def _resolve_map(context, *_a, **_k):
+    """`map` 인자를 실제 파일 경로로 바꾼다.
+
+    지금까지는 전체 경로를 그대로 쳐야 했다. 검수고에서 날마다 지도를 새로
+    뜨는데 매번 40 자를 치는 것은 실수하기 좋은 일이라, 이름만으로도,
+    `latest` 로도 받는다.
+
+        map:=latest        maps/ 에서 가장 최근 것
+        map:=2026-09-07    maps/2026-09-07.yaml
+        map:=/절대/경로.yaml
+        map:=none          저장된 지도를 쓰지 않고 실시간 SLAM
+    """
+    raw = LaunchConfiguration("map").perform(context).strip()
+    if raw in ("", "none", "slam"):
+        return [SetLaunchConfiguration("map", "")]
+
+    maps_dir = Path(get_package_share_directory("application")) / "maps"
+
+    if raw == "latest":
+        found = sorted(maps_dir.glob("*.yaml"))
+        if not found:
+            raise RuntimeError(
+                f"{maps_dir} 에 지도가 없다. 실시간 SLAM 으로 돌리려면 map:=none.")
+        resolved = found[-1]
+    elif os.path.isabs(raw):
+        resolved = Path(raw)
+    else:
+        resolved = maps_dir / (raw if raw.endswith(".yaml") else raw + ".yaml")
+
+    if not resolved.is_file():
+        have = ", ".join(p.stem for p in sorted(maps_dir.glob("*.yaml"))) or "(없음)"
+        raise RuntimeError(f"그런 지도가 없다: {resolved}\n  있는 것: {have}")
+
+    return [SetLaunchConfiguration("map", str(resolved))]
+
+
 def generate_launch_description():
     bringup = FindPackageShare("application")
     ground_seg = FindPackageShare("slam_3d_to_2d")
+    video_streamer = FindPackageShare("video_streamer")
     nav2_bringup = FindPackageShare("nav2_bringup")
     kiss_icp = FindPackageShare("kiss_icp")
     shalom_bridge = FindPackageShare("shalom_bridge")
@@ -197,30 +239,28 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("bridge")),
     )
 
-    # 카메라는 실기에만 있다. 시뮬레이터에는 아직 카메라 모델이 없고,
-    # 없는 장치를 열려다 실패하는 노드가 스택에 섞이면 로그가 지저분해져
-    # 정작 봐야 할 오류가 묻힌다.
+    # 카메라와 영상 송신은 한 런치가 함께 띄운다.
     #
-    # 기본값이 꺼짐인 이유는 장착이 아직 확정되지 않아서다. 카메라를 달고
-    # 시리얼을 확인한 뒤 cameras:=true 로 켜면 된다.
-    arm_camera = IncludeLaunchDescription(
+    # 예전에는 둘을 따로 두었는데, video_streamer.launch.py 도 자기
+    # realsense2_camera 를 띄우기 때문에 이 스택의 cameras:=true 와 같이 켜면
+    # 같은 장치를 두 프로세스가 열려다 실패했다. RealSense 는 한 프로세스만
+    # 스트림을 소유한다.
+    #
+    # 이제 cameras:=true 하나가 카메라와 스트리머를 같은 컴포넌트 컨테이너에
+    # 올린다. 프레임이 DDS 를 타지 않고(720p RGB8 한 장이 2.76 MB 다), 산출물이
+    # .so 라 과업지시서 4장의 납품 형태와도 맞는다.
+    #
+    # 영상만 빼고 카메라 토픽만 쓰려면 video:=false.
+    cameras = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            PathJoinSubstitution([bringup, "launch", "cameras.launch.py"])),
+            PathJoinSubstitution([video_streamer, "launch", "video_streamer.launch.py"])),
         launch_arguments={
-            "role": "arm",
+            "encoder": LaunchConfiguration("encoder"),
+            "bind_address": LaunchConfiguration("video_bind_address"),
             "serial": LaunchConfiguration("arm_camera_serial"),
+            "autostart": LaunchConfiguration("video"),
         }.items(),
         condition=IfCondition(LaunchConfiguration("cameras")),
-    )
-
-    body_camera = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution([bringup, "launch", "cameras.launch.py"])),
-        launch_arguments={
-            "role": "body",
-            "serial": LaunchConfiguration("body_camera_serial"),
-        }.items(),
-        condition=IfCondition(LaunchConfiguration("body_camera")),
     )
 
     rviz = IncludeLaunchDescription(
@@ -243,18 +283,21 @@ def generate_launch_description():
         DeclareLaunchArgument("slam", default_value="true",
                               description="Build a map while driving. Ignored when "
                                           "`map` names a saved one."),
-        DeclareLaunchArgument("map", default_value="",
-                              description="Path to a saved map's .yaml. Given, the robot "
-                                          "localises in it instead of mapping."),
+        DeclareLaunchArgument("map", default_value="latest",
+                              description="latest | <이름> | <경로.yaml> | none. "
+                                          "none 이면 실시간 SLAM."),
         DeclareLaunchArgument("nav2", default_value="true"),
         DeclareLaunchArgument("rviz", default_value="true"),
-        DeclareLaunchArgument("cameras", default_value="false",
-                              description="로봇암 끝단 RealSense (2D+3D)"),
-        DeclareLaunchArgument("body_camera", default_value="false",
-                              description="본체 RealSense"),
+        DeclareLaunchArgument("cameras", default_value="true",
+                              description="로봇암 RealSense + 영상 송신"),
+        DeclareLaunchArgument("video", default_value="true",
+                              description="뷰파인더 RTSP 송신을 바로 켤지"),
         DeclareLaunchArgument("arm_camera_serial", default_value="",
                               description="두 대 이상 달았으면 반드시 지정"),
-        DeclareLaunchArgument("body_camera_serial", default_value=""),
+        DeclareLaunchArgument("encoder", default_value="x264enc",
+                              description="젯슨은 nvv4l2h264enc, 개발 PC 는 x264enc"),
+        DeclareLaunchArgument("video_bind_address", default_value="127.0.0.1",
+                              description="RTSP 서버가 들을 주소. 내부망만."),
         DeclareLaunchArgument("bridge", default_value="true",
                               description="Accept the control station on TCP 9090."),
         DeclareLaunchArgument("viewer", default_value="true",
@@ -265,7 +308,10 @@ def generate_launch_description():
                                           "Selects the matching scene and policy."),
         DeclareLaunchArgument("network_interface", default_value="",
                               description="Ethernet interface to the robot (robot:=real only)."),
+        # 인자가 모두 선언된 뒤, 노드가 뜨기 전에 map 을 실제 경로로 바꾼다.
+        OpaqueFunction(function=_resolve_map),
+
         sim_robot, real_robot, perception, odometry,
         map_server, amcl, localisation_manager,
-        nav2, bridge, arm_camera, body_camera, rviz,
+        nav2, bridge, cameras, rviz,
     ])

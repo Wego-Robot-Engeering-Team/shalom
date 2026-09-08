@@ -42,6 +42,9 @@ VideoStreamerNode::VideoStreamerNode(const rclcpp::NodeOptions &options)
     keyframeInterval_ = int(declare_parameter("keyframe_interval", keyframeInterval_));
     maxFps_ = declare_parameter("max_fps", maxFps_);
     const auto topic = declare_parameter("image_topic", std::string("color/image_raw"));
+    // 첫 프레임이 오면 스스로 켠다. 크기를 알아야 파이프라인을 세울 수
+    // 있으므로 여기서 바로 켤 수는 없다.
+    autostart_ = declare_parameter("autostart", false);
 
     if (!gst_is_initialized())
         gst_init(nullptr, nullptr);
@@ -197,6 +200,11 @@ void VideoStreamerNode::onImage(const sensor_msgs::msg::Image::ConstSharedPtr &m
                         "스트림을 다시 켜야 반영된다", width_, height_, msg->width, msg->height);
         width_ = int(msg->width);
         height_ = int(msg->height);
+    }
+
+    if (autostart_ && !streaming_ && width_ > 0) {
+        autostart_ = false;   // 한 번만. 실패하면 서비스로 다시 켠다.
+        startServer();
     }
 
     if (!streaming_ || !appsrc_)
