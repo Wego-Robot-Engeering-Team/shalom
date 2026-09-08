@@ -57,6 +57,7 @@ private:
     QWidget *buildPowerTab();
     QWidget *buildStorageTab();
     QWidget *buildSafetyTab();
+    QWidget *buildAboutTab();
 
     void load();
 

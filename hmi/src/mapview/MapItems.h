@@ -40,6 +40,11 @@ public:
 
     void setStatus(const QString &status);
     QString status() const { return status_; }
+
+    /// Drawn with a ring when the operator has this row picked in the list.
+    /// Kept separate from status: a point can be selected in any state, and
+    /// borrowing the "current" color would lie about what the robot is doing.
+    void setSelected(bool selected);
     QString waypointId() const { return id_; }
 
     QRectF boundingRect() const override;
@@ -55,6 +60,7 @@ private:
     QString status_;
     double r_;
     bool hover_ = false;
+    bool selected_ = false;
 };
 
 /// AprilTag marker position, filled while the tag is currently detected.
@@ -71,6 +77,27 @@ private:
     int id_;
     double s_;
     bool seen_ = false;
+};
+
+/// Charging station or start position.
+///
+/// Neither is part of the inspection sequence. Drawing them as waypoint discs
+/// would put two unnumbered dots among the numbered ones, and the operator
+/// would have to work out which is which every time. They get their own
+/// silhouettes instead - a roof with a bolt, and a paw print - so they are
+/// told apart at a glance.
+class StationMarker : public QGraphicsItem {
+public:
+    enum class Kind { Dock, Home };
+
+    explicit StationMarker(Kind kind, double size = 11.0);
+
+    QRectF boundingRect() const override;
+    void paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) override;
+
+private:
+    Kind kind_;
+    double s_;
 };
 
 /// Goal pose selected by clicking the map, including the target heading.

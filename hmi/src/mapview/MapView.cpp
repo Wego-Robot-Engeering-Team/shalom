@@ -70,12 +70,41 @@ void MapView::retheme()
 
 // ================= 맵 =================
 
+/// 두 자리를 같은 방법으로 놓는다. 좌표가 없으면 마커를 지운다.
+static StationMarker *placeStation(QGraphicsScene *scene, StationMarker *existing,
+                                   StationMarker::Kind kind, const QVariantMap &loc,
+                                   const std::optional<MapInfo> &info)
+{
+    const bool has = info && loc.contains(QStringLiteral("x"))
+                     && loc.contains(QStringLiteral("y"));
+    if (!has) {
+        if (existing) {
+            scene->removeItem(existing);
+            delete existing;
+        }
+        return nullptr;
+    }
+    StationMarker *m = existing;
+    if (!m) {
+        m = new StationMarker(kind);
+        scene->addItem(m);
+    }
+    m->setPos(info->toScene(loc.value(QStringLiteral("x")).toDouble(),
+                            loc.value(QStringLiteral("y")).toDouble()));
+    return m;
+}
+
 void MapView::setMap(const MapInfo &info, const QImage &image)
 {
     info_ = info;
     mapItem_->setPixmap(QPixmap::fromImage(image));
     mapItem_->setPos(0, 0);
     scene_->setSceneRect(QRectF(0, 0, info.sceneWidth(), info.sceneHeight()));
+
+    // 지도가 바뀌면 좌표계도 바뀐다. 들고 있던 자리를 새 좌표로 다시 놓는다.
+    dock_ = placeStation(scene_, dock_, StationMarker::Kind::Dock, dockLoc_, info_);
+    home_ = placeStation(scene_, home_, StationMarker::Kind::Home, homeLoc_, info_);
+
     fitMap();
 }
 
@@ -152,12 +181,41 @@ void MapView::setWaypoints(const QList<QVariantMap> &waypoints)
         scene_->addItem(m);
         waypoints_.insert(id, m);
     }
+    // 목록이 갈릴 때마다 마커를 새로 만든다. 고른 자리는 그대로 두어야
+    // 순서를 바꾸거나 하나를 지웠다고 선택이 풀리지 않는다.
+    if (auto *m = waypoints_.value(selectedWp_, nullptr))
+        m->setSelected(true);
+    else
+        selectedWp_.clear();
 }
 
 void MapView::setWaypointStatus(const QString &id, const QString &status)
 {
     if (auto *m = waypoints_.value(id, nullptr))
         m->setStatus(status);
+}
+
+void MapView::setSelectedWaypoint(const QString &id)
+{
+    if (id == selectedWp_)
+        return;
+    if (auto *prev = waypoints_.value(selectedWp_, nullptr))
+        prev->setSelected(false);
+    selectedWp_ = id;
+    if (auto *m = waypoints_.value(id, nullptr))
+        m->setSelected(true);
+}
+
+void MapView::setDock(const QVariantMap &location)
+{
+    dockLoc_ = location;
+    dock_ = placeStation(scene_, dock_, StationMarker::Kind::Dock, dockLoc_, info_);
+}
+
+void MapView::setHome(const QVariantMap &location)
+{
+    homeLoc_ = location;
+    home_ = placeStation(scene_, home_, StationMarker::Kind::Home, homeLoc_, info_);
 }
 
 void MapView::focusWaypoint(const QString &id)
@@ -329,6 +387,9 @@ void MapView::mouseReleaseEvent(QMouseEvent *ev)
         emit goalRequested(wx, wy, theta);
     } else if (mode_ == MapMode::AddWaypoint) {
         emit waypointPlaced(wx, wy, theta);
+    } else if (mode_ == MapMode::AddTag) {
+        // 마커는 벽에 붙는 물건이고 방향이 없다. 드래그해도 각을 버린다.
+        emit tagPlaced(wx, wy);
     }
     setMode(MapMode::View);
 }

@@ -7,6 +7,7 @@
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QScrollArea>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
@@ -20,6 +21,7 @@
 #include <QVBoxLayout>
 #include <QtMath>
 
+#include "BuildInfo.h"
 #include "Config.h"
 #include "RobotDef.h"
 #include "auth/Session.h"
@@ -99,6 +101,7 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QWidget(parent, Qt::Window)
     tabs->addTab(buildPowerTab(), QStringLiteral("전원"));
     tabs->addTab(buildStorageTab(), QStringLiteral("저장"));
     tabs->addTab(buildSafetyTab(), QStringLiteral("안전"));
+    tabs->addTab(buildAboutTab(), QStringLiteral("정보"));
     lay->addWidget(tabs, 1);
 
     auto *buttons = new QHBoxLayout;
@@ -124,6 +127,78 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QWidget(parent, Qt::Window)
     });
 
     load();
+}
+
+QWidget *SettingsDialog::buildAboutTab()
+{
+    // 이 탭이 있는 이유는 셋이다.
+    //
+    //  1. 과업지시서 4장이 "실제 사용된 각 컴포넌트의 정확한 버전(커밋 해시
+    //     포함)" 을 요구하고 7.3 절 임치 대상에도 같은 항목이 있다. 검수
+    //     자리에서 화면만 열면 확인되는 편이, 설계서를 뒤지는 것보다 낫다.
+    //  2. Qt 를 LGPL 로 동적 링크해 쓴다. 고지와 소스 입수 경로를 제품 안에
+    //     두는 것이 그 의무를 가장 확실하게 지키는 방법이다.
+    //  3. 과업지시서 7.2 절이 "ROS2 오픈소스 관련 IP 는 각 원저작권자에
+    //     귀속" 이라고 못박고 있다. 귀속을 적어 둘 자리가 필요하다.
+    auto *page = new QWidget;
+    auto *lay = new QVBoxLayout(page);
+    lay->setContentsMargins(metrics::s4, metrics::s4, metrics::s4, metrics::s4);
+    lay->setSpacing(metrics::s2);
+
+    using namespace hmi::build;
+
+    lay->addWidget(sectionLabel(QStringLiteral("제품")));
+    lay->addWidget(readOnlyRow(QStringLiteral("이름"), productName(), QString()));
+    lay->addWidget(readOnlyRow(QStringLiteral("버전"), version(), QString()));
+
+    // 커밋되지 않은 변경이 섞인 빌드는 임치본과 산출물이 달라진다. 그
+    // 사실이 화면에 남아야 검수 자리에서 바로 걸린다.
+    const QString hash = gitHash() + gitDirty();
+    lay->addWidget(readOnlyRow(
+        QStringLiteral("빌드"), hash,
+        isDirty() ? QStringLiteral("커밋되지 않은 변경이 섞인 빌드입니다. "
+                                   "납품본으로 쓰지 마십시오.")
+                  : QStringLiteral("소스 저장소의 커밋 해시입니다.")));
+    lay->addWidget(readOnlyRow(QStringLiteral("빌드 일시"),
+                               buildDate() + QStringLiteral(" UTC"), QString()));
+    lay->addWidget(readOnlyRow(QStringLiteral("통신 규약"),
+                               QStringLiteral("v") + protocolVersion(),
+                               QStringLiteral("로봇과 맞아야 하는 값입니다. "
+                                              "다르면 연결 시 거부됩니다.")));
+
+    lay->addWidget(new HLine);
+    lay->addWidget(sectionLabel(QStringLiteral("공급")));
+    lay->addWidget(readOnlyRow(QStringLiteral("개발"), vendor(), QString()));
+    lay->addWidget(readOnlyRow(QStringLiteral("발주"), client(), QString()));
+
+    lay->addWidget(new HLine);
+    lay->addWidget(sectionLabel(QStringLiteral("오픈소스 고지")));
+
+    auto *notice = new QLabel(QStringLiteral(
+        "이 제품은 아래 오픈소스 구성요소를 사용합니다. 각 구성요소의 "
+        "저작권은 원저작권자에게 있습니다.\n\n"
+        "  • Qt 6 — LGPL-3.0 (동적 링크)\n"
+        "  • ROS 2, Nav2, CycloneDDS — Apache-2.0\n"
+        "  • SLAM Toolbox — LGPL-2.1 (별도 프로세스)\n"
+        "  • KISS-ICP — MIT\n"
+        "  • ground_segmentation 외 — BSD-3-Clause\n\n"
+        "LGPL 구성요소의 소스는 납품 매체의 licenses/ 아래에 함께 제공됩니다. "
+        "전체 설치 패키지 목록과 판본은 시스템 설계서의 의존성 목록을 "
+        "보십시오."));
+    notice->setObjectName(QStringLiteral("Hint"));
+    notice->setWordWrap(true);
+    notice->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    lay->addWidget(notice);
+
+    lay->addStretch(1);
+
+    // 고지문이 길어 대화상자 높이를 넘는다. 잘린 채 두면 고지를 안 한
+    // 것과 같으므로 스크롤에 넣는다.
+    auto *scroll = new QScrollArea;
+    scroll->setWidget(page);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    return scroll;
 }
 
 QWidget *SettingsDialog::buildAppearanceTab()

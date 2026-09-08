@@ -45,6 +45,7 @@
 | `state/mission` | 점검 시나리오 상태 |
 | `state/waypoints` | 점검 지점 |
 | `state/locations` | home·dock 위치 |
+| `state/markers` | 측량된 AprilTag 자리 |
 | `state/capture_spool` | 촬영 업로드 상태 |
 | `state/health` | 센서·링크 상태 |
 | `evt/log` | 이벤트·경고 |
@@ -69,6 +70,7 @@
 | `cmd/nav_cancel` | 주행 취소 |
 | `cmd/waypoints/set` | 점검 지점 전체 설정 |
 | `cmd/locations/set` | home·dock 전체 설정 |
+| `cmd/markers/set` | 마커 전체 설정 |
 | `cmd/power/policy` | 배터리 복귀·출발 기준 |
 | `cmd/mission/start` | 점검 시작 |
 | `cmd/mission/pause` | 점검 일시정지 |

@@ -34,6 +34,10 @@ inline constexpr auto kCaptureSpool = "state/capture_spool";
 inline constexpr auto kHealth = "state/health";
 inline constexpr auto kLocations = "state/locations";  ///< dock, home - not part of the run
 
+/// Surveyed AprilTag positions. Distinct from state/apriltag, which says what
+/// is being seen right now: this is the map of where the tags were put.
+inline constexpr auto kMarkers = "state/markers";      ///< on change
+
 // ---- Commands, sent by the control station -------------------------------
 inline constexpr auto kCmdEstop = "cmd/estop";                  ///< engage only
 inline constexpr auto kCmdEstopRelease = "cmd/estop_release";   ///< manual release only
@@ -42,6 +46,7 @@ inline constexpr auto kCmdGoto = "cmd/goto";
 inline constexpr auto kCmdNavCancel = "cmd/nav_cancel";
 inline constexpr auto kCmdWaypointsSet = "cmd/waypoints/set";   ///< replaces the whole list
 inline constexpr auto kCmdLocationsSet = "cmd/locations/set";   ///< dock and home, whole list
+inline constexpr auto kCmdMarkersSet = "cmd/markers/set";       ///< replaces the whole list
 
 /// Battery policy the robot must enforce: return_at and depart_at, in percent.
 ///

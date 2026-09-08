@@ -39,6 +39,12 @@ const Row kRows[] = {
      "흐리게 보이면 위치 정보가 오래된 것입니다.", false},
     {MapLegend::Item::Path, "경로",
      "실선은 로봇이 가려는 길, 점선은 지나온 길입니다.", false},
+    {MapLegend::Item::Dock, "충전 스테이션",
+     "점검을 마치거나 배터리가 부족할 때 로봇이 돌아가는 자리입니다.\n\n"
+     "눌러서 위치 화면을 열고 자리를 다시 지정합니다.", true},
+    {MapLegend::Item::Home, "시작 위치",
+     "점검을 시작하는 자리입니다. 기동 후 로봇이 자기 위치를 확정하는\n"
+     "기준점이기도 합니다.\n\n눌러서 위치 화면을 열고 자리를 다시 지정합니다.", true},
 };
 
 constexpr int kRowCount = int(std::size(kRows));
@@ -127,6 +133,32 @@ void MapLegend::paintEvent(QPaintEvent *)
             diamond.lineTo(kSymbolX - 5, cy);
             diamond.closeSubpath();
             p.drawPath(diamond);
+            break;
+        }
+        case Item::Dock: {
+            // 지도의 집 실루엣을 작게 줄인 것. 범례와 지도가 다른 모양이면
+            // 둘을 잇는 데 한 번 더 생각해야 한다.
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(C.dock));
+            QPainterPath house;
+            house.moveTo(kSymbolX - 5.5, cy - 1.0);
+            house.lineTo(kSymbolX, cy - 6.0);
+            house.lineTo(kSymbolX + 5.5, cy - 1.0);
+            house.lineTo(kSymbolX + 3.8, cy - 1.0);
+            house.lineTo(kSymbolX + 3.8, cy + 5.0);
+            house.lineTo(kSymbolX - 3.8, cy + 5.0);
+            house.lineTo(kSymbolX - 3.8, cy - 1.0);
+            house.closeSubpath();
+            p.drawPath(house);
+            break;
+        }
+        case Item::Home: {
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(C.home));
+            p.drawEllipse(QPointF(kSymbolX, cy + 2.0), 4.2, 3.4);
+            const double toes[4][2] = {{-4.2, -3.0}, {-1.5, -4.6}, {1.5, -4.6}, {4.2, -3.0}};
+            for (const auto &t : toes)
+                p.drawEllipse(QPointF(kSymbolX + t[0], cy + t[1]), 1.5, 2.0);
             break;
         }
         case Item::Robot: {

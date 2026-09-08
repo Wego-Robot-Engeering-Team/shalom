@@ -130,6 +130,7 @@ private:
     ///
     /// The robot drives to the dock on its own, so a location taught only on
     /// screen is a location the robot does not have.
+    void showFixedLocations();
     void applyFixedLocations();
 
     /// Keeps the top-bar name and role badge on the current session.

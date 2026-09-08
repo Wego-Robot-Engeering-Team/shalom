@@ -62,6 +62,11 @@ public:
     /// place shown and the place driven to are different places.
     virtual void setLocations(const QList<QVariantMap> &locations) = 0;
 
+    /// Replaces the surveyed AprilTag list. Tags are physical objects on the
+    /// wall, so this is a record of a survey, not a command to move anything -
+    /// but the robot needs it to know which tag it is looking at.
+    virtual void setMarkers(const QList<QVariantMap> &markers) = 0;
+
     /// Battery policy, in percent.
     ///
     /// returnAt: below this the robot abandons the run and drives to the dock.

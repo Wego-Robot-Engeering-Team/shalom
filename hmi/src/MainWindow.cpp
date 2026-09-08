@@ -552,7 +552,9 @@ void MainWindow::wireMapSignals()
             [this](MapLegend::Item item) {
                 // "이게 뭐지" 다음은 대개 "바꾸고 싶다" 이다. 설명을 읽은
                 // 자리에서 관리 화면으로 바로 넘어가게 한다.
-                if (item == MapLegend::Item::Waypoint)
+                if (item == MapLegend::Item::Waypoint
+                    || item == MapLegend::Item::Dock
+                    || item == MapLegend::Item::Home)
                     showView(NavItem::Locations);
             });
 
@@ -571,6 +573,63 @@ void MainWindow::wireLocationSignals()
         map_->setPlacementHint(
             QStringLiteral("지도를 클릭해 위치를 지정하고, 드래그해 방향을 정하십시오"));
     });
+    // 마커 등록. 지도에서 자리를 찍고 ID 를 받는다. ID 는 현장에 붙인
+    // 태그에 인쇄된 번호라 조작자만 안다 — 자동으로 매길 수 없다.
+    connect(locations_, &LocationPanel::addMarkerFromMap, this, [this] {
+        map_->goalButton()->setChecked(false);
+        map_->view()->setMode(MapMode::AddTag);
+        map_->setPlacementHint(
+            QStringLiteral("마커가 붙은 자리를 지도에서 클릭하십시오"));
+    });
+    connect(map_->view(), &MapView::tagPlaced, this, [this](double x, double y) {
+        map_->setPlacementHint({});
+
+        QList<QVariantMap> ms = locations_->markers();
+        int suggested = 0;
+        for (const auto &m : std::as_const(ms))
+            suggested = qMax(suggested, m.value(QStringLiteral("id")).toInt() + 1);
+
+        bool ok = false;
+        const int id = QInputDialog::getInt(
+            this, QStringLiteral("마커 등록"),
+            QStringLiteral("이 자리에 붙은 마커의 ID 를 입력하십시오.\n"
+                           "태그에 인쇄된 번호와 같아야 합니다."),
+            suggested, 0, 100000, 1, &ok);
+        if (!ok)
+            return;
+
+        // 같은 번호가 이미 있으면 자리를 옮긴 것으로 본다. 같은 ID 를 둘
+        // 두면 로봇이 어느 쪽으로 보정할지 알 수 없다.
+        for (int i = 0; i < ms.size(); ++i) {
+            if (ms.at(i).value(QStringLiteral("id")).toInt() != id)
+                continue;
+            if (QMessageBox::question(
+                    this, QStringLiteral("이미 등록된 마커입니다"),
+                    QStringLiteral("마커 #%1 은 이미 등록되어 있습니다.\n"
+                                   "새 자리로 옮기시겠습니까?").arg(id))
+                != QMessageBox::Yes)
+                return;
+            ms.removeAt(i);
+            break;
+        }
+
+        ms << QVariantMap{{"id", id}, {"x", x}, {"y", y}};
+        locations_->setMarkers(ms);
+        robot_->setMarkers(ms);
+        map_->view()->setTags(ms);
+        log_->note(diag::Severity::Info, QStringLiteral("마커 #%1 등록").arg(id),
+                   QJsonObject{{"channel", QStringLiteral("cmd/markers/set")},
+                               {"x", x}, {"y", y}});
+    });
+    connect(locations_, &LocationPanel::markersChanged, this,
+            [this](const QList<QVariantMap> &ms) {
+                robot_->setMarkers(ms);
+                map_->view()->setTags(ms);
+                log_->note(diag::Severity::Info,
+                           QStringLiteral("마커 목록 변경 (%1개)").arg(ms.size()),
+                           QJsonObject{{"channel", QStringLiteral("cmd/markers/set")}});
+            });
+
     connect(locations_, &LocationPanel::gotoRequested, this, [this](const QString &kind) {
         const bool isDock = kind == QLatin1String("dock");
         driveTo(isDock ? dock_ : home_,
@@ -657,6 +716,7 @@ void MainWindow::wireMissionSignals()
     // 목록에서 고른 포인트를 지도에서도 짚어 준다. 목록과 지도를 눈으로
     // 대응시키지 못하면 좌표만 보고 어디인지 알아내야 한다.
     connect(waypoints_, &WaypointPanel::waypointSelected, this, [this](const QString &id) {
+        map_->view()->setSelectedWaypoint(id);
         map_->view()->focusWaypoint(id);
     });
 
@@ -945,11 +1005,27 @@ void MainWindow::releaseEstop()
     setMode(QStringLiteral("manual"));
 }
 
-void MainWindow::applyFixedLocations()
+/// 두 자리를 화면 곳곳에 반영한다. 로봇에게는 보내지 않는다.
+///
+/// 로봇이 알려 준 값을 받았을 때와 조작자가 새로 지정했을 때가 화면 입장에서
+/// 같아야 한다. 예전에는 기동 경로가 패널만 직접 갱신하고 이 함수를 타지
+/// 않아서, 로봇이 알려 준 충전소가 지도에는 영영 뜨지 않았다.
+void MainWindow::showFixedLocations()
 {
     locations_->setDock(dock_);
     locations_->setHome(home_);
     mission_->setDockKnown(!dock_.isEmpty());
+
+    // 지도에도 올린다. 두 자리는 순회 목록 밖이라 웨이포인트 오버레이로는
+    // 그려지지 않는데, 정작 조작자가 "충전소가 어느 쪽이더라" 를 묻는 곳은
+    // 목록이 아니라 지도다.
+    map_->view()->setDock(dock_);
+    map_->view()->setHome(home_);
+}
+
+void MainWindow::applyFixedLocations()
+{
+    showFixedLocations();
 
     // 로봇에게도 보낸다. 화면에만 적어 두면 배터리 복귀와 점검 종료 복귀는
     // 로봇이 예전부터 알고 있던 자리로 간다 — 조작자는 방금 옮겨 놓은 줄
@@ -1126,15 +1202,14 @@ void MainWindow::startSession()
     const auto wps = robot_->waypoints();
     waypoints_->setWaypoints(wps);
     map_->view()->setWaypoints(wps);
+    locations_->setMarkers(robot_->markers());
     map_->view()->setTags(robot_->markers());
 
     // 로봇이 알려 준 값이 출발점이다. 여기서 다시 보내지는 않는다 —
     // 방금 받은 것을 그대로 돌려주는 셈이라 의미가 없다.
     dock_ = robot_->dockPose();
     home_ = robot_->homePose();
-    locations_->setDock(dock_);
-    locations_->setHome(home_);
-    mission_->setDockKnown(!dock_.isEmpty());
+    showFixedLocations();
 
     // 이력은 저장 장치의 공유 폴더를 직접 읽는다. 로봇을 거치지 않는다.
     data_->setDirectory(Config::instance().nasMountPath());
