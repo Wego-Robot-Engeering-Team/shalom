@@ -112,6 +112,7 @@ def generate_launch_description():
     bringup = FindPackageShare("application")
     lidar_slam = FindPackageShare("lidar_slam")
     camera_streamer = FindPackageShare("camera_streamer")
+    velodyne_lidar = FindPackageShare("velodyne_lidar")
     aurora_odometry = FindPackageShare("aurora_odometry")
     nav2_bringup = FindPackageShare("nav2_bringup")
     kiss_icp = FindPackageShare("kiss_icp")
@@ -274,6 +275,15 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("aurora")),
     )
 
+    # 임시 시험용 VLP-16. B2 내장 라이다가 없는 자리에서 인식·SLAM 을
+    # 돌려보기 위한 것이라, 토픽과 좌표계를 B2 것에 맞춰 끼운다.
+    vlp16 = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([velodyne_lidar, "launch", "vlp16.launch.py"])),
+        launch_arguments={"points_topic": LaunchConfiguration("pointcloud_topic")}.items(),
+        condition=LaunchConfigurationEquals("lidar", "vlp16"),
+    )
+
     rviz = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([nav2_bringup, "launch", "rviz_launch.py"])),
@@ -329,6 +339,10 @@ def generate_launch_description():
                                           "none 이면 실시간 SLAM."),
         DeclareLaunchArgument("nav2", default_value="true"),
         DeclareLaunchArgument("rviz", default_value="true"),
+        DeclareLaunchArgument("lidar", default_value="none",
+                              choices=["none", "vlp16"],
+                              description="none 이면 로봇(시뮬·실기)이 점군을 낸다. "
+                                          "vlp16 은 임시 시험용 외장 라이다."),
         DeclareLaunchArgument("cameras", default_value="true",
                               description="로봇암 RealSense + 영상 송신"),
         DeclareLaunchArgument("video", default_value="true",
