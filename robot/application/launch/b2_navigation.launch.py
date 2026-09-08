@@ -197,6 +197,32 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("bridge")),
     )
 
+    # 카메라는 실기에만 있다. 시뮬레이터에는 아직 카메라 모델이 없고,
+    # 없는 장치를 열려다 실패하는 노드가 스택에 섞이면 로그가 지저분해져
+    # 정작 봐야 할 오류가 묻힌다.
+    #
+    # 기본값이 꺼짐인 이유는 장착이 아직 확정되지 않아서다. 카메라를 달고
+    # 시리얼을 확인한 뒤 cameras:=true 로 켜면 된다.
+    arm_camera = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([bringup, "launch", "cameras.launch.py"])),
+        launch_arguments={
+            "role": "arm",
+            "serial": LaunchConfiguration("arm_camera_serial"),
+        }.items(),
+        condition=IfCondition(LaunchConfiguration("cameras")),
+    )
+
+    body_camera = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([bringup, "launch", "cameras.launch.py"])),
+        launch_arguments={
+            "role": "body",
+            "serial": LaunchConfiguration("body_camera_serial"),
+        }.items(),
+        condition=IfCondition(LaunchConfiguration("body_camera")),
+    )
+
     rviz = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([nav2_bringup, "launch", "rviz_launch.py"])),
@@ -222,6 +248,13 @@ def generate_launch_description():
                                           "localises in it instead of mapping."),
         DeclareLaunchArgument("nav2", default_value="true"),
         DeclareLaunchArgument("rviz", default_value="true"),
+        DeclareLaunchArgument("cameras", default_value="false",
+                              description="로봇암 끝단 RealSense (2D+3D)"),
+        DeclareLaunchArgument("body_camera", default_value="false",
+                              description="본체 RealSense"),
+        DeclareLaunchArgument("arm_camera_serial", default_value="",
+                              description="두 대 이상 달았으면 반드시 지정"),
+        DeclareLaunchArgument("body_camera_serial", default_value=""),
         DeclareLaunchArgument("bridge", default_value="true",
                               description="Accept the control station on TCP 9090."),
         DeclareLaunchArgument("viewer", default_value="true",
@@ -234,5 +267,5 @@ def generate_launch_description():
                               description="Ethernet interface to the robot (robot:=real only)."),
         sim_robot, real_robot, perception, odometry,
         map_server, amcl, localisation_manager,
-        nav2, bridge, rviz,
+        nav2, bridge, arm_camera, body_camera, rviz,
     ])
