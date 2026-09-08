@@ -178,6 +178,8 @@ void MapView::setWaypoints(const QList<QVariantMap> &waypoints)
                                               QStringLiteral("todo")).toString());
         m->setPos(info_->toScene(wp.value(QStringLiteral("x")).toDouble(),
                                  wp.value(QStringLiteral("y")).toDouble()));
+        if (wp.contains(QStringLiteral("theta")))
+            m->setHeading(wp.value(QStringLiteral("theta")).toDouble());
         scene_->addItem(m);
         waypoints_.insert(id, m);
     }

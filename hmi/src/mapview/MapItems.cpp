@@ -88,6 +88,15 @@ void WaypointMarker::setStatus(const QString &status)
     update();
 }
 
+void WaypointMarker::setHeading(double theta)
+{
+    if (hasHeading_ && qFuzzyCompare(theta_, theta))
+        return;
+    theta_ = theta;
+    hasHeading_ = true;
+    update();
+}
+
 void WaypointMarker::setSelected(bool selected)
 {
     if (selected == selected_)
@@ -114,7 +123,7 @@ void WaypointMarker::hoverLeaveEvent(QGraphicsSceneHoverEvent *ev)
 
 QRectF WaypointMarker::boundingRect() const
 {
-    const double e = r_ * 2.4;
+    const double e = r_ * 2.6;   // 방향 눈금까지 담는다
     return {-e, -e, e * 2, e * 2};
 }
 
@@ -147,6 +156,26 @@ void WaypointMarker::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidge
     p->setPen(filled ? QPen(QColor(C.surface), 1.5) : QPen(col, 1.5));
     p->setBrush(filled ? QBrush(col) : QBrush(QColor(C.surface)));
     p->drawEllipse(QPointF(0, 0), r, r);
+
+    // 도착했을 때 바라볼 방향. 원 바깥에 짧은 눈금으로 낸다.
+    //
+    // 화살표를 크게 그리면 촘촘한 구간에서 이웃 포인트와 겹쳐 어느 것의
+    // 방향인지 오히려 헷갈린다. 원에 붙은 눈금이면 겹쳐도 주인이 분명하다.
+    //
+    // 씬 y 는 아래로 향하므로 각을 뒤집는다. 지도는 회전하지 않으니 월드
+    // 각이 화면 각으로 그대로 간다.
+    if (hasHeading_) {
+        p->save();
+        p->rotate(-theta_ * 180.0 / M_PI);
+        p->setPen(QPen(col, 2.0, Qt::SolidLine, Qt::RoundCap));
+        p->drawLine(QPointF(r * 1.05, 0), QPointF(r * 1.75, 0));
+        p->setPen(Qt::NoPen);
+        p->setBrush(col);
+        p->drawPolygon(QPolygonF{{r * 2.05, 0.0},
+                                 {r * 1.55, -r * 0.34},
+                                 {r * 1.55, r * 0.34}});
+        p->restore();
+    }
 
     QFont f;
     f.setPointSize(8);
