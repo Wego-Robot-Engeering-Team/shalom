@@ -26,6 +26,10 @@ public:
     void setBridgeHost(const QString &host);
 
     int bridgePort() const;
+
+    /// RTSP viewfinder URL. Empty turns the live view off.
+    QString videoUrl() const;
+    void setVideoUrl(const QString &url);
     void setBridgePort(int port);
 
     // ---- appearance ------------------------------------------------------

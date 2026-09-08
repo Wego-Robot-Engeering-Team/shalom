@@ -134,7 +134,7 @@ const ItemSpec kItems[] = {
     {NavItem::Drive, "주행"},
     {NavItem::Locations, "위치"},
     {NavItem::Arm, "로봇팔"},
-    {NavItem::Capture, "촬영"},
+    {NavItem::Capture, "카메라"},
     {NavItem::Diagnostics, "진단"},
     {NavItem::Data, "이력"},
     {NavItem::Events, "로그"},
