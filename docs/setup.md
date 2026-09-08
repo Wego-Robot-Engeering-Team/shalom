@@ -36,6 +36,42 @@ sudo apt install -y \
 sudo rosdep init && rosdep update    # 시스템당 한 번
 ```
 
+## 카메라 (RealSense)
+
+과업지시서 하드웨어 구성이 카메라 셋을 요구한다 — 본체 하나, 로봇암 끝단에
+2D·3D 하나씩. D455 는 컬러와 깊이를 함께 내므로 암 끝단에서는 한 대가 둘을
+겸한다.
+
+ROS 2 래퍼는 apt 에 있다. librealsense SDK 를 따로 빌드해 두었더라도 래퍼는
+있어야 토픽이 나온다.
+
+```bash
+sudo apt install -y ros-jazzy-realsense2-camera ros-jazzy-realsense2-description
+```
+
+붙인 카메라의 시리얼을 먼저 확인한다. 두 대 이상 달면 시리얼 없이는 어느
+쪽이 열릴지 실행할 때마다 달라진다.
+
+```bash
+rs-enumerate-devices -s      # 또는 ros2 run realsense2_camera ...
+```
+
+켜기:
+
+```bash
+# 카메라만
+ros2 launch application cameras.launch.py role:=arm serial:=213522250834
+
+# 전체 스택과 함께
+ros2 launch application b2_navigation.launch.py robot:=real \
+  cameras:=true arm_camera_serial:=213522250834
+```
+
+토픽 이름은 `shalom_bridge` 의 `bridge.yaml` 이 기다리는 것에 맞춰 리맵된다
+(`/fr3/camera_2d/image_raw`, `/fr3/camera_3d/points`, `/b2/camera/image_raw`).
+이름이 어긋나면 관제 화면의 "센서 상태" 에 카메라가 계속 "신호 없음" 으로
+남는데, 나머지는 정상으로 보이므로 눈으로는 늦게 발견된다.
+
 ## 아직 없는 의존 패키지
 
 지면분할 파이프라인은 아래 둘이 있어야 돈다. 현재 워크스페이스에는 **없다.**
