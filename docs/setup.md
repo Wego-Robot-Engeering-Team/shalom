@@ -79,9 +79,13 @@ apt 에 없어 소스로 받아 둔 것들이다. `third_party/` 에 들어 있�
 
 | 패키지 | 역할 | 라이선스 |
 |---|---|---|
-| `ground_segmentation`, `ground_segmentation_ros2` | GSeg3D 지면/장애물 분리 | BSD-3 |
+| `ground_segmentation` | GSeg3D 지면/장애물 분리 **알고리즘 라이브러리**. 순수 C++ 이고 ROS 를 모른다 | BSD-3 |
+| `ground_segmentation_ros2` | 위 라이브러리를 감싼 **ROS 2 노드**. 라이브러리 없이는 빌드되지 않는다 | BSD-3 |
 | `kiss_icp` | 3D LiDAR odometry (`odom → base_link`) | MIT |
 | `nav2_ground_consistency_costmap_plugin` | local costmap 플러그인 | BSD-3 |
+
+지면분할이 두 개인 것은 나뉘어 배포되기 때문이다 — librealsense SDK 와
+`realsense2_camera` 래퍼가 갈려 있는 것과 같은 구조다. 둘 다 있어야 한다.
 
 ## 빌드
 
