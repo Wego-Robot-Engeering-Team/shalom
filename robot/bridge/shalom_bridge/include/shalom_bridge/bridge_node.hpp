@@ -252,6 +252,13 @@ private:
     json waypoints_ = json::array();
     json markers_ = json::array();
     bool wasConnected_ = false;
+
+    // 마지막으로 보낸 지도. /map 은 transient_local 이라 구독 콜백이 브릿지
+    // 기동 때 한 번만 뜬다. 관제가 그 뒤에 붙으면 지도를 영영 못 받으므로
+    // 들고 있다가 접속할 때 다시 보낸다.
+    std::string lastMapPng_;
+    nlohmann::json lastMapMeta_;
+
     json locations_ = json::array();
     double returnAtPct_ = 25.0;   ///< battery level that sends the robot back
     double departAtPct_ = 80.0;   ///< level it will set out again at

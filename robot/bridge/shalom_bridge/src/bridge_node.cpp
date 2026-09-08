@@ -135,17 +135,17 @@ BridgeNode::BridgeNode() : rclcpp::Node("shalom_bridge")
                             msg->info.width, msg->info.height);
                 return;
             }
-            sendEnvelope(makePublish(kChMap,
-                                     json{{"width", msg->info.width},
-                                          {"height", msg->info.height},
-                                          {"resolution", msg->info.resolution},
-                                          {"origin",
-                                           json{{"x", msg->info.origin.position.x},
-                                                {"y", msg->info.origin.position.y},
-                                                {"theta", 0.0}}},
-                                          {"map_id", mapId_},
-                                          {"encoding", "png"}}),
-                         false, png);
+            lastMapMeta_ = json{{"width", msg->info.width},
+                                {"height", msg->info.height},
+                                {"resolution", msg->info.resolution},
+                                {"origin",
+                                 json{{"x", msg->info.origin.position.x},
+                                      {"y", msg->info.origin.position.y},
+                                      {"theta", 0.0}}},
+                                {"map_id", mapId_},
+                                {"encoding", "png"}};
+            lastMapPng_ = png;
+            sendEnvelope(makePublish(kChMap, lastMapMeta_), false, png);
             RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 10000,
                                  "맵 %ux%u, PNG %zu 바이트", msg->info.width,
                                  msg->info.height, png.size());
@@ -926,6 +926,10 @@ void BridgeNode::publishHealth()
         publishWaypoints();
         publishLocations();
         publishMarkers();
+        // 지도도 다시 보낸다. 저장된 지도를 쓰면 map_server 가 한 번만
+        // 발행하므로, 이것이 없으면 나중에 붙은 화면은 빈 지도를 본다.
+        if (!lastMapPng_.empty())
+            sendEnvelope(makePublish(kChMap, lastMapMeta_), false, lastMapPng_);
     }
     wasConnected_ = connected;
 
