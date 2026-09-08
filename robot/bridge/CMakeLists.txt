@@ -38,7 +38,7 @@ target_link_libraries(bridge_node ZLIB::ZLIB)
 
 target_include_directories(bridge_node PRIVATE
     include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/protocol/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../common/protocol/include
 )
 
 ament_target_dependencies(bridge_node
@@ -49,5 +49,25 @@ target_link_libraries(bridge_node nlohmann_json::nlohmann_json)
 
 install(TARGETS bridge_node DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
+
+# ---------------------------------------------------------------------------
+# 시험
+#
+# 소켓·스레드·프레이밍이 얽히는 전송 계층이 이 노드에서 실제로 위험한
+# 곳이다. tcp_server 는 ROS 를 쓰지 않으므로 rclcpp 없이 그대로 붙는다.
+#
+# 예전에는 별도 CMake 프로젝트(standalone/)로 두었다. "ROS 가 없는 장비에서도
+# 검증할 수 있게" 가 이유였는데 그런 장비가 이제 없고, colcon test 가 돌리지
+# 않으니 아무도 안 돌렸다 — 이 패키지에 시험이 하나뿐이었던 것도 그래서다.
+if(BUILD_TESTING)
+    find_package(Threads REQUIRED)
+    add_executable(test_tcp_server
+        test/test_tcp_server.cpp
+        src/tcp_server.cpp)
+    target_include_directories(test_tcp_server PRIVATE include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../common/protocol/include)
+    target_link_libraries(test_tcp_server PRIVATE Threads::Threads)
+    add_test(NAME tcp_server COMMAND test_tcp_server)
+endif()
 
 ament_package()
