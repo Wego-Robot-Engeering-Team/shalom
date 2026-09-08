@@ -112,7 +112,8 @@ add_library(hmi_core ${HMI_CORE_TYPE}
     src/panels/DiagnosticsPanel.cpp
     src/MainWindow.cpp
 )
-target_include_directories(hmi_core PUBLIC src ${CMAKE_CURRENT_SOURCE_DIR}/../common/protocol/include)
+target_include_directories(hmi_core PUBLIC src ${CMAKE_CURRENT_SOURCE_DIR}/../common/protocol/include
+    ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(hmi_core PUBLIC Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Svg)
 
 # 코드 카탈로그를 바이너리에 내장한다.
@@ -250,6 +251,10 @@ if(HMI_BUILD_TESTS)
 
     # 3D 뷰는 테스트베드에 기대지 않으므로 납품 구성에서도 돈다 — 그려지는
     # 속도를 재는 검사가 정작 납품 빌드를 재지 않으면 의미가 없다.
+    hmi_add_test(test_mapview)
+    set_tests_properties(test_mapview PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     hmi_add_test(test_robotview)
     set_tests_properties(test_robotview PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

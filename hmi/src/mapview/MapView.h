@@ -27,11 +27,12 @@ namespace hmi::map {
 class AprilTagMarker;
 class GoalMarker;
 class RobotMarker;
+class StationMarker;
 class WaypointMarker;
 
 /// Interaction mode for the left mouse button. Panning is always available on
 /// the middle and right buttons regardless of mode.
-enum class MapMode { View, SetGoal, AddWaypoint };
+enum class MapMode { View, SetGoal, AddWaypoint, AddTag };
 
 class MapView : public QGraphicsView {
     Q_OBJECT
@@ -54,6 +55,13 @@ public:
     void setWaypoints(const QList<QVariantMap> &waypoints);
     void setWaypointStatus(const QString &id, const QString &status);
 
+    /// Marks one waypoint as the one the operator is looking at. Passing an
+    /// empty id clears it. Selection is drawn, not just centred: the view can
+    /// hold a dozen points at once and "which one did I click" is otherwise
+    /// answered by counting.
+    void setSelectedWaypoint(const QString &id);
+    QString selectedWaypoint() const { return selectedWp_; }
+
     /// Scrolls the view so this point is centred. Used when the operator picks
     /// a row in the list: reading a coordinate and finding it on the map by
     /// eye is exactly the work the map is supposed to save them.
@@ -61,6 +69,11 @@ public:
 
     void setTags(const QList<QVariantMap> &tags);
     void setTagsSeen(const QSet<int> &seenIds);
+
+    /// Charging station and start position. An empty map removes the marker -
+    /// an unset location must not leave a stale icon on the map.
+    void setDock(const QVariantMap &location);
+    void setHome(const QVariantMap &location);
 
     void setGoal(double x, double y, double theta);
     void clearGoal();
@@ -79,6 +92,8 @@ signals:
     void goalRequested(double x, double y, double theta);
     void waypointPlaced(double x, double y, double theta);
     void waypointClicked(const QString &id);
+    /// A tag was placed by clicking the map in AddTag mode.
+    void tagPlaced(double x, double y);
     void cursorMoved(double x, double y);
 
 protected:
@@ -104,6 +119,14 @@ private:
     QGraphicsPathItem *planItem_ = nullptr;
     RobotMarker *robot_ = nullptr;
     GoalMarker *goal_ = nullptr;
+    StationMarker *dock_ = nullptr;
+    StationMarker *home_ = nullptr;
+    // The locations can arrive before the map does. Hold on to the
+    // coordinates and place the markers once the map is in, or whether they
+    // appear at all comes down to message order.
+    QVariantMap dockLoc_;
+    QVariantMap homeLoc_;
+    QString selectedWp_;
     QHash<QString, WaypointMarker *> waypoints_;
     QHash<int, AprilTagMarker *> tags_;
 

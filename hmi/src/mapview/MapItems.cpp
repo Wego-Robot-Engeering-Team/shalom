@@ -3,6 +3,7 @@
 #include <QFont>
 #include <QGraphicsSceneHoverEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPolygonF>
 
 #include "theme/Tokens.h"
@@ -83,7 +84,17 @@ void WaypointMarker::setStatus(const QString &status)
         return;
     status_ = status;
     // 현재 포인트를 다른 마커 위로 올린다. 포인트가 촘촘한 구간에서 겹친다.
-    setZValue(status_ == QLatin1String("current") ? 80 : 60);
+    setZValue(selected_ ? 85 : (status_ == QLatin1String("current") ? 80 : 60));
+    update();
+}
+
+void WaypointMarker::setSelected(bool selected)
+{
+    if (selected == selected_)
+        return;
+    selected_ = selected;
+    // 고른 것은 겹친 것들 위로. 촘촘한 구간에서 고르고도 안 보이면 소용없다.
+    setZValue(selected_ ? 85 : (status_ == QLatin1String("current") ? 80 : 60));
     update();
 }
 
@@ -113,7 +124,15 @@ void WaypointMarker::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidge
     p->setRenderHint(QPainter::Antialiasing);
 
     const QColor col(waypointColor(status_));
-    const double r = r_ * (hover_ ? 1.12 : 1.0);
+    const double r = r_ * (hover_ || selected_ ? 1.12 : 1.0);
+
+    // 선택 고리. 상태색과 겹치지 않게 강조색 실선으로 두른다 — 상태를
+    // 덧칠하면 "지금 가는 중" 과 "내가 고른 것" 이 구분되지 않는다.
+    if (selected_) {
+        p->setPen(QPen(QColor(C.accent), 2.0));
+        p->setBrush(Qt::NoBrush);
+        p->drawEllipse(QPointF(0, 0), r * 1.62, r * 1.62);
+    }
 
     if (status_ == QLatin1String("current")) {
         QColor ring(col);
@@ -184,6 +203,90 @@ void AprilTagMarker::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidge
     p->setFont(f);
     p->setPen(seen_ ? QColor(C.textOnAccent) : col);
     p->drawText(QRectF(-s_, -s_, s_ * 2, s_ * 2), Qt::AlignCenter, QString::number(id_));
+}
+
+// ============================ StationMarker ============================
+
+StationMarker::StationMarker(Kind kind, double size) : kind_(kind), s_(size)
+{
+    setFlag(QGraphicsItem::ItemIgnoresTransformations, true);
+    // 웨이포인트(60)보다 위, 로봇(100)보다 아래. 고정된 자리라 로봇을 가리면
+    // 안 되지만, 포인트가 촘촘한 구간에서 묻혀도 곤란하다.
+    setZValue(70);
+    setToolTip(kind_ == Kind::Dock ? QStringLiteral("충전 스테이션")
+                                   : QStringLiteral("시작 위치"));
+}
+
+QRectF StationMarker::boundingRect() const
+{
+    const double e = s_ * 2.0;
+    return {-e, -e, e * 2, e * 2};
+}
+
+void StationMarker::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *)
+{
+    const Colors &C = colors();
+    p->setRenderHint(QPainter::Antialiasing);
+    const QColor col(kind_ == Kind::Dock ? C.dock : C.home);
+
+    // 바닥 그림자. 지도 위 어디에 "놓여" 있다는 느낌을 준다.
+    QColor shade(col);
+    shade.setAlpha(38);
+    p->setPen(Qt::NoPen);
+    p->setBrush(shade);
+    p->drawEllipse(QPointF(0, s_ * 0.92), s_ * 1.15, s_ * 0.34);
+
+    if (kind_ == Kind::Dock) {
+        // 지붕 얹은 작은 집 + 번개.
+        const double w = s_ * 0.92, h = s_ * 0.78;
+        QPainterPath house;
+        house.moveTo(-w * 1.18, -h * 0.18);       // 처마 왼쪽
+        house.lineTo(0.0, -h * 1.30);             // 용마루
+        house.lineTo(w * 1.18, -h * 0.18);        // 처마 오른쪽
+        house.lineTo(w * 0.82, -h * 0.18);
+        house.lineTo(w * 0.82, h * 0.86);
+        house.lineTo(-w * 0.82, h * 0.86);
+        house.lineTo(-w * 0.82, -h * 0.18);
+        house.closeSubpath();
+
+        p->setPen(QPen(QColor(C.surface), 2.0));
+        p->setBrush(col);
+        p->drawPath(house);
+
+        p->setPen(Qt::NoPen);
+        p->setBrush(QColor(C.textOnAccent));
+        p->drawPolygon(QPolygonF{{s_ * 0.10, -h * 0.06},
+                                 {-s_ * 0.34, h * 0.40},
+                                 {-s_ * 0.04, h * 0.40},
+                                 {-s_ * 0.12, h * 0.80},
+                                 {s_ * 0.34, h * 0.18},
+                                 {s_ * 0.02, h * 0.18}});
+        return;
+    }
+
+    // 시작 위치 — 발자국. 네발로봇의 집이라는 뜻이고, 지도 위 다른 무엇과도
+    // 닮지 않아 멀리서도 이것만 눈에 든다.
+    p->setPen(QPen(QColor(C.surface), 1.6));
+    p->setBrush(col);
+
+    // 발바닥
+    QPainterPath pad;
+    pad.addEllipse(QPointF(0, s_ * 0.34), s_ * 0.74, s_ * 0.60);
+    p->drawPath(pad);
+
+    // 발가락 넷. 바깥 둘을 조금 낮추고 기울여 앉히면 발처럼 읽힌다.
+    struct Toe { double x, y, rx, ry, rot; };
+    static const Toe toes[4] = {{-0.74, -0.52, 0.27, 0.36, -18.0},
+                                {-0.26, -0.80, 0.29, 0.38, -6.0},
+                                {0.26, -0.80, 0.29, 0.38, 6.0},
+                                {0.74, -0.52, 0.27, 0.36, 18.0}};
+    for (const Toe &t : toes) {
+        p->save();
+        p->translate(t.x * s_, t.y * s_);
+        p->rotate(t.rot);
+        p->drawEllipse(QPointF(0, 0), t.rx * s_, t.ry * s_);
+        p->restore();
+    }
 }
 
 // ============================ GoalMarker ============================

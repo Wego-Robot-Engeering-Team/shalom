@@ -22,6 +22,7 @@ const Colors kDark{
     QLatin1String("#DC5B53"),
     QLatin1String("#232830"), QLatin1String("#5B6672"), QLatin1String("#14181C"),
     QLatin1String("#4A8FE7"), QLatin1String("#7B858F"), QLatin1String("#D2963C"),
+    QLatin1String("#4FA8A0"), QLatin1String("#9B8CD0"),
 };
 
 const Colors kLight{
@@ -38,6 +39,7 @@ const Colors kLight{
     QLatin1String("#C33E36"),
     QLatin1String("#FFFFFF"), QLatin1String("#6E7883"), QLatin1String("#E3E6EA"),
     QLatin1String("#2C6FD1"), QLatin1String("#8A929B"), QLatin1String("#B0741A"),
+    QLatin1String("#1F7F79"), QLatin1String("#6B5CA8"),
 };
 
 namespace {
