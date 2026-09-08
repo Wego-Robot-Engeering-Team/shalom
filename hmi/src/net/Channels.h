@@ -79,6 +79,11 @@ inline constexpr auto kCmdCapture = "cmd/capture/trigger";
 inline constexpr auto kCmdVideoStart = "cmd/video/start";
 inline constexpr auto kCmdVideoStop = "cmd/video/stop";
 
+/// Viewfinder quality preset: "high", "low" or "saver". The robot owns the
+/// numbers behind each name - sending width and bitrate from here would let
+/// the two sides disagree about what a preset means.
+inline constexpr auto kCmdVideoQuality = "cmd/video/quality";
+
 /// Published at 20 Hz while the operator holds a jog control. The bridge
 /// latches zero velocity if it stops arriving for 300 ms, so a frozen or
 /// disconnected control station cannot leave the robot driving.

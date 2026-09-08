@@ -121,12 +121,66 @@ apt_install \
 # been installed above, so a clean Jetson needs just clone + this script.
 if { [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; } \
     && [ -f "$REPO_ROOT/sources.repos" ] \
-    && [ ! -d "$WORKSPACE/src/b2_driver" ]; then
+    && { [ ! -d "$WORKSPACE/src/b2_driver" ] \
+      || [ ! -d "$WORKSPACE/src/third_party/librealsense" ]; }; then
   say "로봇 소스 의존성"
   if [ "$DRY_RUN" = 1 ]; then
-    note "vcs import < $REPO_ROOT/sources.repos"
+    note "vcs import --skip-existing < $REPO_ROOT/sources.repos"
   else
-    (cd "$WORKSPACE/src" && vcs import < "$REPO_ROOT/sources.repos")
+    (cd "$WORKSPACE/src" && vcs import --skip-existing < "$REPO_ROOT/sources.repos")
+  fi
+fi
+
+# b2_driver의 고정 커밋은 meshes/만 추적하면서, CMake 설치 목록에는 과거의
+# dae/도 남겨 둔다. 빈 호환 디렉터리를 만들어 실제 모델(meshes)은 그대로
+# 설치되도록 한다. 이 처리를 하지 않으면 깨끗한 워크스페이스의 첫 빌드가 실패한다.
+B2_DESCRIPTION_CMAKE="$WORKSPACE/src/b2_driver/b2_description/CMakeLists.txt"
+B2_LEGACY_DAE_DIR="$WORKSPACE/src/b2_driver/b2_description/dae"
+if [ -f "$B2_DESCRIPTION_CMAKE" ] && grep -qx '  dae' "$B2_DESCRIPTION_CMAKE" \
+    && [ ! -d "$B2_LEGACY_DAE_DIR" ]; then
+  mkdir -p "$B2_LEGACY_DAE_DIR"
+  note "B2 모델 설치 호환 디렉터리 생성: b2_description/dae"
+fi
+
+# B2 드라이버는 Unitree 메시지를 필요로 하지만, 위의 고정 커밋에는 해당
+# 패키지가 포함되지 않는다. upstream 전체를 ROS 워크스페이스에 넣으면 예제까지
+# 함께 빌드되므로, 필요한 unitree_go·unitree_api만 같은 고정 커밋에서 가져온다.
+UNITREE_MSG_ROOT="$WORKSPACE/src/b2_driver/unitree_msgs"
+if { [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; } \
+    && { [ ! -d "$UNITREE_MSG_ROOT/unitree_go" ] || [ ! -d "$UNITREE_MSG_ROOT/unitree_api" ]; }; then
+  say "B2 Unitree 메시지"
+  if [ "$DRY_RUN" = 1 ]; then
+    note "unitree_ros2의 unitree_go·unitree_api 메시지(668d1ec)를 가져옴"
+  else
+    UNITREE_TMP="$(mktemp -d)"
+    trap 'rm -rf "$UNITREE_TMP"' EXIT
+    git clone --filter=blob:none --no-checkout https://github.com/unitreerobotics/unitree_ros2.git "$UNITREE_TMP"
+    git -C "$UNITREE_TMP" sparse-checkout set --no-cone \
+      cyclonedds_ws/src/unitree/unitree_go \
+      cyclonedds_ws/src/unitree/unitree_api
+    git -C "$UNITREE_TMP" checkout 668d1ec5a05d1c38d3306bdca7d59f2ba3581a88
+    mkdir -p "$UNITREE_MSG_ROOT"
+    cp -a "$UNITREE_TMP/cyclonedds_ws/src/unitree/unitree_go" "$UNITREE_MSG_ROOT/"
+    cp -a "$UNITREE_TMP/cyclonedds_ws/src/unitree/unitree_api" "$UNITREE_MSG_ROOT/"
+    rm -rf "$UNITREE_TMP"
+    trap - EXIT
+  fi
+fi
+
+if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
+  say "RealSense USB 권한"
+  REALSENSE_RULE="$WORKSPACE/src/third_party/librealsense/config/99-realsense-libusb.rules"
+  if [ -f "$REALSENSE_RULE" ]; then
+    run sudo install -m 644 "$REALSENSE_RULE" /etc/udev/rules.d/99-realsense-libusb.rules
+    run sudo udevadm control --reload-rules
+    run sudo udevadm trigger
+    # The ROS binary packages already provide librealsense 2.58.1 and the
+    # viewer.  Keep the pinned SDK source for rules/reference, but do not let
+    # colcon build a second SDK into this workspace and override that runtime.
+    run install -m 644 /dev/null "$WORKSPACE/src/third_party/librealsense/COLCON_IGNORE"
+    note "D455를 이미 꽂아 두었다면 한 번 뺐다가 다시 연결한다."
+  else
+    note "RealSense 소스가 없어 UDEV 규칙 설치를 건너뜀"
   fi
 fi
 
@@ -188,6 +242,21 @@ fi
 # rosdep
 # ---------------------------------------------------------------------------
 say "rosdep"
+# rosdep must see ROS_DISTRO in a non-interactive shell.  A fresh Jetson runs
+# this script before the user has opened a new terminal, so source it here
+# rather than relying on ~/.bashrc.
+if [ -f "/opt/ros/$ROS/setup.bash" ]; then
+  # shellcheck disable=SC1090
+  # ROS's generated setup script reads optional variables directly; suspend
+  # nounset just while sourcing it, then restore this script's strict mode.
+  set +u
+  source "/opt/ros/$ROS/setup.bash"
+  set -u
+else
+  echo "ROS 환경을 찾지 못함: /opt/ros/$ROS/setup.bash" >&2
+  exit 1
+fi
+
 if [ -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
   note "이미 초기화됨"
 else
@@ -197,12 +266,17 @@ run rosdep update
 
 if [ -d "$WORKSPACE/src" ]; then
   say "워크스페이스 의존성 해석"
-  run rosdep install --from-paths "$WORKSPACE/src" --ignore-src -r -y
+run rosdep install --from-paths "$WORKSPACE/src" --ignore-src -r -y \
+  --skip-keys "unitree_go unitree_api"
 fi
 
 say "완료"
 note "빌드:"
-note "  cd ~/shalom_ws && colcon build --symlink-install"
+if [ "$ROLE" = robot ]; then
+  note "  cd ~/shalom_ws && colcon build --symlink-install --packages-skip inspection_hmi"
+else
+  note "  cd ~/shalom_ws && colcon build --symlink-install"
+fi
 if [ "$ROLE" = dev ] || [ "$ROLE" = station ]; then
   note "  cd ~/shalom_ws/src/shalom/hmi && cmake --preset dev && cmake --build --preset dev"
 fi

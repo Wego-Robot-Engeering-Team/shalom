@@ -15,6 +15,11 @@ repositories:
     type: git
     url: https://github.com/PRBonn/kiss-icp.git
     version: 1ffa7d7512f10bfc8b1185095011fa31184019e3
+  third_party/librealsense:
+    type: git
+    url: https://github.com/IntelRealSense/librealsense.git
+    # ros-jazzy-realsense2-camera가 제공하는 SDK/Viewer와 같은 버전이다.
+    version: bf2778061d5dd29776e9aca8765f75852671760b
   third_party/nav2_ground_consistency_costmap_plugin:
     type: git
     url: https://github.com/dfki-ric/nav2_ground_consistency_costmap_plugin.git
