@@ -112,6 +112,7 @@ def generate_launch_description():
     bringup = FindPackageShare("application")
     lidar_slam = FindPackageShare("lidar_slam")
     camera_streamer = FindPackageShare("camera_streamer")
+    velodyne_lidar = FindPackageShare("velodyne_lidar")
     aurora_odometry = FindPackageShare("aurora_odometry")
     nav2_bringup = FindPackageShare("nav2_bringup")
     kiss_icp = FindPackageShare("kiss_icp")
@@ -278,7 +279,7 @@ def generate_launch_description():
     # 돌려보기 위한 것이라, 토픽과 좌표계를 B2 것에 맞춰 끼운다.
     vlp16 = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            PathJoinSubstitution([bringup, "launch", "vlp16.launch.py"])),
+            PathJoinSubstitution([velodyne_lidar, "launch", "vlp16.launch.py"])),
         launch_arguments={"points_topic": LaunchConfiguration("pointcloud_topic")}.items(),
         condition=LaunchConfigurationEquals("lidar", "vlp16"),
     )
