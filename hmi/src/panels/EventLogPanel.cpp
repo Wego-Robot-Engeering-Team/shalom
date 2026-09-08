@@ -42,7 +42,17 @@ constexpr int kRoleCode = Qt::UserRole + 2;
 constexpr int kRoleMessage = Qt::UserRole + 3;
 constexpr int kRoleDetail = Qt::UserRole + 4;
 
-constexpr int kRowHeight = 54;
+// 글자 크기. 델리게이트와 iconRectFor 가 같은 값을 써야 한다 — 따로 적어
+// 두면 한쪽만 고쳤을 때 (i) 아이콘을 누르는 자리가 그림과 어긋난다.
+constexpr int kFontLevel = 10;    ///< INFO / WARN / ERROR
+constexpr int kFontMono = 10;     ///< 시각, 코드, 상세
+constexpr int kFontMessage = 11;  ///< 본문
+constexpr int kFontIcon = 9;      ///< (i)
+
+constexpr int kRowHeight = 46;
+constexpr int kLineH = 17;       ///< 한 줄이 차지하는 높이
+constexpr int kTopLine = 5;      ///< 첫 줄(등급·코드·시각)의 위쪽 여백
+constexpr int kBottomLine = 23;  ///< 둘째 줄(본문·상세)의 위쪽 여백
 
 /// 상세 JSON 을 한 줄 요약으로 접는다. 중첩 객체는 값이 길어지기만 하고
 /// 한 줄에서는 읽히지 않으므로 건너뛴다.
@@ -129,17 +139,18 @@ public:
         //
         //   ● 오류   MODE_AUTO  (i)              20:47:23
         //     자율 모드 전환                     map_id ...
-        const int top = r.top() + 7;
-        const int bottom = r.top() + 28;
+        const int top = r.top() + kTopLine;
+        const int bottom = r.top() + kBottomLine;
 
         p->setPen(Qt::NoPen);
         p->setBrush(sev == Severity::Info ? QColor(C.textMute) : sc);
-        p->drawEllipse(QPointF(r.left() + 12, top + 9), loud ? 4.0 : 3.0, loud ? 4.0 : 3.0);
+        p->drawEllipse(QPointF(r.left() + 12, top + kLineH / 2.0), loud ? 3.5 : 2.8,
+                       loud ? 3.5 : 2.8);
 
         int x = r.left() + 22;
 
         QFont fl;
-        fl.setPointSize(11);
+        fl.setPointSize(kFontLevel);
         fl.setWeight(QFont::DemiBold);
         p->setFont(fl);
         p->setPen(sev == Severity::Info ? QColor(C.textMute) : sc);
@@ -148,33 +159,33 @@ public:
         // 이미 익은 낱말이다. 조작자용 한글 표기는 알림과 코드 설명에 있다.
         const QString level = severityCode(sev);
         const int levelW = QFontMetrics(fl).horizontalAdvance(level) + 8;
-        p->drawText(QRect(x, top, levelW, 19), Qt::AlignLeft | Qt::AlignVCenter, level);
+        p->drawText(QRect(x, top, levelW, kLineH), Qt::AlignLeft | Qt::AlignVCenter, level);
         x += levelW;
 
         // 시각은 오른쪽 끝에. 훑을 때 세로로 줄이 맞는 편이 읽기 쉽다.
-        QFont fm = monoFont(11);
+        QFont fm = monoFont(kFontMono);
         p->setFont(fm);
         p->setPen(QColor(C.textMute));
         const QString time = idx.data(kRoleTime).toString();
         const int timeW = QFontMetrics(fm).horizontalAdvance(time) + 2;
-        p->drawText(QRect(r.right() - kRightPad - timeW, top, timeW, 19),
+        p->drawText(QRect(r.right() - kRightPad - timeW, top, timeW, kLineH),
                     Qt::AlignRight | Qt::AlignVCenter, time);
 
         const int firstLineRight = r.right() - kRightPad - timeW - 8;
 
         if (!code.isEmpty()) {
-            QFont fc = monoFont(11);
+            QFont fc = monoFont(kFontMono);
             fc.setWeight(QFont::DemiBold);
             p->setFont(fc);
             p->setPen(QColor(C.textDim));
             const int codeW = qMin(QFontMetrics(fc).horizontalAdvance(code) + 8,
                                    qMax(0, firstLineRight - x));
-            p->drawText(QRect(x, top, codeW, 19), Qt::AlignLeft | Qt::AlignVCenter,
+            p->drawText(QRect(x, top, codeW, kLineH), Qt::AlignLeft | Qt::AlignVCenter,
                         QFontMetrics(fc).elidedText(code, Qt::ElideRight, codeW));
             x += codeW;
 
             // (i) 아이콘 — 코드 바로 옆
-            const QRect ic(x, top + 2, kIconSize, kIconSize);
+            const QRect ic(x, top + (kLineH - kIconSize) / 2, kIconSize, kIconSize);
             const bool hot = hoveredIconRow == idx.row();
             p->setPen(QPen(hot ? sc : QColor(C.textMute), 1.2));
             // 삼항으로 QColor 와 Qt::NoBrush 를 섞으면 안 된다.
@@ -184,7 +195,7 @@ public:
             p->drawEllipse(ic);
 
             QFont fi;
-            fi.setPointSize(10);
+            fi.setPointSize(kFontIcon);
             fi.setWeight(QFont::Bold);
             p->setFont(fi);
             p->setPen(hot ? sc : QColor(C.textMute));
@@ -196,22 +207,22 @@ public:
         const QString detail = idx.data(kRoleDetail).toString();
         const int avail = r.right() - kRightPad - (r.left() + 22);
         if (!detail.isEmpty() && avail > 260) {
-            QFont fd = monoFont(11);
+            QFont fd = monoFont(kFontMono);
             const QFontMetrics dm(fd);
             detailW = qMin(dm.horizontalAdvance(detail) + 12, avail / 2);
             p->setFont(fd);
             p->setPen(QColor(C.textMute));
-            p->drawText(QRect(r.right() - kRightPad - detailW, bottom, detailW, 19),
+            p->drawText(QRect(r.right() - kRightPad - detailW, bottom, detailW, kLineH),
                         Qt::AlignRight | Qt::AlignVCenter,
                         dm.elidedText(detail, Qt::ElideRight, detailW));
         }
 
         QFont ft;
-        ft.setPointSize(12);
+        ft.setPointSize(kFontMessage);
         ft.setWeight(loud ? QFont::DemiBold : QFont::Normal);
         p->setFont(ft);
         p->setPen(loud ? sc : QColor(C.text));
-        const QRect textRect(r.left() + 22, bottom, avail - detailW, 19);
+        const QRect textRect(r.left() + 22, bottom, avail - detailW, kLineH);
         if (textRect.width() > 20) {
             p->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
                         QFontMetrics(ft).elidedText(idx.data(kRoleMessage).toString(),
@@ -228,19 +239,20 @@ QRect iconRectFor(const QRect &itemRect, const QString &time, const QString &cod
 {
     if (code.isEmpty())
         return {};
-    QFont fm = monoFont(11);
-    QFont fc = monoFont(11);
+    QFont fm = monoFont(kFontMono);
+    QFont fc = monoFont(kFontMono);
     fc.setWeight(QFont::DemiBold);
 
     Q_UNUSED(time);
     QFont fl;
-    fl.setPointSize(11);
+    fl.setPointSize(kFontLevel);
     fl.setWeight(QFont::DemiBold);
 
     int x = itemRect.left() + 22;
     x += QFontMetrics(fl).horizontalAdvance(level) + 8;
     x += QFontMetrics(fc).horizontalAdvance(code) + 8;
-    return QRect(x, itemRect.top() + 8, kIconSize, kIconSize);
+    return QRect(x, itemRect.top() + kTopLine + (kLineH - kIconSize) / 2,
+                 kIconSize, kIconSize);
 }
 
 /// (i) 아이콘의 호버/클릭을 처리하는 리스트.

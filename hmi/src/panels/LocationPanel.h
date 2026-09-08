@@ -22,6 +22,7 @@
 #include <QWidget>
 
 class QLabel;
+class QListWidget;
 class QPushButton;
 
 namespace hmi::ui {
@@ -60,6 +61,11 @@ public:
     void setDock(const QVariantMap &location);   ///< empty map clears it
     void setHome(const QVariantMap &location);
 
+    /// Surveyed AprilTag list, newest last. The panel owns the display only -
+    /// the list itself lives with the robot.
+    void setMarkers(const QList<QVariantMap> &markers);
+    QList<QVariantMap> markers() const { return markers_; }
+
     /// Validates a capture against the current snapshot. Exposed so that the
     /// same rule is used by the panel and by any other caller, and so it can
     /// be tested without a UI.
@@ -77,8 +83,16 @@ signals:
 
     void gotoRequested(const QString &kind);
 
+    /// Asks the map to enter click-to-place mode for a new AprilTag.
+    void addMarkerFromMap();
+
+    /// The list changed here and the robot needs the new one.
+    void markersChanged(const QList<QVariantMap> &markers);
+
 private:
     QWidget *buildFixedRow(const QString &kind, const QString &title);
+    QWidget *buildMarkerSection();
+    void refreshMarkerList();
     void refreshEnabled();
 
     Card *card_ = nullptr;
@@ -88,6 +102,11 @@ private:
     QHash<QString, QLabel *> valueLabels_;
     QList<QPushButton *> captureButtons_;
     QHash<QString, QPushButton *> gotoButtons_;
+
+    QListWidget *markerList_ = nullptr;
+    QPushButton *markerDelete_ = nullptr;
+    QLabel *markerCount_ = nullptr;
+    QList<QVariantMap> markers_;
 
     RobotSnapshot snap_;
 };

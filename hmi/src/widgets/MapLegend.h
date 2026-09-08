@@ -26,6 +26,8 @@ public:
         Marker,     ///< AprilTag, placed physically on site
         Robot,      ///< where the robot is now
         Path,       ///< planned route and the trail behind it
+        Dock,       ///< charging station, set on the locations view
+        Home,       ///< start position, set on the locations view
     };
 
     explicit MapLegend(QWidget *parent = nullptr);

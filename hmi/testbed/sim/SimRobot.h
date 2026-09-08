@@ -87,6 +87,7 @@ public:
     QList<QVariantMap> waypoints() const override { return waypoints_; }
     void setWaypoints(const QList<QVariantMap> &waypoints) override;
     void setLocations(const QList<QVariantMap> &locations) override;
+    void setMarkers(const QList<QVariantMap> &markers) override;
 
     /// Always connected: there is no link to lose.
     bool isConnected() const override { return true; }
@@ -138,6 +139,7 @@ private:
     MissionState mission_ = MissionState::Idle;
     QList<QVariantMap> waypoints_;
     QVariantMap dock_;
+    QList<QVariantMap> markers_;
     QVariantMap home_;
     int activeIndex_ = -1;
     double dwell_ = 0.0;
