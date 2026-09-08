@@ -72,26 +72,16 @@ ros2 launch application b2_navigation.launch.py robot:=real \
 이름이 어긋나면 관제 화면의 "센서 상태" 에 카메라가 계속 "신호 없음" 으로
 남는데, 나머지는 정상으로 보이므로 눈으로는 늦게 발견된다.
 
-## 아직 없는 의존 패키지
+## 제3자 ROS 패키지
 
-지면분할 파이프라인은 아래 둘이 있어야 돈다. 현재 워크스페이스에는 **없다.**
+apt 에 없어 소스로 받아 둔 것들이다. `third_party/` 에 들어 있으므로 클론 후
+따로 받을 필요는 없다.
 
-| 패키지 | 역할 | 출처 |
+| 패키지 | 역할 | 라이선스 |
 |---|---|---|
-| `ground_segmentation_ros2` | GSeg3D 지면/장애물 분리 노드 | `navigation2_tutorials`의 `dependencies.repos` |
-| `kiss_icp` | 3D LiDAR odometry (`odom → base_link`) | 같은 곳 |
-
-없으면 `b2_navigation.launch.py`가 `PackageNotFoundError`로 죽는다. 받으려면:
-
-```bash
-cd ~/shalom_ws/src
-git clone -b jazzy https://github.com/ros-navigation/navigation2_tutorials.git
-vcs import . < navigation2_tutorials/nav2_lidar_ground_segmentation_demo/dependencies.repos
-cd .. && rosdep install --from-paths src --ignore-src --rosdistro jazzy -y
-```
-
-`nav2_ground_consistency_costmap_plugin`도 같이 온다. `robot/application/config/nav2_b2.yaml`의
-local costmap이 그 플러그인을 쓴다.
+| `ground_segmentation`, `ground_segmentation_ros2` | GSeg3D 지면/장애물 분리 | BSD-3 |
+| `kiss_icp` | 3D LiDAR odometry (`odom → base_link`) | MIT |
+| `nav2_ground_consistency_costmap_plugin` | local costmap 플러그인 | BSD-3 |
 
 ## 빌드
 
@@ -112,6 +102,30 @@ PATH="/usr/bin:/bin:$PATH" colcon build --symlink-install \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3.12
 ```
 
+## 관제 HMI
+
+로봇 스택과 별개로 빌드한다. ROS 를 쓰지 않는 Qt 프로그램이라 colcon 이
+아니라 CMake 로 짓는다.
+
+```bash
+sudo apt install -y qt6-base-dev qt6-base-dev-tools qt6-svg-dev
+
+cd ~/shalom_ws/src/shalom/hmi
+cmake --preset dev && cmake --build --preset dev
+ctest --test-dir build            # 개발 구성
+```
+
+납품 구성은 `--preset release` 다. 로그인이 필수이고 testbed 가 빠지며,
+코어를 공유 라이브러리(`libhmi_core.so`)로 낸다 — 과업지시서 4장이 S/W
+성과물을 `.so` 로 요구한다.
+
+실행:
+
+```bash
+./build/inspection_hmi          # 내장 testbed (로봇 없이)
+./build/inspection_hmi --live   # 브릿지 연결
+```
+
 ## 시뮬레이터 환경
 
 `b2_simulation`은 `mujoco`와 `onnxruntime`이 필요하다. apt가 관리하는 시스템 Python을
@@ -122,11 +136,15 @@ python3 -m venv --system-site-packages ~/shalom_ws/.venv-b2sim
 ~/shalom_ws/.venv-b2sim/bin/pip install mujoco onnxruntime
 ```
 
-이후 시뮬레이터를 쓰는 터미널마다:
+venv 는 노드가 스스로 찾아 얹는다(`b2_mujoco/_venv.py`). `ros2 launch` 만
+해도 뜬다는 뜻이고, 예전처럼 환경 스크립트를 먼저 받지 않아 뷰어가 조용히
+안 뜨는 일이 없다.
+
+SDK 도구를 직접 쓸 때만 아래를 받으면 된다. ROS, 워크스페이스, venv, DDS를
+한 번에 잡는다.
 
 ```bash
 source ~/shalom_ws/src/b2_simulation/mujoco/b2_mujoco/b2_env.sh
 ```
-
-ROS, 워크스페이스, venv, DDS를 한 번에 잡는다. `CYCLONEDDS_URI`가 셸에 남아 있으면
+ `CYCLONEDDS_URI`가 셸에 남아 있으면
 지워 준다 — 그 설정은 DDS 참가자 인덱스를 고정해서 다중 노드 launch를 깨뜨린다.
