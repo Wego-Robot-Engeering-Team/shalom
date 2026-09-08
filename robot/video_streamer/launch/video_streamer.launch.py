@@ -52,6 +52,7 @@ def generate_launch_description():
                 parameters=[config, {
                     "encoder": LaunchConfiguration("encoder"),
                     "bind_address": LaunchConfiguration("bind_address"),
+                    "autostart": LaunchConfiguration("autostart"),
                 }],
                 extra_arguments=[{"use_intra_process_comms": True}],
             ),
@@ -65,5 +66,7 @@ def generate_launch_description():
         DeclareLaunchArgument("bind_address", default_value="127.0.0.1",
                               description="RTSP 서버가 들을 주소. 내부망만."),
         DeclareLaunchArgument("serial", default_value=""),
+        DeclareLaunchArgument("autostart", default_value="true",
+                              description="첫 프레임이 오면 송신을 바로 켠다"),
         container,
     ])
