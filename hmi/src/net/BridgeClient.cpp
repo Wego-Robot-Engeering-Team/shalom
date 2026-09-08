@@ -558,6 +558,11 @@ void BridgeClient::setMarkers(const QList<QVariantMap> &markers)
     sendRequest(QLatin1String(hmi::ch::kCmdMarkersSet), {{"markers", arr}});
 }
 
+void BridgeClient::setVideoQuality(const QString &preset)
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdVideoQuality), {{"preset", preset}});
+}
+
 void BridgeClient::setBatteryPolicy(double returnAt, double departAt)
 {
     // 값을 들고 있다가 재연결 때 다시 보낸다. 로봇이 재부팅하면 관제 화면에

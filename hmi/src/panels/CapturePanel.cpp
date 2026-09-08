@@ -1,6 +1,7 @@
 #include "panels/CapturePanel.h"
 
 #include <QGridLayout>
+#include <QComboBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -35,6 +36,30 @@ CapturePanel::CapturePanel(QWidget *parent) : QWidget(parent)
     liveState_ = new Badge(QStringLiteral("꺼짐"), QStringLiteral("neutral"));
     liveCard->addHeaderWidget(liveState_);
     outer->addWidget(liveCard);
+
+    // 화질은 화면에서 고른다. 링크가 좁은 자리에서 설정 파일을 고치러
+    // 들어가게 하면, 그냥 흐린 화면을 참고 쓰게 된다.
+    //
+    // 숫자가 아니라 이름을 고르게 한다. 해상도와 비트레이트의 조합은 로봇이
+    // 알고, 관제는 무엇을 원하는지만 말한다 — 양쪽이 서로 다른 조합을 들고
+    // 있으면 어느 쪽이 맞는지 알 수 없어진다.
+    auto *qrow = new QHBoxLayout;
+    qrow->setSpacing(metrics::s2);
+    qrow->addWidget(new QLabel(QStringLiteral("화질")));
+    quality_ = new QComboBox;
+    quality_->addItem(QStringLiteral("고화질  1280×720 · 15"), QStringLiteral("high"));
+    quality_->addItem(QStringLiteral("저지연  848×480 · 30"), QStringLiteral("low"));
+    quality_->addItem(QStringLiteral("절약  640×360 · 15"), QStringLiteral("saver"));
+    quality_->setToolTip(
+        QStringLiteral("뷰파인더 화질입니다. 실제 점검 사진은 정지 상태에서\n"
+                       "원본으로 찍히므로 이 설정과 무관합니다.\n\n"
+                       "무선이 좁으면 화질을 낮추는 편이 조작에 낫습니다."));
+    connect(quality_, &QComboBox::currentIndexChanged, this, [this](int i) {
+        if (i >= 0)
+            emit videoQualityChanged(quality_->itemData(i).toString());
+    });
+    qrow->addWidget(quality_, 1);
+    liveCard->body()->addLayout(qrow);
 
     live_ = new PreviewView(QStringLiteral("실시간"));
     live_->setMinimumHeight(220);
@@ -196,6 +221,19 @@ void CapturePanel::setLiveFrame(const QImage &frame)
 {
     if (live_)
         live_->setImage(frame);
+}
+
+void CapturePanel::setVideoQuality(const QString &preset)
+{
+    if (!quality_)
+        return;
+    const int i = quality_->findData(preset);
+    if (i < 0 || i == quality_->currentIndex())
+        return;
+    // 로봇이 알려 준 값으로 맞춘다. 신호를 막아 두지 않으면 이 갱신이
+    // 다시 명령으로 나가 되돌이가 된다.
+    QSignalBlocker block(quality_);
+    quality_->setCurrentIndex(i);
 }
 
 void CapturePanel::setLiveStatus(const QString &text)
