@@ -31,9 +31,9 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <std_srvs/srv/set_bool.hpp>
 
-namespace video_streamer {
+namespace camera_streamer {
 
-class VideoStreamerNode : public rclcpp::Node {
+class CameraStreamerNode : public rclcpp::Node {
 public:
     /// One of the named quality presets. Unknown names fall back to the
     /// default and say so - a typo in a config should not leave the operator
@@ -45,8 +45,8 @@ public:
         int fps;
         int bitrateKbps;
     };
-    explicit VideoStreamerNode(const rclcpp::NodeOptions &options);
-    ~VideoStreamerNode() override;
+    explicit CameraStreamerNode(const rclcpp::NodeOptions &options);
+    ~CameraStreamerNode() override;
 
 private:
     void onImage(const sensor_msgs::msg::Image::ConstSharedPtr &msg);
@@ -100,4 +100,4 @@ private:
     bool autostart_ = false;
 };
 
-}  // namespace video_streamer
+}  // namespace camera_streamer

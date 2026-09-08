@@ -12,9 +12,9 @@ Unitree B2 사족보행 로봇에 FAIRINO FR3 협동로봇 팔을 얹어, 검수
 ```text
 robot/
   application/     주행 스택 조립 + B2 전용 튜닝 (런치·Nav2·SLAM 설정)
-  slam_3d_to_2d/   3D LiDAR 인식 → 2D SLAM (로봇 무관)
+  lidar_slam/      3D LiDAR 인식 → 2D SLAM (로봇 무관)
   bridge/          관제 TCP ↔ ROS 2 브릿지
-  video_streamer/  카메라 영상 H.264 → RTSP (뷰파인더)
+  camera_streamer/ RealSense 역할·H.264 → RTSP (뷰파인더)
 hmi/               관제 GUI. ROS 를 쓰지 않는 Qt 프로그램이다.
 common/protocol/   관제·로봇 공통 통신 계약
 docs/              설치·운용·통신 문서
@@ -38,7 +38,7 @@ cd ~/shalom_ws/src/shalom
 
 ```bash
 source ~/shalom_ws/install/setup.bash
-ros2 launch application b2_navigation.launch.py
+ros2 launch application bringup.launch.py
 ```
 
 기본값이 이렇게 잡혀 있다 — **시뮬레이터**, **가장 최근 저장 지도**,
@@ -51,14 +51,14 @@ ros2 launch application b2_navigation.launch.py
 ### 실기
 
 ```bash
-ros2 launch application b2_navigation.launch.py robot:=real
+ros2 launch application bringup.launch.py robot:=real
 ```
 
 카메라를 달았으면 함께 켠다. 시리얼은 두 대 이상일 때 반드시 지정한다
 (`rs-enumerate-devices -s` 로 확인).
 
 ```bash
-ros2 launch application b2_navigation.launch.py robot:=real \
+ros2 launch application bringup.launch.py robot:=real \
   cameras:=true arm_camera_serial:=213522250834
 ```
 
@@ -68,8 +68,8 @@ ros2 launch application b2_navigation.launch.py robot:=real \
 되고, 새로 그리려면 `none` 이다.
 
 ```bash
-ros2 launch application b2_navigation.launch.py map:=2026-09-07   # 이름만
-ros2 launch application b2_navigation.launch.py map:=none         # 실시간 SLAM
+ros2 launch application bringup.launch.py map:=2026-09-07   # 이름만
+ros2 launch application bringup.launch.py map:=none         # 실시간 SLAM
 ```
 
 저장된 지도를 쓰면 map_server 와 AMCL 이 뜨고 SLAM 은 물러난다. 둘을 함께
@@ -102,14 +102,13 @@ cmake --preset dev && cmake --build --preset dev
 시험할 때뿐이다.
 
 ```bash
-ros2 launch video_streamer video_streamer.launch.py                    # 젯슨
-ros2 launch video_streamer video_streamer.launch.py encoder:=x264enc   # 개발 PC
+ros2 launch camera_streamer camera_streamer.launch.py                  # NVENC가 있는 AGX
 ```
 
 주행 중에 대역폭을 아끼려면 끈다.
 
 ```bash
-ros2 service call /fr3/camera/video_streamer/enable std_srvs/srv/SetBool "{data: false}"
+ros2 service call /fr3/camera/camera_streamer/enable std_srvs/srv/SetBool "{data: false}"
 ```
 
 ### 끄기

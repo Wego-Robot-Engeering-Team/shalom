@@ -1,3 +1,4 @@
+// lidar_slam의 지면 기준 장애물 필터 구현.
 #include <cmath>
 #include <cstdint>
 #include <cstring>

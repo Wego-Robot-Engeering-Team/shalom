@@ -6,10 +6,10 @@
 ~/shalom_ws/src/
 ├── shalom/                 이 저장소
 │   ├── robot/
-│   │   ├── slam_3d_to_2d/  3D LiDAR 인식 → 2D SLAM (로봇 무관)
+│   │   ├── lidar_slam/     3D LiDAR 인식 → 2D SLAM (로봇 무관)
 │   │   ├── application/    B2 주행 조립 + B2 전용 튜닝
 │   │   └── bridge/         HMI TCP ↔ ROS 2 브릿지
-│   │   └── video_streamer/ RealSense RGB → H.264/RTSP 뷰파인더
+│   │   └── camera_streamer/ RealSense 역할·H.264/RTSP 뷰파인더
 │   ├── hmi/                관제 GUI와 HMI 전용 testbed
 │   ├── common/             HMI·로봇 공통 통신 계약
 │   └── docs/               운용·통신 문서
@@ -20,6 +20,7 @@
     ├── ground_segmentation/
     ├── ground_segmentation_ros2/
     ├── kiss_icp/
+    ├── aurora_ros/        SLAMTEC Aurora S 공식 ROS 2 드라이버 + aarch64 SDK
     ├── librealsense/       RealSense SDK 소스와 USB 권한 규칙
     └── nav2_ground_consistency_costmap_plugin/
 ```
@@ -87,7 +88,7 @@ source install/setup.bash
 확인:
 
 ```bash
-ros2 pkg list | rg 'application|shalom_bridge|video_streamer|realsense2_camera'
+ros2 pkg list | rg 'application|shalom_bridge|camera_streamer|realsense2_camera'
 realsense-viewer
 ```
 
@@ -156,10 +157,11 @@ rs-enumerate-devices -s      # 또는 ros2 run realsense2_camera ...
 
 ```bash
 # 카메라만
-ros2 launch application cameras.launch.py role:=arm serial:=213522250834
+ros2 launch camera_streamer camera_streamer.launch.py \
+  role:=arm serial:=213522250834 autostart:=false
 
 # 전체 스택과 함께
-ros2 launch application b2_navigation.launch.py robot:=real \
+ros2 launch application bringup.launch.py robot:=real \
   cameras:=true arm_camera_serial:=213522250834
 ```
 
@@ -167,6 +169,29 @@ ros2 launch application b2_navigation.launch.py robot:=real \
 (`/fr3/camera_2d/image_raw`, `/fr3/camera_3d/points`, `/b2/camera/image_raw`).
 이름이 어긋나면 관제 화면의 "센서 상태" 에 카메라가 계속 "신호 없음" 으로
 남는데, 나머지는 정상으로 보이므로 눈으로는 늦게 발견된다.
+
+## Aurora S (주행 위치추정 후보)
+
+Aurora S는 젯슨의 유선 전용망에서 동작한다. 기본 주소는 `192.168.11.1`이고
+SDK 연결 포트는 `1445`다. `aurora_odometry`는 제조사 드라이버를 감싸,
+처음에는 기존 KISS-ICP와 충돌하지 않는 원시 출력만 올린다.
+
+```bash
+ros2 launch aurora_odometry aurora_s.launch.py
+ros2 topic echo --once /aurora/odom
+```
+
+출력 TF와 토픽은 `aurora_odom → aurora_link`, `/aurora/odom`이다. Aurora의
+장착 위치·자세 외부파라미터를 실측하기 전에는 이를 `odom → base_link` 또는
+Nav2의 주 odom으로 직접 연결하지 않는다. 기존 KISS-ICP와 두 publisher가 같은
+TF 변을 소유하면 위치추정이 깨진다.
+
+전체 bring-up에서 원시 Aurora 검증을 함께 하려면 다음 인자를 사용한다.
+
+```bash
+ros2 launch application bringup.launch.py robot:=real use_sim_time:=false \
+  aurora:=true aurora_ip:=192.168.11.1
+```
 
 ## 영상 스트리밍 (뷰파인더)
 
@@ -185,7 +210,7 @@ sudo apt install -y libgstrtspserver-1.0-dev gstreamer1.0-rtsp
 
 ```bash
 # NVENC 요소가 확인된 AGX Orin
-ros2 launch video_streamer video_streamer.launch.py
+ros2 launch camera_streamer camera_streamer.launch.py
 ```
 
 현재 Orin Nano에는 위 명령을 쓰지 않는다. 소프트웨어 H.264 인코더를 납품 경로에
@@ -195,7 +220,7 @@ ros2 launch video_streamer video_streamer.launch.py
 것이고 어차피 촬영은 정지 상태에서만 한다.
 
 ```bash
-ros2 service call /fr3/camera/video_streamer/enable std_srvs/srv/SetBool "{data: true}"
+ros2 service call /fr3/camera/camera_streamer/enable std_srvs/srv/SetBool "{data: true}"
 ```
 
 ### 포트

@@ -27,13 +27,13 @@ kiss_icp (같은 PointCloud2) → odom → base_link
 ```bash
 source /opt/ros/jazzy/setup.bash
 source ~/shalom_ws/install/setup.bash
-ros2 launch application b2_navigation.launch.py robot:=sim
+ros2 launch application bringup.launch.py robot:=sim
 ```
 
 Nav2까지 같이 뜬다. 지도만 만들려면 `nav2:=false`로 끈다.
 
 ```bash
-ros2 launch application b2_navigation.launch.py robot:=sim nav2:=false
+ros2 launch application bringup.launch.py robot:=sim nav2:=false
 ```
 
 RViz의 **SLAM Map**에 `/map`이 그려진다. 로봇을 움직여야 채워지므로
@@ -61,9 +61,9 @@ LiDAR 실제 장착 높이와 반드시 맞춰야 한다** (B2는 `-0.74`).
 
 ## 파이프라인만 따로 쓰기
 
-`slam_3d_to_2d`는 B2를 모른다. 다른 로봇에는 토픽과 프레임만 바꿔 붙인다.
+`lidar_slam`은 B2를 모른다. 다른 로봇에는 토픽과 프레임만 바꿔 붙인다.
 
 ```bash
-ros2 launch slam_3d_to_2d ground_slam.launch.py \
+ros2 launch lidar_slam ground_slam.launch.py \
   pointcloud_topic:=/velodyne_points base_frame:=base_link
 ```

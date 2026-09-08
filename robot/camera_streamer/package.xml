@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>video_streamer</name>
+  <name>camera_streamer</name>
   <version>0.1.0</version>
   <description>
-    카메라 컬러 영상을 H.264 로 눌러 RTSP 로 내보낸다.
+    RealSense 카메라 역할 설정과 컬러 영상의 H.264/RTSP 송신을 함께 관리한다.
 
     관제의 뷰파인더용이다. 실제 점검 사진은 정지 상태에서 원본으로 찍어
     NAS 로 보내므로(과업지시서 2.2.4), 이 경로는 화질이 아니라 지연이
@@ -18,6 +18,7 @@
   <depend>rclcpp_components</depend>
   <depend>sensor_msgs</depend>
   <depend>std_srvs</depend>
+  <exec_depend>realsense2_camera</exec_depend>
 
   <!-- GStreamer. 인코더 플러그인은 런타임에 고른다 (젯슨 NVENC / 개발 PC). -->
   <depend>libgstreamer1.0-dev</depend>
