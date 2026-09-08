@@ -64,6 +64,11 @@ void PreviewView::paintEvent(QPaintEvent *)
         p.drawImage(target, image_);
     }
 
+    // 캡션이 없으면 아무것도 얹지 않는다. 라이브 뷰처럼 카드 제목이 이미
+    // 무엇인지 말해 주는 자리에서는, 글자가 그림을 가리기만 한다.
+    if (caption_.isEmpty())
+        return;
+
     // 캡션은 좌상단에 얹는다. 아래에 두면 이미지 영역이 줄어든다.
     QFont cf;
     cf.setPointSize(9);

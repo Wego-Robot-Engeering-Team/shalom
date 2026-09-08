@@ -48,6 +48,14 @@ public:
     void start(const QString &url);
     void stop();
 
+    /// Re-establishes the stream after a short delay.
+    ///
+    /// The robot tears down and rebuilds its RTSP media when the quality
+    /// preset changes, so the pipeline we are holding goes dead. The station
+    /// asked for that change, so it should not sit and wait for the watchdog
+    /// to notice - it knows the picture is about to bounce.
+    void restartSoon(int delayMs = 1200);
+
     State state() const { return state_; }
     /// Frames per second over the last second. Shown on the diagnostics screen
     /// so "no picture" can be told from "no link".
@@ -75,6 +83,7 @@ private:
     QString url_;
     State state_ = State::Stopped;
     QTimer watchdog_;
+    QTimer restartTimer_;
     QTimer fpsTimer_;
     int framesSinceTick_ = 0;
     double fps_ = 0.0;
