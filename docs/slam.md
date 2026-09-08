@@ -1,4 +1,4 @@
-# 2. SLAM
+# SLAM
 
 3D LiDAR로 2D 점유격자 지도를 만든다. 지면은 지도에 넣지 않고 벽·기둥·장애물만 남긴다.
 
@@ -22,8 +22,11 @@ kiss_icp (같은 PointCloud2) → odom → base_link
 
 ## 실행
 
+새 터미널에서는 먼저 ROS와 워크스페이스를 불러온다.
+
 ```bash
-source ~/shalom_ws/src/b2_simulation/mujoco/b2_mujoco/b2_env.sh
+source /opt/ros/jazzy/setup.bash
+source ~/shalom_ws/install/setup.bash
 ros2 launch application b2_navigation.launch.py robot:=sim
 ```
 

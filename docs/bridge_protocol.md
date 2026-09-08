@@ -51,6 +51,7 @@
 | `evt/log` | 이벤트·경고 |
 | `map/occupancy` | PNG 점유격자 |
 | `capture/preview` | JPEG 미리보기 |
+| `state/video` | 뷰파인더 스트림 상태 (영상 자체는 RTSP) |
 
 `map/occupancy`는 `width`, `height`, `resolution`, `origin`, `encoding: "png"`을
 `p`에 넣고 PNG를 payload로 보낸다. `capture/preview`도 metadata를 `p`에 넣고
@@ -71,6 +72,8 @@
 | `cmd/waypoints/set` | 점검 지점 전체 설정 |
 | `cmd/locations/set` | home·dock 전체 설정 |
 | `cmd/markers/set` | 마커 전체 설정 |
+| `cmd/video/start` | 뷰파인더 시작 (role) |
+| `cmd/video/stop` | 뷰파인더 정지 |
 | `cmd/power/policy` | 배터리 복귀·출발 기준 |
 | `cmd/mission/start` | 점검 시작 |
 | `cmd/mission/pause` | 점검 일시정지 |

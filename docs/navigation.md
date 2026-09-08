@@ -1,19 +1,23 @@
-# 3. 내비게이션
+# 내비게이션
 
-Nav2가 경로를 계획하고 `/cmd_vel`을 낸다. B2에서는 그 `/cmd_vel`을 강화학습 보행
-정책이 관절 명령으로 바꾼다 — 시뮬레이터든 실기든 같다.
+Nav2가 경로를 계획하고 속도 명령을 낸다. B2에서는 보행 정책이 이를 관절 명령으로
+바꾼다. 시뮬레이터와 실기는 같은 ROS 인터페이스를 사용한다.
 
 ## 실행
 
+새 터미널에서는 먼저 ROS와 워크스페이스를 불러온다.
+
 ```bash
-source ~/shalom_ws/src/b2_simulation/mujoco/b2_mujoco/b2_env.sh
+source /opt/ros/jazzy/setup.bash
+source ~/shalom_ws/install/setup.bash
 
 ros2 launch application b2_navigation.launch.py robot:=sim
-ros2 launch application b2_navigation.launch.py robot:=real network_interface:=enp3s0
+ros2 launch application b2_navigation.launch.py robot:=real \
+  network_interface:=enp3s0 use_sim_time:=false
 ```
 
-`robot` 인자만 바꾸면 된다. 시뮬레이터와 실기가 같은 인터페이스를 내놓기 때문에
-인식·계획 쪽은 어느 쪽이 도는지 모른다.
+`robot` 인자만 바꾸면 인식·계획·관제 브릿지는 같은 인터페이스를 사용한다. 실기에서는
+반드시 `use_sim_time:=false`를 지정한다.
 
 | 인자 | 기본 | 뜻 |
 |---|---|---|
@@ -22,7 +26,7 @@ ros2 launch application b2_navigation.launch.py robot:=real network_interface:=e
 | `nav2` | `true` | Nav2 스택 |
 | `rviz` | `true` | RViz |
 | `viewer` | `true` | MuJoCo 창 (`robot:=sim`일 때) |
-| `use_sim_time` | `true` | **`robot:=real`이면 `false`로 바꿀 것** |
+| `use_sim_time` | `true` | 실기에서는 반드시 `false` |
 
 ## 목표 보내기
 
@@ -35,23 +39,27 @@ ros2 launch application b2_navigation.launch.py robot:=real network_interface:=e
 
 ## 구성
 
-플래너는 Nav2 기본값인 **NavFn**(Dijkstra 격자)이다. `nav2_b2.yaml`에
-`planner_server` 섹션이 없어서 기본값이 쓰인다. 컨트롤러는 명시돼 있다.
+플래너는 `nav2_b2.yaml`에 명시한 **NavFn**(Dijkstra 격자)이다. `allow_unknown: true`라
+SLAM 지도의 미탐색 영역을 통과하는 계획도 만들 수 있다. 컨트롤러는 MPPI다.
 
 ```
-FollowPath   RegulatedPurePursuitController
-  desired_linear_vel      0.6      B2 정책이 안정적으로 추종하는 속도
-  lookahead_dist          2.0
-  use_rotate_to_heading   true     4족은 제자리 회전이 자연스러움
-  allow_reversing         false    RPP가 위와 동시 사용을 금지
+FollowPath   MPPIController
+  controller_frequency    10 Hz
+  motion_model            Omni
+  time_steps / model_dt   20 / 0.1 s  (2.0 s 예측 구간)
+  vx_max / vx_min         0.6 / -0.4 m/s
+  vy_max / wz_max         0.4 m/s / 0.8 rad/s
 footprint  [[0.55, 0.30], [0.55, -0.30], [-0.55, -0.30], [-0.55, 0.30]]
-           B2 외형 1.098 x 0.456 m, 다리 스윙을 감안해 폭을 0.60으로
+           B2 외형과 다리 스윙을 고려한 안전 외곽
 ```
 
-local costmap은 `GroundConsistencyLayer`가 3D 지면/장애물 포인트를 직접 받아
-확률로 누적한다. global costmap은 장애물 포인트클라우드로 만든다. **Nav2는 SLAM
-지도를 계획에 직접 쓰지 않는다** — slam_toolbox는 `map → odom` 보정과 사람이 볼
-지도를 담당한다.
+MPPI는 후보 궤적을 costmap과 전역 경로에 점수화해 명령을 고른다. 다만 현재
+`velocity_smoother`가 횡방향 속도(`vy`)를 0으로 제한하므로 실제 출력은 전진·후진·회전만
+사용한다.
+
+local costmap은 `GroundConsistencyLayer`가 3D 지면·장애물 포인트를 받아 확률로
+누적한다. global costmap은 SLAM의 `/map`을 `static_layer`로 받고, 실시간 장애물
+`obstacle_layer`를 그 위에 합친다. 따라서 Nav2는 SLAM 지도를 전역 계획에 사용한다.
 
 ## collision monitor
 
