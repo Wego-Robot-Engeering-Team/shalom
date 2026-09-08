@@ -20,10 +20,13 @@
     ├── ground_segmentation/
     ├── ground_segmentation_ros2/
     ├── kiss_icp/
+    ├── librealsense/       RealSense SDK 소스와 USB 권한 규칙
     └── nav2_ground_consistency_costmap_plugin/
 ```
 
-Unitree 메시지는 `b2_driver` 안에 들어 있다. 따로 받을 필요가 없다.
+Unitree 메시지는 `b2_driver/unitree_msgs` 안에 들어 있다. 설치 스크립트가
+`unitree_ros2`의 고정 커밋에서 필요한 `unitree_go`·`unitree_api`만 자동으로
+가져오므로 따로 받을 필요가 없다.
 
 ## 한 번에 설치
 
@@ -66,9 +69,10 @@ cd shalom
 ./scripts/install.sh --role robot
 ```
 
-`sources.repos`는 실제 로봇 실행에 필요한 B2 드라이버와 apt에 없는 ROS 패키지의
-검증된 커밋을 함께 받는다. 설치 스크립트가 ROS의 `vcs` 도구를 먼저 설치한 뒤
-자동으로 가져온다. `--role robot`은 ROS Jazzy, Nav2, SLAM, RealSense 래퍼,
+`sources.repos`는 실제 로봇 실행에 필요한 B2 드라이버, apt에 없는 ROS 패키지,
+RealSense SDK 소스를 검증된 커밋으로 함께 받는다. 설치 스크립트가 ROS의 `vcs`
+도구를 먼저 설치한 뒤 자동으로 가져오고, SDK에 포함된 D4xx USB UDEV 규칙도
+설치한다. `--role robot`은 ROS Jazzy, Nav2, SLAM, RealSense 래퍼/Viewer,
 GStreamer/RTSP 개발 헤더만 설치하며 HMI와 시뮬레이터는 설치하지 않는다.
 
 설치가 끝나면 새 셸을 열거나 아래를 실행한 뒤 빌드한다.
@@ -76,7 +80,7 @@ GStreamer/RTSP 개발 헤더만 설치하며 HMI와 시뮬레이터는 설치하
 ```bash
 source /opt/ros/jazzy/setup.bash
 cd ~/shalom_ws
-colcon build --symlink-install
+colcon build --symlink-install --packages-skip inspection_hmi
 source install/setup.bash
 ```
 
@@ -85,11 +89,24 @@ source install/setup.bash
 ```bash
 ros2 pkg list | rg 'application|shalom_bridge|video_streamer|realsense2_camera'
 gst-inspect-1.0 nvv4l2h264enc
+realsense-viewer
 ```
 
-마지막 명령은 Jetson 하드웨어 H.264 인코더가 보이는지 확인한다. 보이지 않으면
+`gst-inspect-1.0 nvv4l2h264enc` 명령은 Jetson 하드웨어 H.264 인코더가 보이는지 확인한다. 보이지 않으면
 JetPack의 GStreamer 구성요소가 끝나지 않았거나, JetPack/보드 조합이 맞지 않는
 상태이므로 영상 노드를 먼저 실행하지 않는다.
+
+`realsense-viewer`에서 D455가 보이면 RGB·Depth 스트림을 켜서 확인한다. UDEV 규칙을
+막 설치했거나 권한 경고가 보이면 카메라 USB를 한 번 뺐다가 다시 연결한다.
+
+`src/third_party/librealsense`는 SDK 소스와 UDEV 규칙을 고정하기 위해 보관한다.
+실행에는 ROS Jazzy가 제공하는 같은 버전의 SDK·Viewer를 사용하므로, 설치 스크립트가
+SDK 소스에는 `COLCON_IGNORE`를 둔다. 따라서 ROS 빌드에서 SDK가 두 번 빌드되거나
+서로 다른 `librealsense`가 섞이지 않는다.
+
+고정한 B2 드라이버 커밋에는 더는 쓰지 않는 `dae/` 디렉터리를 CMake 설치 목록에
+남긴 부분이 있다. 설치 스크립트가 빈 호환 디렉터리를 자동 생성하므로, 첫 빌드도
+별도 수동 수정 없이 진행된다.
 
 ## ROS와 도구 설치
 

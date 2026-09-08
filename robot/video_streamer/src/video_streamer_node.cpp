@@ -25,6 +25,36 @@ void onMediaConfigure(GstRTSPMediaFactory *, GstRTSPMedia *media, gpointer user)
 
 }  // namespace
 
+// 화질 프리셋.
+//
+// 해상도를 바꾸려고 카메라를 다시 열지는 않는다. 장치를 놓았다 잡는 동안
+// 화면이 몇 초 비고, 그 사이 촬영도 못 한다. 대신 인코더 앞에서 줄인다 —
+// 카메라는 늘 같은 설정으로 돌고 파이프라인만 바뀐다.
+//
+// 뷰파인더의 값은 화질이 아니라 지연이다. 실제 점검 사진은 정지 상태에서
+// 원본으로 찍어 NAS 로 가므로(과업지시서 2.2.4), 링크가 좁으면 화질을
+// 버리는 편이 옳다.
+const VideoStreamerNode::Quality kQualities[] = {
+    {"high",  1280, 720, 15, 4000},   // 기본. 여유 있을 때.
+    {"low",    848, 480, 30, 3000},   // 프레임을 올려 조작감을 얻는다.
+    {"saver",  640, 360, 15, 1500},   // 무선이 좁을 때.
+};
+
+const VideoStreamerNode::Quality *VideoStreamerNode::findQuality(const std::string &name)
+{
+    for (const auto &q : kQualities)
+        if (name == q.name)
+            return &q;
+    return nullptr;
+}
+
+const VideoStreamerNode::Quality &VideoStreamerNode::quality() const
+{
+    if (const Quality *q = findQuality(quality_))
+        return *q;
+    return kQualities[0];
+}
+
 VideoStreamerNode::VideoStreamerNode(const rclcpp::NodeOptions &options)
     : rclcpp::Node("video_streamer", options), lastFrame_(now())
 {
@@ -38,7 +68,15 @@ VideoStreamerNode::VideoStreamerNode(const rclcpp::NodeOptions &options)
     // 통신 차단을 패킷 캡처로 검증하라고 하므로, 내부망 주소를 명시한다.
     bindAddress_ = declare_parameter("bind_address", std::string("127.0.0.1"));
     port_ = int(declare_parameter("port", port_));
-    bitrateKbps_ = int(declare_parameter("bitrate_kbps", bitrateKbps_));
+    // 화질은 프리셋 이름으로 고른다. 폭·높이·프레임·비트레이트를 따로 받으면
+    // 관제와 로봇이 서로 다른 조합을 들고 있게 되고, 어느 쪽이 맞는지 알 수
+    // 없어진다.
+    quality_ = declare_parameter("quality", quality_);
+    if (!findQuality(quality_)) {
+        RCLCPP_WARN(get_logger(), "모르는 화질 '%s' — 기본값으로 돈다", quality_.c_str());
+        quality_ = kQualities[0].name;
+    }
+    bitrateKbps_ = int(declare_parameter("bitrate_kbps", quality().bitrateKbps));
     keyframeInterval_ = int(declare_parameter("keyframe_interval", keyframeInterval_));
     maxFps_ = declare_parameter("max_fps", maxFps_);
     const auto topic = declare_parameter("image_topic", std::string("color/image_raw"));
@@ -73,7 +111,37 @@ VideoStreamerNode::VideoStreamerNode(const rclcpp::NodeOptions &options)
             res->message = lastError_;
         });
 
-    stateTimer_ = create_wall_timer(std::chrono::seconds(1), [this] { publishState(); });
+    // 관제가 화질을 바꾸면 파라미터로 온다. 파이프라인을 다시 세워야 해서
+    // 클라이언트는 잠깐 끊겼다 붙는다 — 몇 초 사이의 일이고, 대신 카메라를
+    // 놓지 않으므로 촬영은 그 동안에도 된다.
+    paramCb_ = add_on_set_parameters_callback(
+        [this](const std::vector<rclcpp::Parameter> &params) {
+            rcl_interfaces::msg::SetParametersResult res;
+            res.successful = true;
+            for (const auto &p : params) {
+                if (p.get_name() != "quality")
+                    continue;
+                const std::string want = p.as_string();
+                if (!findQuality(want)) {
+                    res.successful = false;
+                    res.reason = "모르는 화질: " + want;
+                    return res;
+                }
+                // 여기서 바로 다시 세우면 파라미터 콜백 안에서 GStreamer 를
+                // 만지게 된다. 타이머로 미뤄 콜백을 먼저 끝낸다.
+                pendingQuality_ = want;
+            }
+            return res;
+        });
+
+    stateTimer_ = create_wall_timer(std::chrono::seconds(1), [this] {
+        if (!pendingQuality_.empty()) {
+            const std::string want = pendingQuality_;
+            pendingQuality_.clear();
+            applyQuality(want);
+        }
+        publishState();
+    });
 
     RCLCPP_INFO(get_logger(), "영상 송신 준비: %s → rtsp://%s:%d%s (인코더 %s)",
                 topic.c_str(), bindAddress_.c_str(), port_, mountPoint_.c_str(),
@@ -126,6 +194,9 @@ bool VideoStreamerNode::startServer()
     GstRTSPMountPoints *mounts = gst_rtsp_server_get_mount_points(server_);
     GstRTSPMediaFactory *factory = gst_rtsp_media_factory_new();
 
+    // 카메라가 내는 크기 그대로 받아, 인코더 앞에서 프리셋 크기로 줄인다.
+    // 카메라를 다시 열지 않으므로 화질을 바꿔도 촬영은 끊기지 않는다.
+    const Quality &q = quality();
     const std::string launch =
         std::string("( appsrc name=") + kAppSrcName
         + " is-live=true do-timestamp=true format=time"
@@ -133,7 +204,9 @@ bool VideoStreamerNode::startServer()
           ",width=" + std::to_string(width_)
         + ",height=" + std::to_string(height_)
         + ",framerate=" + std::to_string(int(maxFps_ + 0.5)) + "/1 "
-          "! videoconvert ! video/x-raw,format=I420 "
+          "! videoconvert ! videoscale "
+          "! video/x-raw,format=I420,width=" + std::to_string(q.width)
+        + ",height=" + std::to_string(q.height) + " "
           "! " + encoderChain()
         + " ! h264parse config-interval=1 ! rtph264pay name=pay0 pt=96 )";
 
@@ -161,6 +234,22 @@ bool VideoStreamerNode::startServer()
     RCLCPP_INFO(get_logger(), "영상 송신 시작: rtsp://%s:%d%s",
                 bindAddress_.c_str(), port_, mountPoint_.c_str());
     return true;
+}
+
+void VideoStreamerNode::applyQuality(const std::string &name)
+{
+    if (name == quality_)
+        return;
+    quality_ = name;
+    bitrateKbps_ = quality().bitrateKbps;
+    maxFps_ = quality().fps;
+    RCLCPP_INFO(get_logger(), "화질 %s (%dx%d @%d, %d kbps)", quality().name,
+                quality().width, quality().height, quality().fps, bitrateKbps_);
+    // 돌고 있을 때만 다시 세운다. 꺼져 있으면 다음에 켤 때 새 값으로 뜬다.
+    if (streaming_) {
+        stopServer();
+        startServer();
+    }
 }
 
 void VideoStreamerNode::stopServer()

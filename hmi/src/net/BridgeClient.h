@@ -56,6 +56,7 @@ public:
     void setWaypoints(const QList<QVariantMap> &waypoints) override;
     void setLocations(const QList<QVariantMap> &locations) override;
     void setMarkers(const QList<QVariantMap> &markers) override;
+    void setVideoQuality(const QString &preset) override;
     QList<QVariantMap> markers() const override { return markers_; }
     void setBatteryPolicy(double returnAt, double departAt) override;
     QList<QVariantMap> waypoints() const override { return waypoints_; }

@@ -35,6 +35,16 @@ namespace video_streamer {
 
 class VideoStreamerNode : public rclcpp::Node {
 public:
+    /// One of the named quality presets. Unknown names fall back to the
+    /// default and say so - a typo in a config should not leave the operator
+    /// with no picture and no reason.
+    struct Quality {
+        const char *name;
+        int width;
+        int height;
+        int fps;
+        int bitrateKbps;
+    };
     explicit VideoStreamerNode(const rclcpp::NodeOptions &options);
     ~VideoStreamerNode() override;
 
@@ -46,6 +56,12 @@ private:
     /// swapped without touching the rest: the Jetson has NVENC, a development
     /// machine does not.
     std::string encoderChain() const;
+
+    static const Quality *findQuality(const std::string &name);
+    const Quality &quality() const;
+
+    /// Rebuilds the stream with the current preset. Clients reconnect.
+    void applyQuality(const std::string &name);
 
     bool startServer();
     void stopServer();
@@ -64,6 +80,9 @@ private:
     std::string mountPoint_;
     std::string bindAddress_;
     int port_ = 8554;
+    std::string quality_ = "high";
+    std::string pendingQuality_;
+    rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr paramCb_;
     int bitrateKbps_ = 4000;
     int keyframeInterval_ = 15;
     double maxFps_ = 15.0;

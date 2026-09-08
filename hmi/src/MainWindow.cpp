@@ -687,6 +687,15 @@ void MainWindow::wirePanelSignals()
                            message);
             });
 
+    connect(capture_, &CapturePanel::videoQualityChanged, this,
+            [this](const QString &preset) {
+                robot_->setVideoQuality(preset);
+                Config::instance().setVideoQuality(preset);
+                log_->note(diag::Severity::Info,
+                           QStringLiteral("영상 화질 %1").arg(preset),
+                           QJsonObject{{"channel", QStringLiteral("cmd/video/quality")}});
+            });
+
     connect(capture_, &CapturePanel::captureRequested, this, [this] {
         logAction(QStringLiteral("CAPTURE_OK"),
                   {{"point_id", capture_ ? QStringLiteral("수동 촬영") : QString()}});

@@ -53,6 +53,7 @@ constexpr auto kCmdNavCancel = "cmd/nav_cancel";
 constexpr auto kCmdWaypointsSet = "cmd/waypoints/set";
 constexpr auto kCmdLocationsSet = "cmd/locations/set";
 constexpr auto kCmdMarkersSet = "cmd/markers/set";
+constexpr auto kCmdVideoQuality = "cmd/video/quality";
 constexpr auto kCmdMissionStart = "cmd/mission/start";
 constexpr auto kCmdMissionPause = "cmd/mission/pause";
 constexpr auto kCmdMissionResume = "cmd/mission/resume";
@@ -77,6 +78,9 @@ constexpr double kTrailMinStepM = 0.05;
 BridgeNode::BridgeNode() : rclcpp::Node("shalom_bridge")
 {
     port_ = int(declare_parameter("port", port_));
+    // 영상 노드의 완전한 이름. 카메라를 두 대 달면 역할별로 갈리므로 설정으로 둔다.
+    videoNodeName_ = declare_parameter("video_node",
+                                       std::string("/fr3/camera/video_streamer"));
     mapFrame_ = declare_parameter("map_frame", mapFrame_);
     baseFrame_ = declare_parameter("base_frame", baseFrame_);
     deadman_ = std::chrono::milliseconds(
@@ -426,6 +430,28 @@ void BridgeNode::handleRequest(const Envelope &request)
         respond(request, true);
         publishMarkers();
         RCLCPP_INFO(get_logger(), "마커 %zu개 등록", markers_.size());
+        return;
+    }
+
+    if (request.ch == kCmdVideoQuality) {
+        const std::string want = request.p.value("preset", std::string());
+        if (want != "high" && want != "low" && want != "saver") {
+            respond(request, false, err::kBadPayload,
+                    "화질은 high, low, saver 중 하나여야 합니다");
+            return;
+        }
+        if (!videoParams_) {
+            videoParams_ = std::make_shared<rclcpp::AsyncParametersClient>(
+                this, videoNodeName_);
+        }
+        if (!videoParams_->service_is_ready()) {
+            respond(request, false, err::kUnreachable, "영상 노드가 응답하지 않습니다");
+            return;
+        }
+        videoParams_->set_parameters({rclcpp::Parameter("quality", want)});
+        videoQuality_ = want;
+        respond(request, true);
+        RCLCPP_INFO(get_logger(), "화질 %s 로 변경 요청", want.c_str());
         return;
     }
 
