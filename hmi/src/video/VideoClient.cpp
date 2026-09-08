@@ -79,8 +79,14 @@ VideoClient::VideoClient(QObject *parent) : QObject(parent), d_(new Impl)
 
     // 살아 있는지 본다. RTSP 클라이언트는 스스로 재접속하지 않아서, 로봇이
     // 재부팅하거나 무선이 끊기면 화면이 검은 채로 멈춘 뒤 아무 말이 없다.
-    watchdog_.setInterval(3000);
+    watchdog_.setInterval(2000);
     connect(&watchdog_, &QTimer::timeout, this, &VideoClient::checkAlive);
+
+    restartTimer_.setSingleShot(true);
+    connect(&restartTimer_, &QTimer::timeout, this, [this] {
+        if (!url_.isEmpty())
+            restart();
+    });
 
     fpsTimer_.setInterval(1000);
     connect(&fpsTimer_, &QTimer::timeout, this, [this] {
@@ -156,6 +162,14 @@ void VideoClient::restart()
     fpsTimer_.start();
 }
 
+void VideoClient::restartSoon(int delayMs)
+{
+    // 다시 붙는 동안 상태를 알린다. 그림이 멈춰 있는데 배지가 "수신 중"
+    // 이면 조작자는 로봇이 멈춘 줄 안다.
+    setState(State::Connecting, QStringLiteral("화질을 바꾸는 중"));
+    restartTimer_.start(delayMs);
+}
+
 void VideoClient::stop()
 {
     watchdog_.stop();
@@ -182,7 +196,7 @@ void VideoClient::checkAlive()
 
     // 세 번 연속 조용하면 파이프라인을 통째로 다시 세운다. 그 사이 화면은
     // "연결 중" 으로 남아, 멈춘 그림이 살아 있는 것처럼 보이지 않는다.
-    if (++consecutiveFailures_ < 3) {
+    if (++consecutiveFailures_ < 2) {
         if (state_ == State::Playing)
             setState(State::Connecting, QStringLiteral("영상이 끊겼다"));
         return;
@@ -211,6 +225,7 @@ void VideoClient::start(const QString &url)
 }
 
 void VideoClient::stop() { setState(State::Stopped); }
+void VideoClient::restartSoon(int) {}
 void VideoClient::restart() {}
 void VideoClient::checkAlive() {}
 

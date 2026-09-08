@@ -691,6 +691,11 @@ void MainWindow::wirePanelSignals()
             [this](const QString &preset) {
                 robot_->setVideoQuality(preset);
                 Config::instance().setVideoQuality(preset);
+                // 로봇이 스트림을 다시 세운다. 우리가 요청했으니 우리가
+                // 다시 붙는다 — 워치독이 알아챌 때까지 기다리면 화면이
+                // 몇 초 멈춘 채로 있고, 조작자는 고장으로 읽는다.
+                if (video_)
+                    video_->restartSoon();
                 log_->note(diag::Severity::Info,
                            QStringLiteral("영상 화질 %1").arg(preset),
                            QJsonObject{{"channel", QStringLiteral("cmd/video/quality")}});
