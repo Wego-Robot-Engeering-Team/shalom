@@ -1,0 +1,29 @@
+#pragma once
+
+// 빌드가 스스로 채우는 파일이다. 손으로 고치지 말 것 —
+// cmake/BuildInfo.h.in 이 원본이고 CMake 가 configure 때 만든다.
+//
+// 과업지시서 4장이 "실제 사용된 각 컴포넌트의 정확한 버전(커밋 해시 포함)"
+// 을 요구하고, 7.3 절 임치 대상에도 같은 항목이 있다. 손으로 적으면 반드시
+// 어긋나므로 빌드가 기록하고 화면이 그대로 읽는다.
+
+#include <QString>
+
+namespace hmi::build {
+
+// 값은 UTF-8 로 들어온다. 제품명과 회사명이 한글이라 QLatin1String 으로
+// 받으면 그대로 깨진다 — 실제로 한 번 그렇게 나갔다.
+inline QString productName() { return QString::fromUtf8("@HMI_PRODUCT_NAME@"); }
+inline QString vendor() { return QString::fromUtf8("@HMI_VENDOR@"); }
+inline QString client() { return QString::fromUtf8("@HMI_CLIENT@"); }
+
+inline QString version() { return QStringLiteral("@PROJECT_VERSION@"); }
+inline QString gitHash() { return QStringLiteral("@HMI_GIT_HASH@"); }
+inline QString gitDirty() { return QStringLiteral("@HMI_GIT_DIRTY@"); }
+inline QString buildDate() { return QStringLiteral("@HMI_BUILD_DATE@"); }
+inline QString protocolVersion() { return QStringLiteral("@HMI_PROTOCOL_VERSION@"); }
+
+/// 커밋되지 않은 변경이 섞인 빌드인지. 납품본이면 반드시 거짓이어야 한다.
+inline bool isDirty() { return !gitDirty().isEmpty(); }
+
+}  // namespace hmi::build
