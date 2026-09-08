@@ -29,10 +29,13 @@
 #include <nav2_msgs/action/navigate_to_pose.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/path.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/parameter_client.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <sensor_msgs/msg/battery_state.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/compressed_image.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <tf2_ros/buffer.h>
@@ -183,6 +186,20 @@ private:
     void setWaypointStatus(std::size_t index, const char *status);
     void publishMission();
 
+    // ---- 촬영 -----------------------------------------------------------
+    //
+    // 저장은 로봇이 한다. 원본이 관제를 거치지 않는 것과 같은 이유다 —
+    // 링크가 끊겨도 사진은 남아야 하고, 관제 PC 가 저장 경로를 알 이유도 없다.
+    void handleCapture(const Envelope &request);
+
+    /// 지금 움직이고 있는지. 과업지시서 2.2.4 가 정지 상태 촬영을 요구한다.
+    bool isMoving() const;
+
+    /// 깊이 이미지 한가운데의 거리(mm). 못 읽으면 음수.
+    double centreDistanceMm() const;
+
+    void publishCaptureSpool();
+
     const char *missionStateName() const;
 
     /// Accumulated driven path, in map coordinates.
@@ -286,6 +303,31 @@ private:
     std::shared_ptr<rclcpp::AsyncParametersClient> videoParams_;
     std::string videoQuality_ = "high";
     std::string videoNodeName_;
+
+    // 촬영. 압축 이미지를 그대로 받아 그대로 쓴다 — 인코더를 따로 두면
+    // 같은 그림을 두 번 누르는 셈이고, compressed_image_transport 가 이미
+    // 카메라 노드 쪽에서 해 준다.
+    rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr colorSub_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depthSub_;
+    // 속도는 TF 자세 변화로 잰다.
+    //
+    // kiss_icp 는 자세만 내고 twist 는 0 으로 둔다. 시뮬의 /b2/odom_gt 에는
+    // 속도가 있지만 실기에는 없다. 어느 오도메트리를 쓰든 map->base_link 는
+    // 있으므로, 그것을 미분하는 편이 양쪽에서 같게 동작한다.
+    double lastPoseX_ = 0.0;
+    double lastPoseY_ = 0.0;
+    double lastPoseTheta_ = 0.0;
+    rclcpp::Time lastPoseAt_;
+    sensor_msgs::msg::CompressedImage::ConstSharedPtr lastColor_;
+    sensor_msgs::msg::Image::ConstSharedPtr lastDepth_;
+    double speedLinear_ = 0.0;
+    double speedAngular_ = 0.0;
+    rclcpp::Time lastOdomAt_;
+
+    std::string spoolDir_;
+    double maxCaptureLinear_ = 0.03;    ///< m/s
+    double maxCaptureAngular_ = 0.05;   ///< rad/s
+    int capturesTaken_ = 0;
 
     // 마지막으로 보낸 지도. /map 은 transient_local 이라 구독 콜백이 브릿지
     // 기동 때 한 번만 뜬다. 관제가 그 뒤에 붙으면 지도를 영영 못 받으므로

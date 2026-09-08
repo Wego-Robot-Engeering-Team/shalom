@@ -200,11 +200,18 @@ if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
     "ros-$ROS-realsense2-camera" "ros-$ROS-realsense2-description"
 
   say "영상 송신 (RTSP/H.264)"
-  note "인코딩은 젯슨 NVENC(JetPack 동봉)로 한다. x264 는 깔지 않는다 —"
-  note "libx264 가 GPL-2+ 라 납품 파이프라인에 들어가면 안 된다."
+  note "AGX Orin에서는 NVENC 요소를 실제로 확인한 뒤 사용한다."
+  note "Orin Nano에는 H.264 하드웨어 인코더가 없으므로 별도 소프트웨어 전략이 필요하다."
   apt_install \
     libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
     libgstrtspserver-1.0-dev "gstreamer1.0-rtsp" gstreamer1.0-plugins-good
+  if [ "$DRY_RUN" = 0 ]; then
+    if gst-inspect-1.0 nvv4l2h264enc >/dev/null 2>&1; then
+      note "H.264 하드웨어 인코더: 사용 가능"
+    else
+      note "H.264 하드웨어 인코더: 이 장비에서는 확인되지 않음"
+    fi
+  fi
 fi
 
 # ---------------------------------------------------------------------------

@@ -56,6 +56,10 @@ public:
     /// prohibited (2.2.4), so the button follows the robot's motion.
     void setCaptureAllowed(bool allowed, const QString &reason = {});
 
+    /// What the operator has typed, plus the values filled in from the
+    /// robot. Sent with the trigger so the robot writes the sidecar.
+    hmi::capture::CaptureMetadata currentMetadata() const;
+
     /// Integration seam: the robot returns the captured frames over
     /// evt/capture_done. Nothing calls these while the control station runs
     /// against the simulator, so do not remove them as unused.
@@ -71,7 +75,7 @@ signals:
 
 private:
     void refreshDerived();
-    hmi::capture::CaptureMetadata currentMetadata() const;
+
 
     Card *card_ = nullptr;
     Badge *state_ = nullptr;
