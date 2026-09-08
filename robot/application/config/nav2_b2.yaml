@@ -91,18 +91,50 @@ controller_server:
 
     # Starting heading is often opposite the path, and turning in place takes a
     # while on four legs.  Allow the time, keep the distance requirement modest.
+    # 진행 판정은 도착 판정보다 작아야 한다.
+    #
+    # 20 cm 로 두고 도착 공차를 12 cm 로 좁혔더니, 목표 코앞에서 하는 미세
+    # 조정이 정의상 20 cm 를 넘지 못해 "Failed to make progress" 로 중단됐다.
+    # 세 번 중 두 번이 그렇게 죽었다. 도착 직전이 가장 조금 움직이는 구간인데
+    # 거기서 가장 큰 움직임을 요구하고 있었던 셈이다.
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.2
+      required_movement_radius: 0.05
       movement_time_allowance: 45.0
 
-    # Tight tolerances make a legged robot hunt around the goal instead of
-    # settling.  B2 is 1.1 m long, so sub-decimetre placement is not meaningful.
+    # 도착 판정.
+    #
+    # 예전에는 50 cm / 46도였다. 다리로 걷는 로봇이 목표 주위를 맴돌지 말라고
+    # 넉넉히 준 값인데, 두 가지가 잘못됐다.
+    #
+    # 첫째, 과업지시서 2.2.3 이 요구하는 주행 정밀도가 ±10 cm 다. 50 cm 로
+    # 두면 검수 항목을 통과할 수 없다.
+    #
+    # 둘째, 이게 더 나쁜데 — GoalAngleCritic 의 threshold_to_consider 가
+    # 0.5 다. 목표에서 50 cm 안에 들어와야 방향을 고치기 시작하는데, 바로
+    # 그 지점에서 도착으로 끝내고 있었다. 방향을 맞출 기회 자체가 없었다.
+    # 조작자가 본 "각도가 많이 틀어졌는데 도착으로 뜬다" 가 이것이다.
+    #
+    # 15 cm 로 좁혀 GoalAngleCritic 이 도는 구간(50 cm)을 충분히 남긴다.
+    # 남은 오차는 과업지시서 2.2.2 의 2단계 보정에서 Apriltag 가 잡는다 —
+    # Nav2 혼자 ±10 cm 를 내라는 뜻이 아니라, 보정이 물릴 만큼은 와야 한다.
+    #
+    # 12 cm 까지 좁혀 재 봤는데 세 번 중 두 번만 들었다. 실패한 한 번은
+    # 횡방향 20 cm 에서 멈췄다 — 남은 거리가 짧아지면 명령 속도가 0.05 m/s
+    # 아래로 떨어지고, 보행 정책이 그 크기의 명령을 실제 변위로 바꾸지
+    # 못한다. 다리로 걷는 로봇의 분해능 한계라 공차를 더 좁히면 도착이
+    # 아니라 시간초과가 늘 뿐이다.
+    #
+    # StoppedGoalChecker 는 위치·방향에 더해 "멈췄는지" 까지 본다.
+    # 과업지시서 2.2.4 가 "반드시 정지 상태에서 촬영" 을 요구하므로, 아직
+    # 움직이는 중에 도착이 뜨면 그 다음 단계가 전부 어긋난다.
     goal_checker:
-      plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.5
-      yaw_goal_tolerance: 0.8
+      plugin: "nav2_controller::StoppedGoalChecker"
+      xy_goal_tolerance: 0.15
+      yaw_goal_tolerance: 0.17          # 약 10도 — 과업지시서 변경 제안치
       stateful: true
+      trans_stopped_velocity: 0.05
+      rot_stopped_velocity: 0.10
 
     FollowPath:
       # ---------------------------------------------------------------------
