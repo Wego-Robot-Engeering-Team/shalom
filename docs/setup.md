@@ -58,7 +58,9 @@ SDK Manager의 JetPack 추가 구성요소 설치가 끝난 뒤, Jetson에서 �
 mkdir -p ~/shalom_ws/src
 cd ~/shalom_ws/src
 
-git clone https://github.com/Wego-Robot-Engeering-Team/shalom.git shalom
+# `main`은 초기 저장소이므로, 실제 로봇 소스가 있는 `dev` 브랜치를 받는다.
+git clone --branch dev --single-branch \
+  https://github.com/Wego-Robot-Engeering-Team/shalom.git shalom
 
 cd shalom
 ./scripts/install.sh --role robot
