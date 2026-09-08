@@ -92,6 +92,17 @@ void Config::setVideoUrl(const QString &url)
     store().setValue(QStringLiteral("video/url"), url);
 }
 
+QString Config::videoQuality() const
+{
+    return store().value(QStringLiteral("video/quality"),
+                         QStringLiteral("high")).toString();
+}
+
+void Config::setVideoQuality(const QString &preset)
+{
+    store().setValue(QStringLiteral("video/quality"), preset);
+}
+
 
 void Config::setBridgePort(int port)
 {

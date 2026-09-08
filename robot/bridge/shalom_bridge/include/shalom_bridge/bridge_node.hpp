@@ -30,6 +30,7 @@
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp/parameter_client.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <sensor_msgs/msg/battery_state.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
@@ -279,6 +280,12 @@ private:
     /// 지금 Nav2 에 걸린 목표가 순회의 것인지. 조작자가 지도를 눌러 보낸
     /// 목표와 구분해야, 그 목표가 끝났다고 순회가 한 칸 넘어가지 않는다.
     bool missionOwnsGoal_ = false;
+
+    /// 영상 노드의 파라미터를 원격으로 바꾼다. 관제는 프리셋 이름만 보내고
+    /// 실제 해상도·비트레이트는 영상 노드가 안다.
+    std::shared_ptr<rclcpp::AsyncParametersClient> videoParams_;
+    std::string videoQuality_ = "high";
+    std::string videoNodeName_;
 
     // 마지막으로 보낸 지도. /map 은 transient_local 이라 구독 콜백이 브릿지
     // 기동 때 한 번만 뜬다. 관제가 그 뒤에 붙으면 지도를 영영 못 받으므로

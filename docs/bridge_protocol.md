@@ -74,6 +74,7 @@
 | `cmd/markers/set` | 마커 전체 설정 |
 | `cmd/video/start` | 뷰파인더 시작 (role) |
 | `cmd/video/stop` | 뷰파인더 정지 |
+| `cmd/video/quality` | 화질 프리셋 (high·low·saver) |
 | `cmd/power/policy` | 배터리 복귀·출발 기준 |
 | `cmd/mission/start` | 점검 시작 |
 | `cmd/mission/pause` | 점검 일시정지 |

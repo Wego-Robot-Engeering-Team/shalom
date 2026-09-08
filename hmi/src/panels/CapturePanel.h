@@ -23,6 +23,7 @@
 
 #include "capture/CaptureMetadata.h"
 
+class QComboBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -40,6 +41,10 @@ public:
     void setLiveFrame(const QImage &frame);
     /// Why there is no picture, when there is none.
     void setLiveStatus(const QString &text);
+
+    /// Which quality preset the stream is on, so the control reflects reality
+    /// rather than what was last clicked.
+    void setVideoQuality(const QString &preset);
 
     explicit CapturePanel(QWidget *parent = nullptr);
 
@@ -59,6 +64,9 @@ public:
 
 signals:
     void captureRequested();
+
+    /// "high", "low" or "saver".
+    void videoQualityChanged(const QString &preset);
     void saveRequested(const hmi::capture::CaptureMetadata &metadata);
 
 private:
@@ -70,6 +78,7 @@ private:
 
     PreviewView *live_ = nullptr;
     Badge *liveState_ = nullptr;
+    QComboBox *quality_ = nullptr;
     PreviewView *preview2d_ = nullptr;
     PreviewView *preview3d_ = nullptr;
 
