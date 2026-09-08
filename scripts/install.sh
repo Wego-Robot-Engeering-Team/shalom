@@ -51,6 +51,32 @@ apt_install() {
   run sudo apt-get install -y --no-install-recommends "$@"
 }
 
+# ROS 2 packages are not in Ubuntu's standard archive.  Keep this here rather
+# than making a freshly flashed Jetson rely on a developer having remembered a
+# one-off, machine-global setup step from the ROS web site.
+setup_ros_apt_source() {
+  if [ -f /etc/apt/sources.list.d/ros2.list ]; then
+    note "ROS 2 apt 저장소가 이미 설정됨"
+    return
+  fi
+
+  say "ROS 2 apt 저장소"
+  run sudo apt-get update
+  apt_install ca-certificates curl gnupg software-properties-common
+  run sudo add-apt-repository -y universe
+
+  if [ "$DRY_RUN" = 1 ]; then
+    note "packages.ros.org 키와 ${VERSION_CODENAME} 저장소를 등록"
+    return
+  fi
+
+  curl -fsSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+    | sudo gpg --dearmor --yes -o /usr/share/keyrings/ros-archive-keyring.gpg
+  printf 'deb [arch=%s signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu %s main\n' \
+    "$(dpkg --print-architecture)" "$VERSION_CODENAME" \
+    | sudo tee /etc/apt/sources.list.d/ros2.list >/dev/null
+}
+
 # ---------------------------------------------------------------------------
 # 환경 확인
 #
@@ -73,6 +99,10 @@ if [ "${VERSION_CODENAME:-}" != "jammy" ] || [ "$ROS_DISTRO_FOUND" != "humble" ]
 fi
 
 ROS="${ROS_DISTRO_FOUND:-jazzy}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+WORKSPACE="$(cd "$REPO_ROOT/../.." && pwd)"
+
+setup_ros_apt_source
 
 say "패키지 목록 갱신"
 run sudo apt-get update
@@ -85,6 +115,20 @@ apt_install \
   "ros-$ROS-desktop" \
   "ros-$ROS-rmw-cyclonedds-cpp" \
   ros-dev-tools python3-vcstool python3-dev
+
+# The application repository deliberately keeps vendor and third-party ROS
+# packages outside itself.  Import their pinned revisions only after vcs has
+# been installed above, so a clean Jetson needs just clone + this script.
+if { [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; } \
+    && [ -f "$REPO_ROOT/sources.repos" ] \
+    && [ ! -d "$WORKSPACE/src/b2_driver" ]; then
+  say "로봇 소스 의존성"
+  if [ "$DRY_RUN" = 1 ]; then
+    note "vcs import < $REPO_ROOT/sources.repos"
+  else
+    (cd "$WORKSPACE/src" && vcs import < "$REPO_ROOT/sources.repos")
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # 로봇 — 주행, 인식, 카메라, 영상 송신
@@ -150,6 +194,11 @@ else
   run sudo rosdep init
 fi
 run rosdep update
+
+if [ -d "$WORKSPACE/src" ]; then
+  say "워크스페이스 의존성 해석"
+  run rosdep install --from-paths "$WORKSPACE/src" --ignore-src -r -y
+fi
 
 say "완료"
 note "빌드:"

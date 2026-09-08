@@ -1,0 +1,21 @@
+repositories:
+  b2_driver:
+    type: git
+    url: https://github.com/juno-wego/b2_driver.git
+    version: 80d250d81017260a6924cbca0e6a78eaa26b312d
+  third_party/ground_segmentation:
+    type: git
+    url: https://github.com/dfki-ric/ground_segmentation.git
+    version: 6e7385e4db5dda1c8453faefc2bbb00222af2148
+  third_party/ground_segmentation_ros2:
+    type: git
+    url: https://github.com/dfki-ric/ground_segmentation_ros2.git
+    version: 5c5ba6f5ca0d682db2d59b2ad2f6a317ee938b95
+  third_party/kiss_icp:
+    type: git
+    url: https://github.com/PRBonn/kiss-icp.git
+    version: 1ffa7d7512f10bfc8b1185095011fa31184019e3
+  third_party/nav2_ground_consistency_costmap_plugin:
+    type: git
+    url: https://github.com/dfki-ric/nav2_ground_consistency_costmap_plugin.git
+    version: 41cec620efba6c370dccfc59a6ec1134775ff48a
