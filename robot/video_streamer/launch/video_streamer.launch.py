@@ -34,7 +34,7 @@ def generate_launch_description():
             ComposableNode(
                 package="realsense2_camera",
                 plugin="realsense2_camera::RealSenseNodeFactory",
-                name="arm_camera",
+                name=LaunchConfiguration("camera_name"),
                 namespace="fr3/camera",
                 parameters=[{
                     "serial_no": LaunchConfiguration("serial"),
@@ -50,6 +50,11 @@ def generate_launch_description():
                 name="video_streamer",
                 namespace="fr3/camera",
                 parameters=[config, {
+                    # 카메라 노드는 camera_name 만큼 한 단계를 더 넣는다.
+                    # 그래서 같은 네임스페이스에 있어도 토픽이 어긋난다 —
+                    # 실제로 스트리머가 빈 토픽을 구독한 채 조용히 놀았다.
+                    "image_topic": [LaunchConfiguration("camera_name"),
+                                    "/color/image_raw"],
                     "encoder": LaunchConfiguration("encoder"),
                     "bind_address": LaunchConfiguration("bind_address"),
                     "autostart": LaunchConfiguration("autostart"),
@@ -66,6 +71,8 @@ def generate_launch_description():
         DeclareLaunchArgument("bind_address", default_value="127.0.0.1",
                               description="RTSP 서버가 들을 주소. 내부망만."),
         DeclareLaunchArgument("serial", default_value=""),
+        DeclareLaunchArgument("camera_name", default_value="arm_camera",
+                              description="카메라 노드 이름. 토픽 경로에도 들어간다."),
         DeclareLaunchArgument("autostart", default_value="true",
                               description="첫 프레임이 오면 송신을 바로 켠다"),
         container,

@@ -73,19 +73,22 @@
         type: "sensor_msgs/msg/JointState"
         expected_hz: 100.0
 
-      # 아직 없는 것들. 카메라가 붙으면 토픽만 맞추면 된다.
+      # realsense2_camera 는 camera_name 만큼 한 단계를 더 넣는다. 이름을
+      # 바꾸면 여기도 함께 고쳐야 한다 — 안 그러면 화면의 "센서 상태" 에
+      # 카메라가 계속 "신호 없음" 으로 남는데, 나머지는 정상으로 보이므로
+      # 눈으로는 늦게 발견된다.
       cam_body:
         name: "본체 카메라"
-        topic: "/b2/camera/image_raw"
+        topic: "/b2/camera/body_camera/color/image_raw"
         type: "sensor_msgs/msg/Image"
         expected_hz: 15.0
       cam_arm_2d:
         name: "암 2D 카메라"
-        topic: "/fr3/camera_2d/image_raw"
+        topic: "/fr3/camera/arm_camera/color/image_raw"
         type: "sensor_msgs/msg/Image"
         expected_hz: 15.0
       cam_arm_3d:
         name: "암 3D 카메라"
-        topic: "/fr3/camera_3d/points"
+        topic: "/fr3/camera/arm_camera/depth/color/points"
         type: "sensor_msgs/msg/PointCloud2"
         expected_hz: 10.0

@@ -7,7 +7,15 @@ namespace hmi {
 namespace {
 
 // 기본값을 한곳에 모아둔다. 설정 초기화와 최초 실행이 같은 값을 쓰게 하기 위함.
-constexpr auto kDefaultHost = "192.168.123.100";
+// 로컬이 기본이다. 시뮬레이터든 실기든 관제가 붙는 곳은 같은 브릿지이고,
+// 다른 것은 주소뿐이다 — 그리고 가장 흔한 경우가 이 PC 에서 시뮬레이터를
+// 돌리는 것이다.
+//
+// 실기 IP(192.168.123.100, Unitree 기본 서브넷)를 기본으로 두었더니, 화면이
+// 기본으로 브릿지에 붙게 바뀐 뒤로는 아무것도 안 뜨는 채로 열렸다. 로봇이
+// 없는 자리에서 그 주소로 붙을 방법이 없기 때문이다. 실기 주소는 설정 창의
+// 연결 탭에서 지정한다.
+constexpr auto kDefaultHost = "127.0.0.1";
 constexpr int kDefaultPort = 9090;
 constexpr auto kDefaultTheme = "light";
 constexpr double kDefaultScale = 1.0;
