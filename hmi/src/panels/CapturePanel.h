@@ -36,6 +36,11 @@ class PreviewView;
 class CapturePanel : public QWidget {
     Q_OBJECT
 public:
+    /// Live viewfinder frame from the robot's camera.
+    void setLiveFrame(const QImage &frame);
+    /// Why there is no picture, when there is none.
+    void setLiveStatus(const QString &text);
+
     explicit CapturePanel(QWidget *parent = nullptr);
 
     /// Pose, tag and distance are taken from telemetry at the moment of
@@ -63,6 +68,8 @@ private:
     Card *card_ = nullptr;
     Badge *state_ = nullptr;
 
+    PreviewView *live_ = nullptr;
+    Badge *liveState_ = nullptr;
     PreviewView *preview2d_ = nullptr;
     PreviewView *preview3d_ = nullptr;
 

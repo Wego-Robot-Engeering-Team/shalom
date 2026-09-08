@@ -17,6 +17,11 @@ namespace {
 // 연결 탭에서 지정한다.
 constexpr auto kDefaultHost = "127.0.0.1";
 constexpr int kDefaultPort = 9090;
+
+// 뷰파인더 주소. 로봇이 8554 에서 /arm-rgb 로 낸다. 브릿지 주소에서
+// 유추하지 않는 이유는 카메라가 여러 대가 되면 마운트 이름이 갈리기
+// 때문이다 — 그때는 이 값만 고치면 된다.
+constexpr auto kDefaultVideoUrl = "rtsp://127.0.0.1:8554/arm-rgb";
 constexpr auto kDefaultTheme = "light";
 constexpr double kDefaultScale = 1.0;
 constexpr double kDefaultLinear = 0.30;
@@ -76,6 +81,17 @@ int Config::bridgePort() const
 {
     return store().value(QStringLiteral("connection/port"), kDefaultPort).toInt();
 }
+QString Config::videoUrl() const
+{
+    return store().value(QStringLiteral("video/url"),
+                           QLatin1String(kDefaultVideoUrl)).toString();
+}
+
+void Config::setVideoUrl(const QString &url)
+{
+    store().setValue(QStringLiteral("video/url"), url);
+}
+
 
 void Config::setBridgePort(int port)
 {
