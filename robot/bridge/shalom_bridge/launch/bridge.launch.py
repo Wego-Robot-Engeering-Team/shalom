@@ -29,16 +29,19 @@ def generate_launch_description():
     # 쓰면 TF 조회가 시뮬 시각과 어긋나 위치가 나가지 않는다. 실기에서는
     # false 로 둔다 — true 로 두면 오지 않는 /clock 을 기다리며 멈춘다.
     sim_time_arg = DeclareLaunchArgument(
-        "robot_id", default_value="R1",
-        description="로봇 식별자. 여러 대가 되면 관제가 이것으로 구분한다."),
-    DeclareLaunchArgument(
-        "robot_name", default_value="1호기",
-        description="화면에 보일 이름"),
-    DeclareLaunchArgument(
         "use_sim_time",
         default_value="false",
         description="시뮬레이터와 함께 돌 때만 true",
     )
+
+    # 로봇 식별자. 지금은 한 대뿐이라 화면에 이름을 띄우는 데만 쓰지만,
+    # 여러 대가 되면 관제가 값을 가르는 근거가 된다.
+    robot_id_arg = DeclareLaunchArgument(
+        "robot_id", default_value="R1",
+        description="로봇 식별자. 여러 대가 되면 관제가 이것으로 구분한다.")
+    robot_name_arg = DeclareLaunchArgument(
+        "robot_name", default_value="1호기",
+        description="화면에 보일 이름")
 
     # 로봇이 실제로 내보내는 이름에 붙인다. 노드 안에서는 상대 이름을 쓰므로
     # 다른 스택에 얹을 때는 여기만 고치면 된다.
@@ -66,4 +69,5 @@ def generate_launch_description():
         respawn_delay=2.0,
     )
 
-    return LaunchDescription([config_arg, sim_time_arg, bridge])
+    return LaunchDescription(
+        [config_arg, sim_time_arg, robot_id_arg, robot_name_arg, bridge])
