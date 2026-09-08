@@ -24,6 +24,26 @@
 
 Unitree 메시지는 `b2_driver` 안에 들어 있다. 따로 받을 필요가 없다.
 
+## 한 번에 설치
+
+아래 절들의 명령을 모아 둔 스크립트가 있다. 손으로 옮겨 치면 반드시 하나를
+빠뜨린다.
+
+```bash
+cd ~/shalom_ws/src/shalom
+./scripts/install.sh --role dev       # 개발 PC: 전부
+./scripts/install.sh --role robot     # 로봇: 주행·카메라·영상 송신
+./scripts/install.sh --role station   # 관제 PC: Qt·영상 수신
+./scripts/install.sh --role dev --dry-run   # 무엇을 깔지 먼저 보기
+```
+
+역할을 나누는 이유는 로봇에 Qt 가, 관제 PC 에 RealSense 드라이버가 필요
+없기 때문이다. 안 쓰는 것을 깔아 두면 납품 시 의존성 목록만 길어지고
+라이선스 고지 대상도 함께 는다.
+
+아래 절들은 각 명령이 왜 필요한지를 남겨 둔 것이다. 스크립트를 쓰면
+따로 실행할 필요는 없다.
+
 ## ROS와 도구 설치
 
 [ROS 2 Jazzy 설치 문서](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html)에
