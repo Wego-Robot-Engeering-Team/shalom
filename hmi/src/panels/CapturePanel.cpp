@@ -61,7 +61,9 @@ CapturePanel::CapturePanel(QWidget *parent) : QWidget(parent)
     qrow->addWidget(quality_, 1);
     liveCard->body()->addLayout(qrow);
 
-    live_ = new PreviewView(QStringLiteral("실시간"));
+    // 캡션을 두지 않는다. 카드 제목이 이미 "카메라" 이고 오른쪽 배지가
+    // 수신 상태를 말한다 — 그림 위에 글자를 더 얹을 이유가 없다.
+    live_ = new PreviewView(QString());
     live_->setMinimumHeight(220);
     live_->setPlaceholder(QStringLiteral("영상 없음"));
     liveCard->body()->addWidget(live_);
