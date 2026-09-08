@@ -898,6 +898,10 @@ void MainWindow::showWaypointInfo(const QString &id, const QPoint &globalPos)
 void MainWindow::navigate(NavItem item)
 {
     context_->setCurrentIndex(int(item));
+    // 화면이 바뀌는 길은 여기 하나뿐이다 — 네비게이션 클릭도, showView() 도
+    // 결국 이리로 온다. 영상 켜고 끄기를 showView() 에만 달아 두었더니
+    // 클릭으로 들어온 경우에는 영영 안 켜졌다.
+    updateLiveVideo(item);
 }
 
 void MainWindow::setInspectionDirectory(const QString &path)
@@ -910,7 +914,6 @@ void MainWindow::showView(NavItem item)
 {
     nav_->setCurrent(item);
     navigate(item);
-    updateLiveVideo();
 }
 
 /// 카메라 화면을 볼 때만 영상을 받는다.
@@ -918,11 +921,13 @@ void MainWindow::showView(NavItem item)
 /// 주행 중에는 대역폭이 항법의 것이고, 어차피 촬영은 정지 상태에서만 한다
 /// (과업지시서 2.2.4). 화면을 떠나면 끊어 두는 편이 링크에도 로봇 CPU 에도
 /// 낫다 — 아무도 안 보는 영상을 인코딩할 이유가 없다.
-void MainWindow::updateLiveVideo()
+void MainWindow::updateLiveVideo(NavItem shown)
 {
     if (!video_)
         return;
-    if (nav_->current() == NavItem::Capture)
+    // 보이는 화면을 인자로 받는다. nav_->current() 를 보면 그 값이 언제
+    // 갱신되는지에 기대게 되는데, 부르는 쪽이 순서를 바꾸면 조용히 어긋난다.
+    if (shown == NavItem::Capture)
         video_->start(Config::instance().videoUrl());
     else
         video_->stop();
