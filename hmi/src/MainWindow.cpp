@@ -393,6 +393,17 @@ void MainWindow::wireSignals()
     wireRobotSignals();
     wireChromeSignals();
     wireMapSignals();
+    // 영상은 관제 링크가 아니라 RTSP 로 따로 온다. 화면은 그 사실을 모르고
+    // QImage 만 받는다.
+    video_ = new hmi::video::VideoClient(this);
+    connect(video_, &hmi::video::VideoClient::frameReady,
+            capture_, &CapturePanel::setLiveFrame);
+    connect(video_, &hmi::video::VideoClient::stateChanged, this,
+            [this](hmi::video::State st, const QString &detail) {
+                capture_->setLiveStatus(detail.isEmpty() ? hmi::video::describe(st)
+                                                         : detail);
+            });
+
     wireLocationSignals();
     wirePanelSignals();
     wireMissionSignals();
@@ -899,6 +910,22 @@ void MainWindow::showView(NavItem item)
 {
     nav_->setCurrent(item);
     navigate(item);
+    updateLiveVideo();
+}
+
+/// 카메라 화면을 볼 때만 영상을 받는다.
+///
+/// 주행 중에는 대역폭이 항법의 것이고, 어차피 촬영은 정지 상태에서만 한다
+/// (과업지시서 2.2.4). 화면을 떠나면 끊어 두는 편이 링크에도 로봇 CPU 에도
+/// 낫다 — 아무도 안 보는 영상을 인코딩할 이유가 없다.
+void MainWindow::updateLiveVideo()
+{
+    if (!video_)
+        return;
+    if (nav_->current() == NavItem::Capture)
+        video_->start(Config::instance().videoUrl());
+    else
+        video_->stop();
 }
 
 // ================= 위치 등록 =================

@@ -23,6 +23,24 @@ CapturePanel::CapturePanel(QWidget *parent) : QWidget(parent)
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(metrics::s3);
 
+    // ---- 라이브 뷰 ----
+    //
+    // 팔을 겨눌 때 보는 화면이다. 이것이 없으면 조작자는 찍고 나서야
+    // 빗나간 것을 안다. 촬영 버튼 위에 두는 이유도 그것이다 — 보고, 맞추고,
+    // 찍는 순서가 화면에서도 위에서 아래로 흐른다.
+    //
+    // 영상은 관제 링크가 아니라 RTSP 로 따로 온다. 늦은 그림은 없는 그림보다
+    // 나쁘기 때문이다 — 화면이 밀리면 팔을 더 움직이게 된다.
+    auto *liveCard = new Card(QStringLiteral("카메라"));
+    liveState_ = new Badge(QStringLiteral("꺼짐"), QStringLiteral("neutral"));
+    liveCard->addHeaderWidget(liveState_);
+    outer->addWidget(liveCard);
+
+    live_ = new PreviewView(QStringLiteral("실시간"));
+    live_->setMinimumHeight(220);
+    live_->setPlaceholder(QStringLiteral("영상 없음"));
+    liveCard->body()->addWidget(live_);
+
     // ---- 촬영 ----
     card_ = new Card(QStringLiteral("촬영 제어"));
     state_ = new Badge(QStringLiteral("대기"), QStringLiteral("neutral"));
@@ -172,6 +190,25 @@ void CapturePanel::refreshDerived()
 
     fileNamePreview_->setText(m.fileName(QStringLiteral("jpg")));
     saveButton_->setEnabled(true);
+}
+
+void CapturePanel::setLiveFrame(const QImage &frame)
+{
+    if (live_)
+        live_->setImage(frame);
+}
+
+void CapturePanel::setLiveStatus(const QString &text)
+{
+    if (!live_)
+        return;
+    // 그림이 있는 동안에는 지우지 않는다. 마지막으로 보이던 장면을 남겨 두는
+    // 편이, 갑자기 비는 것보다 무슨 일이 났는지 읽기 쉽다.
+    live_->setPlaceholder(text);
+    if (liveState_) {
+        const bool ok = text == QStringLiteral("수신 중");
+        liveState_->set(text, ok ? QStringLiteral("ok") : QStringLiteral("neutral"));
+    }
 }
 
 }  // namespace hmi::ui
