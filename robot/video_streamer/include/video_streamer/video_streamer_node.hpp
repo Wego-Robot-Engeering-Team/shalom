@@ -78,6 +78,7 @@ private:
     std::uint64_t framesPushed_ = 0;
     std::string lastError_;
     bool streaming_ = false;
+    bool autostart_ = false;
 };
 
 }  // namespace video_streamer

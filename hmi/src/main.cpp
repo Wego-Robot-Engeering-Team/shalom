@@ -151,10 +151,18 @@ int main(int argc, char *argv[])
     hmi::auth::Session::instance().signInAsDeveloper();
 #endif
 
-    // --live 는 실제 브릿지에, 그 외에는 내장 시뮬레이터에 붙는다.
+    // 기본은 브릿지 접속이다. --testbed 를 주면 내장 모형에 붙는다.
     // 창은 어느 쪽인지 알지 못한다 — 둘 다 RobotLink 를 구현한다.
+    //
+    // 예전에는 반대였다. 브릿지가 없던 시절에는 내장 모형이 유일한 데이터
+    // 원천이었기 때문인데, 지금은 시뮬레이터가 브릿지로 실기와 같은 채널을
+    // 낸다. 기본이 모형이면 화면이 도는 것만 보고 "연동이 된다" 고 오해하기
+    // 쉽고, 정작 브릿지가 끊긴 것은 눈치채지 못한다.
+    //
+    // --live 는 예전 문서와 손에 익은 습관을 위해 그대로 받는다.
     hmi::robot::RobotLink *link = nullptr;
-    if (args.contains(QStringLiteral("--live"))) {
+    const bool testbed = args.contains(QStringLiteral("--testbed"));
+    if (!testbed) {
         // 설정값을 실행 인자로 덮어쓸 수 있게 한다. 현장 지원에서 설정 창을
         // 열지 않고 다른 주소로 붙여봐야 하는 경우가 있다.
         QString host = cfg.bridgeHost();
@@ -176,7 +184,7 @@ int main(int argc, char *argv[])
         // 납품 빌드에는 시뮬레이터가 없다. 로봇이 없으면 화면이 뜨지 않는
         // 편이, 가짜 데이터로 도는 화면을 현장에서 진짜로 오해하는 것보다
         // 낫다.
-        qCritical("로봇 주소를 지정해야 합니다: --live --host <주소> --port <포트>");
+        qCritical("이 빌드에는 내장 모형이 없습니다. --testbed 없이 실행하십시오.");
         return 2;
 #endif
     }

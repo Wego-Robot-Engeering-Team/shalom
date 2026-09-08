@@ -34,18 +34,19 @@ cd ~/shalom_ws/src/shalom
 
 ## 실행
 
-### 시뮬레이터로 전부
-
-실기 없이 주행과 관제를 그대로 돌린다. 환경 스크립트를 미리 받을 필요는
-없다 — 노드가 필요한 venv 를 스스로 얹는다.
+### 한 줄로 전부
 
 ```bash
 source ~/shalom_ws/install/setup.bash
-ros2 launch application b2_navigation.launch.py robot:=sim
+ros2 launch application b2_navigation.launch.py
 ```
 
-MuJoCo 뷰어와 RViz 가 함께 뜬다. 헤드리스로 돌리려면 `viewer:=false
-rviz:=false`.
+기본값이 이렇게 잡혀 있다 — **시뮬레이터**, **가장 최근 저장 지도**,
+**카메라와 뷰파인더 영상**, 관제 브릿지, MuJoCo 뷰어, RViz.
+
+환경 스크립트를 미리 받을 필요는 없다. 노드가 필요한 venv 를 스스로 얹는다.
+
+카메라가 안 꽂혀 있어도 된다 — 한 번 오류를 내고 나머지는 그대로 돈다.
 
 ### 실기
 
@@ -61,16 +62,18 @@ ros2 launch application b2_navigation.launch.py robot:=real \
   cameras:=true arm_camera_serial:=213522250834
 ```
 
-### 지도: 새로 그릴지, 불러올지
+### 지도
 
-기본은 실시간 SLAM 이다. 저장해 둔 지도를 쓰려면 경로를 준다 — 그러면
-map_server 와 AMCL 이 뜨고 SLAM 은 물러난다. 둘을 함께 켜면 `map→odom` 을
-두 노드가 다투므로 자동으로 막는다.
+기본은 `map:=latest` — `maps/` 에서 가장 최근 것을 불러온다. 이름만 줘도
+되고, 새로 그리려면 `none` 이다.
 
 ```bash
-ros2 launch application b2_navigation.launch.py \
-  robot:=sim map:=$PWD/robot/application/maps/2026-09-07.yaml
+ros2 launch application b2_navigation.launch.py map:=2026-09-07   # 이름만
+ros2 launch application b2_navigation.launch.py map:=none         # 실시간 SLAM
 ```
+
+저장된 지도를 쓰면 map_server 와 AMCL 이 뜨고 SLAM 은 물러난다. 둘을 함께
+켜면 `map→odom` 을 두 노드가 다투므로 자동으로 막는다.
 
 지도를 저장하려면:
 
@@ -85,8 +88,8 @@ ros2 run nav2_map_server map_saver_cli -f robot/application/maps/$(date +%F)
 ```bash
 cd hmi
 cmake --preset dev && cmake --build --preset dev
-./build/inspection_hmi            # 내장 testbed — 로봇이 없어도 화면이 돈다
-./build/inspection_hmi --live     # 브릿지에 접속
+./build/inspection_hmi            # 브릿지에 접속 (시뮬·실기 모두 여기로 온다)
+./build/inspection_hmi --testbed  # 내장 모형 — 로봇도 브릿지도 없을 때
 ```
 
 ### 뷰파인더 영상
@@ -95,12 +98,18 @@ cmake --preset dev && cmake --build --preset dev
 찍어 NAS 로 가므로, 이 경로는 화질이 아니라 지연으로 평가한다. 제어 채널과
 대역폭이 섞이지 않도록 RTSP/RTP 로 따로 보낸다.
 
-```bash
-ros2 launch video_streamer video_streamer.launch.py              # 젯슨 (NVENC)
-ros2 launch video_streamer video_streamer.launch.py encoder:=x264enc   # 개발 PC
+메인 런치가 `cameras:=true`(기본값)로 함께 띄운다. 따로 켤 일은 카메라만
+시험할 때뿐이다.
 
-# 필요할 때만 켠다. 자율주행 중에는 대역폭이 항법의 것이다.
-ros2 service call /fr3/camera/video_streamer/enable std_srvs/srv/SetBool "{data: true}"
+```bash
+ros2 launch video_streamer video_streamer.launch.py                    # 젯슨
+ros2 launch video_streamer video_streamer.launch.py encoder:=x264enc   # 개발 PC
+```
+
+주행 중에 대역폭을 아끼려면 끈다.
+
+```bash
+ros2 service call /fr3/camera/video_streamer/enable std_srvs/srv/SetBool "{data: false}"
 ```
 
 ### 끄기
@@ -116,9 +125,10 @@ ros2 run application stop_stack
 | 인자 | 기본값 | 뜻 |
 |---|---|---|
 | `robot` | `sim` | `sim` 또는 `real` |
-| `map` | (없음) | 주면 저장된 지도 + AMCL, 안 주면 실시간 SLAM |
-| `cameras` | `false` | 로봇암 끝단 RealSense (2D+3D) |
-| `body_camera` | `false` | 본체 RealSense |
+| `map` | `latest` | `latest` / 이름 / 경로 / `none`(실시간 SLAM) |
+| `cameras` | `true` | 로봇암 RealSense + 뷰파인더 영상 |
+| `video` | `true` | RTSP 송신을 바로 켤지 |
+| `encoder` | `x264enc` | 젯슨은 `nvv4l2h264enc` |
 | `viewer` | `true` | MuJoCo 뷰어 (`robot:=sim` 일 때) |
 | `rviz` | `true` | RViz |
 | `bridge` | `true` | 관제 브릿지 |
