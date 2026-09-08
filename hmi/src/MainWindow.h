@@ -26,6 +26,7 @@
 #include "robot/RobotLink.h"
 #include "panels/LocationPanel.h"
 #include "widgets/MapCard.h"
+#include "video/VideoClient.h"
 #include "widgets/NavRail.h"
 #include "widgets/Toast.h"
 
@@ -131,6 +132,7 @@ private:
     /// The robot drives to the dock on its own, so a location taught only on
     /// screen is a location the robot does not have.
     void showFixedLocations();
+    void updateLiveVideo();
     void applyFixedLocations();
 
     /// Keeps the top-bar name and role badge on the current session.
@@ -216,6 +218,8 @@ private:
     /// Last reported charge. Kept out of RobotSnapshot, which exists to judge
     /// whether a location capture is valid and has nothing to do with power.
     double lastSoc_ = 0.0;
+    hmi::video::VideoClient *video_ = nullptr;
+
     QVariantMap dock_;
     QVariantMap home_;
 

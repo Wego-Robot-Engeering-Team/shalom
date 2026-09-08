@@ -109,9 +109,25 @@ add_library(hmi_core ${HMI_CORE_TYPE}
     src/widgets/HealthRow.cpp
     src/widgets/Robot3DView.cpp
     src/widgets/RobotMesh.cpp
+    src/video/VideoClient.cpp
     src/panels/DiagnosticsPanel.cpp
     src/MainWindow.cpp
 )
+# 영상 수신은 선택이다. GStreamer 가 없으면 화면은 그대로 뜨고 영상 자리에만
+# "이 빌드에는 영상 디코더가 없습니다" 가 나온다 — 관제의 나머지 기능이
+# 디코더 하나 때문에 통째로 못 뜨는 편이 나쁘다.
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(GSTVIDEO QUIET IMPORTED_TARGET gstreamer-1.0 gstreamer-app-1.0)
+endif()
+if(GSTVIDEO_FOUND)
+    target_link_libraries(hmi_core PUBLIC PkgConfig::GSTVIDEO)
+    target_compile_definitions(hmi_core PUBLIC HMI_WITH_VIDEO=1)
+    message(STATUS "영상 수신: GStreamer ${GSTVIDEO_gstreamer-1.0_VERSION}")
+else()
+    message(STATUS "영상 수신: 없음 (GStreamer 개발 패키지가 없다)")
+endif()
+
 target_include_directories(hmi_core PUBLIC src ${CMAKE_CURRENT_SOURCE_DIR}/../common/protocol/include
     ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(hmi_core PUBLIC Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Svg)
