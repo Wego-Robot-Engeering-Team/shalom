@@ -69,6 +69,8 @@ struct Colors {
     QLatin1String plan;    ///< Nav2 planned path (solid blue)
     QLatin1String trail;   ///< travelled path (dashed grey)
     QLatin1String tag;     ///< AprilTag marker
+    QLatin1String dock;    ///< charging station
+    QLatin1String home;    ///< start position
 
     bool isDark() const { return name == QLatin1String("dark"); }
 };
