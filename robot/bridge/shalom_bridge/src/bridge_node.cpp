@@ -81,9 +81,11 @@ constexpr double kTrailMinStepM = 0.05;
 BridgeNode::BridgeNode() : rclcpp::Node("shalom_bridge")
 {
     port_ = int(declare_parameter("port", port_));
+    robotId_ = declare_parameter("robot_id", robotId_);
+    robotName_ = declare_parameter("robot_name", robotName_);
     // 영상 노드의 완전한 이름. 카메라를 두 대 달면 역할별로 갈리므로 설정으로 둔다.
     videoNodeName_ = declare_parameter("video_node",
-                                       std::string("/fr3/camera/video_streamer"));
+                                       std::string("/fr3/camera/camera_streamer"));
     mapFrame_ = declare_parameter("map_frame", mapFrame_);
     baseFrame_ = declare_parameter("base_frame", baseFrame_);
     deadman_ = std::chrono::milliseconds(
@@ -674,7 +676,9 @@ void BridgeNode::publishSystem()
                                   {"gpu_pct", nullptr},
                                   {"gpu_temp_c", nullptr},
                                   {"net_rtt_ms", nullptr},
-                                  {"net_rssi", nullptr}}),
+                                  {"net_rssi", nullptr},
+                                  {"robot_id", robotId_},
+                                  {"robot_name", robotName_}}),
                  true);
 }
 

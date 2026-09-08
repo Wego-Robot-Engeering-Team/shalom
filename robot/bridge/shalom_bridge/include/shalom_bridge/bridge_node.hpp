@@ -304,6 +304,12 @@ private:
     std::string videoQuality_ = "high";
     std::string videoNodeName_;
 
+    // 로봇 식별자. 지금은 한 대뿐이라 화면에 이름을 띄우는 데만 쓰지만,
+    // 여러 대가 되면 관제가 어느 로봇의 값인지 가르는 근거가 된다. 나중에
+    // 넣으려면 프로토콜을 고쳐야 하므로 지금 자리를 만들어 둔다.
+    std::string robotId_ = "R1";
+    std::string robotName_ = "1호기";
+
     // 촬영. 압축 이미지를 그대로 받아 그대로 쓴다 — 인코더를 따로 두면
     // 같은 그림을 두 번 누르는 셈이고, compressed_image_transport 가 이미
     // 카메라 노드 쪽에서 해 준다.
