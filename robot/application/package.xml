@@ -20,6 +20,8 @@
 
   <exec_depend>lidar_slam</exec_depend>
   <exec_depend>camera_streamer</exec_depend>
+  <!-- 임시 시험용 VLP-16 을 B2 라이다 자리에 끼울 때 쓴다. -->
+  <exec_depend>velodyne</exec_depend>
   <exec_depend>aurora_odometry</exec_depend>
   <exec_depend>kiss_icp</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>
