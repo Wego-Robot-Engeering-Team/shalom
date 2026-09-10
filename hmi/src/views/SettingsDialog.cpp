@@ -24,7 +24,6 @@
 #include "BuildInfo.h"
 #include "Config.h"
 #include "RobotDef.h"
-#include "auth/Session.h"
 #include "theme/Tokens.h"
 #include "widgets/Primitives.h"
 
@@ -117,8 +116,7 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QWidget(parent, Qt::Window)
     connect(reset, &QPushButton::clicked, this, [this] {
         const auto answer = QMessageBox::question(
             this, QStringLiteral("기본값으로 되돌리기"),
-            QStringLiteral("모든 설정을 기본값으로 되돌립니다.\n"
-                           "관리자 비밀번호는 유지됩니다."),
+            QStringLiteral("모든 설정을 기본값으로 되돌립니다."),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (answer != QMessageBox::Yes)
             return;

@@ -21,22 +21,6 @@ set(HMI_PROTOCOL_VERSION "${CMAKE_MATCH_1}")
 
 include(cmake/Version.cmake)
 
-# ---------------------------------------------------------------------------
-# 로그인 요구 여부
-#
-# 개발 중에는 매번 로그인하는 것이 번거로우므로 끌 수 있게 한다. 다만 런타임
-# 플래그가 아니라 빌드 옵션으로 둔다 — 실행 인자로 끌 수 있으면 납품 빌드에서도
-# 꺼진 채 나갈 수 있고, 그 사실을 아무도 눈치채지 못한다.
-#
-# 납품 빌드는 반드시 ON 으로 구성한다(기본값).
-# ---------------------------------------------------------------------------
-option(HMI_REQUIRE_LOGIN "기동 시 조작자 로그인을 요구한다 (납품 빌드는 반드시 ON)" ON)
-if(NOT HMI_REQUIRE_LOGIN)
-    message(WARNING
-        "HMI_REQUIRE_LOGIN=OFF — 로그인을 생략하는 개발 빌드입니다. "
-        "납품 빌드에 사용하지 마십시오.")
-endif()
-
 if(MSVC)
     add_compile_options(/W4 /permissive-)
 else()
@@ -63,8 +47,6 @@ endif()
 
 add_library(hmi_core ${HMI_CORE_TYPE}
     src/Config.cpp
-    src/auth/Session.cpp
-    src/views/WelcomeDialog.cpp
     src/views/SettingsDialog.cpp
     src/theme/Tokens.cpp
     src/theme/Style.cpp
@@ -187,9 +169,6 @@ if(HMI_WITH_TESTBED)
 else()
     target_link_libraries(inspection_hmi PRIVATE hmi_core)
 endif()
-target_compile_definitions(inspection_hmi PRIVATE
-    HMI_REQUIRE_LOGIN=$<BOOL:${HMI_REQUIRE_LOGIN}>)
-
 # ---------------------------------------------------------------------------
 # 테스트
 # ---------------------------------------------------------------------------
@@ -260,7 +239,6 @@ if(HMI_BUILD_TESTS)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     hmi_add_test(test_capture)
-    hmi_add_test(test_session)
 
     hmi_add_test(test_bridge)
     hmi_add_test(test_capture_meta)
