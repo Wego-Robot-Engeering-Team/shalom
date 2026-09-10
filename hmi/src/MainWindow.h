@@ -202,6 +202,7 @@ private:
     EStopButton *estop_ = nullptr;
     AlertFrame *alert_ = nullptr;
     ToastHost *toasts_ = nullptr;
+    QLabel *robotLabel_ = nullptr;
     Badge *linkBadge_ = nullptr;
     QPushButton *autoBtn_ = nullptr;
     QPushButton *manualBtn_ = nullptr;

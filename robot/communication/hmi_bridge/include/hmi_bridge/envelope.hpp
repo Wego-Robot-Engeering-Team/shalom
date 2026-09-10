@@ -42,6 +42,8 @@ inline constexpr auto kEstopEngaged = "E_ESTOP_ENGAGED";
 inline constexpr auto kMode = "E_MODE";
 inline constexpr auto kBusy = "E_BUSY";
 inline constexpr auto kUnreachable = "E_UNREACHABLE";
+/// The command names a different robot than the one that received it.
+inline constexpr auto kRobotMismatch = "E_ROBOT_MISMATCH";
 inline constexpr auto kLimit = "E_LIMIT";
 inline constexpr auto kHardware = "E_HARDWARE";
 }  // namespace err
@@ -51,6 +53,20 @@ struct Envelope {
     std::string t;
     std::string ch;
     std::string id;
+
+    /// Which robot this is from, or is meant for.
+    ///
+    /// The control station pins the first id it hears and refuses a different
+    /// one on the same connection. That is what catches an operator pointed at
+    /// the wrong machine: a mis-set address otherwise looks like a working
+    /// system, and the E-Stop then stops a robot nobody is watching.
+    ///
+    /// The bridge stamps every frame it sends and rejects a command that names
+    /// a different robot. Empty on an inbound frame means "whichever robot is
+    /// on this connection" - the station sends it empty until it has heard an
+    /// id, so a first command is never refused for lack of one.
+    std::string robot;
+
     double ts = 0.0;
     std::optional<std::int64_t> seq;
     json p = json::object();
