@@ -192,17 +192,18 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     maxCaptureLinear_ = declare_parameter("capture.max_linear_speed", maxCaptureLinear_);
     maxCaptureAngular_ = declare_parameter("capture.max_angular_speed", maxCaptureAngular_);
     const auto colorTopic = declare_parameter(
-        "capture.color_topic", std::string("/fr3/camera/arm_camera/color/image_raw/compressed"));
+        "capture.color_topic", std::string("/fr3/camera_2d/image_raw"));
     const auto depthTopic = declare_parameter(
         "capture.depth_topic",
         std::string("/fr3/camera/arm_camera/aligned_depth_to_color/image_raw"));
 
 
-    // 압축 이미지를 그대로 들고 있다가 그대로 쓴다. 다시 인코딩하면 같은
-    // 그림을 두 번 누르는 셈이고, 화질만 잃는다.
-    colorSub_ = create_subscription<sensor_msgs::msg::CompressedImage>(
+    // 마지막 프레임만 들고 있다가 촬영 요청 때 누른다. 카메라가 압축 영상을
+    // 내지 않으므로(realsense2_camera 는 컬러를 원본 Image 로만 발행한다)
+    // 여기서 CompressedImage 를 기다리면 촬영이 영원히 거절된다.
+    colorSub_ = create_subscription<sensor_msgs::msg::Image>(
         colorTopic, rclcpp::SensorDataQoS(),
-        [this](const sensor_msgs::msg::CompressedImage::ConstSharedPtr &msg) {
+        [this](const sensor_msgs::msg::Image::ConstSharedPtr &msg) {
             lastColor_ = msg;
         });
     depthSub_ = create_subscription<sensor_msgs::msg::Image>(
@@ -790,15 +791,22 @@ void BridgeNode::handleCapture(const Envelope &request)
         return;
     }
 
-    const std::string imagePath = spoolDir_ + "/" + base + ".jpg";
+    const std::string png = encodeImagePng(*lastColor_);
+    if (png.empty()) {
+        respond(request, false, err::kHardware,
+                "사진을 만들지 못했습니다. 카메라 형식이 " + lastColor_->encoding
+                    + " 입니다");
+        return;
+    }
+
+    const std::string imagePath = spoolDir_ + "/" + base + ".png";
     {
         std::ofstream out(imagePath, std::ios::binary);
         if (!out) {
             respond(request, false, err::kHardware, "사진을 저장하지 못했습니다");
             return;
         }
-        out.write(reinterpret_cast<const char *>(lastColor_->data.data()),
-                  std::streamsize(lastColor_->data.size()));
+        out.write(png.data(), std::streamsize(png.size()));
     }
 
     // 사이드카. 파일명에 담기지 않는 값들이 여기 들어간다 — 과업지시서의
@@ -823,7 +831,7 @@ void BridgeNode::handleCapture(const Envelope &request)
     }
     const double distance = centreDistanceMm();
     const json meta{
-        {"file", base + ".jpg"},
+        {"file", base + ".png"},
         {"vehicle_number", vehicle},
         {"car_number", car},
         {"point_id", point},
@@ -842,15 +850,14 @@ void BridgeNode::handleCapture(const Envelope &request)
     // 성공 응답에는 오류 코드가 없다. nullptr 을 넘기면 std::string 이
     // 널에서 만들어져 노드가 죽는다 — 실제로 사진은 저장되고 그 직후
     // 브릿지가 내려앉았다.
-    respond(request, true, std::string(), base + ".jpg");
-    RCLCPP_INFO(get_logger(), "촬영 저장: %s (%zu 바이트)", imagePath.c_str(),
-                lastColor_->data.size());
+    respond(request, true, std::string(), base + ".png");
+    RCLCPP_INFO(get_logger(), "촬영 저장: %s (%ux%u %s, PNG %zu 바이트)",
+                imagePath.c_str(), lastColor_->width, lastColor_->height,
+                lastColor_->encoding.c_str(), png.size());
 
     // 미리보기는 방금 저장한 그 바이트를 그대로 보낸다. 다시 만들면 화면에
     // 보이는 것과 저장된 것이 다를 수 있다.
-    sendEnvelope(makePublish(kChPreview, meta), false,
-                 std::string(reinterpret_cast<const char *>(lastColor_->data.data()),
-                             lastColor_->data.size()));
+    sendEnvelope(makePublish(kChPreview, meta), false, png);
     publishCaptureSpool();
 }
 
@@ -1093,6 +1100,81 @@ void pngChunk(std::string &out, const char type[4], const std::string &data)
 }
 
 }  // namespace
+
+std::string BridgeNode::encodeImagePng(const sensor_msgs::msg::Image &image)
+{
+    const int w = int(image.width);
+    const int h = int(image.height);
+    if (w <= 0 || h <= 0)
+        return {};
+
+    // 채널 수와 PNG 색 타입. 그 외 형식은 빈 문자열로 돌려보내 호출부가
+    // 무슨 형식이었는지 조작자에게 말하게 한다 — 조용히 깨진 파일을 남기는
+    // 것보다 낫다.
+    int channels = 0;
+    char colourType = 0;
+    bool swapRb = false;
+    if (image.encoding == "rgb8") {
+        channels = 3; colourType = 2;
+    } else if (image.encoding == "bgr8") {
+        channels = 3; colourType = 2; swapRb = true;
+    } else if (image.encoding == "mono8") {
+        channels = 1; colourType = 0;
+    } else {
+        return {};
+    }
+
+    const std::size_t stride = image.step ? image.step : std::size_t(w) * channels;
+    if (image.data.size() < stride * std::size_t(h))
+        return {};
+
+    // 필터 0(None) 한 가지만 쓴다. 행마다 최적 필터를 고르면 몇 퍼센트를 더
+    // 줄이지만, 촬영은 정지 상태에서 한 장씩 하는 일이라 시간이 아니라
+    // 단순함이 낫다.
+    std::string raw;
+    raw.reserve(std::size_t(h) * (std::size_t(w) * channels + 1));
+    for (int y = 0; y < h; ++y) {
+        raw.push_back('\0');
+        const std::uint8_t *row = image.data.data() + std::size_t(y) * stride;
+        if (!swapRb) {
+            raw.append(reinterpret_cast<const char *>(row), std::size_t(w) * channels);
+        } else {
+            for (int x = 0; x < w; ++x) {
+                const std::uint8_t *px = row + std::size_t(x) * 3;
+                raw.push_back(char(px[2]));
+                raw.push_back(char(px[1]));
+                raw.push_back(char(px[0]));
+            }
+        }
+    }
+
+    // 지도와 달리 여기서는 Z_BEST_SPEED 를 쓰지 않는다. 이 파일은 NAS 로 가서
+    // 점검 근거로 남으므로, 한 번 더 눌러 두는 편이 낫다.
+    uLongf bound = compressBound(uLong(raw.size()));
+    std::string deflated(bound, '\0');
+    if (compress2(reinterpret_cast<Bytef *>(deflated.data()), &bound,
+                  reinterpret_cast<const Bytef *>(raw.data()), uLong(raw.size()),
+                  Z_DEFAULT_COMPRESSION) != Z_OK)
+        return {};
+    deflated.resize(bound);
+
+    std::string ihdr;
+    for (int v : {w, h}) {
+        ihdr.push_back(char((v >> 24) & 0xFF));
+        ihdr.push_back(char((v >> 16) & 0xFF));
+        ihdr.push_back(char((v >> 8) & 0xFF));
+        ihdr.push_back(char(v & 0xFF));
+    }
+    ihdr.push_back(8);           // bit depth
+    ihdr.push_back(colourType);  // 2 = truecolour, 0 = greyscale
+    ihdr.append(3, '\0');        // compression, filter, interlace
+
+    std::string png("\x89PNG\r\n\x1a\n", 8);
+    pngChunk(png, "IHDR", ihdr);
+    pngChunk(png, "IDAT", deflated);
+    pngChunk(png, "IEND", {});
+    return png;
+}
 
 std::string BridgeNode::encodeGridPng(const nav_msgs::msg::OccupancyGrid &grid)
 {
