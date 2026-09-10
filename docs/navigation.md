@@ -11,8 +11,8 @@ Nav2가 경로를 계획하고 속도 명령을 낸다. B2에서는 보행 정�
 source /opt/ros/jazzy/setup.bash
 source ~/shalom_ws/install/setup.bash
 
-ros2 launch application bringup.launch.py robot:=sim
-ros2 launch application bringup.launch.py robot:=real \
+ros2 launch bringup bringup.launch.py robot:=sim
+ros2 launch bringup bringup.launch.py robot:=real \
   network_interface:=enp3s0 use_sim_time:=false
 ```
 
@@ -36,7 +36,7 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 source /opt/ros/jazzy/setup.bash
 source ~/shalom_ws/install/setup.bash
 
-ros2 launch camera_streamer camera_streamer.launch.py \
+ros2 launch realsense_d455 d455_stream.launch.py \
   role:=arm serial:=<D455-serial> autostart:=false
 ```
 
@@ -48,7 +48,7 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 source /opt/ros/jazzy/setup.bash
 source ~/shalom_ws/install/setup.bash
 
-ros2 launch application bringup.launch.py \
+ros2 launch bringup bringup.launch.py \
   robot:=sim payload:=fr3 map:=none rviz:=false viewer:=false \
   cameras:=false video:=false
 ```
@@ -92,7 +92,7 @@ ss -tn sport = :9090
 
 ## 구성
 
-플래너는 `nav2_b2.yaml`에 명시한 **NavFn**(Dijkstra 격자)이다. `allow_unknown: true`라
+플래너는 `robot/navigation/config/nav2.yaml`에 명시한 **NavFn**(Dijkstra 격자)이다. `allow_unknown: true`라
 SLAM 지도의 미탐색 영역을 통과하는 계획도 만들 수 있다. 컨트롤러는 MPPI다.
 
 ```
@@ -116,7 +116,7 @@ local costmap은 `GroundConsistencyLayer`가 3D 지면·장애물 포인트를 �
 
 ## collision monitor
 
-`nav2_b2.yaml`에서 collision monitor의 pointcloud 입력은 **꺼져 있다**. 지면분할이
+`robot/navigation/config/nav2.yaml`에서 collision monitor의 pointcloud 입력은 **꺼져 있다**. 지면분할이
 가까운 지면 반사를 장애물로 잘못 분류하면 로봇 발밑에서 계속 정지가 걸리기 때문이다.
 costmap은 그대로 쓰이므로 경로 계획에는 영향이 없다.
 

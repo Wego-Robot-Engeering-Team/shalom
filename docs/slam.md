@@ -27,36 +27,36 @@ kiss_icp (같은 PointCloud2) → odom → base_link
 ```bash
 source /opt/ros/jazzy/setup.bash
 source ~/shalom_ws/install/setup.bash
-ros2 launch application bringup.launch.py robot:=sim
+ros2 launch bringup bringup.launch.py robot:=sim
 ```
 
 Nav2까지 같이 뜬다. 지도만 만들려면 `nav2:=false`로 끈다.
 
 ```bash
-ros2 launch application bringup.launch.py robot:=sim nav2:=false
+ros2 launch bringup bringup.launch.py robot:=sim nav2:=false
 ```
 
-RViz의 **SLAM Map**에 `/map`이 그려진다. 로봇을 움직여야 채워지므로
-[수동 조종](teleop.md)으로 한 바퀴 돌린다.
+RViz의 **SLAM Map**에 `/map`이 그려진다. 로봇을 움직여야 채워지므로 HMI의
+수동 조작 화면으로 한 바퀴 돈다.
 
 ## 지도 저장
 
 ```bash
-ros2 run nav2_map_server map_saver_cli -f ~/shalom_ws/src/shalom/robot/application/maps/$(date +%F)
+ros2 run nav2_map_server map_saver_cli -f ~/shalom_ws/src/shalom/robot/navigation/maps/$(date +%F)
 ```
 
 `.pgm`과 `.yaml`이 생긴다. 저장된 지도로 주행할 때는 `slam:=false`로 slam_toolbox를 끈다.
 
 ## 튜닝
 
-높이 밴드는 `robot/application/config/ground_filter_b2.yaml`에서 조정한다.
+높이 밴드는 `robot/navigation/config/ground_filter.yaml`에서 조정한다.
 
 | 파라미터 | 기본 | 뜻 |
 |---|---|---|
 | `min_height_above_ground` | 0.15 | 이 아래는 지면 잡음으로 버림 |
 | `max_height_above_ground` | 1.50 | 이 위는 무시. B2 키(0.7 m)보다 높게 잡아 머리 위 구조물도 반영 |
 
-지면 판정 자체는 `robot/application/config/gseg3d_b2.yaml`이다. **`lidar_to_ground`는
+지면 판정 자체는 `robot/navigation/config/ground_segmentation.yaml`이다. **`lidar_to_ground`는
 LiDAR 실제 장착 높이와 반드시 맞춰야 한다** (B2는 `-0.74`).
 
 ## 파이프라인만 따로 쓰기

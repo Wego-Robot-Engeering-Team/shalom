@@ -6,21 +6,28 @@
 ~/shalom_ws/src/
 ├── shalom/                 이 저장소
 │   ├── robot/
-│   │   ├── lidar_slam/     3D LiDAR 인식 → 2D SLAM (로봇 무관)
-│   │   ├── application/    B2 주행 조립 + B2 전용 튜닝
-│   │   └── bridge/         HMI TCP ↔ ROS 2 브릿지
-│   │   └── camera_streamer/ RealSense 역할·H.264/RTSP 뷰파인더
+│   │   ├── bringup/                    전체 실행·시스템 설정 (ROS 패키지)
+│   │   ├── control/                    미션·안전 관리 (현재 설계 문서)
+│   │   ├── navigation/config/          B2 주행·위치추정·SLAM 설정
+│   │   ├── navigation/maps/             저장 지도
+│   │   ├── navigation/rviz/             주행·지도화 화면 설정
+│   │   ├── navigation/lidar_slam/       점군 지면분리·2D SLAM
+│   │   ├── sensors/realsense_d455/      D455 역할·토픽·설정
+│   │   ├── sensors/aurora/              Aurora S 연동
+│   │   ├── sensors/velodyne_vlp16/      임시 VLP-16 연동 (최종 XT32)
+│   │   ├── communication/hmi_bridge/   HMI TCP ↔ ROS 2
+│   │   └── common/                     로봇 전용 공유 코드 배치 기준 (현재 문서)
 │   ├── hmi/                관제 GUI와 HMI 전용 testbed
 │   ├── common/             HMI·로봇 공통 통신 계약
 │   └── docs/               운용·통신 문서
-├── b2_simulation/          실기 대체 시뮬레이터 + RL 학습
-├── b2_driver/              실기 드라이버
+├── b2_simulation/          사내 관리: 실기 대체 시뮬레이터 + RL 학습
+├── b2_driver/              사내 관리: Unitree B2 실기 드라이버
 │   └── unitree_msgs/       unitree_go / unitree_api 메시지 (벤더링, BSD-3)
-└── third_party/            소스로 함께 관리하는 외부 ROS 패키지
+└── third_party/            외부 ROS·SDK 소스 (필요한 호환 수정은 설치 스크립트에 기록)
     ├── ground_segmentation/
     ├── ground_segmentation_ros2/
     ├── kiss_icp/
-    ├── aurora_ros/        SLAMTEC Aurora S 공식 ROS 2 드라이버 + aarch64 SDK
+    ├── aurora_ros/         SLAMTEC Aurora S ROS 2 드라이버 (Jazzy 호환 보정 적용)
     ├── librealsense/       RealSense SDK 소스와 USB 권한 규칙
     └── nav2_ground_consistency_costmap_plugin/
 ```
@@ -28,6 +35,10 @@
 Unitree 메시지는 `b2_driver/unitree_msgs` 안에 들어 있다. 설치 스크립트가
 `unitree_ros2`의 고정 커밋에서 필요한 `unitree_go`·`unitree_api`만 자동으로
 가져오므로 따로 받을 필요가 없다.
+
+ROS 패키지는 폴더와 패키지 이름을 같게 하고, 분야 분류 폴더에는 `package.xml`을 두지
+않는다. 기존 작업공간을 갱신한 경우 [구조 변경 후 빌드](../robot/README.md#경로-변경-후-빌드)의
+CMake 캐시 갱신 절차를 먼저 따른다. 워크스페이스 안에는 소스 백업을 두지 않는다.
 
 ## 한 번에 설치
 
@@ -88,7 +99,7 @@ source install/setup.bash
 확인:
 
 ```bash
-ros2 pkg list | rg 'application|shalom_bridge|camera_streamer|realsense2_camera'
+ros2 pkg list | rg 'bringup|hmi_bridge|realsense_d455|video_streamer|realsense2_camera'
 realsense-viewer
 ```
 
@@ -103,6 +114,7 @@ SDK 소스에는 `COLCON_IGNORE`를 둔다. 따라서 ROS 빌드에서 SDK가 �
 고정한 B2 드라이버 커밋에는 더는 쓰지 않는 `dae/` 디렉터리를 CMake 설치 목록에
 남긴 부분이 있다. 설치 스크립트가 빈 호환 디렉터리를 자동 생성하므로, 첫 빌드도
 별도 수동 수정 없이 진행된다.
+
 
 ## Jetson별 H.264 인코더
 
@@ -157,15 +169,15 @@ rs-enumerate-devices -s      # 또는 ros2 run realsense2_camera ...
 
 ```bash
 # 카메라만
-ros2 launch camera_streamer camera_streamer.launch.py \
+ros2 launch realsense_d455 d455_stream.launch.py \
   role:=arm serial:=213522250834 autostart:=false
 
 # 전체 스택과 함께
-ros2 launch application bringup.launch.py robot:=real \
+ros2 launch bringup bringup.launch.py robot:=real \
   cameras:=true arm_camera_serial:=213522250834
 ```
 
-토픽 이름은 `shalom_bridge` 의 `bridge.yaml` 이 기다리는 것에 맞춰 리맵된다
+토픽 이름은 `hmi_bridge` 의 `bridge.yaml` 이 기다리는 것에 맞춰 리맵된다
 (`/fr3/camera_2d/image_raw`, `/fr3/camera_3d/points`, `/b2/camera/image_raw`).
 이름이 어긋나면 관제 화면의 "센서 상태" 에 카메라가 계속 "신호 없음" 으로
 남는데, 나머지는 정상으로 보이므로 눈으로는 늦게 발견된다.
@@ -173,11 +185,11 @@ ros2 launch application bringup.launch.py robot:=real \
 ## Aurora S (주행 위치추정 후보)
 
 Aurora S는 젯슨의 유선 전용망에서 동작한다. 기본 주소는 `192.168.11.1`이고
-SDK 연결 포트는 `1445`다. `aurora_odometry`는 제조사 드라이버를 감싸,
+SDK 연결 포트는 `1445`다. `aurora`는 제조사 드라이버를 감싸,
 처음에는 기존 KISS-ICP와 충돌하지 않는 원시 출력만 올린다.
 
 ```bash
-ros2 launch aurora_odometry aurora_s.launch.py
+ros2 launch aurora aurora_s.launch.py
 ros2 topic echo --once /aurora/odom
 ```
 
@@ -189,7 +201,7 @@ TF 변을 소유하면 위치추정이 깨진다.
 전체 bring-up에서 원시 Aurora 검증을 함께 하려면 다음 인자를 사용한다.
 
 ```bash
-ros2 launch application bringup.launch.py robot:=real use_sim_time:=false \
+ros2 launch bringup bringup.launch.py robot:=real use_sim_time:=false \
   aurora:=true aurora_ip:=192.168.11.1
 ```
 
@@ -210,7 +222,7 @@ sudo apt install -y libgstrtspserver-1.0-dev gstreamer1.0-rtsp
 
 ```bash
 # NVENC 요소가 확인된 AGX Orin
-ros2 launch camera_streamer camera_streamer.launch.py
+ros2 launch realsense_d455 d455_stream.launch.py
 ```
 
 현재 Orin Nano에는 위 명령을 쓰지 않는다. 소프트웨어 H.264 인코더를 납품 경로에
@@ -220,7 +232,7 @@ ros2 launch camera_streamer camera_streamer.launch.py
 것이고 어차피 촬영은 정지 상태에서만 한다.
 
 ```bash
-ros2 service call /fr3/camera/camera_streamer/enable std_srvs/srv/SetBool "{data: true}"
+ros2 service call /fr3/camera/video_streamer/enable std_srvs/srv/SetBool "{data: true}"
 ```
 
 ### 포트

@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>realsense_d455</name>
+  <version>0.1.0</version>
+  <description>Intel RealSense D455 roles, topic contract, and camera integration launch.</description>
+  <maintainer email="hw.jo@wego-robotics.com">Wego Robotics</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>rclcpp_components</exec_depend>
+  <exec_depend>realsense2_camera</exec_depend>
+  <exec_depend>video_streamer</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

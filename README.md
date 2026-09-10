@@ -11,10 +11,18 @@ Unitree B2 사족보행 로봇에 FAIRINO FR3 협동로봇 팔을 얹어, 검수
 
 ```text
 robot/
-  application/     주행 스택 조립 + B2 전용 튜닝 (런치·Nav2·SLAM 설정)
-  lidar_slam/      3D LiDAR 인식 → 2D SLAM (로봇 무관)
-  bridge/          관제 TCP ↔ ROS 2 브릿지
-  camera_streamer/ RealSense 역할·H.264 → RTSP (뷰파인더)
+  bringup/                    전체 실행·시스템 설정 (ROS 패키지)
+  control/                    미션·안전 관리 (현재 설계 문서)
+  navigation/config/          B2 주행·위치추정·SLAM 설정
+  navigation/maps/             저장 지도
+  navigation/rviz/             주행·지도화 화면 설정
+  navigation/lidar_slam/       점군 지면분리·2D SLAM
+  video_streamer/              표준 Image → H.264/RTSP
+  sensors/realsense_d455/      D455 역할·토픽·설정
+  sensors/aurora/              Aurora S 연동
+  sensors/velodyne_vlp16/      임시 VLP-16 연동 (최종 XT32)
+  communication/hmi_bridge/   관제 TCP ↔ ROS 2
+  common/                     로봇 전용 공통 코드 배치 기준 (현재 문서)
 hmi/               관제 GUI. ROS 를 쓰지 않는 Qt 프로그램이다.
 common/protocol/   관제·로봇 공통 통신 계약
 docs/              설치·운용·통신 문서
@@ -22,6 +30,8 @@ docs/              설치·운용·통신 문서
 
 세 갈래가 분명히 나뉜다 — **시뮬레이터**, **실기**, **관제**. 관제 입장에서
 시뮬레이터와 실기는 같아야 한다. 다른 것은 접속 주소뿐이다.
+
+패키지 배치·명명 규칙과 구조 변경 후 첫 빌드는 [로봇 구조 문서](robot/README.md)를 따른다.
 
 ## 설치
 
@@ -38,7 +48,7 @@ cd ~/shalom_ws/src/shalom
 
 ```bash
 source ~/shalom_ws/install/setup.bash
-ros2 launch application bringup.launch.py
+ros2 launch bringup bringup.launch.py
 ```
 
 기본값이 이렇게 잡혀 있다 — **시뮬레이터**, **가장 최근 저장 지도**,
@@ -51,14 +61,14 @@ ros2 launch application bringup.launch.py
 ### 실기
 
 ```bash
-ros2 launch application bringup.launch.py robot:=real
+ros2 launch bringup bringup.launch.py robot:=real
 ```
 
 카메라를 달았으면 함께 켠다. 시리얼은 두 대 이상일 때 반드시 지정한다
 (`rs-enumerate-devices -s` 로 확인).
 
 ```bash
-ros2 launch application bringup.launch.py robot:=real \
+ros2 launch bringup bringup.launch.py robot:=real \
   cameras:=true arm_camera_serial:=213522250834
 ```
 
@@ -68,8 +78,8 @@ ros2 launch application bringup.launch.py robot:=real \
 되고, 새로 그리려면 `none` 이다.
 
 ```bash
-ros2 launch application bringup.launch.py map:=2026-09-07   # 이름만
-ros2 launch application bringup.launch.py map:=none         # 실시간 SLAM
+ros2 launch bringup bringup.launch.py map:=2026-09-07   # 이름만
+ros2 launch bringup bringup.launch.py map:=none         # 실시간 SLAM
 ```
 
 저장된 지도를 쓰면 map_server 와 AMCL 이 뜨고 SLAM 은 물러난다. 둘을 함께
@@ -78,7 +88,7 @@ ros2 launch application bringup.launch.py map:=none         # 실시간 SLAM
 지도를 저장하려면:
 
 ```bash
-ros2 run nav2_map_server map_saver_cli -f robot/application/maps/$(date +%F)
+ros2 run nav2_map_server map_saver_cli -f robot/navigation/maps/$(date +%F)
 ```
 
 ### 관제 화면
@@ -102,19 +112,19 @@ cmake --preset dev && cmake --build --preset dev
 시험할 때뿐이다.
 
 ```bash
-ros2 launch camera_streamer camera_streamer.launch.py                  # NVENC가 있는 AGX
+ros2 launch realsense_d455 d455_stream.launch.py                        # NVENC가 있는 AGX
 ```
 
 주행 중에 대역폭을 아끼려면 끈다.
 
 ```bash
-ros2 service call /fr3/camera/camera_streamer/enable std_srvs/srv/SetBool "{data: false}"
+ros2 service call /fr3/camera/video_streamer/enable std_srvs/srv/SetBool "{data: false}"
 ```
 
 ### 끄기
 
 ```bash
-ros2 run application stop_stack
+~/shalom_ws/src/shalom/robot/tools/stop_stack.sh
 ```
 
 자기 프로세스 그룹만 정리한다. 스택 밖의 것까지 쓸어야 할 때만 `--all`.
@@ -152,5 +162,4 @@ PATH="/usr/bin:/bin:$PATH" colcon build --symlink-install \
 [설치](docs/setup.md) ·
 [SLAM](docs/slam.md) ·
 [내비게이션](docs/navigation.md) ·
-[수동 조종](docs/teleop.md) ·
 [통신 규약](docs/bridge_protocol.md)
