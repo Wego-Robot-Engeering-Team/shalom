@@ -98,7 +98,7 @@ ros2 run nav2_map_server map_saver_cli -f robot/navigation/maps/$(date +%F)
 cd hmi
 cmake --preset dev && cmake --build --preset dev
 ./build/inspection_hmi            # 브릿지에 접속 (시뮬·실기 모두 여기로 온다)
-./build/inspection_hmi --testbed  # 내장 모형 — 로봇도 브릿지도 없을 때
+./build/inspection_hmi --sim      # 내장 모형 — 로봇도 브릿지도 없을 때
 ```
 
 ### 카메라

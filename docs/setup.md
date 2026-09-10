@@ -265,7 +265,8 @@ ctest --test-dir build            # 개발 구성
 
 ```bash
 ./build/inspection_hmi          # 내장 testbed (로봇 없이)
-./build/inspection_hmi --live   # 브릿지 연결
+./build/inspection_hmi         # 로봇에 접속 (기본)
+./build/inspection_hmi --sim   # 내장 모형 — 로봇도 브릿지도 없을 때
 ```
 
 ## 시뮬레이터 환경
