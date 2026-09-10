@@ -151,7 +151,7 @@ int main(int argc, char *argv[])
     hmi::auth::Session::instance().signInAsDeveloper();
 #endif
 
-    // 기본은 브릿지 접속이다. --testbed 를 주면 내장 모형에 붙는다.
+    // 기본은 브릿지 접속이다. --sim 을 주면 내장 모형에 붙는다.
     // 창은 어느 쪽인지 알지 못한다 — 둘 다 RobotLink 를 구현한다.
     //
     // 예전에는 반대였다. 브릿지가 없던 시절에는 내장 모형이 유일한 데이터
@@ -159,9 +159,15 @@ int main(int argc, char *argv[])
     // 낸다. 기본이 모형이면 화면이 도는 것만 보고 "연동이 된다" 고 오해하기
     // 쉽고, 정작 브릿지가 끊긴 것은 눈치채지 못한다.
     //
-    // --live 는 예전 문서와 손에 익은 습관을 위해 그대로 받는다.
+    // --sim 이 내장 모형을 뜻한다는 점에 주의한다. 로봇 쪽 robot:=sim (MuJoCo)
+    // 은 브릿지로 실기와 같은 채널을 내므로 관제에서는 실기와 구별되지 않고,
+    // 그때는 인자 없이 실행한다. 여기서 가르는 것은 "ROS 를 아예 쓰지 않는
+    // 내장 모형" 이냐 "브릿지 너머의 무언가" 냐다.
+    //
+    // --testbed 는 예전 이름이라 그대로 받는다.
     hmi::robot::RobotLink *link = nullptr;
-    const bool testbed = args.contains(QStringLiteral("--testbed"));
+    const bool testbed = args.contains(QStringLiteral("--sim"))
+                         || args.contains(QStringLiteral("--testbed"));
     if (!testbed) {
         // 설정값을 실행 인자로 덮어쓸 수 있게 한다. 현장 지원에서 설정 창을
         // 열지 않고 다른 주소로 붙여봐야 하는 경우가 있다.
@@ -184,7 +190,7 @@ int main(int argc, char *argv[])
         // 납품 빌드에는 시뮬레이터가 없다. 로봇이 없으면 화면이 뜨지 않는
         // 편이, 가짜 데이터로 도는 화면을 현장에서 진짜로 오해하는 것보다
         // 낫다.
-        qCritical("이 빌드에는 내장 모형이 없습니다. --testbed 없이 실행하십시오.");
+        qCritical("이 빌드에는 내장 모형이 없습니다. --sim 없이 실행하십시오.");
         return 2;
 #endif
     }
