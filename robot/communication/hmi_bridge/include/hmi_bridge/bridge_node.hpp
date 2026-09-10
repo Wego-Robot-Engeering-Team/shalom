@@ -218,6 +218,19 @@ private:
     /// that from tens of kilobytes to a few.
     static std::string encodeGridPng(const nav_msgs::msg::OccupancyGrid &grid);
 
+    /// 촬영 원본을 무손실 PNG 로 만든다. rgb8·bgr8·mono8 을 받는다.
+    ///
+    /// 카메라가 압축 영상을 내지 않는다. realsense2_camera 는 컬러를 원본
+    /// Image 로만 발행하고 image_transport 압축 발행자를 만들지 않으므로,
+    /// CompressedImage 를 기다리면 촬영이 영원히 "카메라 영상이 없습니다" 로
+    /// 거절된다 — 실제로 그 상태였다.
+    ///
+    /// 그래서 원본을 받아 저장 시점에 한 번만 누른다. 카메라가 누른 것을 다시
+    /// 누르는 것이 아니라 한 번만 누르는 셈이라 화질이 오히려 낫고, 무손실을
+    /// 고른 것은 이 파일이 점검 근거로 남기 때문이다(과업지시서 2.2.4).
+    /// zlib 은 지도 PNG 때문에 이미 링크돼 있어 의존성이 늘지 않는다.
+    static std::string encodeImagePng(const sensor_msgs::msg::Image &image);
+
     // ---- parameters ------------------------------------------------------
     int port_ = 9090;
     std::string mapFrame_ = "map";
@@ -307,7 +320,7 @@ private:
     // 촬영. 압축 이미지를 그대로 받아 그대로 쓴다 — 인코더를 따로 두면
     // 같은 그림을 두 번 누르는 셈이고, compressed_image_transport 가 이미
     // 카메라 노드 쪽에서 해 준다.
-    rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr colorSub_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr colorSub_;
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depthSub_;
     // 속도는 TF 자세 변화로 잰다.
     //
@@ -318,7 +331,7 @@ private:
     double lastPoseY_ = 0.0;
     double lastPoseTheta_ = 0.0;
     rclcpp::Time lastPoseAt_;
-    sensor_msgs::msg::CompressedImage::ConstSharedPtr lastColor_;
+    sensor_msgs::msg::Image::ConstSharedPtr lastColor_;
     sensor_msgs::msg::Image::ConstSharedPtr lastDepth_;
     double speedLinear_ = 0.0;
     double speedAngular_ = 0.0;
