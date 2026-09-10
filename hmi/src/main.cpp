@@ -15,11 +15,9 @@
 #ifdef HMI_WITH_TESTBED
 #    include "sim/SimRobot.h"
 #endif
-#include "auth/Session.h"
 #include "theme/Style.h"
 #include "theme/Tokens.h"
 #include "views/SettingsDialog.h"
-#include "views/WelcomeDialog.h"
 #include "widgets/NotificationCenter.h"
 
 namespace {
@@ -101,9 +99,7 @@ int main(int argc, char *argv[])
         const QString which = args.at(dialogIdx + 1);
         const QString path = args.at(dialogIdx + 2);
         QWidget *dialog = nullptr;
-        if (which == QLatin1String("welcome"))
-            dialog = new hmi::ui::WelcomeDialog;
-        else if (which == QLatin1String("notifications")) {
+        if (which == QLatin1String("notifications")) {
             using hmi::ui::Notification;
             const QDateTime now = QDateTime::currentDateTime();
             dialog = new hmi::ui::NotificationPopup({
@@ -134,22 +130,6 @@ int main(int argc, char *argv[])
         });
         return app.exec();
     }
-
-    // 조작자 확인. 여기서 입력한 이름이 이후 모든 권한 동작의 이력에 남는다.
-    //
-    // 로그인 생략은 빌드 옵션(HMI_REQUIRE_LOGIN=OFF)으로만 가능하다. 실행 인자로
-    // 끌 수 있게 두면 납품 빌드에서도 꺼진 채 나갈 수 있고, 아무도 눈치채지 못한다.
-    // --no-login 은 요구가 켜져 있을 때는 무시된다(스크린샷 경로용 잔재 방지).
-#if HMI_REQUIRE_LOGIN
-    {
-        hmi::ui::WelcomeDialog welcome;
-        if (welcome.exec() != QDialog::Accepted)
-            return 0;
-    }
-#else
-    // 개발 빌드. 권한 동작 이력이 비지 않도록 자리표시 조작자로 서명해 둔다.
-    hmi::auth::Session::instance().signInAsDeveloper();
-#endif
 
     // 기본은 브릿지 접속이다. --sim 을 주면 내장 모형에 붙는다.
     // 창은 어느 쪽인지 알지 못한다 — 둘 다 RobotLink 를 구현한다.

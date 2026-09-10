@@ -134,7 +134,6 @@ private:
     void applyFixedLocations();
 
     /// Keeps the top-bar name and role badge on the current session.
-    void refreshUserBadge();
 
     void setMode(const QString &mode);
 
@@ -208,7 +207,6 @@ private:
     QPushButton *manualBtn_ = nullptr;
     IconButton *themeBtn_ = nullptr;
     IconButton *settingsBtn_ = nullptr;
-    Badge *userBadge_ = nullptr;
 
     /// What the map click should produce once placed: empty means a goal pose.
     QString pendingPlacementKind_;
