@@ -82,6 +82,17 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     port_ = int(declare_parameter("port", port_));
     robotId_ = declare_parameter("robot_id", robotId_);
     robotName_ = declare_parameter("robot_name", robotName_);
+    // 식별자는 이제 안전 장치다. 나가는 모든 프레임에 찍히고, 이것으로
+    // 들어오는 명령의 수신자를 확인한다. 비워 두면 그 확인이 통째로 꺼지므로
+    // 조용히 빈 값을 받아들이지 않는다.
+    if (robotId_.empty()) {
+        robotId_ = "R1";
+        RCLCPP_ERROR(get_logger(),
+                     "robot_id 가 비어 있어 R1 로 둔다. 로봇이 둘 이상이면 "
+                     "반드시 서로 다르게 지정해야 한다");
+    }
+    RCLCPP_INFO(get_logger(), "로봇 식별자 %s (%s)", robotId_.c_str(),
+                robotName_.c_str());
     mapFrame_ = declare_parameter("map_frame", mapFrame_);
     baseFrame_ = declare_parameter("base_frame", baseFrame_);
     deadman_ = std::chrono::milliseconds(
@@ -295,6 +306,30 @@ void BridgeNode::handleFrame(const inspection::Frame &frame)
         return;
     }
 
+    // 나를 지목하지 않은 프레임은 실행하지 않는다.
+    //
+    // 관제가 여러 로봇을 다루게 되면 주소를 잘못 적어 옆 로봇에 붙는 일이
+    // 생긴다. 그 상태에서도 화면은 정상으로 보이므로 조작자는 알아채지
+    // 못하고, 비상정지를 누르면 아무도 보고 있지 않은 로봇이 선다.
+    //
+    // 빈 값은 "이 연결에 있는 로봇" 이라는 뜻으로 통과시킨다. 관제는 식별자를
+    // 듣기 전까지 비워 보내므로, 첫 명령이 식별자가 없다는 이유로 거절되는
+    // 일은 없다.
+    if (!env->robot.empty() && env->robot != robotId_) {
+        if (env->t == mtype::kReq) {
+            // 응답에는 우리 식별자가 찍혀 나가므로, 관제는 자기가 실제로
+            // 어느 로봇에 닿았는지 알게 된다.
+            respond(*env, false, err::kRobotMismatch,
+                    "이 로봇은 " + robotId_ + " 입니다. " + env->robot
+                        + " 로 보낸 명령은 실행하지 않습니다");
+        }
+        RCLCPP_WARN_THROTTLE(
+            get_logger(), *get_clock(), 5000,
+            "%s 로 보낸 %s 를 무시했다. 이 로봇은 %s 다", env->robot.c_str(),
+            env->ch.empty() ? env->t.c_str() : env->ch.c_str(), robotId_.c_str());
+        return;
+    }
+
     if (env->t == mtype::kHb)
         handleHeartbeat(*env);
     else if (env->t == mtype::kReq)
@@ -314,7 +349,13 @@ void BridgeNode::handleHeartbeat(const Envelope &heartbeat)
 
 void BridgeNode::sendEnvelope(const Envelope &env, bool lossy, const std::string &payload)
 {
-    server_.send(inspection::encodeFrame(env.toHeader(), payload), lossy);
+    // 나가는 모든 프레임에 자기 식별자를 찍는다. 한 곳에서 하는 이유는,
+    // 채널을 새로 추가하는 사람이 이것을 기억해야 한다면 언젠가 빠지기
+    // 때문이다 — 빠진 프레임은 관제 쪽에서 "아직 모르는 로봇" 으로 보여
+    // 증상이 없다.
+    Envelope stamped = env;
+    stamped.robot = robotId_;
+    server_.send(inspection::encodeFrame(stamped.toHeader(), payload), lossy);
 }
 
 void BridgeNode::respond(const Envelope &request, bool ok, const std::string &code,

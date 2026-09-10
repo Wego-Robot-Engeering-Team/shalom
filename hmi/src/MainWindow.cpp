@@ -149,6 +149,21 @@ QWidget *MainWindow::buildTopBar()
     lay->setContentsMargins(metrics::s4, 0, metrics::s4 - EStopButton::kVisualInset, 0);
     lay->setSpacing(metrics::s3);
 
+    // ---- 어느 로봇인가 ----
+    //
+    // 관제 한 대가 여러 로봇을 다루게 되면, 지금 무엇을 조작하고 있는지가
+    // 화면에서 가장 먼저 보여야 한다. 주소를 잘못 적어 옆 로봇에 붙어도
+    // 나머지 화면은 정상으로 보이고, 그 상태로 비상정지를 누르면 아무도
+    // 보고 있지 않은 로봇이 선다.
+    //
+    // 로봇이 말해 주기 전까지는 비워 둔다. "1호기" 같은 것을 미리 적어 두면
+    // 아직 아무것도 모르는 상태를 아는 상태로 오해하게 된다.
+    robotLabel_ = new QLabel(QStringLiteral("—"));
+    robotLabel_->setObjectName(QStringLiteral("RobotName"));
+    robotLabel_->setToolTip(QStringLiteral("연결된 로봇"));
+    lay->addWidget(robotLabel_, 0, Qt::AlignVCenter);
+    lay->addSpacing(metrics::s3);
+
     // ---- 장비가 어떤가 ----
     // 배지에 이름을 붙인다. "시뮬레이터" 만 떠 있으면 그것이 연결 상태를
     // 말하는 것인지 알 수 없다.
@@ -457,7 +472,27 @@ void MainWindow::wireRobotSignals()
         status_->setConnected(ok);
         linkBadge_->set(ok ? robot_->describe() : QStringLiteral("연결 끊김"),
                         ok ? QStringLiteral("warn") : QStringLiteral("danger"));
+        // 끊기면 지운다. 방금 무엇에 붙어 있었는지를 그대로 남겨 두면, 다시
+        // 붙었을 때 같은 로봇이라고 넘겨짚게 된다.
+        if (!ok)
+            robotLabel_->setText(QStringLiteral("—"));
     });
+
+    connect(robot_, &robot::RobotLink::robotIdentity, this,
+            [this](const QString &id, const QString &name) {
+                // 이름이 아직 없으면 식별자를 쓴다. 둘 다 없으면 그대로 둔다 —
+                // 빈 칸이 "모른다" 를 말한다.
+                const QString shown = !name.isEmpty() ? name : id;
+                if (shown.isEmpty())
+                    return;
+                robotLabel_->setText(shown);
+                robotLabel_->setToolTip(
+                    id.isEmpty() ? QStringLiteral("연결된 로봇")
+                                 : QStringLiteral("연결된 로봇 · %1").arg(id));
+                log_->note(diag::Severity::Info,
+                           QStringLiteral("로봇 %1 에 연결").arg(
+                               id.isEmpty() ? shown : id));
+            });
 
     // 미션 상태와 로봇 이벤트의 진실 원천은 로봇쪽이다. UI 는 따라간다.
     connect(robot_, &robot::RobotLink::missionStateChanged,
