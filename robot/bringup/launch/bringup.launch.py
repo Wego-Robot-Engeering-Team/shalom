@@ -17,6 +17,13 @@ one is running.
 
     ros2 launch bringup bringup.launch.py robot:=sim
     ros2 launch bringup bringup.launch.py robot:=real
+    ros2 launch bringup bringup.launch.py robot:=none    # 로봇 없이 센서만
+
+`robot:=none` 은 실기가 아직 없는 자리에서 센서·브릿지·관제 연동을 시험하기
+위한 것이다. 로봇 계층 대신 정지 오도메트리를 올려 `odom -> base_link` 를
+채운다 — 그 한 변이 비면 TF 트리가 끊겨 브릿지가 자세를 못 읽고, `state/pose`
+가 멎으며 촬영은 "이동 중" 으로 거절된다. 로봇이 없다는 사실이 촬영이 안 되는
+이유로 나타나므로, 그 자리에서 무엇을 시험하든 먼저 이것에 걸린다.
 
 `payload:=fr3` runs the B2 that carries a FAIRINO FR3 arm, with the policy
 trained for its 105 kg and higher centre of mass.  Simulator only -- on hardware
@@ -58,7 +65,8 @@ from ament_index_python.packages import get_package_share_directory
 from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
                             OpaqueFunction, SetEnvironmentVariable,
                             SetLaunchConfiguration)
-from launch.conditions import IfCondition, LaunchConfigurationEquals
+from launch.conditions import (IfCondition, LaunchConfigurationEquals,
+                               UnlessCondition)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
     LaunchConfiguration,
@@ -139,6 +147,18 @@ def generate_launch_description():
         condition=LaunchConfigurationEquals("robot", "sim"),
     )
 
+    # 로봇이 없는 자리를 위한 정지 오도메트리. 값을 지어내지 않고 항등 변환을
+    # 낼 뿐이라, 화면에 위치가 늘 원점으로 보인다 — 실주행으로 오해할 여지가
+    # 없고, 없으면 시험 자체가 불가능한 한 변만 채운다.
+    bench_robot = Node(
+        package="bringup",
+        executable="bench_odom",
+        name="bench_odom",
+        output="screen",
+        parameters=[{"use_sim_time": use_sim_time, "base_frame": BASE_FRAME}],
+        condition=LaunchConfigurationEquals("robot", "none"),
+    )
+
     real_robot = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             FindPackageShare("b2_base"), "/launch/b2_bringup.launch.py",
@@ -180,6 +200,10 @@ def generate_launch_description():
             "config_file": PathJoinSubstitution([navigation_config, "kiss_icp.yaml"]),
             "use_sim_time": use_sim_time,
         }.items(),
+        # bench_odom 이 odom -> base_link 를 소유한다. 두 publisher 가 한 변을
+        # 가지면 트리가 망가지므로 둘 중 하나만 돈다.
+        condition=UnlessCondition(
+            PythonExpression(["'", LaunchConfiguration("robot"), "' == 'none'"])),
     )
 
     # --- planning ------------------------------------------------------------
@@ -326,8 +350,9 @@ def generate_launch_description():
                               description="화면에 보일 이름"),
 
         DeclareLaunchArgument("robot", default_value="sim",
-                              choices=["sim", "real"],
-                              description="MuJoCo stand-in or the physical B2."),
+                              choices=["sim", "real", "none"],
+                              description="MuJoCo stand-in, the physical B2, or "
+                                          "none = 로봇 없이 센서만 (정지 오도메트리)."),
         DeclareLaunchArgument("use_sim_time", default_value="true",
                               description="Set false when robot:=real."),
         DeclareLaunchArgument("pointcloud_topic", default_value=POINTS_TOPIC),
@@ -364,7 +389,7 @@ def generate_launch_description():
         # 인자가 모두 선언된 뒤, 노드가 뜨기 전에 map 을 실제 경로로 바꾼다.
         OpaqueFunction(function=_resolve_map),
 
-        sim_robot, real_robot, perception, odometry,
+        sim_robot, real_robot, bench_robot, perception, odometry,
         map_server, amcl, localisation_manager,
         nav2, bridge, cameras, aurora, vlp16, rviz,
     ])
