@@ -8,7 +8,6 @@ robot/
 │   ├── maps/                   # 저장 지도
 │   ├── rviz/                   # RViz 설정
 │   └── lidar_slam/             # 점군 → 2D SLAM
-├── video_streamer/              # 모든 ROS Image의 H.264/RTSP 송신
 ├── tools/                       # 운영·개발 보조 스크립트
 ├── sensors/
 │   ├── realsense_d455/         # D455 역할·토픽·설정
@@ -35,7 +34,6 @@ source ~/shalom_ws/install/setup.bash
 | 실기 B2 | `ros2 launch bringup bringup.launch.py robot:=real use_sim_time:=false network_interface:=<B2-NIC>` |
 | 실기 + VLP-16 | `ros2 launch bringup bringup.launch.py robot:=real use_sim_time:=false network_interface:=<B2-NIC> lidar:=vlp16 map:=none` |
 | 실기 + Aurora 검증 | `ros2 launch bringup bringup.launch.py robot:=real use_sim_time:=false aurora:=true aurora_ip:=<AURORA-IP>` |
-| RTSP를 HMI에 공개 | `ros2 launch bringup bringup.launch.py robot:=real use_sim_time:=false video_bind_address:=<로봇-HMI망-IP>` |
 | 종료 | `~/shalom_ws/src/shalom/robot/tools/stop_stack.sh` |
 
 `map:=none`은 실시간 SLAM이고, `map:=latest`(기본값)는 `navigation/maps/`의 최신
@@ -55,24 +53,20 @@ ros2 run nav2_map_server map_saver_cli \
 | `map` | `latest` | `latest`, 지도 이름, 절대 YAML 경로, `none` |
 | `nav2`, `slam`, `rviz` | `true` | 각 기능 On/Off |
 | `lidar` | `none` | 임시 VLP-16 시험만 `vlp16` |
-| `cameras`, `video` | `true` | D455 / RTSP 송신 On/Off |
+| `cameras` | `true` | D455 On/Off. 촬영 원본의 출처다. |
 | `arm_camera_serial` | 빈 값 | D455가 둘 이상일 때 USB 시리얼 |
-| `encoder` | `nvv4l2h264enc` | AGX NVENC. Nano 시험은 `video:=false` |
-| `video_bind_address` | `127.0.0.1` | HMI 영상 시험 시 로봇의 HMI망 IP로 지정 |
 | `aurora`, `aurora_ip` | `false`, `192.168.11.1` | Aurora S 원시 odometry와 장치 IP |
 | `bridge` | `true` | HMI TCP 브릿지(9090) On/Off |
 | `domain_id` | `0` | 여러 로봇 DDS 분리 번호 |
 | `network_interface` | 빈 값 | 실기 B2 통신 NIC |
 | `viewer`, `payload` | `true`, `none` | 시뮬레이터 창 / FR3 탑재 모델 |
 
-RTSP 기본 주소는 `rtsp://<로봇-HMI망-IP>:8554/arm-rgb`다.
-
 ## 장치 단독 시험
 
 ```bash
-# D455 + RTSP
+# D455
 ros2 launch realsense_d455 d455_stream.launch.py \
-  role:=arm serial:=<D455-시리얼> bind_address:=<로봇-HMI망-IP>
+  role:=arm serial:=<D455-시리얼>
 
 # Aurora S 원시 /aurora/odom
 ros2 launch aurora aurora_s.launch.py ip_address:=<AURORA-IP>

@@ -67,11 +67,6 @@ public:
     /// but the robot needs it to know which tag it is looking at.
     virtual void setMarkers(const QList<QVariantMap> &markers) = 0;
 
-    /// Viewfinder quality preset: "high", "low" or "saver". Only the name
-    /// travels - the robot owns what each one means, so the two sides cannot
-    /// end up disagreeing about the numbers.
-    virtual void setVideoQuality(const QString &preset) { Q_UNUSED(preset); }
-
     /// Takes a photograph. The robot decides whether it may - it refuses while
     /// moving (statement of work 2.2.4) - and saves the original itself; only
     /// a preview comes back over the link.

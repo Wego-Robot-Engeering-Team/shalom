@@ -1,7 +1,6 @@
 #include "panels/CapturePanel.h"
 
 #include <QGridLayout>
-#include <QComboBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -23,50 +22,6 @@ CapturePanel::CapturePanel(QWidget *parent) : QWidget(parent)
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(metrics::s3);
-
-    // ---- 라이브 뷰 ----
-    //
-    // 팔을 겨눌 때 보는 화면이다. 이것이 없으면 조작자는 찍고 나서야
-    // 빗나간 것을 안다. 촬영 버튼 위에 두는 이유도 그것이다 — 보고, 맞추고,
-    // 찍는 순서가 화면에서도 위에서 아래로 흐른다.
-    //
-    // 영상은 관제 링크가 아니라 RTSP 로 따로 온다. 늦은 그림은 없는 그림보다
-    // 나쁘기 때문이다 — 화면이 밀리면 팔을 더 움직이게 된다.
-    auto *liveCard = new Card(QStringLiteral("카메라"));
-    liveState_ = new Badge(QStringLiteral("꺼짐"), QStringLiteral("neutral"));
-    liveCard->addHeaderWidget(liveState_);
-    outer->addWidget(liveCard);
-
-    // 화질은 화면에서 고른다. 링크가 좁은 자리에서 설정 파일을 고치러
-    // 들어가게 하면, 그냥 흐린 화면을 참고 쓰게 된다.
-    //
-    // 숫자가 아니라 이름을 고르게 한다. 해상도와 비트레이트의 조합은 로봇이
-    // 알고, 관제는 무엇을 원하는지만 말한다 — 양쪽이 서로 다른 조합을 들고
-    // 있으면 어느 쪽이 맞는지 알 수 없어진다.
-    auto *qrow = new QHBoxLayout;
-    qrow->setSpacing(metrics::s2);
-    qrow->addWidget(new QLabel(QStringLiteral("화질")));
-    quality_ = new QComboBox;
-    quality_->addItem(QStringLiteral("고화질  1280×720 · 15"), QStringLiteral("high"));
-    quality_->addItem(QStringLiteral("저지연  848×480 · 30"), QStringLiteral("low"));
-    quality_->addItem(QStringLiteral("절약  640×360 · 15"), QStringLiteral("saver"));
-    quality_->setToolTip(
-        QStringLiteral("뷰파인더 화질입니다. 실제 점검 사진은 정지 상태에서\n"
-                       "원본으로 찍히므로 이 설정과 무관합니다.\n\n"
-                       "무선이 좁으면 화질을 낮추는 편이 조작에 낫습니다."));
-    connect(quality_, &QComboBox::currentIndexChanged, this, [this](int i) {
-        if (i >= 0)
-            emit videoQualityChanged(quality_->itemData(i).toString());
-    });
-    qrow->addWidget(quality_, 1);
-    liveCard->body()->addLayout(qrow);
-
-    // 캡션을 두지 않는다. 카드 제목이 이미 "카메라" 이고 오른쪽 배지가
-    // 수신 상태를 말한다 — 그림 위에 글자를 더 얹을 이유가 없다.
-    live_ = new PreviewView(QString());
-    live_->setMinimumHeight(220);
-    live_->setPlaceholder(QStringLiteral("영상 없음"));
-    liveCard->body()->addWidget(live_);
 
     // ---- 촬영 ----
     card_ = new Card(QStringLiteral("촬영 제어"));
@@ -217,38 +172,6 @@ void CapturePanel::refreshDerived()
 
     fileNamePreview_->setText(m.fileName(QStringLiteral("jpg")));
     saveButton_->setEnabled(true);
-}
-
-void CapturePanel::setLiveFrame(const QImage &frame)
-{
-    if (live_)
-        live_->setImage(frame);
-}
-
-void CapturePanel::setVideoQuality(const QString &preset)
-{
-    if (!quality_)
-        return;
-    const int i = quality_->findData(preset);
-    if (i < 0 || i == quality_->currentIndex())
-        return;
-    // 로봇이 알려 준 값으로 맞춘다. 신호를 막아 두지 않으면 이 갱신이
-    // 다시 명령으로 나가 되돌이가 된다.
-    QSignalBlocker block(quality_);
-    quality_->setCurrentIndex(i);
-}
-
-void CapturePanel::setLiveStatus(const QString &text)
-{
-    if (!live_)
-        return;
-    // 그림이 있는 동안에는 지우지 않는다. 마지막으로 보이던 장면을 남겨 두는
-    // 편이, 갑자기 비는 것보다 무슨 일이 났는지 읽기 쉽다.
-    live_->setPlaceholder(text);
-    if (liveState_) {
-        const bool ok = text == QStringLiteral("수신 중");
-        liveState_->set(text, ok ? QStringLiteral("ok") : QStringLiteral("neutral"));
-    }
 }
 
 }  // namespace hmi::ui

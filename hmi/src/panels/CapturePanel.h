@@ -11,19 +11,20 @@
 // to see it is right before the image is filed rather than discovering it at
 // inspection.
 //
-// There is no live video here. The statement of work asks for a preview of the
-// captured result, not a feed, and capture happens from a standstill anyway
-// (2.2.4). The one place the document mentions a live view is the AI analysis
-// PC's own stream, which goes from the robot to that machine and does not pass
-// through the control station. See docs/bridge_protocol.md section 6.1a for the
-// conditions under which a live view would be worth adding.
+// There is no live video here, by decision. The statement of work asks for a
+// preview of the captured result, not a feed, and capture happens from a
+// standstill anyway (2.2.4). A viewfinder was built and then removed: it cost
+// an RTSP path off the robot, a GStreamer decoder in this binary and an x264
+// (GPL-2+) encoder on the robot, none of which the delivery needs. The one
+// place the document mentions a live view is the AI analysis PC's own stream,
+// which goes from the robot to that machine and never passes through the
+// control station.
 
 #include <QImage>
 #include <QWidget>
 
 #include "capture/CaptureMetadata.h"
 
-class QComboBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -37,15 +38,6 @@ class PreviewView;
 class CapturePanel : public QWidget {
     Q_OBJECT
 public:
-    /// Live viewfinder frame from the robot's camera.
-    void setLiveFrame(const QImage &frame);
-    /// Why there is no picture, when there is none.
-    void setLiveStatus(const QString &text);
-
-    /// Which quality preset the stream is on, so the control reflects reality
-    /// rather than what was last clicked.
-    void setVideoQuality(const QString &preset);
-
     explicit CapturePanel(QWidget *parent = nullptr);
 
     /// Pose, tag and distance are taken from telemetry at the moment of
@@ -69,8 +61,6 @@ public:
 signals:
     void captureRequested();
 
-    /// "high", "low" or "saver".
-    void videoQualityChanged(const QString &preset);
     void saveRequested(const hmi::capture::CaptureMetadata &metadata);
 
 private:
@@ -80,9 +70,6 @@ private:
     Card *card_ = nullptr;
     Badge *state_ = nullptr;
 
-    PreviewView *live_ = nullptr;
-    Badge *liveState_ = nullptr;
-    QComboBox *quality_ = nullptr;
     PreviewView *preview2d_ = nullptr;
     PreviewView *preview3d_ = nullptr;
 

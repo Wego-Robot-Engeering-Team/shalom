@@ -50,7 +50,7 @@ source ~/shalom_ws/install/setup.bash
 
 ros2 launch bringup bringup.launch.py \
   robot:=sim payload:=fr3 map:=none rviz:=false viewer:=false \
-  cameras:=false video:=false
+  cameras:=false
 ```
 
 노트북에서는 ROS를 실행하거나 같은 도메인에 넣지 않는다. HMI만 Nano 브릿지에

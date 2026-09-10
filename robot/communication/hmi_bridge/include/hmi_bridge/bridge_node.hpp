@@ -298,12 +298,6 @@ private:
     /// 목표와 구분해야, 그 목표가 끝났다고 순회가 한 칸 넘어가지 않는다.
     bool missionOwnsGoal_ = false;
 
-    /// 영상 노드의 파라미터를 원격으로 바꾼다. 관제는 프리셋 이름만 보내고
-    /// 실제 해상도·비트레이트는 영상 노드가 안다.
-    std::shared_ptr<rclcpp::AsyncParametersClient> videoParams_;
-    std::string videoQuality_ = "high";
-    std::string videoNodeName_;
-
     // 로봇 식별자. 지금은 한 대뿐이라 화면에 이름을 띄우는 데만 쓰지만,
     // 여러 대가 되면 관제가 어느 로봇의 값인지 가르는 근거가 된다. 나중에
     // 넣으려면 프로토콜을 고쳐야 하므로 지금 자리를 만들어 둔다.

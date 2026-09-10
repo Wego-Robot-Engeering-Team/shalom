@@ -84,8 +84,8 @@ cd shalom
 `sources.repos`는 실제 로봇 실행에 필요한 B2 드라이버, apt에 없는 ROS 패키지,
 RealSense SDK 소스를 검증된 커밋으로 함께 받는다. 설치 스크립트가 ROS의 `vcs`
 도구를 먼저 설치한 뒤 자동으로 가져오고, SDK에 포함된 D4xx USB UDEV 규칙도
-설치한다. `--role robot`은 ROS Jazzy, Nav2, SLAM, RealSense 래퍼/Viewer,
-GStreamer/RTSP 개발 헤더만 설치하며 HMI와 시뮬레이터는 설치하지 않는다.
+설치한다. `--role robot`은 ROS Jazzy, Nav2, SLAM, RealSense 래퍼/Viewer만 설치하며
+HMI와 시뮬레이터는 설치하지 않는다.
 
 설치가 끝나면 새 셸을 열거나 아래를 실행한 뒤 빌드한다.
 
@@ -99,7 +99,7 @@ source install/setup.bash
 확인:
 
 ```bash
-ros2 pkg list | rg 'bringup|hmi_bridge|realsense_d455|video_streamer|realsense2_camera'
+ros2 pkg list | rg 'bringup|hmi_bridge|realsense_d455|realsense2_camera'
 realsense-viewer
 ```
 
@@ -115,18 +115,6 @@ SDK 소스에는 `COLCON_IGNORE`를 둔다. 따라서 ROS 빌드에서 SDK가 �
 남긴 부분이 있다. 설치 스크립트가 빈 호환 디렉터리를 자동 생성하므로, 첫 빌드도
 별도 수동 수정 없이 진행된다.
 
-
-## Jetson별 H.264 인코더
-
-현재 설치 대상인 **Orin Nano에는 H.264 하드웨어 인코더(NVENC)가 없다.**
-`nvv4l2h264enc`가 보이지 않는 것은 JetPack 설치 실패가 아니라 보드 제약이다.
-Nano에서 RTSP를 송신하려면 CPU 소프트웨어 인코더를 별도로 승인·성능 검증한다.
-AGX Orin처럼 하드웨어 인코더가 있는 목표 장비에서만 아래 확인 후 NVENC 파이프라인을
-선택한다.
-
-```bash
-gst-inspect-1.0 nvv4l2h264enc
-```
 
 ## ROS와 도구 설치
 
@@ -205,68 +193,22 @@ ros2 launch bringup bringup.launch.py robot:=real use_sim_time:=false \
   aurora:=true aurora_ip:=192.168.11.1
 ```
 
-## 영상 스트리밍 (뷰파인더)
+## 실시간 영상은 두지 않는다
 
-로봇팔을 겨눌 때 쓰는 실시간 화면이다. 실제 점검 사진은 정지 상태에서
-원본으로 찍어 NAS 로 가므로(과업지시서 2.2.4), 이 경로는 화질이 아니라
-지연으로 평가한다.
+관제에 뷰파인더를 두지 않기로 했다. 과업지시서가 요구하는 것은 정지 상태에서
+찍은 촬영 결과(2.2.4)이지 실시간 화면이 아니고, 문서가 실시간 스트림을
+언급하는 유일한 자리는 AI 분석 PC 쪽 경로인데 그것은 이번 범위가 아니다.
 
-영상은 기존 TCP 브릿지가 아니라 **RTSP/RTP(UDP)** 로 따로 보낸다. TCP 는
-모든 프레임을 늦게라도 배달하는데, 뷰파인더에서는 늦은 프레임이 잃은
-프레임보다 나쁘다 — 화면이 밀리면 조작자가 팔을 더 움직이게 된다. 제어·
-상태 트래픽과 대역폭이 섞이지 않는 효과도 있다.
+한동안 RTSP/H.264 송신기를 붙여 두었다가 걷어냈다. 그 경로는 로봇에
+GStreamer RTSP 서버와 H.264 인코더를, 관제에 GStreamer 디코더를 요구했다.
+Orin Nano에는 NVENC가 없어 소프트웨어 인코더로 내려가는데, `x264enc`은
+`libx264`(**GPL-2+**)를 링크하므로 그대로 두면 납품 대상 소프트웨어 전체가
+GPL 조건에 걸린다. 실측에서도 소프트웨어 인코딩이 도는 동안 라이다 주기가
+규격 10 Hz에서 2~4 Hz로 무너졌다. 요구사항에 없는 기능이 라이선스와 실시간
+성능을 동시에 압박한 셈이라 없앴다.
 
-```bash
-sudo apt install -y libgstrtspserver-1.0-dev gstreamer1.0-rtsp
-```
-
-```bash
-# NVENC 요소가 확인된 AGX Orin
-ros2 launch realsense_d455 d455_stream.launch.py
-```
-
-현재 Orin Nano에는 위 명령을 쓰지 않는다. 소프트웨어 H.264 인코더를 납품 경로에
-넣을지는 CPU 부하·라이선스·지연 측정을 마친 뒤 별도 결정한다.
-
-`~/enable` 서비스로 켜고 끈다. 자율주행 중에는 꺼 둔다 — 대역폭은 항법의
-것이고 어차피 촬영은 정지 상태에서만 한다.
-
-```bash
-ros2 service call /fr3/camera/video_streamer/enable std_srvs/srv/SetBool "{data: true}"
-```
-
-### 포트
-
-방화벽 규칙과 통신 차단 검증 보고서(과업지시서 7.1)에 그대로 적는다.
-
-| 용도 | 포트 |
-|---|---|
-| RTSP 제어 | 8554/TCP |
-| 암 카메라 RTP·RTCP | 5004-5005/UDP |
-| 본체 카메라 (예약) | 5006-5007/UDP |
-
-RTSP 서버는 `bind_address` 로 지정한 인터페이스에서만 듣는다. 기본값이
-`0.0.0.0` 이 아닌 이유가 이것이다.
-
-### 수신 쪽에서 반드시 지킬 것
-
-`rtspsrc` 의 `latency` 기본값이 **2000 ms** 다. 그대로 두면 2 초 밀린
-화면을 보게 되고, UDP 를 쓴 이유가 사라진다.
-
-```
-rtspsrc latency=50 drop-on-latency=true
-  ! rtph264depay ! h264parse ! avdec_h264 ! videoconvert
-  ! appsink sync=false max-buffers=1 drop=true
-```
-
-디코더는 소프트웨어(`avdec_h264`, LGPL)를 쓴다. 720p 15 fps 에서 충분히
-가볍고, 납품 PC 의 GPU·드라이버 상태를 전제하지 않는다.
-
-### x264enc 은 납품 경로가 아니다
-
-`x264enc` 은 `libx264`(**GPL-2+**)를 링크한다. 개발 PC 검증에만 쓰고 납품
-파이프라인에는 넣지 말 것. "NVENC 가 없으면 x264 로" 같은 폴백을 넣는
-순간 로봇 소프트웨어 전체가 GPL 이 된다. Nano용 대안은 별도 검토가 필요하다.
+카메라 프레임은 `hmi_bridge`가 직접 구독해 두었다가, 촬영 요청이 오면 그
+시점의 원본을 저장하고 미리보기만 관제로 보낸다.
 
 ## 제3자 ROS 패키지
 
