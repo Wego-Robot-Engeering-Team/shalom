@@ -20,6 +20,8 @@ std::string Envelope::toHeader() const
         o["ch"] = ch;
     if (!id.empty())
         o["id"] = id;
+    if (!robot.empty())
+        o["robot"] = robot;
     if (seq)
         o["seq"] = *seq;
     if (!p.is_null() && !p.empty())
@@ -58,6 +60,8 @@ std::optional<Envelope> Envelope::fromHeader(const std::string &text, std::strin
         e.ch = o["ch"].get<std::string>();
     if (o.contains("id") && o["id"].is_string())
         e.id = o["id"].get<std::string>();
+    if (o.contains("robot") && o["robot"].is_string())
+        e.robot = o["robot"].get<std::string>();
     if (o.contains("ts") && o["ts"].is_number())
         e.ts = o["ts"].get<double>();
     if (o.contains("seq") && o["seq"].is_number_integer())
