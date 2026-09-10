@@ -39,7 +39,6 @@
 #include "panels/StatusPanel.h"
 #include "panels/TeleopPanel.h"
 #include "panels/WaypointPanel.h"
-#include "auth/Session.h"
 #include "theme/Style.h"
 #include "views/SettingsDialog.h"
 #include "theme/Tokens.h"
@@ -192,9 +191,6 @@ QWidget *MainWindow::buildTopBar()
 
     // ---- 부수적인 것 ----
     // 테두리 없는 버튼으로 낮춘다. 조작이 아니라 도구다.
-    userBadge_ = new Badge({}, QStringLiteral("neutral"));
-    userBadge_->hide();
-    lay->addWidget(userBadge_);
 
     settingsBtn_ = new IconButton(IconButton::Glyph::Sliders);
     settingsBtn_->setToolTip(QStringLiteral("설정"));
@@ -380,11 +376,6 @@ QWidget *MainWindow::buildDataContext()
 
 void MainWindow::logAction(const QString &code, QVariantMap detail)
 {
-    auto &session = auth::Session::instance();
-    if (session.isSignedIn()) {
-        detail[QStringLiteral("by")] = session.displayName();
-        detail[QStringLiteral("role")] = auth::roleLabel(session.role());
-    }
     log_->log(code, QJsonObject::fromVariantMap(detail));
 }
 
@@ -526,22 +517,6 @@ void MainWindow::wireChromeSignals()
         setUiScale(cfg.uiScale());
         applyTheme(cfg.theme());
     });
-
-    // 이름과 권한은 상단바에 떠 있다. 세션이 바뀌었는데 그대로 두면 화면이
-    // 지난 사람의 이름으로 기록되는 것처럼 보인다.
-    auto &session = auth::Session::instance();
-    connect(&session, &auth::Session::signedInChanged, this,
-            &MainWindow::refreshUserBadge);
-
-    // 관리자 인증 시도는 성공이든 실패든 남는다. 오류 코드 목록의
-    // ESTOP_RELEASE_DENIED 가 "시도 이력은 로그에 남습니다" 라고 안내하는데,
-    // 그 이력을 실제로 적는 곳이 없었다.
-    connect(&session, &auth::Session::authAttempt, this,
-            [this](bool accepted, const QString &detail) {
-                log_->note(accepted ? diag::Severity::Info : diag::Severity::Warn,
-                           QStringLiteral("관리자 인증 — %1").arg(detail),
-                           QJsonObject{{"accepted", accepted}});
-            });
 
     connect(estop_, &EStopButton::engageRequested, this, &MainWindow::engageEstop);
     connect(estop_, &EStopButton::releaseRequested, this, &MainWindow::releaseEstop);
@@ -1036,24 +1011,6 @@ void MainWindow::releaseEstop()
     if (answer != QMessageBox::Yes)
         return;
 
-    auto &session = auth::Session::instance();
-    if (session.role() != auth::Role::Admin) {
-        bool ok = false;
-        const QString pw = QInputDialog::getText(
-            this, QStringLiteral("관리자 인증"),
-            QStringLiteral("비상정지 해제에는 관리자 비밀번호가 필요합니다."),
-            QLineEdit::Password, QString(), &ok);
-        if (!ok)
-            return;
-
-        QString err;
-        if (!session.verifyAdmin(pw, &err)) {
-            logAction(QStringLiteral("ESTOP_RELEASE_DENIED"), {{"reason", err}});
-            QMessageBox::warning(this, QStringLiteral("인증 실패"), err);
-            return;
-        }
-    }
-
     robot_->releaseEstop();
     estop_->setEngaged(false);
     alert_->setActive(false);
@@ -1095,18 +1052,6 @@ void MainWindow::applyFixedLocations()
         fixed << home_;
     if (!fixed.isEmpty())
         robot_->setLocations(fixed);
-}
-
-void MainWindow::refreshUserBadge()
-{
-    auto &session = auth::Session::instance();
-    userBadge_->setVisible(session.isSignedIn());
-    if (!session.isSignedIn())
-        return;
-    userBadge_->set(QStringLiteral("%1 · %2")
-                        .arg(session.displayName(), auth::roleLabel(session.role())),
-                    session.role() == auth::Role::Admin ? QStringLiteral("info")
-                                                        : QStringLiteral("neutral"));
 }
 
 void MainWindow::setMode(const QString &mode)
@@ -1276,16 +1221,6 @@ void MainWindow::startSession()
     linkBadge_->set(robot_->describe(),
                     robot_->isConnected() ? QStringLiteral("warn")
                                           : QStringLiteral("danger"));
-
-    refreshUserBadge();
-
-    // 로그인 화면은 이 창보다 먼저 돈다. 그때의 인증 시도를 지금 옮겨 적는다.
-    for (const auto &a : auth::Session::instance().takePendingAttempts()) {
-        log_->note(a.accepted ? diag::Severity::Info : diag::Severity::Warn,
-                   QStringLiteral("관리자 인증 — %1").arg(a.detail),
-                   QJsonObject{{"accepted", a.accepted},
-                               {"at", a.at.toString(Qt::ISODate)}});
-    }
 
     setMode(QStringLiteral("auto"));
     nav_->setCurrent(NavItem::Drive);

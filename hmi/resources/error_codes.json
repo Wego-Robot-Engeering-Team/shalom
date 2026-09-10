@@ -732,18 +732,6 @@
       "title": "충전 스테이션 도킹 완료",
       "cause": "복귀와 충전 연결이 완료되었습니다.",
       "actions": []
-    },
-    {
-      "code": "ESTOP_RELEASE_DENIED",
-      "severity": "warn",
-      "category": "safety",
-      "channel": "cmd/estop_release",
-      "title": "비상정지 해제 거부 — 인증 실패",
-      "cause": "관리자 비밀번호가 일치하지 않거나 시도 횟수를 초과했습니다.",
-      "actions": [
-        "관리자에게 해제를 요청하십시오",
-        "반복 실패 시 일정 시간 잠금되며, 시도 이력은 로그에 남습니다"
-      ]
     }
   ]
 }
