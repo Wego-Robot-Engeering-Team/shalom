@@ -160,6 +160,14 @@ signals:
     void missionStateChanged(hmi::robot::MissionState state);
 
     void connectionChanged(bool connected);
+
+    /// Which robot is on the other end, once it has said so.
+    ///
+    /// Separate from telemetry because it is not a measurement: it changes only
+    /// when the connection does, and the screen has to show it even when no
+    /// telemetry is arriving. An operator who cannot see which machine they are
+    /// driving will eventually drive the wrong one.
+    void robotIdentity(const QString &id, const QString &name);
 };
 
 }  // namespace hmi::robot

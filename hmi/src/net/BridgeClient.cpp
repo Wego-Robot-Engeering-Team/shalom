@@ -180,6 +180,7 @@ void BridgeClient::resetLinkState()
 {
     // 끊기면 식별자도 잊는다. 다시 붙은 상대가 같은 로봇이라는 보장이 없다.
     robotId_.clear();
+    robotName_.clear();
     decoder_.reset();
     pending_.clear();
     heartbeatSentAt_.clear();
@@ -292,6 +293,7 @@ void BridgeClient::handleFrame(const Frame &frame)
     if (!e.robot.isEmpty()) {
         if (robotId_.isEmpty()) {
             robotId_ = e.robot;
+            emit robotIdentity(robotId_, robotName_);
         } else if (robotId_ != e.robot) {
             emit robotEvent(QStringLiteral("E_ROBOT_MISMATCH"),
                             {{"expected", robotId_}, {"received", e.robot}});
@@ -363,6 +365,14 @@ void BridgeClient::handlePublish(const Envelope &env)
         telemetry_.mem = p.value(QStringLiteral("mem_pct")).toDouble();
         telemetry_.cpuTemp = p.value(QStringLiteral("cpu_temp_c")).toDouble();
         telemetry_.gpuTemp = p.value(QStringLiteral("gpu_temp_c")).toDouble();
+        // 사람이 읽을 이름은 여기로만 온다. 봉투에는 식별자만 실린다 — 모든
+        // 프레임에 이름을 얹으면 초당 수십 번 같은 문자열을 나르게 된다.
+        const QString name = p.value(QStringLiteral("robot_name")).toString();
+        const QString id = p.value(QStringLiteral("robot_id")).toString();
+        if (!name.isEmpty() && name != robotName_) {
+            robotName_ = name;
+            emit robotIdentity(robotId_.isEmpty() ? id : robotId_, robotName_);
+        }
     } else if (ch == QLatin1String(hmi::ch::kSafety)) {
         const bool estop = p.value(QStringLiteral("estop")).toBool();
         if (estop != estop_) {

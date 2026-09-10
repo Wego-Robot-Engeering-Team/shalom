@@ -139,6 +139,7 @@ private:
     /// disconnect: whatever answers next is not guaranteed to be the same
     /// machine.
     QString robotId_;
+    QString robotName_;
 
     /// Last battery policy given, resent on every (re)connect. Zero means the
     /// station has not been told one yet.

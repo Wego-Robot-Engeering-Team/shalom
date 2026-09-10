@@ -83,6 +83,14 @@ QMessageBox { background: @surface; }
     border-radius: @rLg;
 }
 
+/* 지금 조작 중인 로봇. 상단 바에서 가장 먼저 읽혀야 하므로 본문보다 굵고
+   크게 둔다 — 관제 한 대가 여러 로봇을 다룰 때 이 한 줄이 오조작을 막는다. */
+#RobotName {
+    font-size: @fsLg;
+    font-weight: 600;
+    color: @text;
+}
+
 #NavRail {
     background: @surface;
     border: 1px solid @border;
