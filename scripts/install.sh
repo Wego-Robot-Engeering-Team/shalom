@@ -8,8 +8,8 @@
 # 목록을 여기 한 곳에 둔다.
 #
 #   ./scripts/install.sh --role dev        모두 (기본값)
-#   ./scripts/install.sh --role robot      로봇: ROS·주행·카메라·영상 송신
-#   ./scripts/install.sh --role station    관제 PC: Qt·영상 수신
+#   ./scripts/install.sh --role robot      로봇: ROS·주행·카메라
+#   ./scripts/install.sh --role station    관제 PC: Qt
 #   ./scripts/install.sh --role dev --dry-run
 #
 # 역할을 나누는 이유는 로봇에 Qt 가, 관제 PC 에 RealSense 드라이버가 필요
@@ -196,7 +196,7 @@ if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 로봇 — 주행, 인식, 카메라, 영상 송신
+# 로봇 — 주행, 인식, 카메라
 # ---------------------------------------------------------------------------
 if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
   say "자율주행·SLAM"
@@ -210,35 +210,15 @@ if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
   apt_install \
     "ros-$ROS-realsense2-camera" "ros-$ROS-realsense2-description"
 
-  say "영상 송신 (RTSP/H.264)"
-  note "AGX Orin에서는 NVENC 요소를 실제로 확인한 뒤 사용한다."
-  note "Orin Nano에는 H.264 하드웨어 인코더가 없으므로 별도 소프트웨어 전략이 필요하다."
-  apt_install \
-    libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-    libgstrtspserver-1.0-dev "gstreamer1.0-rtsp" gstreamer1.0-plugins-good
-  if [ "$DRY_RUN" = 0 ]; then
-    if gst-inspect-1.0 nvv4l2h264enc >/dev/null 2>&1; then
-      note "H.264 하드웨어 인코더: 사용 가능"
-    else
-      note "H.264 하드웨어 인코더: 이 장비에서는 확인되지 않음"
-    fi
-  fi
 fi
 
 # ---------------------------------------------------------------------------
-# 관제 PC — Qt 와 영상 수신
+# 관제 PC — Qt
 # ---------------------------------------------------------------------------
 if [ "$ROLE" = dev ] || [ "$ROLE" = station ]; then
   say "관제 HMI (Qt6)"
   note "HMI 는 ROS 를 쓰지 않는 Qt 프로그램이다. colcon 이 아니라 CMake 로 짓는다."
   apt_install qt6-base-dev qt6-base-dev-tools qt6-svg-dev
-
-  say "영상 수신 (소프트웨어 디코드)"
-  note "avdec_h264 는 LGPL 이고 720p 15fps 에 충분하다. NVDEC 를 쓰면 납품 PC 의"
-  note "GPU·드라이버 상태를 전제하게 되므로 쓰지 않는다."
-  apt_install \
-    libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-    gstreamer1.0-libav gstreamer1.0-plugins-good
 fi
 
 # ---------------------------------------------------------------------------

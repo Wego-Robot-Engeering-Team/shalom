@@ -1,11 +1,12 @@
-"""RealSense D455와 범용 영상 송신기를 한 컨테이너에서 실행한다.
+"""RealSense D455를 역할별 토픽 규약에 맞춰 실행한다.
 
-이 패키지는 D455의 역할·시리얼·토픽 규약을 소유한다. H.264/RTSP 구현은
-video_streamer 패키지에 있으며, 여기서는 두 컴포넌트를 합성해 intra-process
-전달을 유지한다.
+이 패키지는 D455의 역할·시리얼·토픽 규약을 소유한다. 카메라가 내는 영상은
+hmi_bridge가 직접 구독해 촬영 요청 때 원본으로 저장한다 — 실시간 송출 경로는
+없다. 예전에는 여기에 H.264/RTSP 송신기가 함께 합성돼 있었는데, 관제에
+뷰파인더를 두지 않기로 하면서 걷어냈다.
 
     ros2 launch realsense_d455 d455_stream.launch.py \\
-        role:=arm serial:=213522250834 autostart:=false
+        role:=arm serial:=213522250834
 """
 
 from launch import LaunchDescription
@@ -20,7 +21,6 @@ from launch_ros.substitutions import FindPackageShare
 ROLES = {
     "body": {
         "namespace": "b2/camera",
-        "image_topic": "/b2/camera/image_raw",
         "remappings": [
             ("~/color/image_raw", "/b2/camera/image_raw"),
             ("~/color/camera_info", "/b2/camera/camera_info"),
@@ -33,7 +33,6 @@ ROLES = {
     },
     "arm": {
         "namespace": "fr3/camera",
-        "image_topic": "/fr3/camera_2d/image_raw",
         "remappings": [
             ("~/color/image_raw", "/fr3/camera_2d/image_raw"),
             ("~/color/camera_info", "/fr3/camera_2d/camera_info"),
@@ -55,7 +54,6 @@ def _container(context, *_args, **_kwargs):
     serial = LaunchConfiguration("serial").perform(context)
     frame_prefix = LaunchConfiguration("frame_prefix").perform(context)
     camera_package = FindPackageShare("realsense_d455")
-    streamer_package = FindPackageShare("video_streamer")
 
     camera_overrides = dict(spec["overrides"])
     if serial:
@@ -81,22 +79,6 @@ def _container(context, *_args, **_kwargs):
                 remappings=spec["remappings"],
                 extra_arguments=[{"use_intra_process_comms": True}],
             ),
-            ComposableNode(
-                package="video_streamer",
-                plugin="video_streamer::VideoStreamerNode",
-                name="video_streamer",
-                namespace=spec["namespace"],
-                parameters=[
-                    PathJoinSubstitution([streamer_package, "config", "stream.yaml"]),
-                    {
-                        "image_topic": spec["image_topic"],
-                        "encoder": LaunchConfiguration("encoder"),
-                        "bind_address": LaunchConfiguration("bind_address"),
-                        "autostart": LaunchConfiguration("autostart"),
-                    },
-                ],
-                extra_arguments=[{"use_intra_process_comms": True}],
-            ),
         ],
         output="screen",
     )]
@@ -113,14 +95,5 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "frame_prefix", default_value="",
             description="카메라 TF 이름 앞에 붙일 접두사"),
-        DeclareLaunchArgument(
-            "encoder", default_value="nvv4l2h264enc",
-            description="AGX: nvv4l2h264enc. Nano 시험 시 autostart:=false."),
-        DeclareLaunchArgument(
-            "bind_address", default_value="127.0.0.1",
-            description="RTSP가 들을 로봇 내부망 주소"),
-        DeclareLaunchArgument(
-            "autostart", default_value="true",
-            description="첫 프레임 뒤 RTSP 송신을 시작할지"),
         OpaqueFunction(function=_container),
     ])

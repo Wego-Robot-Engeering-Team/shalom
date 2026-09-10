@@ -17,7 +17,6 @@ robot/
   navigation/maps/             저장 지도
   navigation/rviz/             주행·지도화 화면 설정
   navigation/lidar_slam/       점군 지면분리·2D SLAM
-  video_streamer/              표준 Image → H.264/RTSP
   sensors/realsense_d455/      D455 역할·토픽·설정
   sensors/aurora/              Aurora S 연동
   sensors/velodyne_vlp16/      임시 VLP-16 연동 (최종 XT32)
@@ -52,7 +51,7 @@ ros2 launch bringup bringup.launch.py
 ```
 
 기본값이 이렇게 잡혀 있다 — **시뮬레이터**, **가장 최근 저장 지도**,
-**카메라와 뷰파인더 영상**, 관제 브릿지, MuJoCo 뷰어, RViz.
+**카메라**, 관제 브릿지, MuJoCo 뷰어, RViz.
 
 환경 스크립트를 미리 받을 필요는 없다. 노드가 필요한 venv 를 스스로 얹는다.
 
@@ -102,23 +101,17 @@ cmake --preset dev && cmake --build --preset dev
 ./build/inspection_hmi --testbed  # 내장 모형 — 로봇도 브릿지도 없을 때
 ```
 
-### 뷰파인더 영상
+### 카메라
 
-팔을 겨눌 때 보는 실시간 화면이다. 실제 점검 사진은 정지 상태에서 원본으로
-찍어 NAS 로 가므로, 이 경로는 화질이 아니라 지연으로 평가한다. 제어 채널과
-대역폭이 섞이지 않도록 RTSP/RTP 로 따로 보낸다.
+실시간 영상 송출은 없다. 카메라가 내는 프레임은 브릿지가 직접 구독해 두었다가
+촬영 요청이 오면 그때의 원본을 저장한다 — 과업지시서가 요구하는 것은 정지
+상태의 촬영 결과(2.2.4)이지 실시간 화면이 아니다.
 
 메인 런치가 `cameras:=true`(기본값)로 함께 띄운다. 따로 켤 일은 카메라만
 시험할 때뿐이다.
 
 ```bash
-ros2 launch realsense_d455 d455_stream.launch.py                        # NVENC가 있는 AGX
-```
-
-주행 중에 대역폭을 아끼려면 끈다.
-
-```bash
-ros2 service call /fr3/camera/video_streamer/enable std_srvs/srv/SetBool "{data: false}"
+ros2 launch realsense_d455 d455_stream.launch.py
 ```
 
 ### 끄기
@@ -135,9 +128,7 @@ ros2 service call /fr3/camera/video_streamer/enable std_srvs/srv/SetBool "{data:
 |---|---|---|
 | `robot` | `sim` | `sim` 또는 `real` |
 | `map` | `latest` | `latest` / 이름 / 경로 / `none`(실시간 SLAM) |
-| `cameras` | `true` | 로봇암 RealSense + 뷰파인더 영상 |
-| `video` | `true` | RTSP 송신을 바로 켤지 |
-| `encoder` | `x264enc` | 젯슨은 `nvv4l2h264enc` |
+| `cameras` | `true` | 로봇암 RealSense (촬영 원본의 출처) |
 | `viewer` | `true` | MuJoCo 뷰어 (`robot:=sim` 일 때) |
 | `rviz` | `true` | RViz |
 | `bridge` | `true` | 관제 브릿지 |

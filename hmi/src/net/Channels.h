@@ -24,16 +24,6 @@ inline constexpr auto kLog = "evt/log";               ///< event
 inline constexpr auto kMap = "map/occupancy";         ///< binary, on change
 inline constexpr auto kPreview = "capture/preview";   ///< binary, on capture
 
-/// Viewfinder health - not the pictures.
-///
-/// The frames themselves go over RTSP/RTP on their own socket, because a
-/// stale frame is worse than a dropped one: the operator keeps moving the arm
-/// while the picture lags behind. TCP would deliver every frame, late, which
-/// is exactly the wrong trade. This channel carries what the diagnostics
-/// screen needs in order to say the stream is healthy - rate, bitrate, the
-/// last error - so that "no picture" and "no link" are told apart.
-inline constexpr auto kVideoState = "state/video";    ///< 1 Hz while streaming
-
 /// Upload backlog for captured originals. Those files go straight from the
 /// robot to the NAS (protocol section 6), so this channel is the operator's
 /// only way to tell whether an inspection run is actually finished.
@@ -74,15 +64,6 @@ inline constexpr auto kCmdArmJointGoal = "cmd/arm/joint_goal";
 inline constexpr auto kCmdArmEeGoal = "cmd/arm/ee_goal";
 inline constexpr auto kCmdArmStop = "cmd/arm/stop";
 inline constexpr auto kCmdCapture = "cmd/capture/trigger";
-
-/// Starts and stops the viewfinder. Takes the camera role ("arm" or "body").
-inline constexpr auto kCmdVideoStart = "cmd/video/start";
-inline constexpr auto kCmdVideoStop = "cmd/video/stop";
-
-/// Viewfinder quality preset: "high", "low" or "saver". The robot owns the
-/// numbers behind each name - sending width and bitrate from here would let
-/// the two sides disagree about what a preset means.
-inline constexpr auto kCmdVideoQuality = "cmd/video/quality";
 
 /// Published at 20 Hz while the operator holds a jog control. The bridge
 /// latches zero velocity if it stops arriving for 300 ms, so a frozen or

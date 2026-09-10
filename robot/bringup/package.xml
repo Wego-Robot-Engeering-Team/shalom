@@ -19,7 +19,6 @@
 
   <exec_depend>lidar_slam</exec_depend>
   <exec_depend>realsense_d455</exec_depend>
-  <exec_depend>video_streamer</exec_depend>
   <!-- 외장 라이다를 B2 자리에 끼울 때 쓴다 (lidar:=vlp16). -->
   <exec_depend>velodyne_vlp16</exec_depend>
   <exec_depend>aurora</exec_depend>

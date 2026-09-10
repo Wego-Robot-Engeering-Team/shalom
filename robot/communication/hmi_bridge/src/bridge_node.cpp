@@ -56,7 +56,6 @@ constexpr auto kCmdMarkersSet = "cmd/markers/set";
 constexpr auto kChPreview = "capture/preview";
 constexpr auto kChCaptureSpool = "state/capture_spool";
 constexpr auto kCmdCapture = "cmd/capture/trigger";
-constexpr auto kCmdVideoQuality = "cmd/video/quality";
 constexpr auto kCmdMissionStart = "cmd/mission/start";
 constexpr auto kCmdMissionPause = "cmd/mission/pause";
 constexpr auto kCmdMissionResume = "cmd/mission/resume";
@@ -83,9 +82,6 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     port_ = int(declare_parameter("port", port_));
     robotId_ = declare_parameter("robot_id", robotId_);
     robotName_ = declare_parameter("robot_name", robotName_);
-    // 영상 노드의 완전한 이름. 카메라를 두 대 달면 역할별로 갈리므로 설정으로 둔다.
-    videoNodeName_ = declare_parameter("video_node",
-                                       std::string("/fr3/camera/video_streamer"));
     mapFrame_ = declare_parameter("map_frame", mapFrame_);
     baseFrame_ = declare_parameter("base_frame", baseFrame_);
     deadman_ = std::chrono::milliseconds(
@@ -465,28 +461,6 @@ void BridgeNode::handleRequest(const Envelope &request)
 
     if (request.ch == kCmdCapture) {
         handleCapture(request);
-        return;
-    }
-
-    if (request.ch == kCmdVideoQuality) {
-        const std::string want = request.p.value("preset", std::string());
-        if (want != "high" && want != "low" && want != "saver") {
-            respond(request, false, err::kBadPayload,
-                    "화질은 high, low, saver 중 하나여야 합니다");
-            return;
-        }
-        if (!videoParams_) {
-            videoParams_ = std::make_shared<rclcpp::AsyncParametersClient>(
-                this, videoNodeName_);
-        }
-        if (!videoParams_->service_is_ready()) {
-            respond(request, false, err::kUnreachable, "영상 노드가 응답하지 않습니다");
-            return;
-        }
-        videoParams_->set_parameters({rclcpp::Parameter("quality", want)});
-        videoQuality_ = want;
-        respond(request, true);
-        RCLCPP_INFO(get_logger(), "화질 %s 로 변경 요청", want.c_str());
         return;
     }
 

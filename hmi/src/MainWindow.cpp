@@ -393,8 +393,6 @@ void MainWindow::wireSignals()
     wireRobotSignals();
     wireChromeSignals();
     wireMapSignals();
-    // 영상은 관제 링크가 아니라 RTSP 로 따로 온다. 화면은 그 사실을 모르고
-    // QImage 만 받는다.
     // 촬영 결과는 로봇이 되돌려 준다. 저장한 그 바이트를 그대로 받으므로,
     // 화면에 보이는 것과 파일에 남은 것이 같다.
     if (auto *bridge = qobject_cast<hmi::net::BridgeClient *>(robot_)) {
@@ -411,15 +409,6 @@ void MainWindow::wireSignals()
                                meta);
                 });
     }
-
-    video_ = new hmi::video::VideoClient(this);
-    connect(video_, &hmi::video::VideoClient::frameReady,
-            capture_, &CapturePanel::setLiveFrame);
-    connect(video_, &hmi::video::VideoClient::stateChanged, this,
-            [this](hmi::video::State st, const QString &detail) {
-                capture_->setLiveStatus(detail.isEmpty() ? hmi::video::describe(st)
-                                                         : detail);
-            });
 
     wireLocationSignals();
     wirePanelSignals();
@@ -704,20 +693,6 @@ void MainWindow::wirePanelSignals()
                            message);
             });
 
-    connect(capture_, &CapturePanel::videoQualityChanged, this,
-            [this](const QString &preset) {
-                robot_->setVideoQuality(preset);
-                Config::instance().setVideoQuality(preset);
-                // 로봇이 스트림을 다시 세운다. 우리가 요청했으니 우리가
-                // 다시 붙는다 — 워치독이 알아챌 때까지 기다리면 화면이
-                // 몇 초 멈춘 채로 있고, 조작자는 고장으로 읽는다.
-                if (video_)
-                    video_->restartSoon();
-                log_->note(diag::Severity::Info,
-                           QStringLiteral("영상 화질 %1").arg(preset),
-                           QJsonObject{{"channel", QStringLiteral("cmd/video/quality")}});
-            });
-
     // 촬영은 로봇이 한다. 원본이 관제를 거치지 않는 것과 같은 이유이고,
     // 정지 상태 여부도 로봇이 판단한다 — 화면만 막으면 다른 경로로 들어온
     // 요청은 그대로 통과한다.
@@ -935,10 +910,6 @@ void MainWindow::showWaypointInfo(const QString &id, const QPoint &globalPos)
 void MainWindow::navigate(NavItem item)
 {
     context_->setCurrentIndex(int(item));
-    // 화면이 바뀌는 길은 여기 하나뿐이다 — 네비게이션 클릭도, showView() 도
-    // 결국 이리로 온다. 영상 켜고 끄기를 showView() 에만 달아 두었더니
-    // 클릭으로 들어온 경우에는 영영 안 켜졌다.
-    updateLiveVideo(item);
 }
 
 void MainWindow::setInspectionDirectory(const QString &path)
@@ -951,23 +922,6 @@ void MainWindow::showView(NavItem item)
 {
     nav_->setCurrent(item);
     navigate(item);
-}
-
-/// 카메라 화면을 볼 때만 영상을 받는다.
-///
-/// 주행 중에는 대역폭이 항법의 것이고, 어차피 촬영은 정지 상태에서만 한다
-/// (과업지시서 2.2.4). 화면을 떠나면 끊어 두는 편이 링크에도 로봇 CPU 에도
-/// 낫다 — 아무도 안 보는 영상을 인코딩할 이유가 없다.
-void MainWindow::updateLiveVideo(NavItem shown)
-{
-    if (!video_)
-        return;
-    // 보이는 화면을 인자로 받는다. nav_->current() 를 보면 그 값이 언제
-    // 갱신되는지에 기대게 되는데, 부르는 쪽이 순서를 바꾸면 조용히 어긋난다.
-    if (shown == NavItem::Capture)
-        video_->start(Config::instance().videoUrl());
-    else
-        video_->stop();
 }
 
 // ================= 위치 등록 =================

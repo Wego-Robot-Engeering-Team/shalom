@@ -560,11 +560,6 @@ void BridgeClient::setMarkers(const QList<QVariantMap> &markers)
     sendRequest(QLatin1String(hmi::ch::kCmdMarkersSet), {{"markers", arr}});
 }
 
-void BridgeClient::setVideoQuality(const QString &preset)
-{
-    sendRequest(QLatin1String(hmi::ch::kCmdVideoQuality), {{"preset", preset}});
-}
-
 void BridgeClient::triggerCapture(const QVariantMap &metadata)
 {
     sendRequest(QLatin1String(hmi::ch::kCmdCapture),

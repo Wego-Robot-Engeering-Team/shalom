@@ -8,7 +8,7 @@ name undersold what it does.
     perception   ground segmentation, ground-relative filter, 2D SLAM
     localisation saved map + AMCL, or live SLAM
     planning     Nav2
-    camera       RealSense and the H.264/RTSP viewfinder
+    camera       RealSense; the bridge saves originals on request
     station      hmi_bridge -- the TCP boundary the control station connects to
 
 The robot layer is a launch argument because both options expose the same
@@ -252,19 +252,15 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("bridge")),
     )
 
-    # D455 역할 설정과 범용 영상 송신을 한 컨테이너에 올려 프레임이 DDS를
-    # 경유하지 않게 한다.
-    # Nano 시험처럼 RTSP만 빼려면 video:=false로 둔다.
+    # 로봇암 D455. 프레임은 hmi_bridge가 직접 구독해 촬영 때 원본으로
+    # 저장한다 — 실시간 송출 경로는 없다.
     cameras = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution(
                 [realsense_d455, "launch", "d455_stream.launch.py"])),
         launch_arguments={
             "role": "arm",
-            "encoder": LaunchConfiguration("encoder"),
-            "bind_address": LaunchConfiguration("video_bind_address"),
             "serial": LaunchConfiguration("arm_camera_serial"),
-            "autostart": LaunchConfiguration("video"),
         }.items(),
         condition=IfCondition(LaunchConfiguration("cameras")),
     )
@@ -348,15 +344,9 @@ def generate_launch_description():
                               description="none 이면 로봇(시뮬·실기)이 점군을 낸다. "
                                           "vlp16 은 임시 시험용 외장 라이다."),
         DeclareLaunchArgument("cameras", default_value="true",
-                              description="로봇암 RealSense + 영상 송신"),
-        DeclareLaunchArgument("video", default_value="true",
-                              description="뷰파인더 RTSP 송신을 바로 켤지"),
+                              description="로봇암 RealSense. 촬영 원본의 출처다."),
         DeclareLaunchArgument("arm_camera_serial", default_value="",
                               description="두 대 이상 달았으면 반드시 지정"),
-        DeclareLaunchArgument("encoder", default_value="nvv4l2h264enc",
-                              description="AGX는 nvv4l2h264enc; Nano 시험은 video:=false"),
-        DeclareLaunchArgument("video_bind_address", default_value="127.0.0.1",
-                              description="RTSP 서버가 들을 주소. 내부망만."),
         DeclareLaunchArgument("aurora", default_value="false",
                               description="Aurora S 원시 odom을 함께 올릴지"),
         DeclareLaunchArgument("aurora_ip", default_value="192.168.11.1",
