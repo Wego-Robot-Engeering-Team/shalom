@@ -504,19 +504,27 @@ void MainWindow::wireRobotSignals()
         setLinkTone(ok ? QStringLiteral("ok") : QStringLiteral("danger"));
         // 끊기면 이름 대신 주소로 되돌린다. 방금 무엇에 붙어 있었는지를
         // 그대로 남겨 두면, 다시 붙었을 때 같은 로봇이라고 넘겨짚게 된다.
-        if (!ok)
-            refreshRobotButton(QString());
+        if (!ok) {
+            saidId_.clear();
+            saidName_.clear();
+            refreshRobotButton();
+        }
     });
 
     connect(robot_, &robot::RobotLink::robotIdentity, this,
             [this](const QString &id, const QString &name) {
-                // 이름이 아직 없으면 식별자를 쓴다. 둘 다 없으면 그대로 둔다 —
-                // 빈 칸이 "모른다" 를 말한다.
-                const QString shown = !name.isEmpty() ? name : id;
-                refreshRobotButton(shown);
-                log_->note(diag::Severity::Info,
-                           QStringLiteral("로봇 %1 에 연결").arg(
-                               id.isEmpty() ? shown : id));
+                // 식별자와 사람용 이름을 따로 쥔다. 한 칸에 둘을 번갈아 넣으면
+                // 붙는 순간 "젯슨 R1" -> "R1" -> "1호기" 로 이름이 두 번
+                // 바뀐다 — 보는 사람에게는 무엇이 맞는지 알 수 없는 깜빡임이다.
+                saidId_ = id;
+                saidName_ = name;
+                refreshRobotButton();
+                // 이력에는 식별자를 남긴다. 사람용 이름은 로봇이 바꿀 수
+                // 있지만 식별자는 그 기계를 가리킨다.
+                if (!id.isEmpty())
+                    log_->note(diag::Severity::Info,
+                               QStringLiteral("로봇 %1 에 연결").arg(id),
+                               QJsonObject{{"name", name}});
             });
 
     // 미션 상태와 로봇 이벤트의 진실 원천은 로봇쪽이다. UI 는 따라간다.
@@ -1154,9 +1162,15 @@ void MainWindow::setLinkTone(const QString &tone)
 
 /// 버튼에 지금 붙어 있는 로봇을 적는다.
 ///
-/// 로봇이 이름을 말해 주기 전에는 설정에 적힌 이름과 주소를 쓴다. 빈 칸으로
-/// 두면 어디로 붙으려는 중인지 알 수 없고, 연결이 늦을 때 그 시간이 길다.
-void MainWindow::refreshRobotButton(const QString &robotSaid)
+/// 윗줄은 사람이 부르는 이름, 아랫줄은 기계가 아는 것(식별자와 주소)이다.
+/// 섞지 않는 이유는 둘이 다른 질문에 답하기 때문이다 — "몇 호기에 붙었나" 와
+/// "정말 그 기계가 맞나" 는 같은 자리에서 겨루면 안 된다.
+///
+/// 로봇이 이름을 말해 주기 전에는 설정에 적힌 이름을 쓴다. 빈 칸으로 두면
+/// 어디로 붙으려는 중인지 알 수 없고, 연결이 늦을 때 그 시간이 길다. 로봇이
+/// 말하면 그쪽이 이긴다 — 엉뚱한 로봇에 붙었을 때 그 사실이 이름으로 드러나야
+/// 하고, 내가 적어 둔 이름표는 그것을 가려 버린다.
+void MainWindow::refreshRobotButton()
 {
     auto &cfg = Config::instance();
     const auto list = cfg.robots();
@@ -1171,9 +1185,22 @@ void MainWindow::refreshRobotButton(const QString &robotSaid)
         : QStringLiteral("%1:%2").arg(list.at(cfg.currentRobot()).host)
               .arg(list.at(cfg.currentRobot()).port);
 
-    robotNameLabel_->setText(robotSaid.isEmpty() ? configured : robotSaid);
-    robotAddrLabel_->setText(address);
-    robotButton_->setToolTip(QStringLiteral("눌러서 연결할 로봇을 고릅니다"));
+    robotNameLabel_->setText(saidName_.isEmpty() ? configured : saidName_);
+    // 식별자는 주소 옆에 둔다. 기계를 가리키는 값끼리 모아 두면 이름줄이
+    // 흔들리지 않는다.
+    robotAddrLabel_->setText(saidId_.isEmpty()
+                                 ? address
+                                 : QStringLiteral("%1 · %2").arg(saidId_, address));
+
+    QStringList tip;
+    if (!configured.isEmpty())
+        tip << QStringLiteral("목록 이름  %1").arg(configured);
+    if (!saidName_.isEmpty())
+        tip << QStringLiteral("로봇이 말한 이름  %1").arg(saidName_);
+    if (!saidId_.isEmpty())
+        tip << QStringLiteral("식별자  %1").arg(saidId_);
+    tip << QStringLiteral("눌러서 연결할 로봇을 고릅니다");
+    robotButton_->setToolTip(tip.join(QLatin1Char('\n')));
 
     // 버튼 크기를 안의 배치가 정하게 한다. QPushButton 은 자기 글자를 기준으로
     // 크기를 답하는데 이 버튼에는 글자가 없어서, 그대로 두면 자식 라벨이
@@ -1231,7 +1258,9 @@ void MainWindow::selectRobot(int index)
     if (auto *bridge = qobject_cast<hmi::net::BridgeClient *>(robot_))
         bridge->setEndpoint(e.host, quint16(e.port));
 
-    refreshRobotButton(QString());
+    saidId_.clear();
+    saidName_.clear();
+    refreshRobotButton();
     logAction(QStringLiteral("ROBOT_SELECTED"),
               {{"name", e.name}, {"host", e.host}, {"port", e.port}});
 }
@@ -1348,7 +1377,9 @@ void MainWindow::startSession()
     status_->setConnected(robot_->isConnected());
     setLinkTone(robot_->isConnected() ? QStringLiteral("ok")
                                       : QStringLiteral("danger"));
-    refreshRobotButton(QString());
+    saidId_.clear();
+    saidName_.clear();
+    refreshRobotButton();
 
     setMode(QStringLiteral("auto"));
     nav_->setCurrent(NavItem::Drive);
