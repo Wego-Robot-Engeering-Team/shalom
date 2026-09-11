@@ -12,6 +12,7 @@
 #include <QFile>
 #include <QDateTime>
 #include <QMenu>
+#include <QStyle>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QResizeEvent>
@@ -152,30 +153,33 @@ QWidget *MainWindow::buildTopBar()
 
     // ---- 어느 로봇인가 ----
     //
-    // 관제 한 대가 여러 로봇을 다루게 되면, 지금 무엇을 조작하고 있는지가
+    // 관제 한 대가 여러 로봇을 다루므로, 지금 무엇을 조작하고 있는지가
     // 화면에서 가장 먼저 보여야 한다. 주소를 잘못 적어 옆 로봇에 붙어도
     // 나머지 화면은 정상으로 보이고, 그 상태로 비상정지를 누르면 아무도
     // 보고 있지 않은 로봇이 선다.
     //
-    // 로봇이 말해 주기 전까지는 비워 둔다. "1호기" 같은 것을 미리 적어 두면
-    // 아직 아무것도 모르는 상태를 아는 상태로 오해하게 된다.
-    robotLabel_ = new QLabel(QStringLiteral("—"));
-    robotLabel_->setObjectName(QStringLiteral("RobotName"));
-    robotLabel_->setToolTip(QStringLiteral("연결된 로봇"));
-    lay->addWidget(robotLabel_, 0, Qt::AlignVCenter);
-    lay->addSpacing(metrics::s3);
+    // 이름과 연결 상태를 한 덩어리로 둔다. 예전에는 이름표와 "연결" 배지가
+    // 따로 있었는데, 붙고 나면 둘이 같은 것을 말해 자리만 차지했다. 상태는
+    // 점 하나로 말한다 — 정상을 경고색 상자로 감싸면 읽는 사람이 매번
+    // 무엇이 잘못됐는지 확인하게 된다.
+    linkDot_ = new QLabel;
+    linkDot_->setObjectName(QStringLiteral("LinkDot"));
+    linkDot_->setFixedSize(8, 8);
 
-    // ---- 장비가 어떤가 ----
-    // 배지에 이름을 붙인다. "시뮬레이터" 만 떠 있으면 그것이 연결 상태를
-    // 말하는 것인지 알 수 없다.
-    lay->addWidget(captionLabel(QStringLiteral("연결")), 0, Qt::AlignVCenter);
-    linkBadge_ = new Badge(QStringLiteral("끊김"), QStringLiteral("danger"));
-    // 눌러서 로봇을 고른다. 배지가 이미 "지금 어디에 붙어 있는가" 를 말하고
-    // 있으므로, 바꾸는 자리도 같은 곳에 두는 편이 찾기 쉽다.
-    linkBadge_->setCursor(Qt::PointingHandCursor);
-    linkBadge_->setToolTip(QStringLiteral("눌러서 연결할 로봇을 고릅니다"));
-    linkBadge_->installEventFilter(this);
-    lay->addWidget(linkBadge_);
+    robotButton_ = new QPushButton(QStringLiteral("로봇 선택"));
+    robotButton_->setObjectName(QStringLiteral("RobotPicker"));
+    robotButton_->setCursor(Qt::PointingHandCursor);
+    robotButton_->setToolTip(QStringLiteral("눌러서 연결할 로봇을 고릅니다"));
+    connect(robotButton_, &QPushButton::clicked, this, &MainWindow::showRobotPicker);
+
+    auto *linkBox = new QHBoxLayout;
+    linkBox->setContentsMargins(0, 0, 0, 0);
+    linkBox->setSpacing(metrics::s2);
+    linkBox->addWidget(linkDot_, 0, Qt::AlignVCenter);
+    linkBox->addWidget(robotButton_, 0, Qt::AlignVCenter);
+    lay->addLayout(linkBox);
+
+    setLinkTone(QStringLiteral("danger"));
 
     lay->addSpacing(metrics::s3);
     lay->addWidget(captionLabel(QStringLiteral("배터리")), 0, Qt::AlignVCenter);
@@ -473,12 +477,11 @@ void MainWindow::wireRobotSignals()
 
     connect(robot_, &robot::RobotLink::connectionChanged, this, [this](bool ok) {
         status_->setConnected(ok);
-        linkBadge_->set(ok ? robot_->describe() : QStringLiteral("연결 끊김"),
-                        ok ? QStringLiteral("warn") : QStringLiteral("danger"));
-        // 끊기면 지운다. 방금 무엇에 붙어 있었는지를 그대로 남겨 두면, 다시
-        // 붙었을 때 같은 로봇이라고 넘겨짚게 된다.
+        setLinkTone(ok ? QStringLiteral("ok") : QStringLiteral("danger"));
+        // 끊기면 이름 대신 주소로 되돌린다. 방금 무엇에 붙어 있었는지를
+        // 그대로 남겨 두면, 다시 붙었을 때 같은 로봇이라고 넘겨짚게 된다.
         if (!ok)
-            robotLabel_->setText(QStringLiteral("—"));
+            refreshRobotButton(QString());
     });
 
     connect(robot_, &robot::RobotLink::robotIdentity, this,
@@ -486,12 +489,7 @@ void MainWindow::wireRobotSignals()
                 // 이름이 아직 없으면 식별자를 쓴다. 둘 다 없으면 그대로 둔다 —
                 // 빈 칸이 "모른다" 를 말한다.
                 const QString shown = !name.isEmpty() ? name : id;
-                if (shown.isEmpty())
-                    return;
-                robotLabel_->setText(shown);
-                robotLabel_->setToolTip(
-                    id.isEmpty() ? QStringLiteral("연결된 로봇")
-                                 : QStringLiteral("연결된 로봇 · %1").arg(id));
+                refreshRobotButton(shown);
                 log_->note(diag::Severity::Info,
                            QStringLiteral("로봇 %1 에 연결").arg(
                                id.isEmpty() ? shown : id));
@@ -1117,24 +1115,52 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *ev)
         alert_->setGeometry(centralWidget()->rect());
         toasts_->setBottomAnchor(metrics::s3);
     }
-    if (obj == linkBadge_ && ev->type() == QEvent::MouseButtonRelease) {
-        showRobotPicker();
-        return true;
-    }
     return QMainWindow::eventFilter(obj, ev);
 }
 
 /// 연결 배지 아래에 로봇 목록을 펼친다.
+/// 연결 점의 색을 바꾼다.
+void MainWindow::setLinkTone(const QString &tone)
+{
+    linkDot_->setProperty("tone", tone);
+    // 속성으로 고른 스타일은 다시 계산해 줘야 바뀐다.
+    linkDot_->style()->unpolish(linkDot_);
+    linkDot_->style()->polish(linkDot_);
+}
+
+/// 버튼에 지금 붙어 있는 로봇을 적는다.
+///
+/// 로봇이 이름을 말해 주기 전에는 설정에 적힌 이름과 주소를 쓴다. 빈 칸으로
+/// 두면 어디로 붙으려는 중인지 알 수 없고, 연결이 늦을 때 그 시간이 길다.
+void MainWindow::refreshRobotButton(const QString &robotSaid)
+{
+    auto &cfg = Config::instance();
+    const auto list = cfg.robots();
+    const QString configured = list.isEmpty()
+        ? QString()
+        : (list.at(cfg.currentRobot()).name.isEmpty()
+               ? list.at(cfg.currentRobot()).host
+               : list.at(cfg.currentRobot()).name);
+
+    robotButton_->setText(robotSaid.isEmpty() ? configured : robotSaid);
+    robotButton_->setToolTip(
+        QStringLiteral("%1  ·  눌러서 바꿉니다").arg(robot_->describe()));
+}
+
 void MainWindow::showRobotPicker()
 {
     auto &cfg = Config::instance();
     const auto list = cfg.robots();
     const int current = cfg.currentRobot();
 
-    QMenu menu(this);
+    // exec() 가 아니라 popup() 이다. exec() 는 자기 이벤트 루프를 돌려서,
+    // 메뉴가 떠 있는 동안 로봇에서 오는 자세·안전 상태가 화면에 반영되지
+    // 않는다. 목록을 열어 둔 채로 값이 멎으면 그것을 통신 끊김으로 읽는다.
+    auto *menu = new QMenu(this);
+    menu->setAttribute(Qt::WA_DeleteOnClose);
     for (int i = 0; i < list.size(); ++i) {
         const auto &e = list.at(i);
-        auto *action = menu.addAction(
+        auto *action = menu->addAction(
             QStringLiteral("%1      %2:%3")
                 .arg(e.name.isEmpty() ? QStringLiteral("(이름 없음)") : e.name)
                 .arg(e.host)
@@ -1146,11 +1172,11 @@ void MainWindow::showRobotPicker()
         connect(action, &QAction::triggered, this, [this, i] { selectRobot(i); });
     }
 
-    menu.addSeparator();
-    auto *manage = menu.addAction(QStringLiteral("로봇 관리…"));
+    menu->addSeparator();
+    auto *manage = menu->addAction(QStringLiteral("로봇 관리…"));
     connect(manage, &QAction::triggered, this, [this] { openSettings(); });
 
-    menu.exec(linkBadge_->mapToGlobal(QPoint(0, linkBadge_->height())));
+    menu->popup(robotButton_->mapToGlobal(QPoint(0, robotButton_->height() + 4)));
 }
 
 void MainWindow::selectRobot(int index)
@@ -1168,7 +1194,7 @@ void MainWindow::selectRobot(int index)
     if (auto *bridge = qobject_cast<hmi::net::BridgeClient *>(robot_))
         bridge->setEndpoint(e.host, quint16(e.port));
 
-    robotLabel_->setText(QStringLiteral("—"));
+    refreshRobotButton(QString());
     logAction(QStringLiteral("ROBOT_SELECTED"),
               {{"name", e.name}, {"host", e.host}, {"port", e.port}});
 }
@@ -1283,9 +1309,9 @@ void MainWindow::startSession()
     data_->setDirectory(Config::instance().nasMountPath());
 
     status_->setConnected(robot_->isConnected());
-    linkBadge_->set(robot_->describe(),
-                    robot_->isConnected() ? QStringLiteral("warn")
-                                          : QStringLiteral("danger"));
+    setLinkTone(robot_->isConnected() ? QStringLiteral("ok")
+                                      : QStringLiteral("danger"));
+    refreshRobotButton(QString());
 
     setMode(QStringLiteral("auto"));
     nav_->setCurrent(NavItem::Drive);
