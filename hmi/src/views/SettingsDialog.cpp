@@ -317,7 +317,25 @@ QWidget *SettingsDialog::buildConnectionTab()
     connect(robotList_, &QListWidget::currentRowChanged, this, [this](int row) {
         if (row < 0)
             return;
-        Config::instance().setCurrentRobot(row);
+        auto &cfg = Config::instance();
+        const int previous = cfg.currentRobot();
+
+        // 저장하지 않은 편집을 말없이 버리지 않는다. 고친 것이 사라진 줄
+        // 모르면, 나중에 "저장이 안 된다" 로 되돌아온다.
+        if (row != previous && robotSave_ && robotSave_->isEnabled()) {
+            const auto answer = QMessageBox::question(
+                this, QStringLiteral("저장하지 않은 변경"),
+                QStringLiteral("저장하지 않은 변경이 있습니다. 버리고 다른 로봇으로 "
+                               "옮길까요?"),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+            if (answer != QMessageBox::Yes) {
+                const QSignalBlocker block(robotList_);
+                robotList_->setCurrentRow(previous);
+                return;
+            }
+        }
+
+        cfg.setCurrentRobot(row);
         showSelectedRobot();
         refreshNetworkInfo();
     });
@@ -341,11 +359,28 @@ QWidget *SettingsDialog::buildConnectionTab()
         reloadRobotList();
     });
 
+    // 저장은 눌러서 한다.
+    //
+    // 예전에는 칸을 벗어나는 순간 저장됐다. 주소를 고치다 말고 다른 데를
+    // 누르면 반쯤 고친 주소가 그대로 들어갔고, 화면에는 그 사실이 "연결
+    // 안 됨" 으로만 보였다. 무엇을 바꿨는지 스스로 확인하고 누르게 한다.
+    auto *saveRow = new QHBoxLayout;
+    robotSave_ = new QPushButton(QStringLiteral("저장"));
+    robotSave_->setProperty("variant", "primary");
+    robotSave_->setEnabled(false);
+    saveRow->addStretch(1);
+    saveRow->addWidget(robotSave_);
+    lay->addLayout(saveRow);
+
+    connect(robotSave_, &QPushButton::clicked, this, &SettingsDialog::applyRobotEdits);
+
+    // 고친 것이 있을 때만 또렷해진다. 늘 눌러도 되는 것처럼 보이면 누른
+    // 것인지 아닌지 기억에 의존하게 된다.
     for (auto *edit : {robotName_, host_})
-        connect(edit, &QLineEdit::editingFinished, this,
-                &SettingsDialog::applyRobotEdits);
-    connect(port_, &QSpinBox::editingFinished, this,
-            &SettingsDialog::applyRobotEdits);
+        connect(edit, &QLineEdit::textEdited, this,
+                [this] { refreshRobotSaveState(); });
+    connect(port_, &QSpinBox::valueChanged, this,
+            [this] { refreshRobotSaveState(); });
 
     // ---- 연결 확인 ----
     auto *testRow = new QHBoxLayout;
@@ -778,6 +813,23 @@ void SettingsDialog::showSelectedRobot()
     robotName_->setText(e.name);
     host_->setText(e.host);
     port_->setValue(e.port);
+    refreshRobotSaveState();
+}
+
+void SettingsDialog::refreshRobotSaveState()
+{
+    if (!robotSave_)
+        return;
+    const auto list = Config::instance().robots();
+    if (list.isEmpty()) {
+        robotSave_->setEnabled(false);
+        return;
+    }
+    const auto &e = list.at(Config::instance().currentRobot());
+    const bool changed = robotName_->text().trimmed() != e.name
+                         || host_->text().trimmed() != e.host
+                         || port_->value() != e.port;
+    robotSave_->setEnabled(changed);
 }
 
 void SettingsDialog::applyRobotEdits()
