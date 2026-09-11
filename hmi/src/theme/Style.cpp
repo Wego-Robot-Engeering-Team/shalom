@@ -104,18 +104,31 @@ QMenu::item:disabled { color: @textMute; }
 QMenu::separator { height: 1px; background: @border; margin: 4px 6px; }
 QMenu::indicator { width: 14px; height: 14px; left: 7px; }
 
+/* 테두리를 평소에 그리지 않는다. 늘 상자로 감싸 두면 상단 바에 네모가
+   하나 더 늘어날 뿐이고, 누를 수 있다는 것은 호버로 말하는 편이 조용하다. */
 #RobotPicker {
     background: transparent;
-    border: 1px solid @border;
+    border: 1px solid transparent;
     border-radius: @rMd;
-    padding: 3px 10px;
+    padding: 0;
+    text-align: left;
+}
+#RobotPicker:hover   { background: @surfaceHover; border-color: @border; }
+#RobotPicker:pressed { background: @surfaceHi; }
+
+/* 이름이 먼저 읽히고 주소는 확인할 때만 읽힌다. 둘을 같은 무게로 두면
+   매번 둘 다 읽게 된다. */
+#RobotPickerName {
     font-size: @fsMd;
     font-weight: 600;
     color: @text;
-    text-align: left;
 }
-#RobotPicker:hover  { background: @surfaceHover; border-color: @borderHi; }
-#RobotPicker:pressed { background: @surfaceHi; }
+#RobotPickerAddr {
+    font-family: @mono;
+    font-size: @fsXs;
+    color: @textMute;
+}
+#RobotPickerChevron { color: @textMute; font-size: @fsSm; }
 
 /* 연결 상태는 점 하나로 말한다. 정상을 경고색 상자로 감싸면 읽는 사람이
    매번 무엇이 잘못됐는지 확인하게 된다. */

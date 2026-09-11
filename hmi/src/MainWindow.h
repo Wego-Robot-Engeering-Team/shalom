@@ -208,6 +208,8 @@ private:
     ToastHost *toasts_ = nullptr;
     QLabel *linkDot_ = nullptr;
     QPushButton *robotButton_ = nullptr;
+    QLabel *robotNameLabel_ = nullptr;
+    QLabel *robotAddrLabel_ = nullptr;
     QPushButton *autoBtn_ = nullptr;
     QPushButton *manualBtn_ = nullptr;
     IconButton *themeBtn_ = nullptr;
