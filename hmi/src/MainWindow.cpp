@@ -162,22 +162,46 @@ QWidget *MainWindow::buildTopBar()
     // 따로 있었는데, 붙고 나면 둘이 같은 것을 말해 자리만 차지했다. 상태는
     // 점 하나로 말한다 — 정상을 경고색 상자로 감싸면 읽는 사람이 매번
     // 무엇이 잘못됐는지 확인하게 된다.
+    // 점 · 이름 · 주소 · 펼침 표시를 한 덩어리로 둔다. 버튼 안에 배치를
+    // 넣고 자식 라벨은 마우스를 통과시킨다 — 어디를 눌러도 열린다.
+    robotButton_ = new QPushButton;
+    robotButton_->setObjectName(QStringLiteral("RobotPicker"));
+    robotButton_->setCursor(Qt::PointingHandCursor);
+    connect(robotButton_, &QPushButton::clicked, this, &MainWindow::showRobotPicker);
+
+    auto *pick = new QHBoxLayout(robotButton_);
+    pick->setContentsMargins(metrics::s2, 4, metrics::s2, 4);
+    pick->setSpacing(metrics::s2);
+
     linkDot_ = new QLabel;
     linkDot_->setObjectName(QStringLiteral("LinkDot"));
     linkDot_->setFixedSize(8, 8);
+    pick->addWidget(linkDot_, 0, Qt::AlignVCenter);
 
-    robotButton_ = new QPushButton(QStringLiteral("로봇 선택"));
-    robotButton_->setObjectName(QStringLiteral("RobotPicker"));
-    robotButton_->setCursor(Qt::PointingHandCursor);
-    robotButton_->setToolTip(QStringLiteral("눌러서 연결할 로봇을 고릅니다"));
-    connect(robotButton_, &QPushButton::clicked, this, &MainWindow::showRobotPicker);
+    // 이름이 먼저, 주소가 아래다. 조작자는 "몇 호기" 로 말하고 주소는
+    // 확인할 때만 본다 — 둘을 같은 크기로 두면 매번 둘 다 읽게 된다.
+    auto *stack = new QVBoxLayout;
+    stack->setContentsMargins(0, 0, 0, 0);
+    stack->setSpacing(0);
+    robotNameLabel_ = new QLabel(QStringLiteral("로봇 선택"));
+    robotNameLabel_->setObjectName(QStringLiteral("RobotPickerName"));
+    robotAddrLabel_ = new QLabel;
+    robotAddrLabel_->setObjectName(QStringLiteral("RobotPickerAddr"));
+    stack->addWidget(robotNameLabel_);
+    stack->addWidget(robotAddrLabel_);
+    pick->addLayout(stack);
 
-    auto *linkBox = new QHBoxLayout;
-    linkBox->setContentsMargins(0, 0, 0, 0);
-    linkBox->setSpacing(metrics::s2);
-    linkBox->addWidget(linkDot_, 0, Qt::AlignVCenter);
-    linkBox->addWidget(robotButton_, 0, Qt::AlignVCenter);
-    lay->addLayout(linkBox);
+    auto *chevron = new QLabel(QStringLiteral("⌄"));
+    chevron->setObjectName(QStringLiteral("RobotPickerChevron"));
+    pick->addWidget(chevron, 0, Qt::AlignVCenter);
+
+    for (QWidget *child : {static_cast<QWidget *>(linkDot_),
+                           static_cast<QWidget *>(robotNameLabel_),
+                           static_cast<QWidget *>(robotAddrLabel_),
+                           static_cast<QWidget *>(chevron)})
+        child->setAttribute(Qt::WA_TransparentForMouseEvents);
+
+    lay->addWidget(robotButton_, 0, Qt::AlignVCenter);
 
     setLinkTone(QStringLiteral("danger"));
 
@@ -1142,9 +1166,22 @@ void MainWindow::refreshRobotButton(const QString &robotSaid)
                ? list.at(cfg.currentRobot()).host
                : list.at(cfg.currentRobot()).name);
 
-    robotButton_->setText(robotSaid.isEmpty() ? configured : robotSaid);
-    robotButton_->setToolTip(
-        QStringLiteral("%1  ·  눌러서 바꿉니다").arg(robot_->describe()));
+    const QString address = list.isEmpty()
+        ? QString()
+        : QStringLiteral("%1:%2").arg(list.at(cfg.currentRobot()).host)
+              .arg(list.at(cfg.currentRobot()).port);
+
+    robotNameLabel_->setText(robotSaid.isEmpty() ? configured : robotSaid);
+    robotAddrLabel_->setText(address);
+    robotButton_->setToolTip(QStringLiteral("눌러서 연결할 로봇을 고릅니다"));
+
+    // 버튼 크기를 안의 배치가 정하게 한다. QPushButton 은 자기 글자를 기준으로
+    // 크기를 답하는데 이 버튼에는 글자가 없어서, 그대로 두면 자식 라벨이
+    // 1 px 로 눌린다 — 점만 보이고 이름과 주소가 사라진다.
+    if (auto *inner = robotButton_->layout()) {
+        inner->activate();
+        robotButton_->setMinimumSize(inner->minimumSize());
+    }
 }
 
 void MainWindow::showRobotPicker()
