@@ -179,6 +179,13 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit {
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
     border-color: @accent;
 }
+/* 고칠 수 없는 값은 고칠 수 있는 값과 달라 보여야 한다. 스타일시트를 쓰면
+   Qt 의 기본 비활성 표현이 덮이므로 여기서 다시 준다. */
+QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
+    background: @surface;
+    border-color: @border;
+    color: @textMute;
+}
 QComboBox { font-family: @ui; }
 QComboBox::drop-down { border: none; width: 18px; }
 QComboBox QAbstractItemView {
@@ -237,6 +244,24 @@ QTabBar::tab:selected {
 /* ===================== 리스트 ===================== */
 QListWidget, QTreeWidget, QTableWidget { background: transparent; border: none; }
 QListWidget::item { border: none; }
+
+/* 골라야 하는 목록은 칸처럼 보여야 한다. 위의 투명 규칙은 읽기만 하는
+   목록을 위한 것이라, 선택 대상에는 테두리와 바탕을 되돌려 준다. */
+QListWidget#PickList {
+    background: @surfaceHi;
+    border: 1px solid @borderHi;
+    border-radius: @rMd;
+    padding: 2px;
+}
+QListWidget#PickList::item {
+    padding: 4px 6px;
+    border-radius: @rSm;
+    color: @text;
+}
+QListWidget#PickList::item:selected {
+    background: @accent;
+    color: @textOnAccent;
+}
 QHeaderView::section {
     background: transparent; border: none;
     border-bottom: 1px solid @border;

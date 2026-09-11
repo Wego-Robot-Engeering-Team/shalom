@@ -62,24 +62,95 @@ Config &Config::instance()
 
 Config::Config() = default;
 
+QList<RobotEntry> Config::robots() const
+{
+    QList<RobotEntry> out;
+    auto &s = store();
+    const int n = s.beginReadArray(QStringLiteral("connection/robots"));
+    for (int i = 0; i < n; ++i) {
+        s.setArrayIndex(i);
+        RobotEntry e;
+        e.name = s.value(QStringLiteral("name")).toString();
+        e.host = s.value(QStringLiteral("host")).toString();
+        e.port = s.value(QStringLiteral("port"), kDefaultPort).toInt();
+        if (!e.host.isEmpty())
+            out.append(e);
+    }
+    s.endArray();
+
+    // 목록이 비어 있으면 예전 단일 주소 설정에서 한 대를 만들어 준다. 이미
+    // 주소를 맞춰 둔 설치본이 갱신 뒤에 아무 데도 붙지 못하면 안 된다.
+    if (out.isEmpty()) {
+        RobotEntry e;
+        e.host = s.value(QStringLiteral("connection/host"),
+                         QLatin1String(kDefaultHost)).toString();
+        e.port = s.value(QStringLiteral("connection/port"), kDefaultPort).toInt();
+        e.name = QStringLiteral("로봇");
+        out.append(e);
+    }
+    return out;
+}
+
+void Config::setRobots(const QList<RobotEntry> &robots)
+{
+    auto &s = store();
+    // 배열은 비우고 다시 쓴다. 덮어쓰기만 하면 줄어든 뒤에 옛 항목이 남는다.
+    s.remove(QStringLiteral("connection/robots"));
+    s.beginWriteArray(QStringLiteral("connection/robots"), int(robots.size()));
+    for (int i = 0; i < robots.size(); ++i) {
+        s.setArrayIndex(i);
+        s.setValue(QStringLiteral("name"), robots.at(i).name);
+        s.setValue(QStringLiteral("host"), robots.at(i).host);
+        s.setValue(QStringLiteral("port"), robots.at(i).port);
+    }
+    s.endArray();
+    // 지워진 자리를 가리키고 있을 수 있으므로 다시 재운다.
+    setCurrentRobot(currentRobot());
+}
+
+int Config::currentRobot() const
+{
+    const int n = int(robots().size());
+    const int i = store().value(QStringLiteral("connection/current"), 0).toInt();
+    return qBound(0, i, n > 0 ? n - 1 : 0);
+}
+
+void Config::setCurrentRobot(int index)
+{
+    const int n = int(robots().size());
+    store().setValue(QStringLiteral("connection/current"),
+                     qBound(0, index, n > 0 ? n - 1 : 0));
+}
+
 QString Config::bridgeHost() const
 {
-    return store().value(QStringLiteral("connection/host"),
-                         QLatin1String(kDefaultHost)).toString();
+    const auto list = robots();
+    return list.isEmpty() ? QLatin1String(kDefaultHost)
+                          : list.at(currentRobot()).host;
 }
 
 void Config::setBridgeHost(const QString &host)
 {
-    store().setValue(QStringLiteral("connection/host"), host);
+    auto list = robots();
+    if (list.isEmpty())
+        return;
+    list[currentRobot()].host = host;
+    setRobots(list);
 }
 
 int Config::bridgePort() const
 {
-    return store().value(QStringLiteral("connection/port"), kDefaultPort).toInt();
+    const auto list = robots();
+    return list.isEmpty() ? kDefaultPort : list.at(currentRobot()).port;
 }
+
 void Config::setBridgePort(int port)
 {
-    store().setValue(QStringLiteral("connection/port"), port);
+    auto list = robots();
+    if (list.isEmpty())
+        return;
+    list[currentRobot()].port = port;
+    setRobots(list);
 }
 
 double Config::batteryReturnPercent() const

@@ -11,10 +11,23 @@
 // editable fields would suggest the control station can change them, which it
 // cannot. They are surfaced read-only, sourced from what the robot reports.
 
+#include <QList>
 #include <QObject>
 #include <QString>
 
 namespace hmi {
+
+/// One robot the station can connect to.
+///
+/// The address is the whole of it. A robot running the MuJoCo simulator on
+/// this machine is reached at 127.0.0.1 and is not special: the station speaks
+/// the same protocol either way, and pretending otherwise would mean the
+/// screen shows something the robot never said.
+struct RobotEntry {
+    QString name;   ///< what the operator calls it
+    QString host;
+    int port = 9090;
+};
 
 class Config : public QObject {
     Q_OBJECT
@@ -22,6 +35,20 @@ public:
     static Config &instance();
 
     // ---- connection ------------------------------------------------------
+    //
+    // The station keeps a list of robots and one of them is current. The
+    // single-address accessors below answer for whichever is current, so
+    // everything that just wants "where do I connect" is unaffected by the
+    // list existing.
+    QList<RobotEntry> robots() const;
+    void setRobots(const QList<RobotEntry> &robots);
+
+    /// Index into robots(). Out-of-range values are clamped, because a list
+    /// edited down to fewer entries must not leave the station pointing at
+    /// nothing.
+    int currentRobot() const;
+    void setCurrentRobot(int index);
+
     QString bridgeHost() const;
     void setBridgeHost(const QString &host);
 
