@@ -257,6 +257,9 @@ cmake --preset dev && cmake --build --preset dev
 ctest --test-dir build            # 개발 구성
 ```
 
+실행하면 로그인 창이 먼저 뜬다. 지금은 자리표시 자격증명(`admin` / `admin`)이고,
+입력한 이름이 조작 이력에 남는다.
+
 납품 구성은 `--preset release` 다. 내장 모형(testbed)이 빠지며,
 코어를 공유 라이브러리(`libhmi_core.so`)로 낸다 — 과업지시서 4장이 S/W
 성과물을 `.so` 로 요구한다.
