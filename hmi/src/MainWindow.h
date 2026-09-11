@@ -94,7 +94,7 @@ protected:
 
     void showRobotPicker();
     void setLinkTone(const QString &tone);
-    void refreshRobotButton(const QString &robotSaid);
+    void refreshRobotButton();
     void selectRobot(int index);
 
     /// Fits the map on first show. The constructor cannot do it: the viewport
@@ -210,6 +210,11 @@ private:
     QPushButton *robotButton_ = nullptr;
     QLabel *robotNameLabel_ = nullptr;
     QLabel *robotAddrLabel_ = nullptr;
+
+    /// What the robot last called itself, and the id it stamps on every frame.
+    /// Kept apart because they answer different questions.
+    QString saidName_;
+    QString saidId_;
     QPushButton *autoBtn_ = nullptr;
     QPushButton *manualBtn_ = nullptr;
     IconButton *themeBtn_ = nullptr;
