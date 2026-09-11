@@ -83,13 +83,46 @@ QMessageBox { background: @surface; }
     border-radius: @rLg;
 }
 
-/* 지금 조작 중인 로봇. 상단 바에서 가장 먼저 읽혀야 하므로 본문보다 굵고
-   크게 둔다 — 관제 한 대가 여러 로봇을 다룰 때 이 한 줄이 오조작을 막는다. */
-#RobotName {
-    font-size: @fsLg;
-    font-weight: 600;
+/* 지금 조작 중인 로봇. 상단 바에서 가장 먼저 읽혀야 하므로 본문보다 굵게
+   둔다 — 관제 한 대가 여러 로봇을 다룰 때 이 한 줄이 오조작을 막는다.
+   눌러서 바꾸는 것이므로 테두리를 주되, 주변 도구 버튼보다 조용하게 둔다. */
+/* 눌러서 펼치는 목록. 지금까지 메뉴를 쓴 곳이 없어 테마가 닿지 않았고,
+   플랫폼 기본 모양이 그대로 나와 나머지 화면과 따로 놀았다. */
+QMenu {
+    background: @surface;
+    border: 1px solid @border;
+    border-radius: @rMd;
+    padding: 4px;
+}
+QMenu::item {
+    padding: 6px 28px 6px 26px;
+    border-radius: @rSm;
     color: @text;
 }
+QMenu::item:selected { background: @accentSoft; color: @accent; }
+QMenu::item:disabled { color: @textMute; }
+QMenu::separator { height: 1px; background: @border; margin: 4px 6px; }
+QMenu::indicator { width: 14px; height: 14px; left: 7px; }
+
+#RobotPicker {
+    background: transparent;
+    border: 1px solid @border;
+    border-radius: @rMd;
+    padding: 3px 10px;
+    font-size: @fsMd;
+    font-weight: 600;
+    color: @text;
+    text-align: left;
+}
+#RobotPicker:hover  { background: @surfaceHover; border-color: @borderHi; }
+#RobotPicker:pressed { background: @surfaceHi; }
+
+/* 연결 상태는 점 하나로 말한다. 정상을 경고색 상자로 감싸면 읽는 사람이
+   매번 무엇이 잘못됐는지 확인하게 된다. */
+#LinkDot                { border-radius: 4px; background: @textMute; }
+#LinkDot[tone="ok"]     { background: @success; }
+#LinkDot[tone="warn"]   { background: @warning; }
+#LinkDot[tone="danger"] { background: @danger; }
 
 #NavRail {
     background: @surface;
