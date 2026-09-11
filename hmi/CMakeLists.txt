@@ -47,6 +47,8 @@ endif()
 
 add_library(hmi_core ${HMI_CORE_TYPE}
     src/Config.cpp
+    src/auth/Session.cpp
+    src/views/WelcomeDialog.cpp
     src/views/SettingsDialog.cpp
     src/theme/Tokens.cpp
     src/theme/Style.cpp
@@ -243,6 +245,7 @@ if(HMI_BUILD_TESTS)
     hmi_add_test(test_bridge)
     hmi_add_test(test_capture_meta)
     hmi_add_test(test_records)
+    hmi_add_test(test_session)
 
     hmi_add_test(test_docs)
     # 명세서 경로를 알려준다. 문서와 코드의 드리프트를 잡는 검사다.

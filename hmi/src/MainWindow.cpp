@@ -24,6 +24,7 @@
 #include <QtMath>
 
 #include "Config.h"
+#include "auth/Session.h"
 #include "diag/CodeCatalog.h"
 #include "diag/LogStore.h"
 #include "mapview/MapRender.h"
@@ -376,6 +377,11 @@ QWidget *MainWindow::buildDataContext()
 
 void MainWindow::logAction(const QString &code, QVariantMap detail)
 {
+    // 누가 시켰는지가 이력의 핵심이다. 무엇이 언제 일어났는지만 남으면
+    // 사후에 책임 소재를 가릴 수 없다.
+    const QString by = auth::Session::instance().displayName();
+    if (!by.isEmpty())
+        detail[QStringLiteral("by")] = by;
     log_->log(code, QJsonObject::fromVariantMap(detail));
 }
 
