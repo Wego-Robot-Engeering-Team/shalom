@@ -12,6 +12,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSlider>
+#include <QListWidget>
 #include <QSpinBox>
 #include <QNetworkInterface>
 #include <QTabBar>
@@ -270,18 +271,81 @@ QWidget *SettingsDialog::buildConnectionTab()
     lay->setContentsMargins(metrics::s3, metrics::s4, metrics::s3, metrics::s3);
     lay->setSpacing(metrics::s3);
 
+    // ---- 로봇 목록 ----
+    //
+    // 관제 한 대가 여러 로봇을 다룬다. 주소를 매번 고쳐 쓰게 하면 오타가
+    // 나고, 오타가 난 주소는 "연결 안 됨" 으로만 보인다.
+    //
+    // 로컬에서 도는 시뮬레이터(127.0.0.1)도 여기 한 줄로 들어간다. 관제
+    // 입장에서 주고받는 것이 같으므로 특별 취급할 이유가 없다.
+    lay->addWidget(sectionLabel(QStringLiteral("로봇")));
+
+    robotList_ = new QListWidget;
+    robotList_->setObjectName(QStringLiteral("PickList"));
+    robotList_->setMinimumHeight(110);
+    lay->addWidget(robotList_);
+
+    auto *listButtons = new QHBoxLayout;
+    auto *addBtn = new QPushButton(QStringLiteral("추가"));
+    auto *removeBtn = new QPushButton(QStringLiteral("삭제"));
+    listButtons->addWidget(addBtn);
+    listButtons->addWidget(removeBtn);
+    listButtons->addStretch(1);
+    lay->addLayout(listButtons);
+
+    robotName_ = new QLineEdit;
     host_ = new QLineEdit;
     port_ = new QSpinBox;
     port_->setRange(1, 65535);
-    lay->addWidget(fieldRow(QStringLiteral("로봇 주소"), host_, 96));
+    // 포트는 규약이 정한 값이라 현장에서 바꿀 것이 아니다(9090, 통신 규약
+    // 1.1). 그래도 감춰 두지는 않는다 — 방화벽 규칙을 적거나 연결이 안 될 때
+    // 확인해야 하는 값이고, 화면에 없으면 문서를 뒤지게 된다.
+    port_->setEnabled(false);
+    port_->setToolTip(QStringLiteral("통신 규약이 정한 값입니다 (9090)."));
+    lay->addWidget(fieldRow(QStringLiteral("이름"), robotName_, 96));
+    lay->addWidget(fieldRow(QStringLiteral("주소"), host_, 96));
     lay->addWidget(fieldRow(QStringLiteral("제어 포트"), port_, 96));
 
     auto *hint = new QLabel(QStringLiteral(
-        "관제 화면은 이 주소로 로봇과 연결합니다. "
-        "촬영한 사진은 이 경로를 거치지 않고 로봇에서 저장 장치로 바로 올라갑니다."));
+        "목록에서 고른 로봇에 연결합니다. 상단 바의 연결 배지를 눌러도 바꿀 수 "
+        "있습니다. 촬영한 사진은 이 경로를 거치지 않고 로봇에서 저장 장치로 바로 "
+        "올라갑니다."));
     hint->setObjectName(QStringLiteral("Hint"));
     hint->setWordWrap(true);
     lay->addWidget(hint);
+
+    connect(robotList_, &QListWidget::currentRowChanged, this, [this](int row) {
+        if (row < 0)
+            return;
+        Config::instance().setCurrentRobot(row);
+        showSelectedRobot();
+        refreshNetworkInfo();
+    });
+
+    connect(addBtn, &QPushButton::clicked, this, [this] {
+        auto list = Config::instance().robots();
+        list.append({QStringLiteral("새 로봇"), QStringLiteral("192.168.0.10"), 9090});
+        Config::instance().setRobots(list);
+        Config::instance().setCurrentRobot(int(list.size()) - 1);
+        reloadRobotList();
+    });
+
+    connect(removeBtn, &QPushButton::clicked, this, [this] {
+        auto list = Config::instance().robots();
+        // 마지막 한 대는 남긴다. 목록이 비면 붙을 곳이 사라지고, 화면에는
+        // 그 사실이 "연결 안 됨" 으로만 보인다.
+        if (list.size() <= 1)
+            return;
+        list.removeAt(Config::instance().currentRobot());
+        Config::instance().setRobots(list);
+        reloadRobotList();
+    });
+
+    for (auto *edit : {robotName_, host_})
+        connect(edit, &QLineEdit::editingFinished, this,
+                &SettingsDialog::applyRobotEdits);
+    connect(port_, &QSpinBox::editingFinished, this,
+            &SettingsDialog::applyRobotEdits);
 
     // ---- 연결 확인 ----
     auto *testRow = new QHBoxLayout;
@@ -312,10 +376,7 @@ QWidget *SettingsDialog::buildConnectionTab()
     refreshNetworkInfo();
     connect(host_, &QLineEdit::textChanged, this, [this] { refreshNetworkInfo(); });
 
-    connect(host_, &QLineEdit::editingFinished, this,
-            [this] { Config::instance().setBridgeHost(host_->text()); });
-    connect(port_, &QSpinBox::valueChanged, this,
-            [](int v) { Config::instance().setBridgePort(v); });
+    reloadRobotList();
 
     lay->addStretch(1);
     return page;
@@ -625,6 +686,15 @@ void SettingsDialog::refreshNetworkInfo()
         return;
     }
 
+    // 루프백은 인터페이스 목록에 없다(위에서 IsLoopBack 을 걸렀다). 그대로
+    // 두면 이 기계에서 도는 브릿지 — 시뮬레이터를 띄운 경우가 그렇다 — 를
+    // "같은 네트워크가 아니다" 라고 잘못 말한다. 늘 닿는 주소다.
+    if (target.isLoopback()) {
+        subnetWarning_->clear();
+        subnetWarning_->hide();
+        return;
+    }
+
     bool sameSubnet = false;
     for (const auto &[ip, prefix] : local) {
         if (target.isInSubnet(ip, prefix)) {
@@ -681,6 +751,55 @@ void SettingsDialog::testConnection()
     socket->connectToHost(cfg.bridgeHost(), quint16(cfg.bridgePort()));
 }
 
+void SettingsDialog::reloadRobotList()
+{
+    auto &cfg = Config::instance();
+    const QSignalBlocker block(robotList_);
+    robotList_->clear();
+    const auto list = cfg.robots();
+    for (const auto &e : list) {
+        robotList_->addItem(QStringLiteral("%1      %2:%3")
+                                .arg(e.name.isEmpty() ? QStringLiteral("(이름 없음)") : e.name)
+                                .arg(e.host)
+                                .arg(e.port));
+    }
+    robotList_->setCurrentRow(cfg.currentRobot());
+    showSelectedRobot();
+}
+
+void SettingsDialog::showSelectedRobot()
+{
+    auto &cfg = Config::instance();
+    const auto list = cfg.robots();
+    if (list.isEmpty())
+        return;
+    const auto &e = list.at(cfg.currentRobot());
+    const QSignalBlocker b1(robotName_), b2(host_), b3(port_);
+    robotName_->setText(e.name);
+    host_->setText(e.host);
+    port_->setValue(e.port);
+}
+
+void SettingsDialog::applyRobotEdits()
+{
+    auto &cfg = Config::instance();
+    auto list = cfg.robots();
+    if (list.isEmpty())
+        return;
+    const int i = cfg.currentRobot();
+    // 주소가 비면 저장하지 않는다. 빈 주소는 목록에서 한 줄을 차지하면서
+    // 아무 데도 붙지 못하는, 눈으로는 멀쩡해 보이는 항목이 된다.
+    if (host_->text().trimmed().isEmpty()) {
+        showSelectedRobot();
+        return;
+    }
+    list[i].name = robotName_->text().trimmed();
+    list[i].host = host_->text().trimmed();
+    list[i].port = port_->value();
+    cfg.setRobots(list);
+    reloadRobotList();
+}
+
 void SettingsDialog::load()
 {
     auto &cfg = Config::instance();
@@ -690,8 +809,7 @@ void SettingsDialog::load()
 
     scale_->setValue(int(qRound(cfg.uiScale() * 100)));
     scaleValue_->setText(QStringLiteral("%1%").arg(scale_->value()));
-    host_->setText(cfg.bridgeHost());
-    port_->setValue(cfg.bridgePort());
+    reloadRobotList();
     returnPct_->setValue(int(cfg.batteryReturnPercent()));
     departPct_->setValue(int(cfg.batteryDeparturePercent()));
     linear_->setValue(cfg.defaultLinearSpeed());
