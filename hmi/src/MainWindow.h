@@ -93,6 +93,8 @@ protected:
     bool eventFilter(QObject *obj, QEvent *ev) override;
 
     void showRobotPicker();
+    void setLinkTone(const QString &tone);
+    void refreshRobotButton(const QString &robotSaid);
     void selectRobot(int index);
 
     /// Fits the map on first show. The constructor cannot do it: the viewport
@@ -204,8 +206,8 @@ private:
     EStopButton *estop_ = nullptr;
     AlertFrame *alert_ = nullptr;
     ToastHost *toasts_ = nullptr;
-    QLabel *robotLabel_ = nullptr;
-    Badge *linkBadge_ = nullptr;
+    QLabel *linkDot_ = nullptr;
+    QPushButton *robotButton_ = nullptr;
     QPushButton *autoBtn_ = nullptr;
     QPushButton *manualBtn_ = nullptr;
     IconButton *themeBtn_ = nullptr;
