@@ -164,8 +164,25 @@ ros2 run tf2_ros tf2_echo map base_link   # 위치추정
 ss -ltn | grep 9090                       # 관제 브릿지
 ```
 
-`CYCLONEDDS_URI`를 주지 않으면 도구가 스택과 다른 DDS 설정으로 떠서 토픽이
-보이지 않는다. 런치는 이 값을 스스로 설정하지만 별도로 띄운 셸은 그렇지 않다.
+`RMW_IMPLEMENTATION`과 `CYCLONEDDS_URI`를 주지 않으면 도구가 스택과 다른 DDS로
+떠서 토픽이 보이지 않는다. 런치는 두 값을 스스로 설정하지만 별도로 띄운 셸은
+그렇지 않다.
+
+```bash
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+```
+
+### 외부 통신 차단 확인 (과업지시서 7.1)
+
+로봇의 ROS 2 통신은 루프백에 가둔다. 밖으로 나가는 것은 관제 TCP(9090)뿐이다.
+같은 망의 다른 PC에서 확인한다.
+
+```bash
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ROS_DOMAIN_ID=0
+ros2 daemon stop && ros2 node list      # 아무것도 나오지 않아야 한다
+```
+
+`ros2 daemon stop`을 빼면 이전에 발견한 노드가 캐시에서 나와 샌 것처럼 보인다.
 
 관제 PC에서 붙어 확인한다.
 
