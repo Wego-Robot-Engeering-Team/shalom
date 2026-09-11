@@ -44,6 +44,14 @@ public:
 
     void connectToBridge();
 
+    /// Points the link at a different robot and reconnects.
+    ///
+    /// Everything learned from the previous robot is dropped - identity,
+    /// telemetry, the pinned id. Carrying it over would leave the screen
+    /// showing one robot's numbers under another robot's name for as long as
+    /// it takes the new one to answer.
+    void setEndpoint(const QString &host, quint16 port);
+
     /// Closes the connection and stops reconnecting. Used when the operator
     /// deliberately disconnects, so that it does not silently come back.
     void disconnectFromBridge();

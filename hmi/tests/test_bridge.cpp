@@ -144,6 +144,41 @@ private slots:
 
     // ---- 연결 ------------------------------------------------------------
 
+    /// 로봇을 바꾸면 그 로봇에 가서 붙는다.
+    ///
+    /// 관제 한 대가 여러 로봇을 다루므로 이 전환이 조용히 실패하면 화면은
+    /// 새 로봇의 이름을 달고 옛 로봇의 값을 보여 준다.
+    void setEndpoint_movesToTheOtherRobot()
+    {
+        connectPair();
+
+        MockBridge second;
+        client_->setEndpoint(QStringLiteral("127.0.0.1"), second.port());
+
+        QVERIFY2(waitFor([&] { return client_->isConnected() && second.hasPeer(); }),
+                 "새 주소로 붙지 않았다");
+        QVERIFY2(!server_->hasPeer(), "옛 연결이 살아 있다");
+    }
+
+    /// 바꾸는 순간 옛 로봇의 식별자를 버린다.
+    void setEndpoint_forgetsTheOldIdentity()
+    {
+        connectPair();
+        // 식별자는 봉투에 실려 온다. 페이로드의 robot_id 는 사람이 읽을
+        // 이름을 함께 나르는 자리일 뿐이다.
+        auto hello = makePublish(QLatin1String(hmi::ch::kSystem), QJsonObject{});
+        hello.robot = QStringLiteral("R1");
+        server_->send(hello);
+        QVERIFY(waitFor([this] { return client_->describe() == QStringLiteral("R1"); }));
+
+        MockBridge second;
+        QSignalSpy spy(client_, &hmi::robot::RobotLink::robotIdentity);
+        client_->setEndpoint(QStringLiteral("127.0.0.1"), second.port());
+
+        QVERIFY2(spy.count() >= 1, "식별자를 버렸다고 알리지 않았다");
+        QCOMPARE(spy.takeLast().at(0).toString(), QString());
+    }
+
     void connect_subscribesToStateChannels()
     {
         connectPair();

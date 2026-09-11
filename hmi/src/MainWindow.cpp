@@ -11,6 +11,7 @@
 #include <QDir>
 #include <QFile>
 #include <QDateTime>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QResizeEvent>
@@ -169,6 +170,11 @@ QWidget *MainWindow::buildTopBar()
     // 말하는 것인지 알 수 없다.
     lay->addWidget(captionLabel(QStringLiteral("연결")), 0, Qt::AlignVCenter);
     linkBadge_ = new Badge(QStringLiteral("끊김"), QStringLiteral("danger"));
+    // 눌러서 로봇을 고른다. 배지가 이미 "지금 어디에 붙어 있는가" 를 말하고
+    // 있으므로, 바꾸는 자리도 같은 곳에 두는 편이 찾기 쉽다.
+    linkBadge_->setCursor(Qt::PointingHandCursor);
+    linkBadge_->setToolTip(QStringLiteral("눌러서 연결할 로봇을 고릅니다"));
+    linkBadge_->installEventFilter(this);
     lay->addWidget(linkBadge_);
 
     lay->addSpacing(metrics::s3);
@@ -1111,7 +1117,60 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *ev)
         alert_->setGeometry(centralWidget()->rect());
         toasts_->setBottomAnchor(metrics::s3);
     }
+    if (obj == linkBadge_ && ev->type() == QEvent::MouseButtonRelease) {
+        showRobotPicker();
+        return true;
+    }
     return QMainWindow::eventFilter(obj, ev);
+}
+
+/// 연결 배지 아래에 로봇 목록을 펼친다.
+void MainWindow::showRobotPicker()
+{
+    auto &cfg = Config::instance();
+    const auto list = cfg.robots();
+    const int current = cfg.currentRobot();
+
+    QMenu menu(this);
+    for (int i = 0; i < list.size(); ++i) {
+        const auto &e = list.at(i);
+        auto *action = menu.addAction(
+            QStringLiteral("%1      %2:%3")
+                .arg(e.name.isEmpty() ? QStringLiteral("(이름 없음)") : e.name)
+                .arg(e.host)
+                .arg(e.port));
+        // 고른 것에 표시를 남긴다. 목록만 보여 주면 지금 어디에 붙어 있는지
+        // 배지를 다시 읽어야 한다.
+        action->setCheckable(true);
+        action->setChecked(i == current);
+        connect(action, &QAction::triggered, this, [this, i] { selectRobot(i); });
+    }
+
+    menu.addSeparator();
+    auto *manage = menu.addAction(QStringLiteral("로봇 관리…"));
+    connect(manage, &QAction::triggered, this, [this] { openSettings(); });
+
+    menu.exec(linkBadge_->mapToGlobal(QPoint(0, linkBadge_->height())));
+}
+
+void MainWindow::selectRobot(int index)
+{
+    auto &cfg = Config::instance();
+    const auto list = cfg.robots();
+    if (index < 0 || index >= list.size() || index == cfg.currentRobot())
+        return;
+
+    cfg.setCurrentRobot(index);
+    const auto &e = list.at(index);
+
+    // 내장 모형으로 돌고 있으면 바꿀 주소가 없다. 그때는 목록이 설정을
+    // 바꿔 둘 뿐이고, 다음 실행에서 그 로봇으로 뜬다.
+    if (auto *bridge = qobject_cast<hmi::net::BridgeClient *>(robot_))
+        bridge->setEndpoint(e.host, quint16(e.port));
+
+    robotLabel_->setText(QStringLiteral("—"));
+    logAction(QStringLiteral("ROBOT_SELECTED"),
+              {{"name", e.name}, {"host", e.host}, {"port", e.port}});
 }
 
 void MainWindow::applyTheme(const QString &name)

@@ -92,6 +92,9 @@ public:
 protected:
     bool eventFilter(QObject *obj, QEvent *ev) override;
 
+    void showRobotPicker();
+    void selectRobot(int index);
+
     /// Fits the map on first show. The constructor cannot do it: the viewport
     /// has no final size until the layout has run, so fitting there leaves the
     /// map scaled to a stale rectangle.

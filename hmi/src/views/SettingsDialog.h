@@ -17,6 +17,7 @@ class QDoubleSpinBox;
 class QTabWidget;
 class QLabel;
 class QLineEdit;
+class QListWidget;
 class QPushButton;
 class QSlider;
 class QSpinBox;
@@ -43,6 +44,13 @@ signals:
 
 private:
     QWidget *buildConnectionTab();
+
+    /// Redraws the list widget from the stored robots.
+    void reloadRobotList();
+    /// Fills the name, address and port fields from the current selection.
+    void showSelectedRobot();
+    /// Writes the edited fields back to the stored robots.
+    void applyRobotEdits();
 
     /// Lists this machine's usable IPv4 addresses, and warns when the bridge
     /// address is not on any of their subnets - the most common way an
@@ -71,6 +79,8 @@ private:
     void refreshPathStatus();
 
     QTabWidget *tabs_ = nullptr;
+    QListWidget *robotList_ = nullptr;
+    QLineEdit *robotName_ = nullptr;
     QLineEdit *host_ = nullptr;
     QSpinBox *port_ = nullptr;
     QSlider *scale_ = nullptr;
