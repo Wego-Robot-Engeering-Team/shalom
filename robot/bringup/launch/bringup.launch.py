@@ -351,9 +351,13 @@ def generate_launch_description():
         # 참가자 한도를 60 으로 올린 것도, DDS 를 루프백에 가두는 것도 이
         # 줄이 없으면 적용되지 않는다 — 파일만 두고 적용을 잊으면 증상이
         # 없으므로 그대로 넘어간다.
+        # 스킴을 경로와 따로 이어 붙인다. PathJoinSubstitution 은 경로를
+        # 정규화하면서 "file://" 를 먹어 버려, 값이 맨 경로로 나간다. Cyclone 은
+        # 그것을 설정 파일로 읽지 않고 조용히 기본값으로 돈다 — 격리가 걸린 줄
+        # 알았는데 노드가 바깥에서 보이던 것이 이 때문이었다.
         SetEnvironmentVariable(
             "CYCLONEDDS_URI",
-            PathJoinSubstitution(["file://", bringup, "config", "cyclonedds.xml"])),
+            ["file://", PathJoinSubstitution([bringup, "config", "cyclonedds.xml"])]),
 
         DeclareLaunchArgument("robot_id", default_value="R1",
                               description="로봇 식별자. 관제가 어느 로봇인지 안다."),
