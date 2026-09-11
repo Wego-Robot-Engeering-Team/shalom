@@ -51,6 +51,8 @@ private:
     void showSelectedRobot();
     /// Writes the edited fields back to the stored robots.
     void applyRobotEdits();
+    /// Enables the save button only when the fields differ from what is stored.
+    void refreshRobotSaveState();
 
     /// Lists this machine's usable IPv4 addresses, and warns when the bridge
     /// address is not on any of their subnets - the most common way an
@@ -80,6 +82,7 @@ private:
 
     QTabWidget *tabs_ = nullptr;
     QListWidget *robotList_ = nullptr;
+    QPushButton *robotSave_ = nullptr;
     QLineEdit *robotName_ = nullptr;
     QLineEdit *host_ = nullptr;
     QSpinBox *port_ = nullptr;
