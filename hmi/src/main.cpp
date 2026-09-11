@@ -17,7 +17,9 @@
 #endif
 #include "theme/Style.h"
 #include "theme/Tokens.h"
+#include "auth/Session.h"
 #include "views/SettingsDialog.h"
+#include "views/WelcomeDialog.h"
 #include "widgets/NotificationCenter.h"
 
 namespace {
@@ -99,7 +101,9 @@ int main(int argc, char *argv[])
         const QString which = args.at(dialogIdx + 1);
         const QString path = args.at(dialogIdx + 2);
         QWidget *dialog = nullptr;
-        if (which == QLatin1String("notifications")) {
+        if (which == QLatin1String("welcome"))
+            dialog = new hmi::ui::WelcomeDialog;
+        else if (which == QLatin1String("notifications")) {
             using hmi::ui::Notification;
             const QDateTime now = QDateTime::currentDateTime();
             dialog = new hmi::ui::NotificationPopup({
@@ -129,6 +133,18 @@ int main(int argc, char *argv[])
             QApplication::quit();
         });
         return app.exec();
+    }
+
+    // 조작자 확인. 여기서 입력한 이름이 이후 모든 조작 이력에 남는다.
+    //
+    // 끌 수 있는 길을 두지 않는다. 빌드 옵션으로 두었더니 개발 빌드와 납품
+    // 빌드가 서로 다른 경로로 뜨게 되고, 어느 쪽을 시험한 것인지 흐려졌다.
+    // 자격증명 자체가 자리표시라 여기서 막는 것은 아무것도 없다 — 목적은
+    // 이력에 이름을 남기는 것이다(auth/Session.h).
+    {
+        hmi::ui::WelcomeDialog welcome;
+        if (welcome.exec() != QDialog::Accepted)
+            return 0;
     }
 
     // 기본은 브릿지 접속이다. --sim 을 주면 내장 모형에 붙는다.

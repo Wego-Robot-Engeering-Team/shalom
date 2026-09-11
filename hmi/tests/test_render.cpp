@@ -24,6 +24,7 @@
 #include "theme/Style.h"
 #include "theme/Tokens.h"
 #include "views/SettingsDialog.h"
+#include "views/WelcomeDialog.h"
 #include "widgets/NotificationCenter.h"
 #include "widgets/ValueSlider.h"
 
@@ -85,6 +86,9 @@ private slots:
     {
         theme::setTheme(QStringLiteral("light"));
         qApp->setStyleSheet(theme::buildQss());
+
+        ui::WelcomeDialog welcome;
+        QVERIFY(!welcome.grab().isNull());
 
         ui::SettingsDialog settings;
         // 탭 수를 손으로 적어 두었더니 여섯 번째(안전)가 추가된 뒤로도
