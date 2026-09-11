@@ -112,6 +112,26 @@ void BridgeClient::connectToBridge()
         socket_->connectToHost(host_, port_);
 }
 
+void BridgeClient::setEndpoint(const QString &host, quint16 port)
+{
+    if (host == host_ && port == port_)
+        return;
+
+    // 먼저 끊는다. 주소만 바꾸고 두면 옛 연결이 살아 있는 동안 새 주소로
+    // 붙은 것처럼 보인다.
+    const bool wanted = wantConnection_;
+    disconnectFromBridge();
+
+    host_ = host;
+    port_ = port;
+    robotId_.clear();
+    robotName_.clear();
+    emit robotIdentity(QString(), QString());
+
+    if (wanted)
+        connectToBridge();
+}
+
 void BridgeClient::disconnectFromBridge()
 {
     // 의도적인 종료다. 자동으로 되살아나면 안 된다.
