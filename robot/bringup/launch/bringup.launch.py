@@ -334,6 +334,17 @@ def generate_launch_description():
                               description="ROS_DOMAIN_ID. 로봇마다 다르게 준다."),
         SetEnvironmentVariable("ROS_DOMAIN_ID", LaunchConfiguration("domain_id")),
 
+        # 어느 DDS 구현을 쓸지 못박는다.
+        #
+        # ROS 2 Jazzy 의 기본은 Fast DDS 다. 그대로 두면 아래 CYCLONEDDS_URI 가
+        # 통째로 무시되고, 노드들이 0.0.0.0:7400 으로 모든 인터페이스에 열린다 —
+        # 같은 망의 다른 기기가 도메인만 맞으면 그대로 붙는다. 과업지시서 7.1 이
+        # 막으라는 통신이 바로 그것이다.
+        #
+        # 증상이 없다는 점이 나쁘다. 한 대만 돌리는 동안에는 모든 것이 정상으로
+        # 보이고, 격리가 걸렸는지는 소켓을 들여다봐야만 알 수 있다.
+        SetEnvironmentVariable("RMW_IMPLEMENTATION", "rmw_cyclonedds_cpp"),
+
         # DDS 설정을 실제로 물린다.
         #
         # config/cyclonedds.xml 은 진작 있었는데 아무도 읽지 않고 있었다.
