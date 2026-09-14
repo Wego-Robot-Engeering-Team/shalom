@@ -132,11 +132,11 @@ ping -c 2 192.168.11.1
 cd ~/shalom_ws && source install/setup.bash
 
 # 실기
-ros2 launch robot_bringup robot.launch.py robot:=real use_sim_time:=false \
+ros2 launch robot_bringup inspection.launch.py robot:=real use_sim_time:=false \
   robot_id:=R1 robot_name:=1호기 lidar:=vlp16
 
 # 로봇 없이 센서·관제 연동만 시험
-ros2 launch robot_bringup robot.launch.py robot:=none use_sim_time:=false \
+ros2 launch robot_bringup inspection.launch.py robot:=none use_sim_time:=false \
   robot_id:=R1 robot_name:=1호기 lidar:=vlp16
 ```
 

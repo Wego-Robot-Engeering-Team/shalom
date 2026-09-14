@@ -5,7 +5,7 @@ B2 의 라이다가 없는 자리에서 인식·SLAM 을 시험하기 위한 것
 B2 가 내는 것과 같게 맞춘다. robot_bringup 의 pointcloud_topic 을 건드리지 않는
 이유도 그것이다.
 
-    ros2 launch robot_bringup robot.launch.py robot:=real lidar:=vlp16
+    ros2 launch robot_bringup inspection.launch.py robot:=real lidar:=vlp16
 
 장치 설정
 ---------

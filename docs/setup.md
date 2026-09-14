@@ -6,7 +6,7 @@
 ~/shalom_ws/src/
 ├── shalom/                 이 저장소
 │   ├── robot/
-│   │   ├── robot_bringup/             전체 실행·시스템 설정 (ROS 패키지)
+│   │   ├── robot_bringup/             platform·navigation·inspection 실행 조립
 │   │   ├── control/                    미션·안전 관리 (현재 설계 문서)
 │   │   ├── navigation/config/          B2 주행·위치추정·SLAM 설정
 │   │   ├── navigation/maps/             저장 지도

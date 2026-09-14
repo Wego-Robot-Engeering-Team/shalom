@@ -1,5 +1,5 @@
 #!/bin/bash
-# robot_bringup 으로 띄운 스택을 내린다.
+# inspection.launch.py 로 띄운 스택을 내린다.
 #
 #     ~/shalom_ws/src/shalom/robot/tools/stop_stack.sh          이 셸이 띄운 것만
 #     ~/shalom_ws/src/shalom/robot/tools/stop_stack.sh --all    DDS 를 쓰는 것 전부

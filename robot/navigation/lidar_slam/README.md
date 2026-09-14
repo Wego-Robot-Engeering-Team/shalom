@@ -49,7 +49,7 @@ ros2 launch lidar_slam ground_slam.launch.py \
   slam_params_file:=$CFG/slam_toolbox.yaml
 ```
 
-보통은 이렇게 부를 일이 없다. `robot_bringup` 이 세 파일을 모두 넘긴다.
+보통은 이렇게 부를 일이 없다. `navigation.launch.py`가 세 파일을 모두 넘긴다.
 
 저장된 맵으로 위치추정만 할 때는 `slam:=false`로 slam_toolbox를 끈다.
 
