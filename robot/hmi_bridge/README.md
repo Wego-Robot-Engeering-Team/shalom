@@ -4,7 +4,7 @@
 
 관제 PC 에는 ROS 2 를 설치하지 않는다. DDS 영역은 이 노드에서 끝나고,
 관제와는 raw TCP 단일 연결로만 통신한다. 통신 규약은
-[`bridge_protocol.md`](../../../docs/bridge_protocol.md)를 따른다.
+[`bridge_protocol.md`](../../docs/bridge_protocol.md)를 따른다.
 
 ## 구성
 
@@ -20,7 +20,7 @@ hmi_bridge/          ROS 2 패키지 (ament_cmake)
 
 ```
 
-프레이밍 구현은 `../../../common/protocol/include/inspection/framing.hpp` 하나뿐이며 관제와
+프레이밍 구현은 `../../common/protocol/include/inspection/framing.hpp` 하나뿐이며 관제와
 공유한다. 같은 바이트 배치를 두 번 구현하면 언젠가 어긋나고, 그 어긋남은
 빌드가 아니라 현장에서 드러난다.
 

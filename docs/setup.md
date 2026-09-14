@@ -6,7 +6,7 @@
 ~/shalom_ws/src/
 ├── shalom/                 이 저장소
 │   ├── robot/
-│   │   ├── shalom_bringup/             전체 실행·시스템 설정 (ROS 패키지)
+│   │   ├── robot_bringup/             전체 실행·시스템 설정 (ROS 패키지)
 │   │   ├── control/                    미션·안전 관리 (현재 설계 문서)
 │   │   ├── navigation/config/          B2 주행·위치추정·SLAM 설정
 │   │   ├── navigation/maps/             저장 지도
@@ -15,7 +15,7 @@
 │   │   ├── sensors/realsense_d455/      D455 역할·토픽·설정
 │   │   ├── sensors/aurora/              Aurora S 연동
 │   │   ├── sensors/velodyne_vlp16/      임시 VLP-16 연동 (최종 XT32)
-│   │   ├── communication/hmi_bridge/   HMI TCP ↔ ROS 2
+│   │   ├── hmi_bridge/   HMI TCP ↔ ROS 2
 │   │   └── common/                     로봇 전용 공유 코드 배치 기준 (현재 문서)
 │   ├── hmi/                관제 GUI와 HMI 전용 testbed
 │   ├── common/             HMI·로봇 공통 통신 계약
