@@ -2,7 +2,7 @@
 
 ```text
 robot/
-├── robot_bringup/             # 전체 실행 launch, DDS 설정
+├── robot_bringup/             # platform·navigation·inspection launch, DDS 설정
 ├── navigation/
 │   ├── config/                 # Nav2·AMCL·SLAM·KISS-ICP·지면분리 설정
 │   ├── maps/                   # 저장 지도
@@ -13,9 +13,20 @@ robot/
 │   ├── realsense_d455/         # D455 역할·토픽·설정
 │   ├── aurora/                 # Aurora S 연동
 │   └── velodyne_vlp16/         # 임시 VLP-16 연동
-├── hmi_bridge/   # HMI TCP ↔ ROS 2
+├── hmi_bridge/                 # HMI TCP ↔ ROS 2
 └── control/                    # 미션·안전 관리 위치 (아직 구현 전)
 ```
+
+## Launch 계층
+
+```text
+robot.launch.py        B2·센서·TF 등 플랫폼 인터페이스만
+navigation.launch.py   robot + 지면분리·위치추정·SLAM/AMCL·Nav2
+inspection.launch.py   navigation + HMI 브리지 + 선택적 RViz
+```
+
+`mission_manager`와 `safety_manager`는 아직 구현 전이므로 마지막 launch에는
+포함되지 않는다. FR3 실기 드라이버도 아직 없으며 `payload:=fr3`은 시뮬레이터 전용이다.
 
 ## 실행
 
@@ -28,12 +39,11 @@ source ~/shalom_ws/install/setup.bash
 
 | 용도 | 명령 |
 |---|---|
-| 인자 확인 | `ros2 launch robot_bringup robot.launch.py --show-args` |
-| 시뮬레이터 새 지도 | `ros2 launch robot_bringup robot.launch.py robot:=sim map:=none` |
-| 시뮬레이터 저장 지도 | `ros2 launch robot_bringup robot.launch.py robot:=sim map:=2026-09-07` |
-| 실기 B2 | `ros2 launch robot_bringup robot.launch.py robot:=real use_sim_time:=false network_interface:=<B2-NIC>` |
-| 실기 + VLP-16 | `ros2 launch robot_bringup robot.launch.py robot:=real use_sim_time:=false network_interface:=<B2-NIC> lidar:=vlp16 map:=none` |
-| 실기 + Aurora 검증 | `ros2 launch robot_bringup robot.launch.py robot:=real use_sim_time:=false aurora:=true aurora_ip:=<AURORA-IP>` |
+| B2·센서만 | `ros2 launch robot_bringup robot.launch.py robot:=real use_sim_time:=false network_interface:=<B2-NIC>` |
+| 시뮬레이터 내비게이션 | `ros2 launch robot_bringup navigation.launch.py robot:=sim map:=none` |
+| 실기 내비게이션 | `ros2 launch robot_bringup navigation.launch.py robot:=real use_sim_time:=false network_interface:=<B2-NIC>` |
+| 전체 점검 스택 | `ros2 launch robot_bringup inspection.launch.py robot:=real use_sim_time:=false network_interface:=<B2-NIC>` |
+| VLP-16 시험 | `ros2 launch robot_bringup inspection.launch.py robot:=real use_sim_time:=false network_interface:=<B2-NIC> lidar:=vlp16 map:=none` |
 | 종료 | `~/shalom_ws/src/shalom/robot/tools/stop_stack.sh` |
 
 `map:=none`은 실시간 SLAM이고, `map:=latest`(기본값)는 `navigation/maps/`의 최신
@@ -57,22 +67,9 @@ ros2 launch robot_bringup rviz.launch.py profile:=slam_nav2  # 둘을 합친 기
 
 시뮬레이터를 보고 있으면 `use_sim_time:=true`를 추가한다.
 
-## 주요 인자
-
-| 인자 | 기본값 | 설명 |
-|---|---:|---|
-| `robot` | `sim` | `sim` 또는 `real` |
-| `use_sim_time` | `true` | 실기에서는 `false` |
-| `map` | `latest` | `latest`, 지도 이름, 절대 YAML 경로, `none` |
-| `nav2`, `slam`, `rviz` | `true` | 각 기능 On/Off |
-| `lidar` | `none` | 임시 VLP-16 시험만 `vlp16` |
-| `cameras` | `true` | D455 On/Off. 촬영 원본의 출처다. |
-| `arm_camera_serial` | 빈 값 | D455가 둘 이상일 때 USB 시리얼 |
-| `aurora`, `aurora_ip` | `false`, `192.168.11.1` | Aurora S 원시 odometry와 장치 IP |
-| `bridge` | `true` | HMI TCP 브릿지(9090) On/Off |
-| `domain_id` | `0` | 여러 로봇 DDS 분리 번호 |
-| `network_interface` | 빈 값 | 실기 B2 통신 NIC |
-| `viewer`, `payload` | `true`, `none` | 시뮬레이터 창 / FR3 탑재 모델 |
+`robot`·`use_sim_time`·`network_interface`·`lidar`·`cameras`는 세 launch에 공통이다.
+`map`, `slam`, `nav2`는 navigation·inspection에, `bridge`, `rviz`, `rviz_profile`은
+inspection에만 적용된다.
 
 ## 장치 단독 시험
 

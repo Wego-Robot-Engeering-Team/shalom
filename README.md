@@ -11,7 +11,7 @@ Unitree B2 사족보행 로봇에 FAIRINO FR3 협동로봇 팔을 얹어, 검수
 
 ```text
 robot/
-  robot_bringup/             전체 실행·시스템 설정 (ROS 패키지)
+  robot_bringup/             platform·navigation·inspection 실행 조립
   control/                    미션·안전 관리 (현재 설계 문서)
   navigation/config/          B2 주행·위치추정·SLAM 설정
   navigation/maps/             저장 지도
@@ -30,6 +30,17 @@ docs/              설치·운용·통신 문서
 세 갈래가 분명히 나뉜다 — **시뮬레이터**, **실기**, **관제**. 관제 입장에서
 시뮬레이터와 실기는 같아야 한다. 다른 것은 접속 주소뿐이다.
 
+로봇 실행도 계층으로 나눈다.
+
+```text
+robot.launch.py        B2·센서·TF 플랫폼
+navigation.launch.py   platform + SLAM/AMCL + Nav2
+inspection.launch.py   navigation + HMI 브리지 + RViz
+```
+
+`inspection.launch.py`가 현재의 전체 운용 진입점이다. 미션 BT/FSM과 안전 노드는
+아직 구현 전이라 포함하지 않는다.
+
 패키지 배치·명명 규칙과 구조 변경 후 첫 빌드는 [로봇 구조 문서](robot/README.md)를 따른다.
 
 ## 설치
@@ -47,7 +58,7 @@ cd ~/shalom_ws/src/shalom
 
 ```bash
 source ~/shalom_ws/install/setup.bash
-ros2 launch robot_bringup robot.launch.py
+ros2 launch robot_bringup inspection.launch.py
 ```
 
 기본값이 이렇게 잡혀 있다 — **시뮬레이터**, **가장 최근 저장 지도**,
@@ -60,14 +71,14 @@ ros2 launch robot_bringup robot.launch.py
 ### 실기
 
 ```bash
-ros2 launch robot_bringup robot.launch.py robot:=real
+ros2 launch robot_bringup inspection.launch.py robot:=real use_sim_time:=false
 ```
 
 카메라를 달았으면 함께 켠다. 시리얼은 두 대 이상일 때 반드시 지정한다
 (`rs-enumerate-devices -s` 로 확인).
 
 ```bash
-ros2 launch robot_bringup robot.launch.py robot:=real \
+ros2 launch robot_bringup inspection.launch.py robot:=real use_sim_time:=false \
   cameras:=true arm_camera_serial:=213522250834
 ```
 
@@ -77,8 +88,8 @@ ros2 launch robot_bringup robot.launch.py robot:=real \
 되고, 새로 그리려면 `none` 이다.
 
 ```bash
-ros2 launch robot_bringup robot.launch.py map:=2026-09-07   # 이름만
-ros2 launch robot_bringup robot.launch.py map:=none         # 실시간 SLAM
+ros2 launch robot_bringup inspection.launch.py map:=2026-09-07   # 이름만
+ros2 launch robot_bringup inspection.launch.py map:=none         # 실시간 SLAM
 ```
 
 저장된 지도를 쓰면 map_server 와 AMCL 이 뜨고 SLAM 은 물러난다. 둘을 함께

@@ -27,13 +27,13 @@ kiss_icp (같은 PointCloud2) → odom → base_link
 ```bash
 source /opt/ros/jazzy/setup.bash
 source ~/shalom_ws/install/setup.bash
-ros2 launch robot_bringup robot.launch.py robot:=sim
+ros2 launch robot_bringup navigation.launch.py robot:=sim
 ```
 
 Nav2까지 같이 뜬다. 지도만 만들려면 `nav2:=false`로 끈다.
 
 ```bash
-ros2 launch robot_bringup robot.launch.py robot:=sim nav2:=false
+ros2 launch robot_bringup navigation.launch.py robot:=sim nav2:=false
 ```
 
 RViz의 **SLAM Map**에 `/map`이 그려진다. 로봇을 움직여야 채워지므로 HMI의
