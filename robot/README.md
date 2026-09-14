@@ -44,6 +44,19 @@ ros2 run nav2_map_server map_saver_cli \
   -f ~/shalom_ws/src/shalom/robot/navigation/maps/$(date +%F)
 ```
 
+## RViz만 보기
+
+이미 실행 중인 로봇·센서·SLAM·Nav2를 관찰할 때는 이 launch만 띄운다. 이 명령은
+로봇이나 센서 노드를 새로 실행하지 않는다.
+
+```bash
+ros2 launch robot_bringup rviz.launch.py profile:=slam       # 점군·TF·지도·odometry
+ros2 launch robot_bringup rviz.launch.py profile:=nav2       # costmap·경로·Nav2 Goal
+ros2 launch robot_bringup rviz.launch.py profile:=slam_nav2  # 둘을 합친 기본 화면
+```
+
+시뮬레이터를 보고 있으면 `use_sim_time:=true`를 추가한다.
+
 ## 주요 인자
 
 | 인자 | 기본값 | 설명 |
