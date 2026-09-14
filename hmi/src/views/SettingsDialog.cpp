@@ -307,9 +307,10 @@ QWidget *SettingsDialog::buildConnectionTab()
     lay->addWidget(fieldRow(QStringLiteral("제어 포트"), port_, 96));
 
     auto *hint = new QLabel(QStringLiteral(
-        "목록에서 고른 로봇에 연결합니다. 상단 바의 연결 배지를 눌러도 바꿀 수 "
-        "있습니다. 촬영한 사진은 이 경로를 거치지 않고 로봇에서 저장 장치로 바로 "
-        "올라갑니다."));
+        "목록에서 고른 로봇에 연결합니다. 상단 바의 로봇 이름을 눌러도 바꿀 수 "
+        "있습니다.\n"
+        "이름은 붙기 전에 쓰는 임시 이름표입니다 — 연결되면 로봇이 알려 준 "
+        "이름으로 맞춰집니다."));
     hint->setObjectName(QStringLiteral("Hint"));
     hint->setWordWrap(true);
     lay->addWidget(hint);

@@ -518,6 +518,28 @@ void MainWindow::wireRobotSignals()
                 // 바뀐다 — 보는 사람에게는 무엇이 맞는지 알 수 없는 깜빡임이다.
                 saidId_ = id;
                 saidName_ = name;
+
+                // 로봇이 자기 이름을 말하면 목록에도 그 이름을 적는다.
+                //
+                // 목록의 이름은 붙기 전에 쓰는 임시 이름표다. 로봇이 말한
+                // 뒤에도 옛 이름표가 남아 있으면 설정 화면과 상단 바가 서로
+                // 다른 이름을 보여 주고, 어느 쪽이 맞는지 알 수 없게 된다.
+                // 이름의 주인은 로봇이다 — 로봇이 robot_name 으로 뜬다.
+                if (!name.isEmpty()) {
+                    auto &cfg = Config::instance();
+                    auto list = cfg.robots();
+                    const int i = cfg.currentRobot();
+                    if (i >= 0 && i < list.size() && list.at(i).name != name) {
+                        const QString was = list.at(i).name;
+                        list[i].name = name;
+                        cfg.setRobots(list);
+                        log_->note(diag::Severity::Info,
+                                   QStringLiteral("로봇 이름을 %1 로 맞췄습니다")
+                                       .arg(name),
+                                   QJsonObject{{"was", was}, {"robot", id}});
+                    }
+                }
+
                 refreshRobotButton();
                 // 이력에는 식별자를 남긴다. 사람용 이름은 로봇이 바꿀 수
                 // 있지만 식별자는 그 기계를 가리킨다.
