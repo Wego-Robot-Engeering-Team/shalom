@@ -15,9 +15,9 @@ The robot layer is a launch argument because both options expose the same
 interface: a PointCloud2 out, `/cmd_vel` in.  Nothing below this file knows which
 one is running.
 
-    ros2 launch bringup bringup.launch.py robot:=sim
-    ros2 launch bringup bringup.launch.py robot:=real
-    ros2 launch bringup bringup.launch.py robot:=none    # 로봇 없이 센서만
+    ros2 launch shalom_bringup robot.launch.py robot:=sim
+    ros2 launch shalom_bringup robot.launch.py robot:=real
+    ros2 launch shalom_bringup robot.launch.py robot:=none    # 로봇 없이 센서만
 
 `robot:=none` 은 실기가 아직 없는 자리에서 센서·브릿지·관제 연동을 시험하기
 위한 것이다. 로봇 계층 대신 정지 오도메트리를 올려 `odom -> base_link` 를
@@ -34,8 +34,8 @@ TWO WAYS TO HAVE A MAP
     (default)        slam_toolbox builds one as the robot drives
     map:=<file.yaml> map_server serves a saved one and AMCL localises in it
 
-    ros2 launch bringup bringup.launch.py \
-        map:=$(ros2 pkg prefix bringup)/share/bringup/navigation/maps/2026-09-07.yaml
+    ros2 launch shalom_bringup robot.launch.py \
+        map:=$(ros2 pkg prefix pkg)/share/shalom_bringup/navigation/maps/2026-09-07.yaml
 
 Which of the two is running is the *robot's* state, not a display option: the
 control station draws the map the robot sends on `map/occupancy`, so it always
@@ -96,7 +96,7 @@ def _resolve_map(context, *_a, **_k):
     if raw in ("", "none", "slam"):
         return [SetLaunchConfiguration("map", "")]
 
-    maps_dir = Path(get_package_share_directory("bringup")) / "navigation" / "maps"
+    maps_dir = Path(get_package_share_directory("shalom_bringup")) / "navigation" / "maps"
 
     if raw == "latest":
         found = sorted(maps_dir.glob("*.yaml"))
@@ -117,9 +117,9 @@ def _resolve_map(context, *_a, **_k):
 
 
 def generate_launch_description():
-    bringup = FindPackageShare("bringup")
-    navigation_config = PathJoinSubstitution([bringup, "navigation", "config"])
-    navigation_rviz = PathJoinSubstitution([bringup, "navigation", "rviz"])
+    pkg = FindPackageShare("shalom_bringup")
+    navigation_config = PathJoinSubstitution([pkg, "navigation", "config"])
+    navigation_rviz = PathJoinSubstitution([pkg, "navigation", "rviz"])
     lidar_slam = FindPackageShare("lidar_slam")
     realsense_d455 = FindPackageShare("realsense_d455")
     velodyne_vlp16 = FindPackageShare("velodyne_vlp16")
@@ -151,7 +151,7 @@ def generate_launch_description():
     # 낼 뿐이라, 화면에 위치가 늘 원점으로 보인다 — 실주행으로 오해할 여지가
     # 없고, 없으면 시험 자체가 불가능한 한 변만 채운다.
     bench_robot = Node(
-        package="bringup",
+        package="shalom_bringup",
         executable="bench_odom",
         name="bench_odom",
         output="screen",
@@ -357,7 +357,7 @@ def generate_launch_description():
         # 알았는데 노드가 바깥에서 보이던 것이 이 때문이었다.
         SetEnvironmentVariable(
             "CYCLONEDDS_URI",
-            ["file://", PathJoinSubstitution([bringup, "config", "cyclonedds.xml"])]),
+            ["file://", PathJoinSubstitution([pkg, "config", "cyclonedds.xml"])]),
 
         DeclareLaunchArgument("robot_id", default_value="R1",
                               description="로봇 식별자. 관제가 어느 로봇인지 안다."),

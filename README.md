@@ -11,7 +11,7 @@ Unitree B2 사족보행 로봇에 FAIRINO FR3 협동로봇 팔을 얹어, 검수
 
 ```text
 robot/
-  bringup/                    전체 실행·시스템 설정 (ROS 패키지)
+  shalom_bringup/             전체 실행·시스템 설정 (ROS 패키지)
   control/                    미션·안전 관리 (현재 설계 문서)
   navigation/config/          B2 주행·위치추정·SLAM 설정
   navigation/maps/             저장 지도
@@ -47,7 +47,7 @@ cd ~/shalom_ws/src/shalom
 
 ```bash
 source ~/shalom_ws/install/setup.bash
-ros2 launch bringup bringup.launch.py
+ros2 launch shalom_bringup robot.launch.py
 ```
 
 기본값이 이렇게 잡혀 있다 — **시뮬레이터**, **가장 최근 저장 지도**,
@@ -60,14 +60,14 @@ ros2 launch bringup bringup.launch.py
 ### 실기
 
 ```bash
-ros2 launch bringup bringup.launch.py robot:=real
+ros2 launch shalom_bringup robot.launch.py robot:=real
 ```
 
 카메라를 달았으면 함께 켠다. 시리얼은 두 대 이상일 때 반드시 지정한다
 (`rs-enumerate-devices -s` 로 확인).
 
 ```bash
-ros2 launch bringup bringup.launch.py robot:=real \
+ros2 launch shalom_bringup robot.launch.py robot:=real \
   cameras:=true arm_camera_serial:=213522250834
 ```
 
@@ -77,8 +77,8 @@ ros2 launch bringup bringup.launch.py robot:=real \
 되고, 새로 그리려면 `none` 이다.
 
 ```bash
-ros2 launch bringup bringup.launch.py map:=2026-09-07   # 이름만
-ros2 launch bringup bringup.launch.py map:=none         # 실시간 SLAM
+ros2 launch shalom_bringup robot.launch.py map:=2026-09-07   # 이름만
+ros2 launch shalom_bringup robot.launch.py map:=none         # 실시간 SLAM
 ```
 
 저장된 지도를 쓰면 map_server 와 AMCL 이 뜨고 SLAM 은 물러난다. 둘을 함께

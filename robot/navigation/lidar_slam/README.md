@@ -38,8 +38,8 @@ ros2 launch lidar_slam ground_slam.launch.py \
 ```bash
 ros2 launch lidar_slam ground_slam.launch.py \
   pointcloud_topic:=/b2/points \
-  gseg_params_file:=$(ros2 pkg prefix bringup)/share/bringup/navigation/config/ground_segmentation.yaml \
-  ground_filter_params_file:=$(ros2 pkg prefix bringup)/share/bringup/navigation/config/ground_filter.yaml
+  gseg_params_file:=$(ros2 pkg prefix shalom_bringup)/share/shalom_bringup/navigation/config/ground_segmentation.yaml \
+  ground_filter_params_file:=$(ros2 pkg prefix shalom_bringup)/share/shalom_bringup/navigation/config/ground_filter.yaml
 ```
 
 저장된 맵으로 위치추정만 할 때는 `slam:=false`로 slam_toolbox를 끈다.
