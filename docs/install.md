@@ -230,6 +230,29 @@ PATH="/usr/bin:/bin:$PATH" colcon build --symlink-install \
 **옮긴 패키지가 `does not match the source` 로 죽는다**
 빌드 캐시가 옛 경로를 붙들고 있다. 그 패키지의 `build/` 디렉터리를 지운다.
 
+**apt 로 ROS 를 올린 뒤 `No rule to make target ...so.<버전>` 으로 죽는다**
+빌드 캐시에 라이브러리 경로가 버전까지 포함된 절대 경로로 박혀 있다. apt 가
+그 라이브러리를 올리면 옛 파일이 사라져 빌드가 멈춘다.
+
+```
+gmake[2]: *** No rule to make target '/opt/ros/jazzy/lib/libfastcdr.so.2.2.7',
+          needed by 'bridge_node'.  Stop.
+```
+
+오류가 가리키는 파일명으로 걸린 패키지를 모두 찾아 캐시를 지운다. 한 패키지만
+지우면 다음 패키지에서 같은 오류가 이어진다.
+
+```bash
+cd ~/shalom_ws
+SO=libfastcdr.so.2.2.7          # 오류 메시지의 파일명
+PKGS=$(grep -rl "$SO" build/*/ 2>/dev/null | cut -d/ -f2 | sort -u)
+echo $PKGS
+for p in $PKGS; do rm -rf build/$p install/$p; done
+colcon build --symlink-install
+```
+
+ROS 를 올릴 때마다 재발한다.
+
 **관제가 붙었는데 아무 것도 안 온다**
 브릿지는 관제를 한 대만 받고 두 번째 연결은 즉시 닫는다. 앞서 띄운 HMI가
 살아 있는지 본다.
