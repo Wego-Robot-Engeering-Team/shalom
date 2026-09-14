@@ -83,7 +83,6 @@ private:
     QTabWidget *tabs_ = nullptr;
     QListWidget *robotList_ = nullptr;
     QPushButton *robotSave_ = nullptr;
-    QLineEdit *robotName_ = nullptr;
     QLineEdit *host_ = nullptr;
     QSpinBox *port_ = nullptr;
     QSlider *scale_ = nullptr;
