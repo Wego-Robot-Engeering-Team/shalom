@@ -2,7 +2,7 @@
 
 ```text
 robot/
-├── shalom_bringup/             # 전체 실행 launch, DDS 설정
+├── robot_bringup/             # 전체 실행 launch, DDS 설정
 ├── navigation/
 │   ├── config/                 # Nav2·AMCL·SLAM·KISS-ICP·지면분리 설정
 │   ├── maps/                   # 저장 지도
@@ -13,7 +13,7 @@ robot/
 │   ├── realsense_d455/         # D455 역할·토픽·설정
 │   ├── aurora/                 # Aurora S 연동
 │   └── velodyne_vlp16/         # 임시 VLP-16 연동
-├── communication/hmi_bridge/   # HMI TCP ↔ ROS 2
+├── hmi_bridge/   # HMI TCP ↔ ROS 2
 └── control/                    # 미션·안전 관리 위치 (아직 구현 전)
 ```
 
@@ -28,12 +28,12 @@ source ~/shalom_ws/install/setup.bash
 
 | 용도 | 명령 |
 |---|---|
-| 인자 확인 | `ros2 launch shalom_bringup robot.launch.py --show-args` |
-| 시뮬레이터 새 지도 | `ros2 launch shalom_bringup robot.launch.py robot:=sim map:=none` |
-| 시뮬레이터 저장 지도 | `ros2 launch shalom_bringup robot.launch.py robot:=sim map:=2026-09-07` |
-| 실기 B2 | `ros2 launch shalom_bringup robot.launch.py robot:=real use_sim_time:=false network_interface:=<B2-NIC>` |
-| 실기 + VLP-16 | `ros2 launch shalom_bringup robot.launch.py robot:=real use_sim_time:=false network_interface:=<B2-NIC> lidar:=vlp16 map:=none` |
-| 실기 + Aurora 검증 | `ros2 launch shalom_bringup robot.launch.py robot:=real use_sim_time:=false aurora:=true aurora_ip:=<AURORA-IP>` |
+| 인자 확인 | `ros2 launch robot_bringup robot.launch.py --show-args` |
+| 시뮬레이터 새 지도 | `ros2 launch robot_bringup robot.launch.py robot:=sim map:=none` |
+| 시뮬레이터 저장 지도 | `ros2 launch robot_bringup robot.launch.py robot:=sim map:=2026-09-07` |
+| 실기 B2 | `ros2 launch robot_bringup robot.launch.py robot:=real use_sim_time:=false network_interface:=<B2-NIC>` |
+| 실기 + VLP-16 | `ros2 launch robot_bringup robot.launch.py robot:=real use_sim_time:=false network_interface:=<B2-NIC> lidar:=vlp16 map:=none` |
+| 실기 + Aurora 검증 | `ros2 launch robot_bringup robot.launch.py robot:=real use_sim_time:=false aurora:=true aurora_ip:=<AURORA-IP>` |
 | 종료 | `~/shalom_ws/src/shalom/robot/tools/stop_stack.sh` |
 
 `map:=none`은 실시간 SLAM이고, `map:=latest`(기본값)는 `navigation/maps/`의 최신

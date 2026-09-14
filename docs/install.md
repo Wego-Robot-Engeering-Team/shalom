@@ -50,7 +50,7 @@ source install/setup.bash
 확인:
 
 ```bash
-ros2 pkg list | grep -E 'shalom_bringup|hmi_bridge|realsense_d455|velodyne_vlp16|aurora'
+ros2 pkg list | grep -E 'robot_bringup|hmi_bridge|realsense_d455|velodyne_vlp16|aurora'
 ```
 
 ## 4. 전원 모드 (AGX)
@@ -132,11 +132,11 @@ ping -c 2 192.168.11.1
 cd ~/shalom_ws && source install/setup.bash
 
 # 실기
-ros2 launch shalom_bringup robot.launch.py robot:=real use_sim_time:=false \
+ros2 launch robot_bringup robot.launch.py robot:=real use_sim_time:=false \
   robot_id:=R1 robot_name:=1호기 lidar:=vlp16
 
 # 로봇 없이 센서·관제 연동만 시험
-ros2 launch shalom_bringup robot.launch.py robot:=none use_sim_time:=false \
+ros2 launch robot_bringup robot.launch.py robot:=none use_sim_time:=false \
   robot_id:=R1 robot_name:=1호기 lidar:=vlp16
 ```
 
@@ -156,7 +156,7 @@ ros2 launch shalom_bringup robot.launch.py robot:=none use_sim_time:=false \
 
 ```bash
 source /opt/ros/jazzy/setup.bash && source ~/shalom_ws/install/setup.bash
-export CYCLONEDDS_URI=file://$HOME/shalom_ws/install/shalom_bringup/share/shalom_shalom_bringup/config/cyclonedds.xml
+export CYCLONEDDS_URI=file://$HOME/shalom_ws/install/robot_bringup/share/robot_bringup/config/cyclonedds.xml
 
 ros2 topic hz /b2/points                  # 라이다 10 Hz
 ros2 topic hz /fr3/camera_2d/image_raw    # 카메라
