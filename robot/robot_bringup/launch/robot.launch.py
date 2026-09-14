@@ -119,7 +119,6 @@ def _resolve_map(context, *_a, **_k):
 def generate_launch_description():
     pkg = FindPackageShare("robot_bringup")
     navigation_config = PathJoinSubstitution([pkg, "navigation", "config"])
-    navigation_rviz = PathJoinSubstitution([pkg, "navigation", "rviz"])
     lidar_slam = FindPackageShare("lidar_slam")
     realsense_d455 = FindPackageShare("realsense_d455")
     velodyne_vlp16 = FindPackageShare("velodyne_vlp16")
@@ -310,10 +309,10 @@ def generate_launch_description():
 
     rviz = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            PathJoinSubstitution([nav2_bringup, "launch", "rviz_launch.py"])),
+            PathJoinSubstitution([pkg, "launch", "rviz.launch.py"])),
         launch_arguments={
             "use_sim_time": use_sim_time,
-            "rviz_config": PathJoinSubstitution([navigation_rviz, "b2_slam.rviz"]),
+            "profile": "slam_nav2",
         }.items(),
         condition=IfCondition(LaunchConfiguration("rviz")),
     )
