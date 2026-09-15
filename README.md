@@ -171,4 +171,5 @@ PATH="/usr/bin:/bin:$PATH" colcon build --base-paths src/shalom --symlink-instal
 [설치](docs/setup.md) ·
 [SLAM](docs/slam.md) ·
 [내비게이션](docs/navigation.md) ·
-[통신 규약](docs/bridge_protocol.md)
+[통신 규약](docs/bridge_protocol.md) ·
+[납품](docs/delivery.md)
