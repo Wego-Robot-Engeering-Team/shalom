@@ -1,8 +1,9 @@
 """Run the complete inspection stack.
 
-The mission-manager C++ core exists under robot/control, but its ROS adapters and
-safety-manager are not implemented yet. This launch therefore composes the
-platform, navigation, HMI bridge, and optional RViz only.
+The mission-manager C++ core and supervisory-control nodes exist under
+robot/control. This launch intentionally does not include them yet: current
+Nav2 and HMI command producers still use legacy direct topics and must be
+remapped through motion_mux and safety_gate as one validated change.
 """
 
 from launch import LaunchDescription
