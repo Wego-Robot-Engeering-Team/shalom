@@ -28,7 +28,7 @@ hmi_bridge/          ROS 2 패키지 (ament_cmake)
 
 ```bash
 # ROS 2 워크스페이스에서
-colcon build --packages-select hmi_bridge
+colcon build --base-paths src/shalom --packages-select hmi_bridge
 ```
 
 의존성: `rclcpp`, `tf2_ros`, `nav_msgs`, `sensor_msgs`, `nlohmann-json-dev`

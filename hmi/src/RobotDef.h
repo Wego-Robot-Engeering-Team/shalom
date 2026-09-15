@@ -70,7 +70,7 @@ inline const std::array<ArmLink, kArmJointCount> kFr3Chain{{
 ///
 /// Searched over the URDF chain rather than picked by eye, against four
 /// conditions that a preset has to meet to be worth having
-/// (`rl_training/tools` in the b2_simulation repo holds the scripts):
+/// (`third_party/b2_simulation/rl_training/tools` holds the scripts):
 ///
 ///   * inside the travel limits, with margin, so the pose check stays quiet;
 ///   * manipulability at least 35% of this arm's peak, so a preset never parks
@@ -106,7 +106,7 @@ inline const std::array<double, kArmJointCount> kArmStow{
 /// it has to avoid.
 ///
 /// Both are read off the MJCF the robot is simulated and trained with
-/// (`b2_simulation/mujoco/b2_mujoco/models/b2.xml`): `base1_collision` is a
+/// (`third_party/b2_simulation/mujoco/b2_mujoco/models/b2.xml`): `base1_collision` is a
 /// 0.50 x 0.28 x 0.15 m box centred on the body origin, and the mount is the
 /// deck that `rl_training/tools/make_b2_arm_asset.py` puts the payload on.
 /// They live here because the pose check and the 3D view both need them and

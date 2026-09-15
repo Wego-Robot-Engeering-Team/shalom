@@ -20,8 +20,8 @@ build-release/
 dist/
 build-release/
 
-# 로봇측 ROS2 워크스페이스. 각각 별도 git 저장소이고 수백 MB 라
-# 여기에 포함하지 않는다. 정식 편입은 서브모듈로 한다.
+# 이전 로컬 내비게이션 프로토타입. 정식 의존성은 third_party/의
+# 서브모듈로 관리한다.
 nav2_gseg/
 
 .vscode/
