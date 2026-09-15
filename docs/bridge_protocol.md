@@ -75,6 +75,24 @@
 `p`에 넣고 PNG를 payload로 보낸다. `capture/preview`도 metadata를 `p`에 넣고
 이미지를 payload로 보낸다.
 
+### `state/mission` 의 상태 값
+
+미션 상태는 로봇의 FSM 이 소유한다(`mission_manager`). 관제는 받아서 보여 줄
+뿐 스스로 정하지 않는다.
+
+| 값 | 뜻 |
+|---|---|
+| `idle` | 대기 |
+| `running` | 점검 중 |
+| `paused` | 일시정지 (조작자 요청·통신 단절·수동 전환) |
+| `returning` | 충전 스테이션으로 복귀 중 |
+| `completed` | 전체 점검 완료 |
+| `fault` | 실패로 멈춤. 명시적 복구가 필요하다 |
+| `emergency_stopped` | E-Stop. 해제하면 `paused` 로 내려온다 |
+
+모르는 값을 받으면 `fault` 로 다룬다. `idle` 로 접으면 화면이 "아무 일도 없음"
+으로 보이는데, 실제로는 로봇이 무엇을 하는지 모르는 상태다.
+
 ## 명령 채널
 
 모든 명령은 `req`/`res`를 쓴다. `cmd/cmd_vel`만 `pub`로 20 Hz 발행한다.

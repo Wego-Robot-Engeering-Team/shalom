@@ -227,6 +227,11 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     // 자리가 하나 더 생긴다.
     navClient_ = rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose");
 
+    // 미션을 한 걸음씩 나아가게 한다. 5 Hz 면 충분하다 — 판단은 Nav2 결과가
+    // 오는 순간에 이미 정해지고, 이 타이머는 그것을 읽어 옮기는 일만 한다.
+    missionTimer_ = create_wall_timer(std::chrono::milliseconds(200),
+                                      [this] { tickMission(); });
+
     // 감시할 센서 목록은 파라미터에서 온다 (bridge.yaml 의 sensors).
     for (const auto &id : declare_parameter<std::vector<std::string>>(
              "sensors", std::vector<std::string>{})) {
@@ -391,10 +396,11 @@ void BridgeNode::handleRequest(const Envelope &request)
         // 아무도 다시 누르지 않은 목표로 출발하는 것을 막기 위해서다.
         // 순회 중이었으면 멈춘 자리를 기억한다. idle 로 되돌리면 해제한 뒤
         // 처음부터 다시 돌아야 하고, 화면에는 재개 버튼이 뜨지 않는다.
-        if (mission_ == Mission::Running)
-            pauseMission("E-Stop");
-        else
-            cancelNavigation("E-Stop 발동");
+        // 어느 상태에서든 받는다. 순회 중이었다면 멈춘 자리를 기억한 채
+        // EmergencyStopped 로 가고, 해제하면 일시정지로 내려온다 — 처음부터
+        // 다시 돌지 않고, 화면에도 재개 버튼이 남는다.
+        dispatchMission(mission_manager::MissionEvent::kEmergencyStop, "E-Stop");
+        cancelNavigation("E-Stop 발동");
         respond(request, true);
         RCLCPP_WARN(get_logger(), "E-Stop 발동 (관제 요청)");
         return;
@@ -406,6 +412,10 @@ void BridgeNode::handleRequest(const Envelope &request)
         std_msgs::msg::Bool msg;
         msg.data = false;
         estopPub_->publish(msg);
+        // FSM 에도 알린다. 이것을 빠뜨리면 미션이 emergency_stopped 에
+        // 붙잡힌 채로 남아, 해제해도 재개도 취소도 받지 않는다.
+        dispatchMission(mission_manager::MissionEvent::kEmergencyStopReleased,
+                        "E-Stop 해제");
         respond(request, true);
         RCLCPP_WARN(get_logger(), "E-Stop 해제 (관제 요청)");
         return;
@@ -507,10 +517,8 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdMissionStart) {
-        if (mission_ == Mission::Running) {
-            respond(request, false, err::kBusy, "이미 점검 중입니다");
-            return;
-        }
+        // 점검포인트와 비상정지는 FSM 이 모르는 사정이라 여기서 본다.
+        // 상태 판단은 FSM 이 한다.
         if (waypoints_.empty()) {
             respond(request, false, err::kBadPayload, "점검포인트가 없습니다");
             return;
@@ -520,43 +528,52 @@ void BridgeNode::handleRequest(const Envelope &request)
                     "비상정지 상태입니다. 해제한 뒤 시작하십시오");
             return;
         }
+        const auto t = dispatchMission(mission_manager::MissionEvent::kStart, "관제 요청");
+        if (!t.accepted) {
+            respond(request, false, err::kMode, t.reason);
+            return;
+        }
         respond(request, true);
-        startMission();
         return;
     }
 
     if (request.ch == kCmdMissionPause) {
-        if (mission_ != Mission::Running) {
-            respond(request, false, err::kMode, "점검 중이 아닙니다");
+        const auto t = dispatchMission(mission_manager::MissionEvent::kPause, "관제 요청");
+        if (!t.accepted) {
+            respond(request, false, err::kMode, t.reason);
             return;
         }
         respond(request, true);
-        pauseMission("관제 요청");
         return;
     }
 
     if (request.ch == kCmdMissionResume) {
-        if (mission_ != Mission::Paused) {
-            respond(request, false, err::kMode, "일시정지 상태가 아닙니다");
-            return;
-        }
         if (estopEngaged_) {
             respond(request, false, err::kMode,
                     "비상정지 상태입니다. 해제한 뒤 재개하십시오");
             return;
         }
+        const auto t = dispatchMission(mission_manager::MissionEvent::kResume, "관제 요청");
+        if (!t.accepted) {
+            respond(request, false, err::kMode, t.reason);
+            return;
+        }
         respond(request, true);
-        resumeMission();
         return;
     }
 
     if (request.ch == kCmdMissionStop) {
-        if (mission_ == Mission::Idle) {
-            respond(request, false, err::kMode, "점검 중이 아닙니다");
+        // 오류로 멈춘 것도 이 버튼으로 걷어낸다. 복구할 길이 화면에 없으면
+        // 로봇을 다시 띄우는 것 말고는 방법이 없어진다.
+        const auto ev = missionFsm_.state() == mission_manager::MissionState::kFault
+                            ? mission_manager::MissionEvent::kResetFault
+                            : mission_manager::MissionEvent::kStop;
+        const auto t = dispatchMission(ev, "관제 요청");
+        if (!t.accepted) {
+            respond(request, false, err::kMode, t.reason);
             return;
         }
         respond(request, true);
-        stopMission("관제 요청");
         return;
     }
 
@@ -737,15 +754,6 @@ void BridgeNode::publishLocations()
     sendEnvelope(makePublish(kChLocations, json{{"locations", locations_}}));
 }
 
-const char *BridgeNode::missionStateName() const
-{
-    switch (mission_) {
-    case Mission::Running: return "running";
-    case Mission::Paused:  return "paused";
-    case Mission::Idle:    break;
-    }
-    return "idle";
-}
 
 bool BridgeNode::isMoving() const
 {
@@ -902,10 +910,196 @@ void BridgeNode::handleCapture(const Envelope &request)
     publishCaptureSpool();
 }
 
+// ================= 미션 =================
+//
+// 순서와 상태는 mission_manager 가 갖는다. 여기서는 그 판단을 Nav2 목표로
+// 옮기고, 결과를 되돌려 준다.
+
+mission_manager::Transition BridgeNode::dispatchMission(
+    mission_manager::MissionEvent event, const char *why)
+{
+    using mission_manager::MissionState;
+
+    const auto before = missionFsm_.state();
+    const auto t = missionFsm_.dispatch(event);
+    if (!t.accepted) {
+        RCLCPP_DEBUG(get_logger(), "미션 사건 %s 는 %s 상태에서 받지 않는다 (%s)",
+                     mission_manager::to_string(event),
+                     mission_manager::to_string(before), t.reason);
+        return t;
+    }
+
+    // 시작할 때만 처음으로 되돌린다. 일시정지에서 재개할 때 자리를 잃으면
+    // 조작자가 멈춘 지점이 아니라 1 번부터 다시 돌게 된다.
+    if (event == mission_manager::MissionEvent::kStart) {
+        missionIndex_ = 0;
+        for (std::size_t i = 0; i < waypoints_.size(); ++i)
+            waypoints_[i]["status"] = "todo";
+        publishWaypoints();
+    }
+
+    // 스스로 움직여도 되는 상태가 아니면 하던 목표를 놓는다. 물린 채 두면
+    // 해제한 뒤 아무도 다시 누르지 않은 자리로 출발한다.
+    if (!missionFsm_.autonomous_motion_allowed())
+        navBt_.halt(*this);
+
+    if (t.to == MissionState::kIdle || t.to == MissionState::kCompleted) {
+        missionIndex_ = 0;
+        if (t.to == MissionState::kIdle) {
+            // 취소한 순회의 진행 표시는 지운다. 어디까지 갔는지는 이력에
+            // 남고, 화면에 남겨 두면 다음 시작 때 완료된 것처럼 보인다.
+            for (std::size_t i = 0; i < waypoints_.size(); ++i)
+                waypoints_[i]["status"] = "todo";
+            publishWaypoints();
+        }
+    }
+
+    publishMission();
+    RCLCPP_INFO(get_logger(), "미션 %s -> %s (%s)",
+                mission_manager::to_string(before),
+                mission_manager::to_string(t.to), why ? why : t.reason);
+    return t;
+}
+
+void BridgeNode::tickMission()
+{
+    using mission_manager::MissionEvent;
+    using mission_manager::MissionState;
+    using mission_manager::bt::Status;
+
+    if (missionFsm_.state() == MissionState::kReturning) {
+        tickReturn();
+        return;
+    }
+    if (missionFsm_.state() != MissionState::kRunning)
+        return;
+
+    if (waypoints_.empty()) {
+        dispatchMission(MissionEvent::kMissionComplete, "점검포인트가 없다");
+        return;
+    }
+    if (missionIndex_ >= waypoints_.size()) {
+        dispatchMission(MissionEvent::kMissionComplete, "모든 지점 완료");
+        return;
+    }
+
+    // 목표 식별자로 순번을 쓴다. BT 는 목표가 바뀌었는지만 알면 되고,
+    // 좌표는 navigate_to 가 waypoints_ 에서 읽는다.
+    const Status status = navBt_.tick(*this, std::to_string(missionIndex_));
+    if (status == Status::kRunning)
+        return;
+
+    if (status == Status::kFailure) {
+        if (goalUnsendable_) {
+            goalUnsendable_ = false;
+            dispatchMission(MissionEvent::kPause, "목표를 보내지 못했다");
+            return;
+        }
+        setWaypointStatus(missionIndex_, "error");
+        dispatchMission(MissionEvent::kStepFailed, "목표에 도달하지 못했다");
+        return;
+    }
+
+    setWaypointStatus(missionIndex_, "done");
+    ++missionIndex_;
+    if (missionIndex_ >= waypoints_.size()) {
+        dispatchMission(MissionEvent::kMissionComplete, "모든 지점 완료");
+        sendEnvelope(makeEvent(kChLog, json{{"code", "MISSION_DONE"}}));
+    } else {
+        publishMission();
+    }
+}
+
+/// 충전 스테이션으로 돌아간다.
+///
+/// FSM 이 복귀를 하나의 구간으로 본다. 점검이 끝나면 곧바로 완료가 아니라
+/// 복귀를 거치는데, 그것을 실행하는 쪽이 없으면 상태가 "복귀 중" 에 붙잡힌다.
+void BridgeNode::tickReturn()
+{
+    using mission_manager::MissionEvent;
+    using mission_manager::bt::Status;
+
+    if (dockIndex_ < 0) {
+        dockIndex_ = findDock();
+        if (dockIndex_ < 0) {
+            // 등록된 도크가 없으면 돌아갈 곳이 없다. 붙잡아 두는 대신
+            // 완료로 두고 그 사실을 남긴다 — 점검 자체는 끝났다.
+            RCLCPP_WARN(get_logger(),
+                        "충전 스테이션이 등록되어 있지 않아 복귀를 건너뛴다");
+            dispatchMission(MissionEvent::kReturnComplete, "도크 없음");
+            return;
+        }
+    }
+
+    const Status status = navBt_.tick(*this, "dock");
+    if (status == Status::kRunning)
+        return;
+
+    dockIndex_ = -1;
+    goalUnsendable_ = false;
+    if (status == Status::kFailure) {
+        dispatchMission(MissionEvent::kPause, "충전 스테이션으로 돌아가지 못했다");
+        return;
+    }
+    dispatchMission(MissionEvent::kReturnComplete, "복귀 완료");
+}
+
+/// 등록된 위치에서 충전 스테이션을 찾는다. 없으면 -1.
+int BridgeNode::findDock() const
+{
+    for (std::size_t i = 0; i < locations_.size(); ++i) {
+        const auto &loc = locations_[i];
+        if (loc.value("kind", std::string()) == "dock")
+            return int(i);
+    }
+    return -1;
+}
+
+// ---- mission_manager::bt::Nav2Runtime ----
+
+mission_manager::bt::Status BridgeNode::navigate_to(const std::string &goal_id)
+{
+    using mission_manager::bt::Status;
+
+    switch (goalPhase_) {
+    case GoalPhase::Active:
+        return Status::kRunning;
+    case GoalPhase::Succeeded:
+        goalPhase_ = GoalPhase::Idle;
+        return Status::kSuccess;
+    case GoalPhase::Failed:
+        goalPhase_ = GoalPhase::Idle;
+        return Status::kFailure;
+    case GoalPhase::Idle:
+        break;
+    }
+
+    const bool toDock = goal_id == "dock";
+    const bool sent = toDock ? sendPoseGoal(locations_[std::size_t(dockIndex_)])
+                             : sendWaypointGoal(std::stoul(goal_id));
+    if (!sent) {
+        // 아직 보내 보지도 못했다 — Nav2 가 안 떴거나 좌표가 없다. 이것은
+        // 지점 실패가 아니라 시작할 수 없는 상태이므로, 되돌릴 수 없는
+        // fault 대신 일시정지로 둔다. 조작자가 원인을 고치고 재개하면 된다.
+        goalPhase_ = GoalPhase::Idle;
+        goalUnsendable_ = true;
+        return Status::kFailure;
+    }
+    goalPhase_ = GoalPhase::Active;
+    return Status::kRunning;
+}
+
+void BridgeNode::cancel_navigation()
+{
+    if (goalPhase_ == GoalPhase::Active)
+        cancelNavigation("미션 중단");
+    goalPhase_ = GoalPhase::Idle;
+}
+
 void BridgeNode::publishMission()
 {
     sendEnvelope(makePublish(kChMission,
-                             json{{"state", missionStateName()},
+                             json{{"state", mission_manager::to_string(missionFsm_.state())},
                                   {"index", missionIndex_},
                                   {"total", waypoints_.size()}}));
 }
@@ -918,14 +1112,23 @@ void BridgeNode::setWaypointStatus(std::size_t index, const char *status)
     publishWaypoints();
 }
 
-bool BridgeNode::navigateToWaypoint(std::size_t index)
+bool BridgeNode::sendWaypointGoal(std::size_t index)
 {
     if (index >= waypoints_.size())
         return false;
+    if (!sendPoseGoal(waypoints_[index]))
+        return false;
+    // 지금 가고 있는 지점을 화면에 표시한다. 도크 복귀에는 해당 없다.
+    setWaypointStatus(index, "current");
+    return true;
+}
 
-    const auto &wp = waypoints_[index];
+/// 좌표가 든 JSON 하나를 Nav2 목표로 보낸다. 점검포인트와 도크가 같은 길을
+/// 쓰므로 한 곳에 둔다.
+bool BridgeNode::sendPoseGoal(const json &wp)
+{
     if (!wp.contains("x") || !wp.contains("y")) {
-        RCLCPP_ERROR(get_logger(), "점검포인트 %zu 에 좌표가 없다", index);
+        RCLCPP_ERROR(get_logger(), "목표에 좌표가 없다");
         return false;
     }
     if (!navClient_->action_server_is_ready()) {
@@ -951,7 +1154,10 @@ bool BridgeNode::navigateToWaypoint(std::size_t index)
         if (!handle) {
             navStatus_ = "rejected";
             RCLCPP_ERROR(get_logger(), "자율주행이 점검 목표를 거부했다");
-            pauseMission("목표 거부");
+            // 거부도 "가 보지도 못한" 쪽이다. 지점을 실패로 적고 오류로
+            // 굳히면, 정작 고칠 것은 Nav2 인데 화면은 그 지점을 탓한다.
+            goalUnsendable_ = true;
+            goalPhase_ = GoalPhase::Failed;
             return;
         }
         navGoal_ = handle;
@@ -978,7 +1184,11 @@ bool BridgeNode::navigateToWaypoint(std::size_t index)
         navEta_ = nullptr;
         sendEnvelope(makeEvent(kChLog, json{{"code", "NAV_" + navStatus_},
                                             {"goal", navGoalPoint_}}));
-        onMissionGoalFinished(ok, canceled);
+        // 결과는 여기서 기록만 한다. 다음 tick 이 읽어 BT 에 돌려준다 —
+        // 콜백 안에서 순회를 진행시키면 상태 변경이 두 곳에서 일어난다.
+        if (goalPhase_ == GoalPhase::Active)
+            goalPhase_ = canceled ? GoalPhase::Idle
+                                  : (ok ? GoalPhase::Succeeded : GoalPhase::Failed);
     };
 
     navGoalPoint_ = json{{"x", goal.pose.pose.position.x},
@@ -989,101 +1199,13 @@ bool BridgeNode::navigateToWaypoint(std::size_t index)
     navEta_ = nullptr;
     missionOwnsGoal_ = true;
     navClient_->async_send_goal(goal, opts);
-    setWaypointStatus(index, "current");
     return true;
 }
 
-void BridgeNode::startMission()
-{
-    // 다시 시작하는 것이므로 이전 결과를 지운다. 남겨 두면 완료 표시가
-    // 그대로 있는 채로 로봇만 처음부터 도는 그림이 된다.
-    for (std::size_t i = 0; i < waypoints_.size(); ++i)
-        waypoints_[i]["status"] = "todo";
-    publishWaypoints();
 
-    missionIndex_ = 0;
-    mission_ = Mission::Running;
-    publishMission();
-    RCLCPP_INFO(get_logger(), "점검 시작 — 포인트 %zu 개", waypoints_.size());
 
-    if (!navigateToWaypoint(missionIndex_))
-        pauseMission("첫 목표를 보내지 못했다");
-}
 
-void BridgeNode::pauseMission(const char *why)
-{
-    if (mission_ == Mission::Idle)
-        return;
-    mission_ = Mission::Paused;
-    // 목표를 물린 채 두면 해제한 뒤 로봇이 아무도 다시 누르지 않은 자리로
-    // 출발한다. 자리는 missionIndex_ 가 들고 있으므로 잃는 것은 없다.
-    if (missionOwnsGoal_)
-        cancelNavigation(why);
-    publishMission();
-    RCLCPP_WARN(get_logger(), "점검 일시정지 (%s) — 포인트 %zu 에서", why,
-                missionIndex_ + 1);
-}
 
-void BridgeNode::resumeMission()
-{
-    mission_ = Mission::Running;
-    publishMission();
-    RCLCPP_INFO(get_logger(), "점검 재개 — 포인트 %zu 부터", missionIndex_ + 1);
-    if (!navigateToWaypoint(missionIndex_))
-        pauseMission("목표를 다시 보내지 못했다");
-}
-
-void BridgeNode::stopMission(const char *why)
-{
-    const bool wasRunning = mission_ != Mission::Idle;
-    mission_ = Mission::Idle;
-    missionIndex_ = 0;
-    if (missionOwnsGoal_)
-        cancelNavigation(why);
-    missionOwnsGoal_ = false;
-
-    // 취소한 순회의 진행 표시는 지운다. 어디까지 갔는지는 이력에 남고,
-    // 화면에 남겨 두면 다음 시작 때 완료된 것처럼 보인다.
-    for (std::size_t i = 0; i < waypoints_.size(); ++i)
-        waypoints_[i]["status"] = "todo";
-    publishWaypoints();
-    publishMission();
-    if (wasRunning)
-        RCLCPP_WARN(get_logger(), "점검 취소 (%s)", why);
-}
-
-void BridgeNode::onMissionGoalFinished(bool succeeded, bool canceled)
-{
-    if (!missionOwnsGoal_)
-        return;
-    missionOwnsGoal_ = false;
-
-    // 우리가 세운 것이다. 일시정지·취소가 이미 상태를 정했으므로 여기서
-    // 한 칸 넘기면 안 된다.
-    if (canceled || mission_ != Mission::Running)
-        return;
-
-    if (!succeeded) {
-        setWaypointStatus(missionIndex_, "error");
-        pauseMission("목표에 도달하지 못했다");
-        return;
-    }
-
-    setWaypointStatus(missionIndex_, "done");
-    ++missionIndex_;
-
-    if (missionIndex_ >= waypoints_.size()) {
-        mission_ = Mission::Idle;
-        missionIndex_ = 0;
-        publishMission();
-        sendEnvelope(makeEvent(kChLog, json{{"code", "MISSION_DONE"}}));
-        RCLCPP_INFO(get_logger(), "점검 완료");
-        return;
-    }
-
-    if (!navigateToWaypoint(missionIndex_))
-        pauseMission("다음 목표를 보내지 못했다");
-}
 
 void BridgeNode::publishMarkers()
 {

@@ -77,6 +77,7 @@ add_library(hmi_core ${HMI_CORE_TYPE}
     src/mapview/MapRender.cpp
     src/mapview/MapFile.cpp
     src/robot/RobotLink.cpp
+    src/robot/RobotTypes.cpp
     src/robot/PoseCheck.cpp
     src/robot/Kinematics.cpp
     src/panels/StatusPanel.cpp
