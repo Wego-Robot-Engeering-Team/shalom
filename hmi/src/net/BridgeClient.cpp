@@ -432,9 +432,7 @@ void BridgeClient::handlePublish(const Envelope &env)
         telemetry_.seenTags = seen;
     } else if (ch == QLatin1String(hmi::ch::kMission)) {
         const QString state = p.value(QStringLiteral("state")).toString();
-        const MissionState next = state == QLatin1String("running") ? MissionState::Running
-                                  : state == QLatin1String("paused") ? MissionState::Paused
-                                                                     : MissionState::Idle;
+        const MissionState next = hmi::robot::missionStateFromWire(state);
         if (next != mission_) {
             mission_ = next;
             emit missionStateChanged(mission_);

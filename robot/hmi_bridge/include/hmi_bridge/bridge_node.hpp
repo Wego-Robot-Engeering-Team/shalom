@@ -48,11 +48,18 @@
 #include <vector>
 
 #include "hmi_bridge/envelope.hpp"
+#include "mission_manager/bt/nav2_bt.hpp"
+#include "mission_manager/mission_fsm.hpp"
 #include "hmi_bridge/tcp_server.hpp"
 
 namespace hmi_bridge {
 
-class BridgeNode : public rclcpp::Node {
+/// 미션의 순서와 상태는 mission_manager 가 갖는다. 이 노드는 그 판단을 실제
+/// 동작으로 옮기는 어댑터다 — Nav2 목표를 보내고, 결과를 되돌려 준다.
+///
+/// 예전에는 이 노드가 직접 3 단계 상태기계를 들고 순회를 돌렸다. 같은 개념이
+/// 두 곳에 있으면 갈라지고, 실제로 갈라졌을 때 어느 쪽이 맞는지 알 방법이 없다.
+class BridgeNode : public rclcpp::Node, public mission_manager::bt::Nav2Runtime {
 public:
     BridgeNode();
     ~BridgeNode() override;
@@ -173,16 +180,23 @@ private:
     // 관제는 점검포인트를 순서대로 도는 하나의 작업으로 다룬다. 여기가
     // 없으면 화면의 시작·일시정지·재개·취소가 눌리는 곳이 없고, 상태를
     // 알려주지 않으니 버튼 글자도 영영 "자율주행 시작" 에 머문다.
-    void startMission();
-    void pauseMission(const char *why);
-    void resumeMission();
-    void stopMission(const char *why);
+    /// 관제 명령과 안전 사건을 FSM 사건으로 옮긴다.
+    mission_manager::Transition dispatchMission(mission_manager::MissionEvent event,
+                                                const char *why);
+    /// 상태에 맞춰 한 걸음 나아간다. 타이머가 부른다.
+    void tickMission();
 
     /// 목표 하나가 끝났을 때 다음으로 넘긴다.
-    void onMissionGoalFinished(bool succeeded, bool canceled);
 
     /// index 번째 점검포인트로 보낸다. 보낼 수 없으면 false.
-    bool navigateToWaypoint(std::size_t index);
+    /// 한 지점으로 Nav2 목표를 보낸다. 보냈으면 true.
+    bool sendWaypointGoal(std::size_t index);
+    /// 좌표가 든 JSON 하나를 Nav2 목표로 보낸다.
+    bool sendPoseGoal(const json &pose);
+    /// 복귀 구간을 한 걸음 나아간다.
+    void tickReturn();
+    /// 등록된 위치에서 충전 스테이션을 찾는다. 없으면 -1.
+    int findDock() const;
     void setWaypointStatus(std::size_t index, const char *status);
     void publishMission();
 
@@ -200,7 +214,9 @@ private:
 
     void publishCaptureSpool();
 
-    const char *missionStateName() const;
+    // ---- mission_manager::bt::Nav2Runtime ----
+    mission_manager::bt::Status navigate_to(const std::string &goal_id) override;
+    void cancel_navigation() override;
 
     /// Accumulated driven path, in map coordinates.
     void publishTrail();
@@ -304,9 +320,19 @@ private:
     json markers_ = json::array();
     bool wasConnected_ = false;
 
-    enum class Mission { Idle, Running, Paused };
-    Mission mission_ = Mission::Idle;
+    mission_manager::MissionFsm missionFsm_;
+    mission_manager::bt::Nav2Bt navBt_;
     std::size_t missionIndex_ = 0;
+
+    /// Nav2 목표 한 건의 진행. 콜백으로 채우고 tick 에서 읽는다 — BT 는
+    /// 물어보는 쪽이고 Nav2 는 알려 주는 쪽이라, 그 사이를 이것이 잇는다.
+    enum class GoalPhase { Idle, Active, Succeeded, Failed };
+    GoalPhase goalPhase_ = GoalPhase::Idle;
+    /// 목표를 보내 보지도 못했는지. 지점 실패와 구분해야 오류로 굳지 않는다.
+    bool goalUnsendable_ = false;
+    /// 복귀 목표로 쓸 위치의 자리. -1 이면 아직 찾지 않았다.
+    int dockIndex_ = -1;
+    rclcpp::TimerBase::SharedPtr missionTimer_;
     /// 지금 Nav2 에 걸린 목표가 순회의 것인지. 조작자가 지도를 눌러 보낸
     /// 목표와 구분해야, 그 목표가 끝났다고 순회가 한 칸 넘어가지 않는다.
     bool missionOwnsGoal_ = false;
