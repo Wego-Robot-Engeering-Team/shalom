@@ -1,28 +1,29 @@
-# 작업·안전 관리
+# Supervisory control plane
 
-로봇이 어떤 작업을 실행하고 언제 중단할지 관리하는 분야다. 이 이름은 모터의
-저수준 제어가 아니라 **작업 오케스트레이션과 안전 판단**을 뜻하는 범위에서 적절하다.
+이 디렉터리의 `control`은 motor PID나 `ros2_control`을 뜻하지 않는다. 미션,
+운용 권한, software safety를 조정하는 supervisory control plane이다. 실제 B2·FR3
+저수준 드라이버는 `third_party/`에 있다.
 
-| 패키지 | 책임 | 상태 |
-|---|---|
-| `mission_manager` | 미션 FSM·BT, 이동·정지·촬영·복귀 순서 | C++ 코어 예제 구현됨 |
-| `safety_manager` | 안전 조건과 watchdog 감시, 이동 명령 허용·차단, 정지 상태 유지 | 미구현 |
+```text
+mission_manager ── action/intent ─────────────────────┐
+teleop_bridge ────────────────────────────────┐        │
+Nav2 / dock / stair ──────────────────────────┼─ motion_mux ─ safety_gate ─ driver
+                                                │                         ↑
+motion_interlock_manager ─ authority ──────────┘                  safety_manager
+```
 
-`mission_manager`는 현재 ROS 노드가 아닌 순수 C++ 코어다. 그래서 현재 HMI bridge와
-명령을 경쟁하지 않으며, 실제 Nav2·카메라·도크 어댑터를 붙일 자리가 명확하다.
+| Package | Owns | Does not own |
+|---|---|---|
+| `mission_manager` | Mission FSM and BT ordering | final actuator commands |
+| `teleop_bridge` | deadman and input lease | hardware command topic |
+| `motion_mux` | fresh base command source priority | safety state |
+| `motion_interlock_manager` | base/arm operational authority | E-stop or fault state |
+| `safety_manager` | software safety state and motion permit | physical E-stop circuit |
+| `safety_gate` | final ROS command permission | physical safe stop |
 
-두 노드는 독립 프로세스로 구현한다. 안전 상태가 중단으로 바뀌면 mission_manager는
-현재 액션을 취소하고 중단 상태를 기록한다. 재개 정책은 안전 상태 복구와 사용자
-승인을 확인한 뒤 적용한다.
-
-watchdog은 주기 신호의 만료를 판단하는 기능이다. 처음에는 safety_manager 내부에
-두되, 그 프로세스 자체의 정지까지 감지하려면 드라이버/컨트롤러 측 명령 타임아웃도
-필요하다. 폴더 분리만으로 안전 기능이 구현되거나 보장되지는 않는다.
-
-명령 최종 차단을 구현할 때는 HMI 수동 조작, Nav2, 미션이 생성하는 모든 이동 명령을
-같은 허용 경로에 연결한다. 하드웨어 E-stop은 별도 경로로 유지한다.
-현재 브릿지·Nav2의 명령 경로는 이 구조 정리에서 변경하지 않았다.
-
-미션용 BT 파일은 `mission_manager` 패키지가, Nav2 주행용 BT는 주행 구성 쪽이 소유한다.
-최종 운용 launch(`inspection.launch.py`)는 실제 어댑터와 safety_manager가 구현된 뒤
-`../robot_bringup/`에서 두 패키지를 조립한다.
+`robot_bringup/control.launch.py` starts this plane with the final base output
+at `/motion/safe/cmd_vel`, deliberately **not** `/cmd_vel`. Existing Nav2 and
+HMI command producers still use legacy direct topics; they must be remapped to
+`/motion/*/cmd_vel` and verified together before the gate is connected to the
+B2 driver. FR3 is also intentionally blocked until its vendor stop/mode
+interface is integrated.

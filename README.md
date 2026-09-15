@@ -12,7 +12,7 @@ Unitree B2 사족보행 로봇에 FAIRINO FR3 협동로봇 팔을 얹어, 검수
 ```text
 robot/
   robot_bringup/             platform·navigation·inspection 실행 조립
-  control/                    미션·안전 관리 (현재 설계 문서)
+  control/                    미션·안전·motion authority control plane
   navigation/config/          B2 주행·위치추정·SLAM 설정
   navigation/maps/             저장 지도
   navigation/rviz/             주행·지도화 화면 설정
@@ -46,8 +46,8 @@ navigation.launch.py   platform + SLAM/AMCL + Nav2
 inspection.launch.py   navigation + HMI 브리지 + RViz
 ```
 
-`inspection.launch.py`가 현재의 전체 운용 진입점이다. 미션 BT/FSM과 안전 노드는
-아직 구현 전이라 포함하지 않는다.
+`inspection.launch.py`가 현재의 전체 운용 진입점이다. control-plane 노드는
+driver topic에 안전하게 연결하는 통합 검증을 거친 뒤에 포함한다.
 
 패키지 배치·명명 규칙과 구조 변경 후 첫 빌드는 [로봇 구조 문서](robot/README.md)를 따른다.
 
