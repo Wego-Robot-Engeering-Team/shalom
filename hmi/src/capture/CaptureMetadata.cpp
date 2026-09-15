@@ -25,16 +25,11 @@ QString sanitiseForFileName(const QString &value)
     return out.trimmed();
 }
 
-QString CaptureMetadata::vehicleNumber() const
-{
-    if (trainNumber.isEmpty() || carNumber.isEmpty())
-        return {};
-    return QStringLiteral("%1.%2").arg(trainNumber, carNumber);
-}
-
 QStringList CaptureMetadata::missingFields() const
 {
     QStringList missing;
+    if (vehicleNumber.trimmed().isEmpty())
+        missing << QStringLiteral("차량번호");
     if (trainNumber.trimmed().isEmpty())
         missing << QStringLiteral("편성번호");
     if (carNumber.trimmed().isEmpty())
@@ -66,7 +61,7 @@ QString CaptureMetadata::fileName(const QString &extension) const
         ext.remove(0, 1);
 
     return QStringLiteral("%1_%2_%3,%4.%5")
-        .arg(sanitiseForFileName(vehicleNumber()),
+        .arg(sanitiseForFileName(vehicleNumber),
              sanitiseForFileName(carNumber),
              sanitiseForFileName(pointId),
              capturedAt.toString(QLatin1String(kStampFormat)),
@@ -76,7 +71,7 @@ QString CaptureMetadata::fileName(const QString &extension) const
 QJsonObject CaptureMetadata::toJson() const
 {
     QJsonObject o;
-    o[QStringLiteral("vehicle_number")] = vehicleNumber();
+    o[QStringLiteral("vehicle_number")] = vehicleNumber;
     o[QStringLiteral("train_number")] = trainNumber;
     o[QStringLiteral("car_number")] = carNumber;
     o[QStringLiteral("point_id")] = pointId;

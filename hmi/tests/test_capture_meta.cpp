@@ -16,6 +16,7 @@ namespace {
 CaptureMetadata complete()
 {
     CaptureMetadata m;
+    m.vehicleNumber = QStringLiteral("GTXA-042");
     m.trainNumber = QStringLiteral("1234");
     m.carNumber = QStringLiteral("05");
     m.pointId = QStringLiteral("C01-P03");
@@ -35,29 +36,28 @@ class TestCaptureMeta : public QObject {
 
 private slots:
 
-    void vehicleNumber_joinsTrainAndCar()
-    {
-        QCOMPARE(complete().vehicleNumber(), QStringLiteral("1234.05"));
-    }
-
-    void vehicleNumber_emptyWhenIncomplete()
+    /// 차량번호는 조작자가 적는 값이다. 편성·량에서 만들어 내지 않는다 —
+    /// 과업지시서가 넷을 따로 요구하므로, 합성하면 현장 표기와 어긋날 때
+    /// 고칠 방법이 없다.
+    void vehicleNumber_isRequired()
     {
         CaptureMetadata m = complete();
-        m.carNumber.clear();
-        QVERIFY(m.vehicleNumber().isEmpty());
+        m.vehicleNumber.clear();
+        QVERIFY(m.missingFields().contains(QStringLiteral("차량번호")));
+        QVERIFY(m.fileName(QStringLiteral("png")).isEmpty());
     }
 
     /// 규정 형식: 차량번호_량번호_포인트ID,타임스탬프.확장자
     void fileName_followsMandatedForm()
     {
         QCOMPARE(complete().fileName(QStringLiteral("jpg")),
-                 QStringLiteral("1234.05_05_C01-P03,20260906140321.jpg"));
+                 QStringLiteral("GTXA-042_05_C01-P03,20260906140321.jpg"));
     }
 
     void fileName_acceptsExtensionWithDot()
     {
         QCOMPARE(complete().fileName(QStringLiteral(".png")),
-                 QStringLiteral("1234.05_05_C01-P03,20260906140321.png"));
+                 QStringLiteral("GTXA-042_05_C01-P03,20260906140321.png"));
     }
 
     /// 불완전한 기록이 그럴듯한 파일명을 만들어내면 안 된다.
@@ -106,7 +106,7 @@ private slots:
         QVERIFY(!name.isEmpty());
         QVERIFY2(!name.contains(QLatin1Char('/')), qPrintable(name));
         QVERIFY2(!name.contains(QLatin1Char(':')), qPrintable(name));
-        QCOMPARE(name, QStringLiteral("1234.05_05_C01-P03-A,20260906140321.jpg"));
+        QCOMPARE(name, QStringLiteral("GTXA-042_05_C01-P03-A,20260906140321.jpg"));
     }
 
     void sanitise_handlesEveryWindowsIllegalCharacter()
