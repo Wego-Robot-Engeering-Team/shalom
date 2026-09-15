@@ -15,7 +15,7 @@ robot/
 │   ├── pandar_xt32/            # Hesai Pandar XT32 표준 인터페이스 어댑터
 │   └── velodyne_vlp16/         # 임시 VLP-16 연동
 ├── hmi_bridge/                 # HMI TCP ↔ ROS 2
-└── control/                    # 미션·안전 관리 위치 (아직 구현 전)
+└── control/                    # mission·safety·motion authority control plane
 ```
 
 ## Launch 계층
@@ -26,8 +26,13 @@ navigation.launch.py   robot + 지면분리·위치추정·SLAM/AMCL·Nav2
 inspection.launch.py   navigation + HMI 브리지 + 선택적 RViz
 ```
 
-`mission_manager`와 `safety_manager`는 아직 구현 전이므로 마지막 launch에는
-포함되지 않는다. FR3 실기 드라이버도 아직 없으며 `payload:=fr3`은 시뮬레이터 전용이다.
+`mission_manager`는 현재 HMI bridge가 링크하는 C++ 미션 코어다. supervisory control
+노드는 [`control.launch.py`](robot_bringup/launch/control.launch.py)에서 별도로 올린다.
+이는 실제 driver topic에 기본 연결되지 않는다. FR3 실기 드라이버도 아직 없으며
+`payload:=fr3`은 시뮬레이터 전용이다.
+
+`control/`의 패키지별 책임과 실기 command topic 연결 전제는
+[control README](control/README.md)에 있다.
 
 ## 실행
 
@@ -44,6 +49,7 @@ source ~/shalom_ws/install/setup.bash
 | 시뮬레이터 내비게이션 | `ros2 launch robot_bringup navigation.launch.py robot:=sim map:=none` |
 | 실기 내비게이션 | `ros2 launch robot_bringup navigation.launch.py robot:=real use_sim_time:=false network_interface:=<B2-NIC>` |
 | 전체 점검 스택 | `ros2 launch robot_bringup inspection.launch.py robot:=real use_sim_time:=false network_interface:=<B2-NIC>` |
+| Supervisory control 시험 | `ros2 launch robot_bringup control.launch.py` |
 | Pandar XT32 실기 | `ros2 launch robot_bringup inspection.launch.py robot:=real use_sim_time:=false lidar:=xt32 xt32_config_file:=/etc/shalom/pandar_xt32.yaml` |
 | VLP-16 시험 | `ros2 launch robot_bringup inspection.launch.py robot:=real use_sim_time:=false network_interface:=<B2-NIC> lidar:=vlp16 map:=none` |
 | 종료 | `~/shalom_ws/src/shalom/robot/tools/stop_stack.sh` |

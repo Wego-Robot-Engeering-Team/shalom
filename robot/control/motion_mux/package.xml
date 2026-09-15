@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>motion_mux</name>
+  <version>0.1.0</version>
+  <description>Lease-based base velocity command arbitration.</description>
+  <maintainer email="hw.jo@wego-robotics.com">Wego Robotics</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>geometry_msgs</depend>
+
+  <export><build_type>ament_cmake</build_type></export>
+</package>
