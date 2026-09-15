@@ -56,7 +56,7 @@ source install/setup.bash
 확인:
 
 ```bash
-ros2 pkg list | grep -E 'robot_bringup|hmi_bridge|realsense_d455|pandar_xt32|hesai_ros_driver|aurora'
+ros2 pkg list | grep -E 'robot_bringup|hmi_bridge|realsense_d455|pandar_xt32|hesai_ros_driver|slamtec_aurora'
 ```
 
 ## 4. 전원 모드 (AGX)

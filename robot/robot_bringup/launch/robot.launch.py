@@ -23,7 +23,7 @@ def generate_launch_description():
     realsense = FindPackageShare("realsense_d455")
     velodyne = FindPackageShare("velodyne_vlp16")
     pandar_xt32 = FindPackageShare("pandar_xt32")
-    aurora = FindPackageShare("aurora")
+    slamtec_aurora = FindPackageShare("slamtec_aurora")
     use_sim_time = LaunchConfiguration("use_sim_time")
 
     sim_robot = IncludeLaunchDescription(
@@ -69,7 +69,7 @@ def generate_launch_description():
 
     aurora_driver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            PathJoinSubstitution([aurora, "launch", "aurora_s.launch.py"])),
+            PathJoinSubstitution([slamtec_aurora, "launch", "aurora_s.launch.py"])),
         launch_arguments={"ip_address": LaunchConfiguration("aurora_ip")}.items(),
         condition=LaunchConfigurationEquals("aurora", "true"),
     )

@@ -23,7 +23,7 @@
   <exec_depend>velodyne_vlp16</exec_depend>
   <!-- Hesai Pandar XT32 adapter (lidar:=xt32). -->
   <exec_depend>pandar_xt32</exec_depend>
-  <exec_depend>aurora</exec_depend>
+  <exec_depend>slamtec_aurora</exec_depend>
   <exec_depend>kiss_icp</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>
   <exec_depend>nav2_bringup</exec_depend>

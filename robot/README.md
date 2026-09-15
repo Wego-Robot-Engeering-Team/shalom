@@ -11,7 +11,7 @@ robot/
 ├── tools/                       # 운영·개발 보조 스크립트
 ├── sensors/
 │   ├── realsense_d455/         # D455 역할·토픽·설정
-│   ├── aurora/                 # Aurora S 연동
+│   ├── slamtec_aurora/         # SLAMTEC Aurora S 연동
 │   ├── pandar_xt32/            # Hesai Pandar XT32 표준 인터페이스 어댑터
 │   └── velodyne_vlp16/         # 임시 VLP-16 연동
 ├── hmi_bridge/                 # HMI TCP ↔ ROS 2
@@ -81,7 +81,7 @@ ros2 launch realsense_d455 d455_stream.launch.py \
   role:=arm serial:=<D455-시리얼>
 
 # Aurora S 원시 /aurora/odom
-ros2 launch aurora aurora_s.launch.py ip_address:=<AURORA-IP>
+ros2 launch slamtec_aurora aurora_s.launch.py ip_address:=<AURORA-IP>
 
 # VLP-16 점군과 TF
 ros2 launch velodyne_vlp16 vlp16.launch.py \
