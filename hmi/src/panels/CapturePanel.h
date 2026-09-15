@@ -73,6 +73,7 @@ private:
     PreviewView *preview2d_ = nullptr;
     PreviewView *preview3d_ = nullptr;
 
+    QLineEdit *vehicleNumber_ = nullptr;
     QLineEdit *trainNumber_ = nullptr;
     QLineEdit *carNumber_ = nullptr;
     QLineEdit *pointId_ = nullptr;

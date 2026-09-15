@@ -5,7 +5,7 @@
 // The statement of work (section 1, capture data) fixes both the required
 // fields and the file name, and both are acceptance items:
 //
-//   required : vehicle number (train number + car number), inspection point id,
+//   required : vehicle number, train set number, car number, inspection point id,
 //              AprilTag id, capture time as YYYY-MM-DD HH:MM:SS, robot pose
 //              (x, y, theta) and distance to the subject in millimetres
 //   file name: <vehicle>_<car>_<point id>,<timestamp>.<extension>
@@ -27,6 +27,7 @@ namespace hmi::capture {
 /// Fields the operator types, plus the ones filled in from telemetry.
 struct CaptureMetadata {
     // ---- entered by the operator ----
+    QString vehicleNumber; ///< vehicle number, as the contract names it
     QString trainNumber;   ///< train set number
     QString carNumber;     ///< car number within the train
     QString pointId;       ///< inspection point id
@@ -38,9 +39,6 @@ struct CaptureMetadata {
     double robotY = 0.0;
     double robotTheta = 0.0;     ///< radians
     double distanceMm = 0.0;     ///< distance to the subject
-
-    /// Combined vehicle number: train number, a dot, then car number.
-    QString vehicleNumber() const;
 
     /// Names of the required fields that are still missing. Empty means the
     /// record is complete.

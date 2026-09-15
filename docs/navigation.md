@@ -11,8 +11,8 @@ Nav2가 경로를 계획하고 속도 명령을 낸다. B2에서는 보행 정�
 source /opt/ros/jazzy/setup.bash
 source ~/shalom_ws/install/setup.bash
 
-ros2 launch bringup bringup.launch.py robot:=sim
-ros2 launch bringup bringup.launch.py robot:=real \
+ros2 launch robot_bringup navigation.launch.py robot:=sim
+ros2 launch robot_bringup navigation.launch.py robot:=real \
   network_interface:=enp3s0 use_sim_time:=false
 ```
 
@@ -48,7 +48,7 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 source /opt/ros/jazzy/setup.bash
 source ~/shalom_ws/install/setup.bash
 
-ros2 launch bringup bringup.launch.py \
+ros2 launch robot_bringup navigation.launch.py \
   robot:=sim payload:=fr3 map:=none rviz:=false viewer:=false \
   cameras:=false
 ```

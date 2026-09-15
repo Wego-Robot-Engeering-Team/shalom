@@ -23,3 +23,5 @@ build-release/
 # 이전 로컬 내비게이션 프로토타입. 정식 의존성은 third_party/의
 # 서브모듈로 관리한다.
 nav2_gseg/
+
+.vscode/
