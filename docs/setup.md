@@ -4,37 +4,38 @@
 
 ```
 ~/shalom_ws/src/
-├── shalom/                 이 저장소
-│   ├── robot/
-│   │   ├── robot_bringup/             platform·navigation·inspection 실행 조립
-│   │   ├── control/                    미션·안전 관리 (현재 설계 문서)
-│   │   ├── navigation/config/          B2 주행·위치추정·SLAM 설정
-│   │   ├── navigation/maps/             저장 지도
-│   │   ├── navigation/rviz/             주행·지도화 화면 설정
-│   │   ├── navigation/lidar_slam/       점군 지면분리·2D SLAM
-│   │   ├── sensors/realsense_d455/      D455 역할·토픽·설정
-│   │   ├── sensors/aurora/              Aurora S 연동
-│   │   ├── sensors/velodyne_vlp16/      임시 VLP-16 연동 (최종 XT32)
-│   │   ├── hmi_bridge/   HMI TCP ↔ ROS 2
-│   │   └── common/                     로봇 전용 공유 코드 배치 기준 (현재 문서)
-│   ├── hmi/                관제 GUI와 HMI 전용 testbed
-│   ├── common/             HMI·로봇 공통 통신 계약
-│   └── docs/               운용·통신 문서
-├── b2_simulation/          사내 관리: 실기 대체 시뮬레이터 + RL 학습
-├── b2_driver/              사내 관리: Unitree B2 실기 드라이버
-│   └── unitree_msgs/       unitree_go / unitree_api 메시지 (벤더링, BSD-3)
-└── third_party/            외부 ROS·SDK 소스 (필요한 호환 수정은 설치 스크립트에 기록)
-    ├── ground_segmentation/
-    ├── ground_segmentation_ros2/
-    ├── kiss_icp/
-    ├── aurora_ros/         SLAMTEC Aurora S ROS 2 드라이버 (Jazzy 호환 보정 적용)
-    ├── librealsense/       RealSense SDK 소스와 USB 권한 규칙
-    └── nav2_ground_consistency_costmap_plugin/
+└── shalom/                             최상위 통합 저장소
+    ├── robot/
+    │   ├── robot_bringup/              platform·navigation·inspection 실행 조립
+    │   ├── control/                    미션·안전 관리 (현재 설계 문서)
+    │   ├── navigation/config/          B2 주행·위치추정·SLAM 설정
+    │   ├── navigation/maps/             저장 지도
+    │   ├── navigation/rviz/             주행·지도화 화면 설정
+    │   ├── navigation/lidar_slam/       점군 지면분리·2D SLAM
+    │   ├── sensors/realsense_d455/      D455 역할·토픽·설정
+    │   ├── sensors/aurora/              Aurora S 연동
+    │   ├── sensors/velodyne_vlp16/      임시 VLP-16 연동 (최종 XT32)
+    │   ├── hmi_bridge/                 HMI TCP ↔ ROS 2
+    │   └── common/                     로봇 전용 공유 코드 배치 기준 (현재 문서)
+    ├── hmi/                            관제 GUI와 HMI 전용 testbed
+    ├── common/                         HMI·로봇 공통 통신 계약
+    ├── docs/                           운용·통신 문서
+    └── third_party/                    독립 저장소를 고정한 Git submodule
+        ├── b2_driver/                  B2 실기 드라이버
+        ├── b2_simulation/              B2 시뮬레이터와 RL 학습
+        ├── frcobot_ros2/               FAIRINO FR3 ROS 2 드라이버
+        ├── ground_segmentation/
+        ├── ground_segmentation_ros2/
+        ├── kiss_icp/
+        ├── aurora_ros/                 Aurora S ROS 2 드라이버
+        ├── librealsense/               RealSense SDK 소스와 USB 권한 규칙
+        └── nav2_ground_consistency_costmap_plugin/
 ```
 
-Unitree 메시지는 `b2_driver/unitree_msgs` 안에 들어 있다. 설치 스크립트가
-`unitree_ros2`의 고정 커밋에서 필요한 `unitree_go`·`unitree_api`만 자동으로
-가져오므로 따로 받을 필요가 없다.
+`third_party`는 회사 밖에서 만든 코드만 뜻하지 않는다. `shalom`과 별도 이력을
+가진 저장소 경계라는 뜻이므로 Wego가 관리하는 `b2_driver`와
+`b2_simulation`도 여기에 둔다. Unitree 메시지와 SDK는 `b2_driver` 내부의
+재귀 서브모듈이며 설치 스크립트가 함께 초기화한다.
 
 ROS 패키지는 폴더와 패키지 이름을 같게 하고, 분야 분류 폴더에는 `package.xml`을 두지
 않는다. 기존 작업공간을 갱신한 경우 [구조 변경 후 빌드](../robot/README.md#경로-변경-후-빌드)의
@@ -64,8 +65,8 @@ GPL 조건에 걸린다. 실측에서도 소프트웨어 인코딩이 도는 동
 
 ## 제3자 ROS 패키지
 
-apt에 없어 소스로 받아 둔 것들이다. 워크스페이스 루트의 `third_party/`에 들어 있으므로 클론 후
-따로 받을 필요는 없다.
+apt에 없어 소스로 받아 둔 것들이다. `shalom/third_party/`의 서브모듈로 고정되어
+있으므로 `--recurse-submodules`로 클론하면 따로 받을 필요가 없다.
 
 | 패키지 | 역할 | 라이선스 |
 |---|---|---|
@@ -84,7 +85,7 @@ cd ~/shalom_ws
 source /opt/ros/jazzy/setup.bash
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp    # B2 실기·시뮬레이터 모두 Cyclone DDS
 
-colcon build --symlink-install
+colcon build --base-paths src/shalom --symlink-install
 source install/setup.bash
 ```
 
@@ -92,7 +93,7 @@ source install/setup.bash
 잡은 것이다. 시스템 Python을 지정한다.
 
 ```bash
-PATH="/usr/bin:/bin:$PATH" colcon build --symlink-install \
+PATH="/usr/bin:/bin:$PATH" colcon build --base-paths src/shalom --symlink-install \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3.12
 ```
 
@@ -141,7 +142,7 @@ SDK 도구를 직접 쓸 때만 아래를 받으면 된다. ROS, 워크스페이
 한 번에 잡는다.
 
 ```bash
-source ~/shalom_ws/src/b2_simulation/mujoco/b2_mujoco/b2_env.sh
+source ~/shalom_ws/src/shalom/third_party/b2_simulation/mujoco/b2_mujoco/b2_env.sh
 ```
 `CYCLONEDDS_URI`가 셸에 남아 있으면
 지워 준다 — 그 설정은 DDS 참가자 인덱스를 고정해서 다중 노드 launch를 깨뜨린다.
