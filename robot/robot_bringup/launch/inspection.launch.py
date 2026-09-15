@@ -16,13 +16,15 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
     pkg = FindPackageShare("robot_bringup")
     bridge = FindPackageShare("hmi_bridge")
+    pandar_xt32 = FindPackageShare("pandar_xt32")
 
     navigation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([pkg, "launch", "navigation.launch.py"])),
         launch_arguments={
             name: LaunchConfiguration(name)
             for name in ("domain_id", "robot", "use_sim_time", "network_interface",
-                         "pointcloud_topic", "lidar", "cameras", "arm_camera_serial",
+                         "pointcloud_topic", "lidar", "xt32_config_file", "xt32_x", "xt32_y", "xt32_z",
+                         "xt32_roll", "xt32_pitch", "xt32_yaw", "cameras", "arm_camera_serial",
                          "aurora", "aurora_ip", "viewer", "payload", "map", "slam", "nav2")
         }.items(),
     )
@@ -52,7 +54,16 @@ def generate_launch_description():
         DeclareLaunchArgument("use_sim_time", default_value="true"),
         DeclareLaunchArgument("network_interface", default_value=""),
         DeclareLaunchArgument("pointcloud_topic", default_value="/b2/points"),
-        DeclareLaunchArgument("lidar", default_value="none", choices=["none", "vlp16"]),
+        DeclareLaunchArgument("lidar", default_value="none", choices=["none", "vlp16", "xt32"]),
+        DeclareLaunchArgument(
+            "xt32_config_file",
+            default_value=PathJoinSubstitution([pandar_xt32, "config", "xt32.yaml"])),
+        DeclareLaunchArgument("xt32_x", default_value="0.34218"),
+        DeclareLaunchArgument("xt32_y", default_value="0.0"),
+        DeclareLaunchArgument("xt32_z", default_value="0.20"),
+        DeclareLaunchArgument("xt32_roll", default_value="0.0"),
+        DeclareLaunchArgument("xt32_pitch", default_value="0.0"),
+        DeclareLaunchArgument("xt32_yaw", default_value="0.0"),
         DeclareLaunchArgument("cameras", default_value="true"),
         DeclareLaunchArgument("arm_camera_serial", default_value=""),
         DeclareLaunchArgument("aurora", default_value="false"),

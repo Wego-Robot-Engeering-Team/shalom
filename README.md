@@ -19,7 +19,8 @@ robot/
   navigation/lidar_slam/       점군 지면분리·2D SLAM
   sensors/realsense_d455/      D455 역할·토픽·설정
   sensors/aurora/              Aurora S 연동
-  sensors/velodyne_vlp16/      임시 VLP-16 연동 (최종 XT32)
+  sensors/pandar_xt32/          Hesai Pandar XT32 연동
+  sensors/velodyne_vlp16/       임시 VLP-16 연동
   hmi_bridge/   관제 TCP ↔ ROS 2
   common/                     로봇 전용 공통 코드 배치 기준 (현재 문서)
 hmi/               관제 GUI. ROS 를 쓰지 않는 Qt 프로그램이다.
@@ -147,6 +148,7 @@ ros2 launch realsense_d455 d455_stream.launch.py
 | `robot` | `sim` | `sim` 또는 `real` |
 | `map` | `latest` | `latest` / 이름 / 경로 / `none`(실시간 SLAM) |
 | `cameras` | `true` | 로봇암 RealSense (촬영 원본의 출처) |
+| `lidar` | `none` | `none` / `xt32` / `vlp16`(임시) |
 | `viewer` | `true` | MuJoCo 뷰어 (`robot:=sim` 일 때) |
 | `rviz` | `true` | RViz |
 | `bridge` | `true` | 관제 브릿지 |
