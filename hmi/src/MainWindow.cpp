@@ -900,7 +900,12 @@ void MainWindow::driveTo(const QVariantMap &pose, const QString &label)
 
 void MainWindow::onMissionStateChanged(MissionState state)
 {
-    const bool running = state != MissionState::Idle;
+    // 복귀 중도 일이 진행 중인 상태다. 완료·오류·비상정지는 멈춘 것이다.
+    const bool running = state == MissionState::Running
+                         || state == MissionState::Returning
+                         || state == MissionState::Paused;
+    // 여기서 재개 버튼이 뜬다. 비상정지에서 해제하면 로봇이 Paused 로
+    // 내려오므로 그때 다시 보인다.
     const bool paused = state == MissionState::Paused;
 
     mission_->setMissionState(paused   ? QStringLiteral("paused")

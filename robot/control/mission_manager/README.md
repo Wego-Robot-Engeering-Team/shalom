@@ -26,18 +26,28 @@ Nav2·팔·계단 보행을 취소한다.
 
 - FSM: 수동 우선, 링크 단절, 저전력 복귀, E-stop 해제 후 명시적 재개를 모델링한다.
 - BT: 지점 작업과 복귀 순서를 모델링한다.
-- 아직 ROS 노드나 실제 명령 송신은 넣지 않았다. 현재 `hmi_bridge`가 Nav2·촬영
-  명령을 직접 소유하므로, 지금 함께 실행하면 명령 소유자가 둘이 된다.
+- ROS 노드는 아직 없다. `hmi_bridge`가 이 라이브러리를 링크해 `Nav2Runtime`을
+  구현하고, 미션 tick을 돌린다. 어댑터가 IO를 갖고 이 패키지가 순서를 갖는
+  구조이므로, 같은 개념이 두 곳에 있지 않다.
 - 실제 E-stop, 3초 통신 watchdog, `/cmd_vel` 최종 차단은 별도
   `safety_manager`와 드라이버 레벨 타임아웃이 맡아야 한다. 이 FSM만으로 안전 기능이
   구현되지는 않는다.
 
-## 연결 순서
+## 지금까지 연결된 것
 
-1. `hmi_bridge`의 미션 실행 책임을 이 패키지로 옮긴다.
-2. 각 BT runtime의 ROS 2 어댑터에서 Nav2 goal/cancel, 촬영 완료 응답, 계단 controller, 도크 goal을 구현한다.
-3. `safety_manager`가 안전 전이를 전달하고 모든 주행 명령의 최종 gate가 된다.
-4. 그 뒤에만 `inspection.launch.py`에서 mission_manager와 safety_manager를 함께 기동한다.
+- `MissionFsm`이 미션 상태를 소유한다. `hmi_bridge`의 3단계 상태기계는 없앴다.
+- `Nav2Bt`가 점검포인트 순회와 도크 복귀를 모두 맡는다. `hmi_bridge`가
+  `Nav2Runtime`을 구현해 Nav2 목표를 보내고 결과를 되돌려 준다.
+- 상태는 `state/mission`으로 관제에 그대로 나간다(`returning`·`completed`·
+  `fault`·`emergency_stopped` 포함).
+
+## 아직 연결되지 않은 것
+
+- `CaptureBt` — 순회 중 자동 촬영. AprilTag 보정과 MoveIt2 자세가 아직 없어서
+  붙이지 않았다. 지금 촬영은 조작자가 누르는 수동 경로만 있다.
+- `StairBt` — B2 계단 보행 모드가 없다.
+- `safety_manager` — 3초 통신 watchdog과 `/cmd_vel` 최종 차단은 여전히
+  `hmi_bridge`와 드라이버 레벨이 맡는다.
 
 ## 확인
 
