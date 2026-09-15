@@ -16,6 +16,11 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <exec_depend>hmi_bridge</exec_depend>
+  <exec_depend>safety_manager</exec_depend>
+  <exec_depend>motion_interlock_manager</exec_depend>
+  <exec_depend>teleop_bridge</exec_depend>
+  <exec_depend>motion_mux</exec_depend>
+  <exec_depend>safety_gate</exec_depend>
 
   <exec_depend>lidar_slam</exec_depend>
   <exec_depend>realsense_d455</exec_depend>

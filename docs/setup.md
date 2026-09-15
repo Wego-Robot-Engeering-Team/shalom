@@ -7,7 +7,7 @@
 └── shalom/                             최상위 통합 저장소
     ├── robot/
     │   ├── robot_bringup/              platform·navigation·inspection 실행 조립
-    │   ├── control/                    미션·안전 관리 (현재 설계 문서)
+    │   ├── control/                    미션·안전·motion authority control plane
     │   ├── navigation/config/          B2 주행·위치추정·SLAM 설정
     │   ├── navigation/maps/             저장 지도
     │   ├── navigation/rviz/             주행·지도화 화면 설정
