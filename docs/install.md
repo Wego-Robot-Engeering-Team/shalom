@@ -232,6 +232,20 @@ PATH="/usr/bin:/bin:$PATH" colcon build --base-paths src/shalom --symlink-instal
 `--symlink-install`이라 옛 이름의 심링크가 끊긴 채 남는다. 해당
 `build/<이름>`과 `install/<이름>`을 지우고 다시 빌드한다.
 
+**`Duplicate package names` 로 빌드가 시작조차 안 된다**
+서브모듈로 옮기기 전 레이아웃이 남아 있는 워크스페이스다. `src/third_party/`,
+`src/b2_driver/`, `src/b2_simulation/` 의 옛 복사본이 `src/shalom/third_party/`
+의 서브모듈과 같은 패키지를 두 번 제공한다. 서브모듈을 받은 뒤 옛 복사본을
+지운다.
+
+```bash
+cd ~/shalom_ws
+git -C src/shalom submodule update --init --recursive
+rm -rf src/third_party src/b2_driver src/b2_simulation
+rm -rf build install log
+colcon build --base-paths src/shalom --symlink-install
+```
+
 **옮긴 패키지가 `does not match the source` 로 죽는다**
 빌드 캐시가 옛 경로를 붙들고 있다. 그 패키지의 `build/` 디렉터리를 지운다.
 

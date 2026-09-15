@@ -169,6 +169,24 @@ if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
   fi
 fi
 
+# frcobot_ros2는 FAIRINO 전 기종을 한 저장소에 담고 있다. GTX-A는 FR3만
+# 쓰므로 설명(description), 메시지, 현재 펌웨어(v3.9.9) 하드웨어 패키지만
+# 빌드하고 나머지 기종/구버전은 colcon에서 제외한다. 서브모듈 소스를
+# 지우지 않고 COLCON_IGNORE로만 처리하므로 업스트림은 깨끗하게 유지된다.
+if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
+  FRCOBOT_ROOT="$REPO_ROOT/third_party/frcobot_ros2"
+  if [ -d "$FRCOBOT_ROOT" ]; then
+    say "FAIRINO 빌드 범위"
+    for pkg_dir in "$FRCOBOT_ROOT"/*/; do
+      [ -f "$pkg_dir/package.xml" ] || continue
+      case "$(basename "$pkg_dir")" in
+        fairino_description|fairino_msgs|fairino_hardware_v3_9_9) continue ;;
+      esac
+      run install -m 644 /dev/null "$pkg_dir/COLCON_IGNORE"
+    done
+  fi
+fi
+
 # ---------------------------------------------------------------------------
 # 로봇 — 주행, 인식, 카메라
 # ---------------------------------------------------------------------------
