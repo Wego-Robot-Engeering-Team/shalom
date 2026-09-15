@@ -26,12 +26,11 @@ Nav2·팔·계단 보행을 취소한다.
 
 - FSM: 수동 우선, 링크 단절, 저전력 복귀, E-stop 해제 후 명시적 재개를 모델링한다.
 - BT: 지점 작업과 복귀 순서를 모델링한다.
-- ROS 노드는 아직 없다. `hmi_bridge`가 이 라이브러리를 링크해 `Nav2Runtime`을
-  구현하고, 미션 tick을 돌린다. 어댑터가 IO를 갖고 이 패키지가 순서를 갖는
-  구조이므로, 같은 개념이 두 곳에 있지 않다.
-- 실제 E-stop, 3초 통신 watchdog, `/cmd_vel` 최종 차단은 별도
-  `safety_manager`와 드라이버 레벨 타임아웃이 맡아야 한다. 이 FSM만으로 안전 기능이
-  구현되지는 않는다.
+- ROS adapter는 현재 `hmi_bridge`가 이 라이브러리를 링크해 `Nav2Runtime`을
+  구현한다. 어댑터가 IO를 갖고 이 패키지가 순서를 갖는 구조이므로, 같은 개념이
+  두 곳에 있지 않다.
+- 실제 E-stop, watchdog, `/cmd_vel` 최종 차단은 별도 `safety_manager`,
+  `safety_gate`, 드라이버 레벨 timeout이 맡는다. 이 FSM만으로 안전 기능이 구현되지는 않는다.
 
 ## 지금까지 연결된 것
 
@@ -46,8 +45,8 @@ Nav2·팔·계단 보행을 취소한다.
 - `CaptureBt` — 순회 중 자동 촬영. AprilTag 보정과 MoveIt2 자세가 아직 없어서
   붙이지 않았다. 지금 촬영은 조작자가 누르는 수동 경로만 있다.
 - `StairBt` — B2 계단 보행 모드가 없다.
-- `safety_manager` — 3초 통신 watchdog과 `/cmd_vel` 최종 차단은 여전히
-  `hmi_bridge`와 드라이버 레벨이 맡는다.
+- `safety_manager`와 `safety_gate` — control-plane 골격은 구현됐지만, 기존 Nav2/HMI
+  command source를 gate 경로로 remap하는 실기 통합은 아직 하지 않았다.
 
 ## 확인
 

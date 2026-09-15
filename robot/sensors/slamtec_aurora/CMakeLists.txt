@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(aurora)
+project(slamtec_aurora)
 
 find_package(ament_cmake REQUIRED)
 

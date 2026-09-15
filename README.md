@@ -12,14 +12,15 @@ Unitree B2 사족보행 로봇에 FAIRINO FR3 협동로봇 팔을 얹어, 검수
 ```text
 robot/
   robot_bringup/             platform·navigation·inspection 실행 조립
-  control/                    미션·안전 관리 (현재 설계 문서)
+  control/                    미션·안전·motion authority control plane
   navigation/config/          B2 주행·위치추정·SLAM 설정
   navigation/maps/             저장 지도
   navigation/rviz/             주행·지도화 화면 설정
   navigation/lidar_slam/       점군 지면분리·2D SLAM
   sensors/realsense_d455/      D455 역할·토픽·설정
-  sensors/aurora/              Aurora S 연동
-  sensors/velodyne_vlp16/      임시 VLP-16 연동 (최종 XT32)
+  sensors/slamtec_aurora/      SLAMTEC Aurora S 연동
+  sensors/pandar_xt32/          Hesai Pandar XT32 연동
+  sensors/velodyne_vlp16/       임시 VLP-16 연동
   hmi_bridge/   관제 TCP ↔ ROS 2
   common/                     로봇 전용 공통 코드 배치 기준 (현재 문서)
 hmi/               관제 GUI. ROS 를 쓰지 않는 Qt 프로그램이다.
@@ -45,8 +46,8 @@ navigation.launch.py   platform + SLAM/AMCL + Nav2
 inspection.launch.py   navigation + HMI 브리지 + RViz
 ```
 
-`inspection.launch.py`가 현재의 전체 운용 진입점이다. 미션 BT/FSM과 안전 노드는
-아직 구현 전이라 포함하지 않는다.
+`inspection.launch.py`가 현재의 전체 운용 진입점이다. control-plane 노드는
+driver topic에 안전하게 연결하는 통합 검증을 거친 뒤에 포함한다.
 
 패키지 배치·명명 규칙과 구조 변경 후 첫 빌드는 [로봇 구조 문서](robot/README.md)를 따른다.
 
@@ -147,6 +148,7 @@ ros2 launch realsense_d455 d455_stream.launch.py
 | `robot` | `sim` | `sim` 또는 `real` |
 | `map` | `latest` | `latest` / 이름 / 경로 / `none`(실시간 SLAM) |
 | `cameras` | `true` | 로봇암 RealSense (촬영 원본의 출처) |
+| `lidar` | `none` | `none` / `xt32` / `vlp16`(임시) |
 | `viewer` | `true` | MuJoCo 뷰어 (`robot:=sim` 일 때) |
 | `rviz` | `true` | RViz |
 | `bridge` | `true` | 관제 브릿지 |
@@ -172,4 +174,5 @@ PATH="/usr/bin:/bin:$PATH" colcon build --base-paths src/shalom --symlink-instal
 [SLAM](docs/slam.md) ·
 [내비게이션](docs/navigation.md) ·
 [통신 규약](docs/bridge_protocol.md) ·
-[납품](docs/delivery.md)
+[납품](docs/delivery.md) ·
+[고객 런타임 배포](cicd/README.md)

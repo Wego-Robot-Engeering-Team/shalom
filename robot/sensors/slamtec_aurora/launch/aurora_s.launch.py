@@ -13,7 +13,7 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     config = PathJoinSubstitution(
-        [FindPackageShare("aurora"), "config", "aurora_s.yaml"])
+        [FindPackageShare("slamtec_aurora"), "config", "aurora_s.yaml"])
 
     return LaunchDescription([
         DeclareLaunchArgument(
