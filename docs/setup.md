@@ -13,7 +13,7 @@
     │   ├── navigation/rviz/             주행·지도화 화면 설정
     │   ├── navigation/lidar_slam/       점군 지면분리·2D SLAM
     │   ├── sensors/realsense_d455/      D455 역할·토픽·설정
-    │   ├── sensors/aurora/              Aurora S 연동
+    │   ├── sensors/slamtec_aurora/      SLAMTEC Aurora S 연동
     │   ├── sensors/pandar_xt32/         Hesai Pandar XT32 연동
     │   ├── sensors/velodyne_vlp16/      임시 VLP-16 연동
     │   ├── hmi_bridge/                 HMI TCP ↔ ROS 2
