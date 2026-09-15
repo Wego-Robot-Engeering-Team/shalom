@@ -293,7 +293,6 @@ QWidget *SettingsDialog::buildConnectionTab()
     listButtons->addStretch(1);
     lay->addLayout(listButtons);
 
-    robotName_ = new QLineEdit;
     host_ = new QLineEdit;
     port_ = new QSpinBox;
     port_->setRange(1, 65535);
@@ -302,14 +301,11 @@ QWidget *SettingsDialog::buildConnectionTab()
     // 확인해야 하는 값이고, 화면에 없으면 문서를 뒤지게 된다.
     port_->setEnabled(false);
     port_->setToolTip(QStringLiteral("통신 규약이 정한 값입니다 (9090)."));
-    lay->addWidget(fieldRow(QStringLiteral("이름"), robotName_, 96));
     lay->addWidget(fieldRow(QStringLiteral("주소"), host_, 96));
     lay->addWidget(fieldRow(QStringLiteral("제어 포트"), port_, 96));
 
     auto *hint = new QLabel(QStringLiteral(
-        "목록에서 고른 로봇에 연결합니다. 상단 바의 연결 배지를 눌러도 바꿀 수 "
-        "있습니다. 촬영한 사진은 이 경로를 거치지 않고 로봇에서 저장 장치로 바로 "
-        "올라갑니다."));
+        "이름은 연결되면 로봇이 알려 줍니다. 상단 바에서도 바꿀 수 있습니다."));
     hint->setObjectName(QStringLiteral("Hint"));
     hint->setWordWrap(true);
     lay->addWidget(hint);
@@ -342,7 +338,8 @@ QWidget *SettingsDialog::buildConnectionTab()
 
     connect(addBtn, &QPushButton::clicked, this, [this] {
         auto list = Config::instance().robots();
-        list.append({QStringLiteral("새 로봇"), QStringLiteral("192.168.0.10"), 9090});
+        // 이름은 비워 둔다. 붙으면 로봇이 알려 준다.
+        list.append({QString(), QStringLiteral("192.168.0.10"), 9090});
         Config::instance().setRobots(list);
         Config::instance().setCurrentRobot(int(list.size()) - 1);
         reloadRobotList();
@@ -376,9 +373,8 @@ QWidget *SettingsDialog::buildConnectionTab()
 
     // 고친 것이 있을 때만 또렷해진다. 늘 눌러도 되는 것처럼 보이면 누른
     // 것인지 아닌지 기억에 의존하게 된다.
-    for (auto *edit : {robotName_, host_})
-        connect(edit, &QLineEdit::textEdited, this,
-                [this] { refreshRobotSaveState(); });
+    connect(host_, &QLineEdit::textEdited, this,
+            [this] { refreshRobotSaveState(); });
     connect(port_, &QSpinBox::valueChanged, this,
             [this] { refreshRobotSaveState(); });
 
@@ -793,10 +789,12 @@ void SettingsDialog::reloadRobotList()
     robotList_->clear();
     const auto list = cfg.robots();
     for (const auto &e : list) {
-        robotList_->addItem(QStringLiteral("%1      %2:%3")
-                                .arg(e.name.isEmpty() ? QStringLiteral("(이름 없음)") : e.name)
-                                .arg(e.host)
-                                .arg(e.port));
+        // 이름은 로봇이 알려 준다. 아직 붙어 본 적이 없으면 주소만 보인다 —
+        // "(이름 없음)" 같은 자리표시를 넣으면 비어 있는 것이 이름인 줄 안다.
+        robotList_->addItem(e.name.isEmpty()
+                                ? QStringLiteral("%1:%2").arg(e.host).arg(e.port)
+                                : QStringLiteral("%1      %2:%3")
+                                      .arg(e.name, e.host).arg(e.port));
     }
     robotList_->setCurrentRow(cfg.currentRobot());
     showSelectedRobot();
@@ -809,8 +807,7 @@ void SettingsDialog::showSelectedRobot()
     if (list.isEmpty())
         return;
     const auto &e = list.at(cfg.currentRobot());
-    const QSignalBlocker b1(robotName_), b2(host_), b3(port_);
-    robotName_->setText(e.name);
+    const QSignalBlocker b2(host_), b3(port_);
     host_->setText(e.host);
     port_->setValue(e.port);
     refreshRobotSaveState();
@@ -826,8 +823,7 @@ void SettingsDialog::refreshRobotSaveState()
         return;
     }
     const auto &e = list.at(Config::instance().currentRobot());
-    const bool changed = robotName_->text().trimmed() != e.name
-                         || host_->text().trimmed() != e.host
+    const bool changed = host_->text().trimmed() != e.host
                          || port_->value() != e.port;
     robotSave_->setEnabled(changed);
 }
@@ -845,7 +841,6 @@ void SettingsDialog::applyRobotEdits()
         showSelectedRobot();
         return;
     }
-    list[i].name = robotName_->text().trimmed();
     list[i].host = host_->text().trimmed();
     list[i].port = port_->value();
     cfg.setRobots(list);

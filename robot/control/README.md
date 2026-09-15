@@ -21,4 +21,4 @@ watchdog은 주기 신호의 만료를 판단하는 기능이다. 처음에는 s
 현재 브릿지·Nav2의 명령 경로는 이 구조 정리에서 변경하지 않았다.
 
 미션용 BT 파일은 mission_manager 패키지가, Nav2 주행용 BT는 주행 구성 쪽이 소유한다.
-전체 실행 launch는 `../bringup/`에서 두 패키지를 조립한다.
+최종 운용 launch(`inspection.launch.py`)는 `../robot_bringup/`에서 두 패키지를 조립한다.

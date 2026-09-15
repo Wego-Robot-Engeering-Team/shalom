@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>bringup</name>
+  <name>robot_bringup</name>
   <version>0.1.0</version>
   <description>
     Autonomy bring-up for the Unitree B2.  Assembles a robot (the MuJoCo stand-in
@@ -25,6 +25,8 @@
   <exec_depend>kiss_icp</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>
   <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>nav2_rviz_plugins</exec_depend>
+  <exec_depend>rviz2</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>launch</exec_depend>

@@ -35,25 +35,32 @@ ros2 launch lidar_slam ground_slam.launch.py \
 로봇별 값은 파라미터 파일로 넘긴다. 특히 `gseg3d`의 `robot_frame`과
 `lidar_to_ground`(LiDAR 장착 높이)는 반드시 맞춰야 한다.
 
+설정 파일은 이 패키지가 갖고 있지 않다. 로봇마다 다른 값 — 라이다 장착 높이와
+로봇 좌표계 — 이 들어 있어서 "그럴듯한 기본값" 이라는 것이 없기 때문이다.
+부르는 쪽이 준다.
+
 ```bash
+CFG=$(ros2 pkg prefix robot_bringup)/share/robot_bringup/navigation/config
+
 ros2 launch lidar_slam ground_slam.launch.py \
   pointcloud_topic:=/b2/points \
-  gseg_params_file:=$(ros2 pkg prefix bringup)/share/bringup/navigation/config/ground_segmentation.yaml \
-  ground_filter_params_file:=$(ros2 pkg prefix bringup)/share/bringup/navigation/config/ground_filter.yaml
+  gseg_params_file:=$CFG/ground_segmentation.yaml \
+  ground_filter_params_file:=$CFG/ground_filter.yaml \
+  slam_params_file:=$CFG/slam_toolbox.yaml
 ```
+
+보통은 이렇게 부를 일이 없다. `navigation.launch.py`가 세 파일을 모두 넘긴다.
 
 저장된 맵으로 위치추정만 할 때는 `slam:=false`로 slam_toolbox를 끈다.
 
 ## 구성
 
 ```
-src/ground_filter.cpp     지역 지면 기준 밴드 필터 (C++ 노드)
-config/
-  ground_segmentation.yaml  GSeg3D 기본값 — 로봇별로 덮어쓸 것
-  ground_filter.yaml        높이 밴드 기본값
-  slam.yaml                 slam_toolbox 기본값
-launch/ground_slam.launch.py
+src/ground_filter.cpp          지역 지면 기준 밴드 필터 (C++ 노드)
+launch/ground_slam.launch.py   지면분리 · 필터 · 스캔변환 · SLAM 조립
 ```
+
+설정은 `../config/` 에 있다 (robot_bringup 이 설치한다).
 
 ## 튜닝
 

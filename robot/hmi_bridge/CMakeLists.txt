@@ -38,7 +38,7 @@ target_link_libraries(bridge_node ZLIB::ZLIB)
 
 target_include_directories(bridge_node PRIVATE
     include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/protocol/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../common/protocol/include
 )
 
 ament_target_dependencies(bridge_node
@@ -65,7 +65,7 @@ if(BUILD_TESTING)
         test/test_tcp_server.cpp
         src/tcp_server.cpp)
     target_include_directories(test_tcp_server PRIVATE include
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/protocol/include)
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../common/protocol/include)
     target_link_libraries(test_tcp_server PRIVATE Threads::Threads)
     add_test(NAME tcp_server COMMAND test_tcp_server)
 endif()

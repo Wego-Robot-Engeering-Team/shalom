@@ -502,8 +502,10 @@ void MainWindow::wireRobotSignals()
     connect(robot_, &robot::RobotLink::connectionChanged, this, [this](bool ok) {
         status_->setConnected(ok);
         setLinkTone(ok ? QStringLiteral("ok") : QStringLiteral("danger"));
-        // 끊기면 이름 대신 주소로 되돌린다. 방금 무엇에 붙어 있었는지를
-        // 그대로 남겨 두면, 다시 붙었을 때 같은 로봇이라고 넘겨짚게 된다.
+        // 끊기면 로봇이 말하던 값을 놓는다. 화면에는 저장해 둔 이름이 남는다 —
+        // 한 번 붙어 본 로봇이라면 그 이름이 그 주소의 로봇 이름이다.
+        // 다시 붙을 때 로봇이 다시 말하므로, 그 사이에 로봇이 바뀌었다면
+        // 그때 이름이 바뀌어 드러난다.
         if (!ok) {
             saidId_.clear();
             saidName_.clear();
@@ -518,6 +520,28 @@ void MainWindow::wireRobotSignals()
                 // 바뀐다 — 보는 사람에게는 무엇이 맞는지 알 수 없는 깜빡임이다.
                 saidId_ = id;
                 saidName_ = name;
+
+                // 로봇이 자기 이름을 말하면 목록에도 그 이름을 적는다.
+                //
+                // 목록의 이름은 붙기 전에 쓰는 임시 이름표다. 로봇이 말한
+                // 뒤에도 옛 이름표가 남아 있으면 설정 화면과 상단 바가 서로
+                // 다른 이름을 보여 주고, 어느 쪽이 맞는지 알 수 없게 된다.
+                // 이름의 주인은 로봇이다 — 로봇이 robot_name 으로 뜬다.
+                if (!name.isEmpty()) {
+                    auto &cfg = Config::instance();
+                    auto list = cfg.robots();
+                    const int i = cfg.currentRobot();
+                    if (i >= 0 && i < list.size() && list.at(i).name != name) {
+                        const QString was = list.at(i).name;
+                        list[i].name = name;
+                        cfg.setRobots(list);
+                        log_->note(diag::Severity::Info,
+                                   QStringLiteral("로봇 이름을 %1 로 맞췄습니다")
+                                       .arg(name),
+                                   QJsonObject{{"was", was}, {"robot", id}});
+                    }
+                }
+
                 refreshRobotButton();
                 // 이력에는 식별자를 남긴다. 사람용 이름은 로봇이 바꿀 수
                 // 있지만 식별자는 그 기계를 가리킨다.
@@ -1224,11 +1248,11 @@ void MainWindow::showRobotPicker()
     menu->setAttribute(Qt::WA_DeleteOnClose);
     for (int i = 0; i < list.size(); ++i) {
         const auto &e = list.at(i);
+        // 이름은 로봇이 알려 준다. 아직 붙어 본 적이 없으면 주소만 보인다.
         auto *action = menu->addAction(
-            QStringLiteral("%1      %2:%3")
-                .arg(e.name.isEmpty() ? QStringLiteral("(이름 없음)") : e.name)
-                .arg(e.host)
-                .arg(e.port));
+            e.name.isEmpty()
+                ? QStringLiteral("%1:%2").arg(e.host).arg(e.port)
+                : QStringLiteral("%1      %2:%3").arg(e.name, e.host).arg(e.port));
         // 고른 것에 표시를 남긴다. 목록만 보여 주면 지금 어디에 붙어 있는지
         // 배지를 다시 읽어야 한다.
         action->setCheckable(true);
