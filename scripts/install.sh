@@ -100,7 +100,6 @@ fi
 
 ROS="${ROS_DISTRO_FOUND:-jazzy}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WORKSPACE="$(cd "$REPO_ROOT/../.." && pwd)"
 
 setup_ros_apt_source
 
@@ -114,73 +113,48 @@ say "ROS 기반"
 apt_install \
   "ros-$ROS-desktop" \
   "ros-$ROS-rmw-cyclonedds-cpp" \
-  ros-dev-tools python3-vcstool python3-dev
+  ros-dev-tools python3-dev
 
-# The application repository deliberately keeps vendor and third-party ROS
-# packages outside itself.  Import their pinned revisions only after vcs has
-# been installed above, so a clean Jetson needs just clone + this script.
-if { [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; } \
-    && [ -f "$REPO_ROOT/sources.repos" ] \
-    && { [ ! -d "$WORKSPACE/src/b2_driver" ] \
-      || [ ! -d "$WORKSPACE/src/third_party/librealsense" ] \
-      || [ ! -d "$WORKSPACE/src/third_party/aurora_ros" ]; }; then
-  say "로봇 소스 의존성"
-  if [ "$DRY_RUN" = 1 ]; then
-    note "vcs import --skip-existing < $REPO_ROOT/sources.repos"
+# shalom이 최상위 저장소이며, 독립 이력을 가진 모든 소스 의존성은
+# third_party/ 아래의 고정 커밋 서브모듈이다. b2_driver 안의 Unitree SDK와
+# 메시지도 서브모듈이므로 반드시 recursive로 초기화한다.
+if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
+  say "Git 서브모듈"
+  if git -C "$REPO_ROOT" rev-parse --show-toplevel >/dev/null 2>&1; then
+    run git -C "$REPO_ROOT" submodule sync --recursive
+    run git -C "$REPO_ROOT" submodule update --init --recursive
   else
-    (cd "$WORKSPACE/src" && vcs import --skip-existing < "$REPO_ROOT/sources.repos")
+    note "Git 메타데이터가 없는 배포본이므로 포함된 third_party 소스를 사용한다."
+  fi
+
+  if [ "$DRY_RUN" = 0 ]; then
+    for required_source in \
+      third_party/b2_driver/README.md \
+      third_party/b2_simulation/README.md \
+      third_party/frcobot_ros2/README.md \
+      third_party/aurora_ros/README.md; do
+      if [ ! -f "$REPO_ROOT/$required_source" ]; then
+        echo "서브모듈 소스가 없음: $required_source" >&2
+        echo "git submodule update --init --recursive 를 실행해야 한다." >&2
+        exit 1
+      fi
+    done
   fi
 fi
 
 # Aurora 공식 ROS2 드라이버는 Jazzy에서 cv_bridge 헤더 확장자가 바뀐 전
 # 배포본이다. 동일 API의 .hpp 헤더를 쓰도록 최소 호환 보정을 적용한다.
 if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
-  AURORA_SRC="$WORKSPACE/src/third_party/aurora_ros/src/slamware_ros_sdk/src/server"
+  AURORA_SRC="$REPO_ROOT/third_party/aurora_ros/src/slamware_ros_sdk/src/server"
   if [ -f "$AURORA_SRC/server_workers.cpp" ]; then
     run sed -i 's|cv_bridge/cv_bridge\.h|cv_bridge/cv_bridge.hpp|g' \
       "$AURORA_SRC/server_workers.cpp" "$AURORA_SRC/slamware_ros_sdk_server.cpp"
   fi
 fi
 
-# b2_driver의 고정 커밋은 meshes/만 추적하면서, CMake 설치 목록에는 과거의
-# dae/도 남겨 둔다. 빈 호환 디렉터리를 만들어 실제 모델(meshes)은 그대로
-# 설치되도록 한다. 이 처리를 하지 않으면 깨끗한 워크스페이스의 첫 빌드가 실패한다.
-B2_DESCRIPTION_CMAKE="$WORKSPACE/src/b2_driver/b2_description/CMakeLists.txt"
-B2_LEGACY_DAE_DIR="$WORKSPACE/src/b2_driver/b2_description/dae"
-if [ -f "$B2_DESCRIPTION_CMAKE" ] && grep -qx '  dae' "$B2_DESCRIPTION_CMAKE" \
-    && [ ! -d "$B2_LEGACY_DAE_DIR" ]; then
-  mkdir -p "$B2_LEGACY_DAE_DIR"
-  note "B2 모델 설치 호환 디렉터리 생성: b2_description/dae"
-fi
-
-# B2 드라이버는 Unitree 메시지를 필요로 하지만, 위의 고정 커밋에는 해당
-# 패키지가 포함되지 않는다. upstream 전체를 ROS 워크스페이스에 넣으면 예제까지
-# 함께 빌드되므로, 필요한 unitree_go·unitree_api만 같은 고정 커밋에서 가져온다.
-UNITREE_MSG_ROOT="$WORKSPACE/src/b2_driver/unitree_msgs"
-if { [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; } \
-    && { [ ! -d "$UNITREE_MSG_ROOT/unitree_go" ] || [ ! -d "$UNITREE_MSG_ROOT/unitree_api" ]; }; then
-  say "B2 Unitree 메시지"
-  if [ "$DRY_RUN" = 1 ]; then
-    note "unitree_ros2의 unitree_go·unitree_api 메시지(668d1ec)를 가져옴"
-  else
-    UNITREE_TMP="$(mktemp -d)"
-    trap 'rm -rf "$UNITREE_TMP"' EXIT
-    git clone --filter=blob:none --no-checkout https://github.com/unitreerobotics/unitree_ros2.git "$UNITREE_TMP"
-    git -C "$UNITREE_TMP" sparse-checkout set --no-cone \
-      cyclonedds_ws/src/unitree/unitree_go \
-      cyclonedds_ws/src/unitree/unitree_api
-    git -C "$UNITREE_TMP" checkout 668d1ec5a05d1c38d3306bdca7d59f2ba3581a88
-    mkdir -p "$UNITREE_MSG_ROOT"
-    cp -a "$UNITREE_TMP/cyclonedds_ws/src/unitree/unitree_go" "$UNITREE_MSG_ROOT/"
-    cp -a "$UNITREE_TMP/cyclonedds_ws/src/unitree/unitree_api" "$UNITREE_MSG_ROOT/"
-    rm -rf "$UNITREE_TMP"
-    trap - EXIT
-  fi
-fi
-
 if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
   say "RealSense USB 권한"
-  REALSENSE_RULE="$WORKSPACE/src/third_party/librealsense/config/99-realsense-libusb.rules"
+  REALSENSE_RULE="$REPO_ROOT/third_party/librealsense/config/99-realsense-libusb.rules"
   if [ -f "$REALSENSE_RULE" ]; then
     run sudo install -m 644 "$REALSENSE_RULE" /etc/udev/rules.d/99-realsense-libusb.rules
     run sudo udevadm control --reload-rules
@@ -188,7 +162,7 @@ if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
     # The ROS binary packages already provide librealsense 2.58.1 and the
     # viewer.  Keep the pinned SDK source for rules/reference, but do not let
     # colcon build a second SDK into this workspace and override that runtime.
-    run install -m 644 /dev/null "$WORKSPACE/src/third_party/librealsense/COLCON_IGNORE"
+    run install -m 644 /dev/null "$REPO_ROOT/third_party/librealsense/COLCON_IGNORE"
     note "D455를 이미 꽂아 두었다면 한 번 뺐다가 다시 연결한다."
   else
     note "RealSense 소스가 없어 UDEV 규칙 설치를 건너뜀"
@@ -262,23 +236,23 @@ else
 fi
 run rosdep update
 
-if [ -d "$WORKSPACE/src" ]; then
+if [ -d "$REPO_ROOT" ]; then
   say "워크스페이스 의존성 해석"
-run rosdep install --from-paths "$WORKSPACE/src" --ignore-src -r -y \
-  --skip-keys "unitree_go unitree_api"
+  run rosdep install --from-paths "$REPO_ROOT" --ignore-src -r -y \
+    --skip-keys "unitree_go unitree_api"
 fi
 
 say "완료"
 note "빌드:"
 if [ "$ROLE" = robot ]; then
-  note "  cd ~/shalom_ws && colcon build --symlink-install --packages-skip inspection_hmi"
+  note "  cd ~/shalom_ws && colcon build --base-paths src/shalom --symlink-install --packages-skip inspection_hmi"
 else
-  note "  cd ~/shalom_ws && colcon build --symlink-install"
+  note "  cd ~/shalom_ws && colcon build --base-paths src/shalom --symlink-install"
 fi
 if [ "$ROLE" = dev ] || [ "$ROLE" = station ]; then
   note "  cd ~/shalom_ws/src/shalom/hmi && cmake --preset dev && cmake --build --preset dev"
 fi
 note ""
 note "colcon 이 catkin_pkg 를 못 찾는다고 하면 CMake 가 다른 Python 을 잡은 것이다:"
-note "  PATH=\"/usr/bin:/bin:\$PATH\" colcon build --symlink-install \\"
+note "  PATH=\"/usr/bin:/bin:\$PATH\" colcon build --base-paths src/shalom --symlink-install \\"
 note "    --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3.12"
