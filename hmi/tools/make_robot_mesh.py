@@ -38,8 +38,8 @@ incremental build pays for. It ships through qt_add_resources like the other
 assets. The format is little-endian and documented in RobotMesh.h.
 
 Sources:
-  B2   b2_simulation/mujoco/b2_mujoco/models/{b2.xml, assets/*.obj}
-  FR3  fairino_description/meshes/fairino3_v6/*.STL  (FAIR-INNOVATION/frcobot_ros2)
+  B2   third_party/b2_simulation/mujoco/b2_mujoco/models/{b2.xml, assets/*.obj}
+  FR3  third_party/frcobot_ros2/fairino_description/meshes/fairino3_v6/*.STL
 """
 
 import argparse
@@ -51,7 +51,7 @@ import numpy as np
 import trimesh
 
 B2_MODELS = Path(
-    "~/shalom_ws/src/b2_simulation/mujoco/b2_mujoco/models"
+    "~/shalom_ws/src/shalom/third_party/b2_simulation/mujoco/b2_mujoco/models"
 ).expanduser()
 
 # Face budget per link. The trunk and the upper arm carry the shape a person

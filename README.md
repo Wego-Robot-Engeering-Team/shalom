@@ -25,10 +25,17 @@ robot/
 hmi/               관제 GUI. ROS 를 쓰지 않는 Qt 프로그램이다.
 common/protocol/   관제·로봇 공통 통신 계약
 docs/              설치·운용·통신 문서
+third_party/       독립 저장소 의존성 (Git submodule)
+  b2_driver/       B2 실기 드라이버
+  b2_simulation/   B2 MuJoCo 시뮬레이터
+  frcobot_ros2/    FAIRINO FR3 ROS 2 드라이버
 ```
 
 세 갈래가 분명히 나뉜다 — **시뮬레이터**, **실기**, **관제**. 관제 입장에서
 시뮬레이터와 실기는 같아야 한다. 다른 것은 접속 주소뿐이다.
+
+처음 받을 때는 `git clone --recurse-submodules`를 사용한다. 이미 클론했다면
+`git submodule update --init --recursive`로 B2·FR3를 포함한 고정 의존성을 받는다.
 
 패키지 배치·명명 규칙과 구조 변경 후 첫 빌드는 [로봇 구조 문서](robot/README.md)를 따른다.
 
@@ -140,7 +147,7 @@ ros2 launch realsense_d455 d455_stream.launch.py
 잡은 것이다.
 
 ```bash
-PATH="/usr/bin:/bin:$PATH" colcon build --symlink-install \
+PATH="/usr/bin:/bin:$PATH" colcon build --base-paths src/shalom --symlink-install \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3.12
 ```
 

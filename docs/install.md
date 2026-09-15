@@ -15,10 +15,16 @@ JetPack을 플래시한 뒤 이 문서를 각각 수행한다.
 ```bash
 mkdir -p ~/shalom_ws/src && cd ~/shalom_ws/src
 git clone --branch dev --single-branch \
+  --recurse-submodules \
   https://github.com/Wego-Robot-Engeering-Team/shalom.git shalom
 ```
 
-`main`은 초기 저장소다. 로봇 소스는 `dev`에 있다.
+`main`은 초기 저장소다. 로봇 소스는 `dev`에 있다. 이미 일반 클론을 했다면
+아래 명령으로 B2·FR3와 나머지 소스 의존성을 받는다.
+
+```bash
+git -C ~/shalom_ws/src/shalom submodule update --init --recursive
+```
 
 ## 2. 의존성 설치
 
@@ -27,9 +33,8 @@ cd ~/shalom_ws/src/shalom
 ./scripts/install.sh --role robot
 ```
 
-ROS 2 Jazzy, Nav2, SLAM, RealSense 래퍼를 설치하고, `sources.repos`의 B2
-드라이버·apt에 없는 ROS 패키지·RealSense SDK 소스를 검증된 커밋으로 받는다.
-D4xx USB UDEV 규칙도 함께 설치한다.
+ROS 2 Jazzy, Nav2, SLAM, RealSense 래퍼를 설치하고, `third_party/`의 재귀
+서브모듈을 검증된 커밋으로 맞춘다. D4xx USB UDEV 규칙도 함께 설치한다.
 
 `--role`은 `robot`(로봇) / `station`(관제 PC) / `dev`(둘 다 + 시뮬레이터)다.
 로봇에 Qt를, 관제 PC에 RealSense 드라이버를 깔지 않기 위해 나눈다.
@@ -41,7 +46,7 @@ D4xx USB UDEV 규칙도 함께 설치한다.
 ```bash
 cd ~/shalom_ws
 source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install --packages-skip inspection_hmi
+colcon build --base-paths src/shalom --symlink-install --packages-skip inspection_hmi
 source install/setup.bash
 ```
 
@@ -219,7 +224,7 @@ CMake가 시스템이 아닌 다른 Python을 잡은 것이다. `~/.local/bin`�
 Python이 있으면 그렇게 된다.
 
 ```bash
-PATH="/usr/bin:/bin:$PATH" colcon build --symlink-install \
+PATH="/usr/bin:/bin:$PATH" colcon build --base-paths src/shalom --symlink-install \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3.12
 ```
 
