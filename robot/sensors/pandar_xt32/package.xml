@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>pandar_xt32</name>
+  <version>0.1.0</version>
+  <description>
+    Integrates a Hesai Pandar XT32 into the robot-standard point-cloud topic and TF tree.
+  </description>
+  <maintainer email="hw.jo@wego-robotics.com">Wego Robotics</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>hesai_ros_driver</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

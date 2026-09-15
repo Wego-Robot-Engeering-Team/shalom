@@ -33,8 +33,9 @@ cd ~/shalom_ws/src/shalom
 ./scripts/install.sh --role robot
 ```
 
-ROS 2 Jazzy, Nav2, SLAM, RealSense 래퍼를 설치하고, `third_party/`의 재귀
-서브모듈을 검증된 커밋으로 맞춘다. D4xx USB UDEV 규칙도 함께 설치한다.
+ROS 2 Jazzy, Nav2, SLAM, RealSense 래퍼와 Pandar XT32 드라이버의 시스템
+의존성(Boost, yaml-cpp)을 설치하고, `third_party/`의 재귀 서브모듈을 검증된
+커밋으로 맞춘다. D4xx USB UDEV 규칙도 함께 설치한다.
 
 `--role`은 `robot`(로봇) / `station`(관제 PC) / `dev`(둘 다 + 시뮬레이터)다.
 로봇에 Qt를, 관제 PC에 RealSense 드라이버를 깔지 않기 위해 나눈다.
@@ -55,7 +56,7 @@ source install/setup.bash
 확인:
 
 ```bash
-ros2 pkg list | grep -E 'robot_bringup|hmi_bridge|realsense_d455|velodyne_vlp16|aurora'
+ros2 pkg list | grep -E 'robot_bringup|hmi_bridge|realsense_d455|pandar_xt32|hesai_ros_driver|aurora'
 ```
 
 ## 4. 전원 모드 (AGX)
@@ -121,6 +122,44 @@ sudo tcpdump -c 3 -i <인터페이스> udp port 2368
 패킷이 없으면 라이다 전원과 케이블을 먼저 본다. IP만 있고 패킷이 없는 상태와
 IP가 없는 상태는 증상이 같다.
 
+### Pandar XT32 (실기 외장 라이다)
+
+프로젝트에는 공식 Hesai ROS 2 드라이버를 `third_party/hesai_lidar_ros2`에
+고정해 두었다. 설치 스크립트가 그 드라이버가 요구하는 `libboost-all-dev`와
+`libyaml-cpp-dev`를 설치하므로, 별도로 Git clone하거나 Hesai의 예제 launch를
+실행하지 않는다.
+
+Pandar의 장치 IP, 데이터 UDP 포트, PTC 포트는 **장비의 웹 설정값이 기준**이다.
+아래에서 `<...>`을 실제 값으로 바꾼다. `192.168.1.201`, UDP `2368`, PTC `9347`은
+Hesai 예제에 쓰이는 흔한 값일 뿐, 이 로봇의 확정값이 아니다.
+
+```bash
+# LiDAR 전용 NIC를 같은 서브넷으로 설정한다. 기본 인터넷 경로는 가져가지 않는다.
+sudo nmcli con add type ethernet con-name pandar-xt32 ifname <인터페이스> \
+  ipv4.method manual ipv4.addresses <호스트-IP>/<prefix> \
+  ipv4.never-default yes ipv6.method disabled connection.autoconnect yes
+sudo nmcli con up pandar-xt32
+
+# 장치 웹 설정의 데이터 포트로 패킷이 오는지 확인
+sudo tcpdump -c 3 -i <인터페이스> udp port <데이터-UDP-포트>
+```
+
+기본 템플릿은 설치 후
+`~/shalom_ws/install/pandar_xt32/share/pandar_xt32/config/xt32.yaml`에 있다.
+이를 로봇별 파일로 복사하여 `device_ip_address`, `udp_port`, `ptc_port`, 보정 정책을
+장치 설정과 맞춘다. 드라이버가 PTC에서 보정값을 받는 구성을 쓰지 않는다면
+`use_ptc_connected`와 `correction_file_path`도 그 설치 방식에 맞춰 함께 바꾼다.
+
+```bash
+sudo install -d -m 755 /etc/shalom
+sudo cp ~/shalom_ws/install/pandar_xt32/share/pandar_xt32/config/xt32.yaml \
+  /etc/shalom/pandar_xt32.yaml
+sudoedit /etc/shalom/pandar_xt32.yaml
+```
+
+장착 위치와 자세는 반드시 실측한다. 아래 `xt32_*` 값은 예시이며, `base_link →
+pandar_xt32` 정적 TF를 설정한다.
+
 ### Aurora S
 
 전용 유선 포트에 연결한다. 장치 주소는 `192.168.11.1`이다.
@@ -138,11 +177,13 @@ cd ~/shalom_ws && source install/setup.bash
 
 # 실기
 ros2 launch robot_bringup inspection.launch.py robot:=real use_sim_time:=false \
-  robot_id:=R1 robot_name:=1호기 lidar:=vlp16
+  robot_id:=R1 robot_name:=1호기 lidar:=xt32 \
+  xt32_config_file:=/etc/shalom/pandar_xt32.yaml
 
 # 로봇 없이 센서·관제 연동만 시험
 ros2 launch robot_bringup inspection.launch.py robot:=none use_sim_time:=false \
-  robot_id:=R1 robot_name:=1호기 lidar:=vlp16
+  robot_id:=R1 robot_name:=1호기 lidar:=xt32 \
+  xt32_config_file:=/etc/shalom/pandar_xt32.yaml
 ```
 
 `robot:=none`은 로봇 계층 대신 정지 오도메트리를 올려 `odom → base_link`를
@@ -163,7 +204,8 @@ ros2 launch robot_bringup inspection.launch.py robot:=none use_sim_time:=false \
 source /opt/ros/jazzy/setup.bash && source ~/shalom_ws/install/setup.bash
 export CYCLONEDDS_URI=file://$HOME/shalom_ws/install/robot_bringup/share/robot_bringup/config/cyclonedds.xml
 
-ros2 topic hz /b2/points                  # 라이다 10 Hz
+ros2 topic hz /b2/points                  # Pandar 설정에 맞는 라이다 주기
+ros2 run tf2_ros tf2_echo base_link pandar_xt32
 ros2 topic hz /fr3/camera_2d/image_raw    # 카메라
 ros2 run tf2_ros tf2_echo map base_link   # 위치추정
 ss -ltn | grep 9090                       # 관제 브릿지

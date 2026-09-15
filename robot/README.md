@@ -12,6 +12,7 @@ robot/
 ├── sensors/
 │   ├── realsense_d455/         # D455 역할·토픽·설정
 │   ├── aurora/                 # Aurora S 연동
+│   ├── pandar_xt32/            # Hesai Pandar XT32 표준 인터페이스 어댑터
 │   └── velodyne_vlp16/         # 임시 VLP-16 연동
 ├── hmi_bridge/                 # HMI TCP ↔ ROS 2
 └── control/                    # 미션·안전 관리 위치 (아직 구현 전)
@@ -43,6 +44,7 @@ source ~/shalom_ws/install/setup.bash
 | 시뮬레이터 내비게이션 | `ros2 launch robot_bringup navigation.launch.py robot:=sim map:=none` |
 | 실기 내비게이션 | `ros2 launch robot_bringup navigation.launch.py robot:=real use_sim_time:=false network_interface:=<B2-NIC>` |
 | 전체 점검 스택 | `ros2 launch robot_bringup inspection.launch.py robot:=real use_sim_time:=false network_interface:=<B2-NIC>` |
+| Pandar XT32 실기 | `ros2 launch robot_bringup inspection.launch.py robot:=real use_sim_time:=false lidar:=xt32 xt32_config_file:=/etc/shalom/pandar_xt32.yaml` |
 | VLP-16 시험 | `ros2 launch robot_bringup inspection.launch.py robot:=real use_sim_time:=false network_interface:=<B2-NIC> lidar:=vlp16 map:=none` |
 | 종료 | `~/shalom_ws/src/shalom/robot/tools/stop_stack.sh` |
 
@@ -83,6 +85,11 @@ ros2 launch aurora aurora_s.launch.py ip_address:=<AURORA-IP>
 
 # VLP-16 점군과 TF
 ros2 launch velodyne_vlp16 vlp16.launch.py \
+  x:=<x-m> y:=<y-m> z:=<z-m> yaw:=<yaw-rad>
+
+# Pandar XT32 점군과 TF
+ros2 launch pandar_xt32 xt32.launch.py \
+  config_file:=/etc/shalom/pandar_xt32.yaml \
   x:=<x-m> y:=<y-m> z:=<z-m> yaw:=<yaw-rad>
 
 # HMI TCP 브릿지
