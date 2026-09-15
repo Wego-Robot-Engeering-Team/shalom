@@ -1,7 +1,8 @@
 """Run the complete inspection stack.
 
-Mission BT/FSM and safety-manager packages are not implemented yet.  This launch
-therefore composes the platform, navigation, HMI bridge, and optional RViz only.
+The mission-manager C++ core exists under robot/control, but its ROS adapters and
+safety-manager are not implemented yet. This launch therefore composes the
+platform, navigation, HMI bridge, and optional RViz only.
 """
 
 from launch import LaunchDescription
