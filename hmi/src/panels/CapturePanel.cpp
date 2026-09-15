@@ -58,6 +58,8 @@ CapturePanel::CapturePanel(QWidget *parent) : QWidget(parent)
     auto *metaCard = new Card(QStringLiteral("메타데이터"));
     outer->addWidget(metaCard);
 
+    vehicleNumber_ = new QLineEdit;
+    vehicleNumber_->setPlaceholderText(QStringLiteral("예: GTXA-042"));
     trainNumber_ = new QLineEdit;
     trainNumber_->setPlaceholderText(QStringLiteral("예: 1234"));
     carNumber_ = new QLineEdit;
@@ -65,11 +67,12 @@ CapturePanel::CapturePanel(QWidget *parent) : QWidget(parent)
     pointId_ = new QLineEdit;
     pointId_->setPlaceholderText(QStringLiteral("예: C01-P03"));
 
+    metaCard->body()->addWidget(fieldRow(QStringLiteral("차량번호"), vehicleNumber_, 76));
     metaCard->body()->addWidget(fieldRow(QStringLiteral("편성번호"), trainNumber_, 76));
     metaCard->body()->addWidget(fieldRow(QStringLiteral("량번호"), carNumber_, 76));
     metaCard->body()->addWidget(fieldRow(QStringLiteral("포인트ID"), pointId_, 76));
 
-    for (auto *e : {trainNumber_, carNumber_, pointId_})
+    for (auto *e : {vehicleNumber_, trainNumber_, carNumber_, pointId_})
         connect(e, &QLineEdit::textChanged, this, [this] { refreshDerived(); });
 
     metaCard->body()->addSpacing(metrics::s1);
@@ -130,6 +133,7 @@ void CapturePanel::showPreview3d(const QImage &image)
 CaptureMetadata CapturePanel::currentMetadata() const
 {
     CaptureMetadata m;
+    m.vehicleNumber = vehicleNumber_->text().trimmed();
     m.trainNumber = trainNumber_->text().trimmed();
     m.carNumber = carNumber_->text().trimmed();
     m.pointId = pointId_->text().trimmed();
