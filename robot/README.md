@@ -96,6 +96,7 @@ Jetson에서는 Qt HMI를 빌드하지 않는다.
 ```bash
 cd ~/shalom_ws
 source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install --cmake-clean-cache --packages-skip inspection_hmi
+colcon build --base-paths src/shalom --symlink-install \
+  --cmake-clean-cache --packages-skip inspection_hmi
 source install/setup.bash
 ```
