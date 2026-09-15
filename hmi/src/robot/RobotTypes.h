@@ -17,7 +17,29 @@
 namespace hmi::robot {
 
 enum class DriveMode { Auto, Manual };
-enum class MissionState { Idle, Running, Paused };
+/// Mission state as the robot reports it.
+///
+/// The robot owns these: they come from the mission FSM, not from anything the
+/// station decides. Returning and Completed are distinct from Running and Idle
+/// because the operator needs to know whether the robot is still working, on
+/// its way to the dock, or finished. Fault and EmergencyStopped must never be
+/// folded into Paused - a stop the operator asked for and a stop the robot
+/// forced look the same on screen otherwise.
+enum class MissionState {
+    Idle,
+    Running,
+    Paused,
+    Returning,
+    Completed,
+    Fault,
+    EmergencyStopped,
+};
+
+/// Parses the wire value. Unknown values become Fault rather than Idle: a state
+/// this build does not understand is not a state in which the robot is safely
+/// doing nothing.
+MissionState missionStateFromWire(const QString &value);
+QString missionStateLabel(MissionState state);
 
 /// One telemetry snapshot. Everything the interface renders comes from here.
 ///
