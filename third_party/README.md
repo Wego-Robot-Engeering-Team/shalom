@@ -12,6 +12,7 @@ components that are developed and released separately from `shalom`.
 | `ground_segmentation*` | Ground segmentation library and ROS 2 wrapper | DFKI RIC |
 | `kiss_icp` | LiDAR odometry | PRBonn |
 | `aurora_ros` | SLAMTEC Aurora ROS 2 driver | SLAMTEC |
+| `hesai_lidar_ros2` | Hesai Pandar ROS 2 driver (including XT32) | Hesai Technology |
 | `librealsense` | Intel RealSense SDK source and UDEV rules | Intel |
 | `nav2_ground_consistency_costmap_plugin` | Nav2 costmap plugin | DFKI RIC |
 
