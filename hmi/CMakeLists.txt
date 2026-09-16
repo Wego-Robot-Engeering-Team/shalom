@@ -339,4 +339,6 @@ install(FILES "${CMAKE_BINARY_DIR}/VERSION.txt" DESTINATION .)
 #
 # Qt 를 LGPL v3 로 동적 링크해 쓰므로 라이선스 전문과 재링크 안내를 함께
 # 배포해야 한다. 정적 링크로 바꾸면 전체 소스 공개 의무가 생긴다.
-install(DIRECTORY licenses/ DESTINATION licenses OPTIONAL)
+# OPTIONAL 을 붙이지 않는다. 전문이 없으면 조용히 빠진 채로 패키지가 만들어져
+# LGPL 위반 상태로 납품된다 — 실제로 그런 적이 있다. 없으면 설치가 실패해야 한다.
+install(DIRECTORY licenses/ DESTINATION licenses)

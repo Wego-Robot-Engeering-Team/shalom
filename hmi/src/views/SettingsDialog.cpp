@@ -181,9 +181,11 @@ QWidget *SettingsDialog::buildAboutTab()
         "  • SLAM Toolbox — LGPL-2.1 (별도 프로세스)\n"
         "  • KISS-ICP — MIT\n"
         "  • ground_segmentation 외 — BSD-3-Clause\n\n"
-        "LGPL 구성요소의 소스는 납품 매체의 licenses/ 아래에 함께 제공됩니다. "
-        "전체 설치 패키지 목록과 판본은 시스템 설계서의 의존성 목록을 "
-        "보십시오."));
+        "Qt 는 동적 링크로 사용하므로 이용자가 같은 인터페이스의 다른 판본으로 "
+        "교체할 수 있습니다. 라이선스 전문은 납품 매체의 licenses/ 아래에 "
+        "있으며, 각 구성요소의 소스는 위 라이선스가 정한 경로로 원배포처에서 "
+        "받을 수 있습니다. 전체 설치 패키지 목록과 판본은 시스템 설계서의 "
+        "의존성 목록을 보십시오."));
     notice->setObjectName(QStringLiteral("Hint"));
     notice->setWordWrap(true);
     notice->setTextInteractionFlags(Qt::TextSelectableByMouse);
