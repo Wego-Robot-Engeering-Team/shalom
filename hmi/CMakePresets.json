@@ -29,13 +29,12 @@
     {
       "name": "release",
       "displayName": "납품",
-      "description": "납품 구성. 내장 모형을 빼고 코어를 공유 라이브러리로 낸다 (과업지시서 4장의 라이브러리 모듈 요구).",
+      "description": "납품 구성. 내장 모형을 빼고 실행 파일 하나로 낸다.",
       "inherits": "base",
       "binaryDir": "${sourceDir}/build-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "HMI_BUILD_TESTS": "ON",
-        "HMI_SHARED_CORE": "ON",
         "HMI_WITH_TESTBED": "OFF"
       }
     }

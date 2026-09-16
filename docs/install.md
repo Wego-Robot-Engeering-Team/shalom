@@ -180,14 +180,7 @@ ros2 launch robot_bringup inspection.launch.py robot:=real use_sim_time:=false \
   robot_id:=R1 robot_name:=1호기 lidar:=xt32 \
   xt32_config_file:=/etc/shalom/pandar_xt32.yaml
 
-# 로봇 없이 센서·관제 연동만 시험
-ros2 launch robot_bringup inspection.launch.py robot:=none use_sim_time:=false \
-  robot_id:=R1 robot_name:=1호기 lidar:=xt32 \
-  xt32_config_file:=/etc/shalom/pandar_xt32.yaml
 ```
-
-`robot:=none`은 로봇 계층 대신 정지 오도메트리를 올려 `odom → base_link`를
-채운다. 그 한 변이 비면 TF가 끊겨 자세가 읽히지 않고 촬영이 거부된다.
 
 로봇마다 `robot_id`를 다르게 준다. 관제가 이 값으로 엉뚱한 로봇에 보낸 명령을
 거른다. 여러 대를 같은 망에 올릴 때는 `domain_id`도 다르게 준다.
@@ -251,8 +244,7 @@ ctest --preset dev
 ./build/inspection_hmi
 ```
 
-납품 구성은 `--preset release`다. 내장 모형이 빠지고 코어를 공유
-라이브러리(`libhmi_core.so`)로 낸다.
+납품 구성은 `--preset release`다. 내장 모형이 빠지고 실행 파일 하나로 나온다.
 
 실행하면 로그인 창이 먼저 뜬다. 지금은 자리표시 자격증명(`admin` / `admin`)이고,
 입력한 이름이 조작 이력에 남는다.
@@ -324,4 +316,4 @@ ss -tn | grep 9090
 
 **촬영이 "이동 중"으로 거부된다**
 오도메트리가 끊기면 움직이는 것으로 본다. `map → base_link`가 서는지 본다.
-로봇 없이 시험 중이면 `robot:=none`으로 띄웠는지 확인한다.
+실기 또는 시뮬레이터에서 `map → base_link`가 정상인지 확인한다.

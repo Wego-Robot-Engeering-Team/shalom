@@ -30,22 +30,18 @@ endif()
 # ---------------------------------------------------------------------------
 # 코어 라이브러리
 #
-# UI 실행 파일과 테스트가 함께 링크한다. 과업지시서 4장이 관제 소프트웨어를
-# "라이브러리 모듈 파일" 로 요구하므로, 납품 구성에서는 공유 라이브러리로 낸다.
+# UI 실행 파일과 테스트가 함께 링크한다. 고객에게는 나가지 않으므로 항상
+# 정적으로 낸다.
+#
+# 한때 납품 구성에서 공유 라이브러리로 냈는데, 그러면 내부 클래스와 메서드가
+# 전부 동적 심볼로 노출된다 (실측 1,763 개, 그중 우리 클래스 메서드 223 개).
+# 공개 헤더를 계약용 일곱 개로 줄여 둔 의도가 무의미해진다. 정적으로 묶으면
+# 실행 파일에 남는 우리 심볼이 0 이다.
+#
+# 고객 연동은 TCP 와 `framing.hpp` 만으로 이뤄진다 — cicd/samples 의 예제가
+# 아무 라이브러리도 링크하지 않는다. 그래서 내보낼 이유가 없다.
 # ---------------------------------------------------------------------------
-option(HMI_SHARED_CORE "코어를 공유 라이브러리로 빌드 (납품 형태)" OFF)
-if(HMI_SHARED_CORE)
-    set(HMI_CORE_TYPE SHARED)
-    # Windows 는 명시적으로 내보내지 않은 심볼이 DLL 에 남지 않는다.
-    # 클래스마다 __declspec(dllexport) 매크로를 붙이는 대신 CMake 가 전부
-    # 내보내게 한다. 데이터 심볼은 이 방식으로 나가지 않지만, 공개 API 는
-    # 전부 함수와 클래스라 문제되지 않는다.
-    set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
-else()
-    set(HMI_CORE_TYPE STATIC)
-endif()
-
-add_library(hmi_core ${HMI_CORE_TYPE}
+add_library(hmi_core STATIC
     src/Config.cpp
     src/auth/Session.cpp
     src/views/WelcomeDialog.cpp
@@ -266,11 +262,8 @@ endif()
 # ---------------------------------------------------------------------------
 include(GNUInstallDirs)
 
-set_target_properties(hmi_core PROPERTIES
-    VERSION ${PROJECT_VERSION}
-    SOVERSION ${PROJECT_VERSION_MAJOR})
-
-# 실행 파일이 자기 옆의 공유 라이브러리를 찾을 수 있어야 한다.
+# 실행 파일이 자기 옆의 Qt 공유 라이브러리를 찾을 수 있어야 한다. Qt 는
+# LGPL 재링크 요건 때문에 동적 링크로 두고 실행 파일과 함께 배포한다.
 #
 # 이것이 없으면 설치본이 아예 뜨지 않는다 — 개발 트리에서는 빌드 디렉터리
 # 경로가 박혀 있어 잘 돌기 때문에, 실제로 패키지를 풀어 실행해 보기 전까지
@@ -287,10 +280,11 @@ set_target_properties(inspection_hmi PROPERTIES
     INSTALL_RPATH "${HMI_INSTALL_RPATH}"
     BUILD_WITH_INSTALL_RPATH OFF)
 
-install(TARGETS inspection_hmi hmi_core
-    RUNTIME DESTINATION bin
-    LIBRARY DESTINATION bin          # Windows 는 DLL 이 실행 파일 옆에 있어야 한다
-    ARCHIVE DESTINATION lib)
+# hmi_core 는 설치하지 않는다. 정적 라이브러리는 오브젝트 파일 전체와 심볼
+# 테이블을 담고 있어, 공유 라이브러리로 내보내는 것보다 오히려 더 드러난다.
+# 고객이 링크할 대상은 없고, 연동 계약은 공개 헤더와 통신 규약이 전부다.
+install(TARGETS inspection_hmi
+    RUNTIME DESTINATION bin)
 
 # ---- 공개 헤더 ----
 #
