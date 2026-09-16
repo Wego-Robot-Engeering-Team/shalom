@@ -168,7 +168,7 @@ strip 만으로는 부족하다. 디버그 정보는 줄지만 동적 심볼과 
   `ground_segmentation_ros2`, `nav2_ground_consistency_costmap_plugin`,
   `slamware_ros_sdk` 는 `-O` 플래그 없이 빌드되고 있다.
 - 가시성 hidden, strip, 디버그 심볼은 별도 보관
-- `bench_odom.py` 와 testbed 제외
+- testbed와 개발 도구 제외
 
 ### 4. 라이선스 선언 정리
 
@@ -220,9 +220,8 @@ Proprietary   hmi_bridge, realsense_d455, velodyne_vlp16
 
 ### Python 은 감출 것이 없다
 
-우리 코드는 C++ 25,578 줄, Python 1,471 줄이다. Python 중 납품물에 나가는
-것은 launch 파일 712 줄뿐이고 알고리즘이 없다. 나머지는 개발 도구 615 줄과
-`bench_odom.py` 69 줄로 납품되지 않는다.
+Python 중 납품물에 나가는 것은 launch 파일뿐이고 알고리즘이 없다. 나머지는
+개발 도구로 납품되지 않는다.
 
 Cython 은 동작은 한다. launch 로직을 `.pyx` 로 컴파일하고 얇은 껍데기
 `.launch.py` 가 그 모듈을 import 하게 하면 ROS 2 가 정상적으로

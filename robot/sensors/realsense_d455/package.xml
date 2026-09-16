@@ -2,7 +2,7 @@
 <package format="3">
   <name>realsense_d455</name>
   <version>0.1.0</version>
-  <description>Intel RealSense D455 roles, topic contract, and camera integration launch.</description>
+  <description>Intel RealSense D455 still-image capture integration.</description>
   <maintainer email="hw.jo@wego-robotics.com">Wego Robotics</maintainer>
   <license>Proprietary</license>
 

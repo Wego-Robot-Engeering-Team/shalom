@@ -99,14 +99,14 @@ private:
     ///
     /// The station shows this list and nothing else - it has no idea what
     /// sensors exist, and protocol section 9.2 puts the judgement on this side.
-    /// So the list has to *be* the robot's sensors: LiDAR, IMU, the cameras,
-    /// the two joint streams. An earlier version reported whatever this node
+    /// So the list has to *be* the robot's sensors: LiDAR, IMU, D455 and the
+    /// two joint streams. An earlier version reported whatever this node
     /// happened to subscribe to, which put "pose" and "map" on a screen headed
     /// "센서 상태" - those are things the robot computes, not things it senses,
     /// and their absence means something completely different.
     ///
     /// Which sensors to watch comes from bridge.yaml rather than being compiled
-    /// in: the arm and the cameras arrive on their own schedule, and a robot
+    /// in: the arm and D455 arrive on their own schedule, and a robot
     /// without them yet should say so rather than have the line quietly missing.
     struct Sensor {
         std::string id;        ///< stable key the station matches on
@@ -364,6 +364,7 @@ private:
     rclcpp::Time lastOdomAt_;
 
     std::string spoolDir_;
+    bool captureEnabled_ = false;
     double maxCaptureLinear_ = 0.03;    ///< m/s
     double maxCaptureAngular_ = 0.05;   ///< rad/s
     int capturesTaken_ = 0;

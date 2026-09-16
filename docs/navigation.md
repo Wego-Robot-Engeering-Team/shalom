@@ -36,7 +36,7 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 source /opt/ros/jazzy/setup.bash
 source ~/shalom_ws/install/setup.bash
 
-ros2 launch realsense_d455 d455_stream.launch.py \
+ros2 launch realsense_d455 d455_capture.launch.py \
   role:=arm serial:=<D455-serial> autostart:=false
 ```
 

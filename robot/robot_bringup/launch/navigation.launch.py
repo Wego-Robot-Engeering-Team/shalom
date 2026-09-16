@@ -1,12 +1,12 @@
 """Bring up mapping, localisation, and Nav2 on top of the robot platform."""
 
+from launch import LaunchDescription
 import os
 from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
-from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, SetLaunchConfiguration
-from launch.conditions import IfCondition, UnlessCondition
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
@@ -54,7 +54,7 @@ def generate_launch_description():
             name: LaunchConfiguration(name)
             for name in ("domain_id", "robot", "use_sim_time", "network_interface",
                          "pointcloud_topic", "lidar", "xt32_config_file", "xt32_x", "xt32_y", "xt32_z",
-                         "xt32_roll", "xt32_pitch", "xt32_yaw", "cameras", "arm_camera_serial",
+                         "xt32_roll", "xt32_pitch", "xt32_yaw", "d455", "d455_serial",
                          "aurora", "aurora_ip", "viewer", "payload")
         }.items(),
     )
@@ -86,7 +86,6 @@ def generate_launch_description():
             "config_file": PathJoinSubstitution([config, "kiss_icp.yaml"]),
             "use_sim_time": use_sim_time,
         }.items(),
-        condition=UnlessCondition(PythonExpression(["'", LaunchConfiguration("robot"), "' == 'none'"])),
     )
 
     nav2 = IncludeLaunchDescription(
@@ -123,7 +122,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("domain_id", default_value="0"),
-        DeclareLaunchArgument("robot", default_value="sim", choices=["sim", "real", "none"]),
+        DeclareLaunchArgument("robot", default_value="sim", choices=["sim", "real"]),
         DeclareLaunchArgument("use_sim_time", default_value="true"),
         DeclareLaunchArgument("network_interface", default_value=""),
         DeclareLaunchArgument("pointcloud_topic", default_value="/b2/points"),
@@ -137,8 +136,8 @@ def generate_launch_description():
         DeclareLaunchArgument("xt32_roll", default_value="0.0"),
         DeclareLaunchArgument("xt32_pitch", default_value="0.0"),
         DeclareLaunchArgument("xt32_yaw", default_value="0.0"),
-        DeclareLaunchArgument("cameras", default_value="true"),
-        DeclareLaunchArgument("arm_camera_serial", default_value=""),
+        DeclareLaunchArgument("d455", default_value="true"),
+        DeclareLaunchArgument("d455_serial", default_value=""),
         DeclareLaunchArgument("aurora", default_value="false"),
         DeclareLaunchArgument("aurora_ip", default_value="192.168.11.1"),
         DeclareLaunchArgument("viewer", default_value="true"),

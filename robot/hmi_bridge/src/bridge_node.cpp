@@ -197,29 +197,28 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     armCmdPub_ = create_publisher<sensor_msgs::msg::JointState>("fr3/joint_command", 10);
 
     // ---- 촬영 -------------------------------------------------------------
-    spoolDir_ = declare_parameter("capture.spool_dir",
-                                  std::string(std::getenv("HOME") ? std::getenv("HOME") : "/tmp")
-                                      + "/inspection");
-    maxCaptureLinear_ = declare_parameter("capture.max_linear_speed", maxCaptureLinear_);
-    maxCaptureAngular_ = declare_parameter("capture.max_angular_speed", maxCaptureAngular_);
-    const auto colorTopic = declare_parameter(
-        "capture.color_topic", std::string("/fr3/camera_2d/image_raw"));
-    const auto depthTopic = declare_parameter(
-        "capture.depth_topic",
-        std::string("/fr3/camera/arm_camera/aligned_depth_to_color/image_raw"));
+    captureEnabled_ = declare_parameter("capture.enabled", false);
+    if (captureEnabled_) {
+        spoolDir_ = declare_parameter("capture.spool_dir",
+                                      std::string(std::getenv("HOME") ? std::getenv("HOME") : "/tmp")
+                                          + "/inspection");
+        maxCaptureLinear_ = declare_parameter("capture.max_linear_speed", maxCaptureLinear_);
+        maxCaptureAngular_ = declare_parameter("capture.max_angular_speed", maxCaptureAngular_);
+        const auto colorTopic = declare_parameter(
+            "capture.color_topic", std::string("/fr3/camera_2d/image_raw"));
+        const auto depthTopic = declare_parameter(
+            "capture.depth_topic",
+            std::string("/fr3/camera_3d/image_raw"));
 
-
-    // 마지막 프레임만 들고 있다가 촬영 요청 때 누른다. 카메라가 압축 영상을
-    // 내지 않으므로(realsense2_camera 는 컬러를 원본 Image 로만 발행한다)
-    // 여기서 CompressedImage 를 기다리면 촬영이 영원히 거절된다.
-    colorSub_ = create_subscription<sensor_msgs::msg::Image>(
-        colorTopic, rclcpp::SensorDataQoS(),
-        [this](const sensor_msgs::msg::Image::ConstSharedPtr &msg) {
-            lastColor_ = msg;
-        });
-    depthSub_ = create_subscription<sensor_msgs::msg::Image>(
-        depthTopic, rclcpp::SensorDataQoS(),
-        [this](const sensor_msgs::msg::Image::ConstSharedPtr &msg) { lastDepth_ = msg; });
+        colorSub_ = create_subscription<sensor_msgs::msg::Image>(
+            colorTopic, rclcpp::SensorDataQoS(),
+            [this](const sensor_msgs::msg::Image::ConstSharedPtr &msg) {
+                lastColor_ = msg;
+            });
+        depthSub_ = create_subscription<sensor_msgs::msg::Image>(
+            depthTopic, rclcpp::SensorDataQoS(),
+            [this](const sensor_msgs::msg::Image::ConstSharedPtr &msg) { lastDepth_ = msg; });
+    }
 
 
     // 액션 이름은 Nav2 기본값이다. 다른 이름을 쓰는 스택에 붙일 때는 런치에서
@@ -796,6 +795,11 @@ void BridgeNode::publishCaptureSpool()
 
 void BridgeNode::handleCapture(const Envelope &request)
 {
+    if (!captureEnabled_) {
+        respond(request, false, err::kMode,
+                "이 배포본에는 카메라 촬영 기능이 포함되어 있지 않습니다");
+        return;
+    }
     if (!lastColor_) {
         respond(request, false, err::kUnreachable,
                 "카메라 영상이 없습니다. 카메라 연결을 확인하십시오");

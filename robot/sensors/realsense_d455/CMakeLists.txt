@@ -3,6 +3,7 @@ project(realsense_d455)
 
 find_package(ament_cmake REQUIRED)
 
-install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE)
 
 ament_package()

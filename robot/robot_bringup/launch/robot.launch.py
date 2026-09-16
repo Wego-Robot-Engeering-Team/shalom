@@ -10,22 +10,18 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetE
 from launch.conditions import LaunchConfigurationEquals
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
 POINTS_TOPIC = "/b2/points"
-BASE_FRAME = "base_link"
 
 
 def generate_launch_description():
     pkg = FindPackageShare("robot_bringup")
-    realsense = FindPackageShare("realsense_d455")
+    realsense_d455 = FindPackageShare("realsense_d455")
     velodyne = FindPackageShare("velodyne_vlp16")
     pandar_xt32 = FindPackageShare("pandar_xt32")
     slamtec_aurora = FindPackageShare("slamtec_aurora")
-    use_sim_time = LaunchConfiguration("use_sim_time")
-
     sim_robot = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             FindPackageShare("b2_mujoco"), "/launch/b2_sim.launch.py",
@@ -47,24 +43,11 @@ def generate_launch_description():
         condition=LaunchConfigurationEquals("robot", "real"),
     )
 
-    # A stationary TF source for camera and bridge integration without a B2.
-    bench_robot = Node(
-        package="robot_bringup",
-        executable="bench_odom",
-        name="bench_odom",
-        output="screen",
-        parameters=[{"use_sim_time": use_sim_time, "base_frame": BASE_FRAME}],
-        condition=LaunchConfigurationEquals("robot", "none"),
-    )
-
-    arm_camera = IncludeLaunchDescription(
+    d455_capture = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            PathJoinSubstitution([realsense, "launch", "d455_stream.launch.py"])),
-        launch_arguments={
-            "role": "arm",
-            "serial": LaunchConfiguration("arm_camera_serial"),
-        }.items(),
-        condition=LaunchConfigurationEquals("cameras", "true"),
+            PathJoinSubstitution([realsense_d455, "launch", "d455_capture.launch.py"])),
+        launch_arguments={"serial": LaunchConfiguration("d455_serial")}.items(),
+        condition=LaunchConfigurationEquals("d455", "true"),
     )
 
     aurora_driver = IncludeLaunchDescription(
@@ -104,8 +87,8 @@ def generate_launch_description():
         SetEnvironmentVariable(
             "CYCLONEDDS_URI",
             ["file://", PathJoinSubstitution([pkg, "config", "cyclonedds.xml"])]),
-        DeclareLaunchArgument("robot", default_value="sim", choices=["sim", "real", "none"],
-                              description="sim | real | none (stationary integration fixture)"),
+        DeclareLaunchArgument("robot", default_value="sim", choices=["sim", "real"],
+                              description="sim | real"),
         DeclareLaunchArgument("use_sim_time", default_value="true",
                               description="Set false for robot:=real."),
         DeclareLaunchArgument("network_interface", default_value="",
@@ -123,13 +106,14 @@ def generate_launch_description():
         DeclareLaunchArgument("xt32_roll", default_value="0.0"),
         DeclareLaunchArgument("xt32_pitch", default_value="0.0"),
         DeclareLaunchArgument("xt32_yaw", default_value="0.0"),
-        DeclareLaunchArgument("cameras", default_value="true"),
-        DeclareLaunchArgument("arm_camera_serial", default_value=""),
+        DeclareLaunchArgument("d455", default_value="true",
+                              description="Run the D455 for still-image capture; no live HMI video is sent."),
+        DeclareLaunchArgument("d455_serial", default_value=""),
         DeclareLaunchArgument("aurora", default_value="false"),
         DeclareLaunchArgument("aurora_ip", default_value="192.168.11.1"),
         DeclareLaunchArgument("viewer", default_value="true",
                               description="MuJoCo viewer; ignored on hardware."),
         DeclareLaunchArgument("payload", default_value="none", choices=["none", "fr3"],
                               description="FR3 payload model; simulator only."),
-        sim_robot, real_robot, bench_robot, arm_camera, aurora_driver, vlp16, xt32,
+        sim_robot, real_robot, d455_capture, aurora_driver, vlp16, xt32,
     ])
