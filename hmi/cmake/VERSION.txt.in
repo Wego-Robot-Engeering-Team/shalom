@@ -25,4 +25,4 @@ Qt 는 LGPL v3 로 동적 링크되어 있습니다. 이용자는 Qt 를 교체�
 있으며, 그에 필요한 정보는 licenses/ 디렉터리를 참조하십시오.
 
 통신 규약은 share/inspection_hmi/bridge_protocol.md 를 참조하십시오.
-진단 코드 목록은 share/inspection_hmi/error_codes.json 및 비상대응 매뉴얼을 참조하십시오.
+진단 코드 목록은 share/inspection_hmi/error_codes.json 및 진단·운용 코드 기준을 참조하십시오.

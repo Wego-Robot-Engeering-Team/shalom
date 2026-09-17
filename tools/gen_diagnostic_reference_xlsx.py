@@ -1,26 +1,29 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 WeGo Robotics. All rights reserved.
 
-"""hmi/resources/error_codes.json 에서 알람 코드 표 엑셀 파일을 만든다.
+"""hmi/resources/error_codes.json 에서 진단·운용 코드 기준 Excel을 만든다.
 
 납품 문서「비상대응 매뉴얼」의 근거 자료이며, 현장에서 코드를 찾아보는 용도다.
 카탈로그가 단일 출처이므로 이 파일을 손으로 고치지 말 것.
 
-    python3 tools/gen_alarm_xlsx.py [출력경로]
+    python3 tools/gen_diagnostic_reference_xlsx.py [출력경로]
+    python3 tools/gen_diagnostic_reference_xlsx.py --check
 """
 
+import argparse
 import collections
 import json
 import pathlib
 import sys
+import tempfile
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CATALOG = ROOT / "hmi/resources/error_codes.json"
-DEFAULT_OUT = ROOT / "docs/alarm_reference.xlsx"
+DEFAULT_OUT = ROOT / "docs/diagnostic_code_reference.xlsx"
 
 BANDS = [
     ("E_", "명령 거절"), ("LINK_", "전송"), ("ROBOT_", None), ("SYS_", "시스템"),
@@ -123,21 +126,24 @@ def write_guide(ws, rows, catalog):
     ws.column_dimensions["C"].width = 10
 
     lines = [
-        ("제목", "GTX-A 철도차량 하부점검 로봇 — 알람 코드 표", ""),
+        ("제목", "GTX-A 철도차량 하부점검 로봇 — 진단·운용 코드 기준", ""),
         ("", "", ""),
         ("출처", "hmi/resources/error_codes.json (규격 버전 "
                  f"{catalog.get('version', '?')})", ""),
-        ("생성", "python3 tools/gen_alarm_xlsx.py", ""),
+        ("생성", "python3 tools/gen_diagnostic_reference_xlsx.py", ""),
         ("주의", "이 파일을 직접 고치지 말 것. 카탈로그를 고치고 다시 생성한다 — "
                  "손으로 고치면 화면이 띄우는 내용과 어긋난다.", ""),
         ("", "", ""),
         ("등급", "뜻", "개수"),
-        ("치명", "운용을 멈추고 조치해야 한다", counts.get("치명", 0)),
+        ("치명", "알람 — 운용을 멈추고 안전 확인·조치해야 한다", counts.get("치명", 0)),
         ("오류", "해당 동작이 실패했다. 원인을 없애야 이어갈 수 있다", counts.get("오류", 0)),
         ("경고", "동작은 이어지나 확인이 필요하다", counts.get("경고", 0)),
-        ("정보", "알림. 조치가 필요 없다", counts.get("정보", 0)),
-        ("정상", "정상 동작 알림", counts.get("정상", 0)),
+        ("정보", "운용 이벤트·감사 이력. 조치가 필요 없다", counts.get("정보", 0)),
+        ("정상", "정상 동작 이벤트", counts.get("정상", 0)),
         ("", "합계", len(rows)),
+        ("", "", ""),
+        ("코드 성격", "E_는 명령 응답의 err 코드이고, 나머지는 evt/log 진단·운용 이벤트다.", ""),
+        ("", "모든 오류가 알람은 아니며, 모든 이벤트가 조치를 요구하지는 않는다.", ""),
         ("", "", ""),
         ("해제", "뜻", ""),
         ("유지", "원인이 사라져도 화면에 남는다. 사람이 확인하고 해제해야 한다", ""),
@@ -168,19 +174,54 @@ def write_guide(ws, rows, catalog):
         ws.cell(row=r, column=1).fill = ROW_FILL[ws.cell(row=r, column=1).value]
 
 
-def main():
-    out = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_OUT
-    catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
+def build_workbook(catalog):
+    """Build the delivered workbook from the canonical catalog."""
     rows = rows_from(catalog)
-
     wb = Workbook()
     write_guide(wb.active, rows, catalog)
     wb.active.title = "읽는 법"
-    write_codes(wb.create_sheet("알람 코드"), rows)
+    write_codes(wb.create_sheet("진단·운용 코드"), rows)
+    return wb
+
+
+def workbook_values(path):
+    """Content signature for CI. Formatting is generator-owned, values are contract data."""
+    wb = load_workbook(path, data_only=False)
+    return tuple(
+        (ws.title, ws.freeze_panes, tuple(ws.column_dimensions[col].width for col in ws.column_dimensions),
+         tuple(tuple(ws.cell(row, col).value for col in range(1, ws.max_column + 1))
+               for row in range(1, ws.max_row + 1)))
+        for ws in wb.worksheets)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("output", nargs="?", type=pathlib.Path, default=DEFAULT_OUT)
+    ap.add_argument("--check", action="store_true",
+                    help="카탈로그와 Excel의 내용이 같은지만 확인하고 쓰지 않는다")
+    args = ap.parse_args()
+
+    out = args.output
+    catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
+    wb = build_workbook(catalog)
+
+    if args.check:
+        if not out.exists():
+            print(f"{out} 이 없다. 생성할 것.", file=sys.stderr)
+            return 1
+        with tempfile.TemporaryDirectory() as tmp:
+            expected = pathlib.Path(tmp) / "expected.xlsx"
+            wb.save(expected)
+            if workbook_values(out) != workbook_values(expected):
+                print(f"{out} 가 카탈로그와 다르다. "
+                      "python3 tools/gen_diagnostic_reference_xlsx.py 로 다시 만들 것.", file=sys.stderr)
+                return 1
+        print(f"{out} 최신 ({len(catalog['codes'])} 개)")
+        return 0
 
     out.parent.mkdir(parents=True, exist_ok=True)
     wb.save(out)
-    print(f"{out} 생성 ({len(rows)} 개)")
+    print(f"{out} 생성 ({len(catalog['codes'])} 개)")
     return 0
 
 

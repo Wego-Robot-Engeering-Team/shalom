@@ -1,0 +1,2 @@
+# Customer-facing diagnostic reference exports.
+openpyxl>=3.1,<4
