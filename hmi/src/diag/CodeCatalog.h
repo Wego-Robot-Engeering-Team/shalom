@@ -8,8 +8,8 @@
 // three consumers:
 //   1. the control station UI, behind the (i) affordance on a log row,
 //   2. the interpretation of error codes returned by the bridge, and
-//   3. the delivered "emergency response manual" document, which is generated
-//      from it rather than written by hand.
+//   3. the delivered diagnostic and operating-code reference, generated from
+//      it rather than written by hand.
 //
 // Writing that document separately guarantees it will drift out of step with
 // the software, so new codes are added to the JSON file only.

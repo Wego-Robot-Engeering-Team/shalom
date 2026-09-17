@@ -245,6 +245,13 @@ if(HMI_BUILD_TESTS)
     hmi_add_test(test_docs)
     # 명세서 경로를 알려준다. 문서와 코드의 드리프트를 잡는 검사다.
     target_compile_definitions(test_docs PRIVATE HMI_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
+    # 고객용 진단·운용 코드 기준도 카탈로그에서 생성한다. Markdown이 오래된
+    # 상태로 출하되면 현장 조치표와 화면이 서로 다른 설명을 하게 된다.
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME test_diagnostic_reference
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/../tools/gen_diagnostic_reference.py" --check)
 endif()
 
 
