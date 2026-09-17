@@ -174,5 +174,7 @@ PATH="/usr/bin:/bin:$PATH" colcon build --base-paths src/shalom --symlink-instal
 [SLAM](docs/slam.md) ·
 [내비게이션](docs/navigation.md) ·
 [통신 규약](docs/bridge_protocol.md) ·
-[납품](docs/delivery.md) ·
+[릴리스](docs/release.md) ·
 [고객 런타임 배포](cicd/README.md)
+
+저작권과 서드파티 권리 관계는 [NOTICE](NOTICE) 를 본다.
