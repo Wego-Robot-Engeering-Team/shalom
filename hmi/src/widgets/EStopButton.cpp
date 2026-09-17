@@ -123,7 +123,7 @@ void EStopButton::paintEvent(QPaintEvent *)
     // 원과 글자를 한 덩어리로 묶어 판 가운데에 놓는다. 원을 왼쪽에 고정하고
     // 글자를 남은 폭에 왼쪽 정렬하면, 글자가 짧을 때 오른쪽만 크게 비어
     // 한쪽으로 쏠려 보인다.
-    const QString label = engaged_ ? QStringLiteral("눌러 해제")
+    const QString label = engaged_ ? QStringLiteral("해제")
                                    : QStringLiteral("비상정지");
     QFont f;
     f.setPointSize(qMax(9, int(size_ * 0.235)));
@@ -195,7 +195,7 @@ void AlertFrame::paintEvent(QPaintEvent *)
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
 
-    const double w = 3.0;
+    const double w = 6.0;
     QColor c(colors().danger);
     c.setAlpha(int(140 + 90 * pulse_));
     p.setPen(QPen(c, w));

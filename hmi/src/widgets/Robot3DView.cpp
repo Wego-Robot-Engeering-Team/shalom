@@ -4,7 +4,6 @@
 
 #include <cmath>
 #include <QFont>
-#include <QMatrix3x3>
 #include <QMatrix4x4>
 #include <QMouseEvent>
 #include <QPainter>
@@ -18,7 +17,6 @@
 
 #include "RobotDef.h"
 #include "robot/Kinematics.h"
-#include "widgets/RobotMesh.h"
 #include "theme/Tokens.h"
 
 namespace hmi::ui {
@@ -131,6 +129,154 @@ private:
     QImage img_;
     std::vector<float> depth_;
 };
+
+float illumination(const QVector3D &normal, const QVector3D &light)
+{
+    return 0.42f + 0.58f * std::abs(QVector3D::dotProduct(normal.normalized(), light));
+}
+
+void appendTriangle(std::vector<Tri3> &tris, const QVector3D &a, const QVector3D &b,
+                    const QVector3D &c, const QColor &color, const QVector3D &light)
+{
+    const QVector3D n = QVector3D::crossProduct(b - a, c - a);
+    if (n.lengthSquared() < 1e-10f)
+        return;
+    const float l = illumination(n, light);
+    tris.push_back({a, b, c, l, l, l, color});
+}
+
+void appendBox(std::vector<Tri3> &tris, const QMatrix4x4 &xf, const QVector3D &half,
+               const QColor &color, const QVector3D &light)
+{
+    const QVector3D local[8] = {
+        {-half.x(), -half.y(), -half.z()}, {half.x(), -half.y(), -half.z()},
+        {half.x(), half.y(), -half.z()},   {-half.x(), half.y(), -half.z()},
+        {-half.x(), -half.y(), half.z()},  {half.x(), -half.y(), half.z()},
+        {half.x(), half.y(), half.z()},    {-half.x(), half.y(), half.z()},
+    };
+    QVector3D p[8];
+    for (int i = 0; i < 8; ++i)
+        p[i] = xf.map(local[i]);
+
+    static constexpr int quads[6][4] = {
+        {0, 3, 2, 1}, {4, 5, 6, 7}, {0, 1, 5, 4},
+        {2, 3, 7, 6}, {1, 2, 6, 5}, {0, 4, 7, 3},
+    };
+    for (const auto &q : quads) {
+        appendTriangle(tris, p[q[0]], p[q[1]], p[q[2]], color, light);
+        appendTriangle(tris, p[q[0]], p[q[2]], p[q[3]], color, light);
+    }
+}
+
+// A low-poly tapered cylinder between two world-space points. This is
+// deliberately ordinary primitive geometry authored here, rather than a
+// conversion of a vendor CAD or mesh asset.
+void appendCylinder(std::vector<Tri3> &tris, const QVector3D &from, const QVector3D &to,
+                    float fromRadius, float toRadius, const QColor &color,
+                    const QVector3D &light, int sides = 12)
+{
+    const QVector3D axis = to - from;
+    if (axis.lengthSquared() < 1e-8f || sides < 3)
+        return;
+
+    const QVector3D w = axis.normalized();
+    const QVector3D ref = std::abs(w.z()) < 0.85f ? QVector3D(0, 0, 1)
+                                                   : QVector3D(1, 0, 0);
+    const QVector3D u = QVector3D::crossProduct(w, ref).normalized();
+    const QVector3D v = QVector3D::crossProduct(w, u).normalized();
+    constexpr float kTau = 6.28318530718f;
+
+    for (int i = 0; i < sides; ++i) {
+        const float a0 = kTau * float(i) / float(sides);
+        const float a1 = kTau * float(i + 1) / float(sides);
+        const QVector3D r0 = u * std::cos(a0) + v * std::sin(a0);
+        const QVector3D r1 = u * std::cos(a1) + v * std::sin(a1);
+        const QVector3D p0 = from + r0 * fromRadius;
+        const QVector3D p1 = from + r1 * fromRadius;
+        const QVector3D q0 = to + r0 * toRadius;
+        const QVector3D q1 = to + r1 * toRadius;
+
+        appendTriangle(tris, p0, p1, q1, color, light);
+        appendTriangle(tris, p0, q1, q0, color, light);
+        appendTriangle(tris, from, p1, p0, color, light);
+        appendTriangle(tris, to, q0, q1, color, light);
+    }
+}
+
+QMatrix4x4 translated(const QVector3D &p)
+{
+    QMatrix4x4 xf;
+    xf.translate(p);
+    return xf;
+}
+
+void appendMobileBase(std::vector<Tri3> &tris, const QColor &bodyColor,
+                      const QColor &legColor, const QVector3D &light)
+{
+    // This is an intentionally generic quadruped silhouette, not a model of
+    // a particular vendor robot. It frames the arm and makes ground contact
+    // readable in the operator view.
+    appendBox(tris, translated({0, 0, 0.49f}), {0.36f, 0.22f, 0.11f}, bodyColor, light);
+    appendBox(tris, translated({0, 0, 0.62f}), {0.25f, 0.15f, 0.035f}, bodyColor, light);
+
+    for (const float x : {-0.27f, 0.27f}) {
+        for (const float y : {-0.17f, 0.17f}) {
+            const QVector3D hip(x, y, 0.43f);
+            const QVector3D knee(x + (x < 0 ? -0.055f : 0.055f), y, 0.22f);
+            const QVector3D foot(x, y, 0.055f);
+            appendCylinder(tris, hip, knee, 0.034f, 0.029f, legColor, light, 10);
+            appendCylinder(tris, knee, foot, 0.029f, 0.022f, legColor, light, 10);
+            appendBox(tris, translated({foot.x(), foot.y(), 0.028f}),
+                      {0.07f, 0.048f, 0.022f}, legColor, light);
+        }
+    }
+}
+
+void appendArm(std::vector<Tri3> &tris, const QMatrix4x4 &armBase,
+               const QList<QMatrix4x4> &frames, const QColor &shellColor,
+               const QColor &jointColor, const QVector3D &light)
+{
+    if (frames.isEmpty())
+        return;
+
+    std::vector<QMatrix4x4> worldFrames;
+    std::vector<QVector3D> origins;
+    worldFrames.reserve(size_t(frames.size()));
+    origins.reserve(size_t(frames.size()));
+    for (const auto &frame : frames) {
+        worldFrames.push_back(armBase * frame);
+        origins.push_back(worldFrames.back().map(QVector3D()));
+    }
+
+    const QVector3D base = origins.front();
+    appendCylinder(tris, base - QVector3D(0, 0, 0.055f), base + QVector3D(0, 0, 0.055f),
+                   0.087f, 0.079f, shellColor, light);
+
+    static constexpr float kLinkRadius[] = {0.071f, 0.066f, 0.058f,
+                                              0.052f, 0.046f, 0.040f};
+    static constexpr float kJointRadius[] = {0.078f, 0.074f, 0.065f,
+                                               0.058f, 0.052f, 0.046f};
+
+    for (int i = 1; i < int(origins.size()); ++i) {
+        const QVector3D axis = (worldFrames[size_t(i)].map(QVector3D(0, 0, 1))
+                                - origins[size_t(i)]).normalized();
+        const int ri = qMin(i - 1, 5);
+        appendCylinder(tris, origins[size_t(i)] - axis * 0.026f,
+                       origins[size_t(i)] + axis * 0.026f, kJointRadius[ri],
+                       kJointRadius[ri], jointColor, light, 12);
+
+        if ((origins[size_t(i)] - origins[size_t(i - 1)]).length() > 0.012f) {
+            appendCylinder(tris, origins[size_t(i - 1)], origins[size_t(i)],
+                           kLinkRadius[ri], kLinkRadius[qMin(ri + 1, 5)],
+                           shellColor, light, 12);
+        }
+    }
+
+    const QVector3D toolAxis = (worldFrames.back().map(QVector3D(0, 0, 1))
+                                - origins.back()).normalized();
+    appendCylinder(tris, origins.back(), origins.back() + toolAxis * 0.055f,
+                   0.034f, 0.027f, shellColor, light, 12);
+}
 
 }  // namespace
 
@@ -309,16 +455,7 @@ void Robot3DView::paintEvent(QPaintEvent *)
         p.drawLine(project({-1.5f, float(g), 0}), project({1.5f, float(g), 0}));
     }
 
-    // ---- 형상 수집 ----
-    const auto &model = mesh::model();
-    if (model.isEmpty()) {
-        // 형상을 못 읽어도 화면은 뜬다 — 이 위젯은 관제 화면의 한 칸일 뿐이고,
-        // 팔 그림이 없다고 로봇이 섰는지 보여주는 화면까지 잃을 수는 없다.
-        p.setPen(QColor(C.textMute));
-        p.drawText(rect(), Qt::AlignCenter, QStringLiteral("3D 형상을 읽지 못했습니다"));
-        return;
-    }
-
+    // ---- Wego 절차 생성 형상 ----
     const QColor bodyColor(C.isDark() ? QColor(0x3A, 0x42, 0x4D) : QColor(0x9A, 0xA4, 0xB0));
     const QColor legColor(C.isDark() ? QColor(0x2E, 0x35, 0x3E) : QColor(0x84, 0x8E, 0x9A));
     // 편집 중에는 보낼 자세를 그대로 그린다. 실제 자세 위에 반투명 팔을
@@ -328,52 +465,19 @@ void Robot3DView::paintEvent(QPaintEvent *)
                             : previewing  ? QColor(C.accentHi)
                                           : QColor(C.accent);
 
-    QMatrix4x4 b2Frame;
-    b2Frame.translate(0.0f, 0.0f, model.baseHeight);
-    QMatrix4x4 armBase = b2Frame;
-    armBase.translate(model.armMount);
+    QMatrix4x4 armBase;
+    armBase.translate(float(robot::kArmMountX), float(robot::kArmMountY),
+                      0.50f + float(robot::kArmMountZ));
     const auto frames = robot::jointFrames(shown_);
 
     std::vector<Tri3> tris;
-    tris.reserve(size_t(model.faceCount()));
+    tris.reserve(1200);
 
     const QVector3D light = QVector3D(0.4f, -0.5f, 0.8f).normalized();
-    const auto lit = [&light](const QVector3D &n) {
-        // 양면을 다 밝힌다. 감면 과정에서 일부 면의 방향이 뒤집힐 수 있는데,
-        // 한 면만 밝히면 그 자리가 검게 남아 구멍처럼 보인다.
-        return 0.42f + 0.58f * std::abs(QVector3D::dotProduct(n, light));
-    };
-
-    const auto collect = [&tris, &lit](const mesh::Part &part, const QMatrix4x4 &xf,
-                                       const QColor &base) {
-        const QMatrix3x3 nm = xf.normalMatrix();
-        const auto rotate = [&nm](const QVector3D &v) {
-            return QVector3D(nm(0, 0) * v.x() + nm(0, 1) * v.y() + nm(0, 2) * v.z(),
-                             nm(1, 0) * v.x() + nm(1, 1) * v.y() + nm(1, 2) * v.z(),
-                             nm(2, 0) * v.x() + nm(2, 1) * v.y() + nm(2, 2) * v.z())
-                .normalized();
-        };
-        for (size_t i = 0; i < part.faces.size(); ++i) {
-            const auto &f = part.faces[i];
-            const auto &n = part.normals[i];
-            Tri3 t;
-            t.a = xf.map(part.vertices[f.a]);
-            t.b = xf.map(part.vertices[f.b]);
-            t.c = xf.map(part.vertices[f.c]);
-            t.la = lit(rotate(n.a));
-            t.lb = lit(rotate(n.b));
-            t.lc = lit(rotate(n.c));
-            t.color = base;
-            tris.push_back(t);
-        }
-    };
-
-    // B2 는 기립 자세 그대로 구워져 있다 — 네 발 관절값은 프로토콜에 없고,
-    // 이 뷰의 목적은 팔 자세 확인이다.
-    for (const auto &part : model.b2)
-        collect(part, b2Frame, part.group == 1 ? legColor : bodyColor);
-    for (int i = 0; i < int(model.fr3.size()) && i < frames.size(); ++i)
-        collect(model.fr3[size_t(i)], armBase * frames.at(i), armColor);
+    appendMobileBase(tris, bodyColor, legColor, light);
+    const QColor jointColor(C.isDark() ? QColor(0x1D, 0x2A, 0x38)
+                                       : QColor(0x3E, 0x5B, 0x70));
+    appendArm(tris, armBase, frames, armColor, jointColor, light);
 
     // 끝단(카메라) 표시. 팔 색과 구분되는 한 덩이라, 조작자가 "지금 어디를
     // 보고 있나" 를 형상 속에서 찾지 않아도 된다. 깊이 버퍼로 넘어오면서
@@ -393,7 +497,7 @@ void Robot3DView::paintEvent(QPaintEvent *)
             const QVector3D p0 = ee.map(c[q[0]]), p1 = ee.map(c[q[1]]);
             const QVector3D p2 = ee.map(c[q[2]]), p3 = ee.map(c[q[3]]);
             const QVector3D n = QVector3D::crossProduct(p1 - p0, p2 - p0).normalized();
-            const float l = lit(n);
+            const float l = illumination(n, light);
             tris.push_back({p0, p1, p2, l, l, l, eeColor});
             tris.push_back({p0, p2, p3, l, l, l, eeColor});
         }

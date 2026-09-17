@@ -15,7 +15,10 @@
 
 #include <QWidget>
 
+#include "Config.h"
+
 class QDoubleSpinBox;
+class QCloseEvent;
 class QTabWidget;
 class QLabel;
 class QLineEdit;
@@ -33,6 +36,8 @@ public:
 
     /// Selects a tab by index. Used by the screenshot path during development.
     void setCurrentTab(int index);
+    /// Re-read saved settings before showing this non-modal window again.
+    void reload();
 
     /// How many tabs there are, so a test can walk all of them. Hard-coding the
     /// count in the test left the safety tab unpainted when a sixth was added.
@@ -43,15 +48,17 @@ signals:
     /// a setting the robot never hears about is a number on a screen, not a
     /// rule the machine follows.
     void batteryPolicyChanged();
+    /// Appearance is previewed immediately, but is not persisted until save.
+    void appearancePreviewChanged(const QString &theme, double scale);
 
 private:
     QWidget *buildConnectionTab();
 
-    /// Redraws the list widget from the stored robots.
+    /// Redraws the list widget from the pending (not yet persisted) robots.
     void reloadRobotList();
     /// Fills the name, address and port fields from the current selection.
     void showSelectedRobot();
-    /// Writes the edited fields back to the stored robots.
+    /// Writes the edited fields back to the pending robot list.
     void applyRobotEdits();
     /// Enables the save button only when the fields differ from what is stored.
     void refreshRobotSaveState();
@@ -72,6 +79,12 @@ private:
     QWidget *buildAboutTab();
 
     void load();
+    void save();
+    void discardChanges();
+    void loadDefaults();
+    void previewAppearance();
+
+    void closeEvent(QCloseEvent *event) override;
 
     /// Keeps the two battery thresholds in a workable order. Departing below
     /// the return threshold means leaving the dock and turning straight back.
@@ -104,6 +117,9 @@ private:
     QLabel *nasStatus_ = nullptr;
     QPushButton *lightBtn_ = nullptr;
     QPushButton *darkBtn_ = nullptr;
+    QList<hmi::RobotEntry> pendingRobots_;
+    int pendingCurrentRobot_ = -1;
+    bool loading_ = false;
 };
 
 }  // namespace hmi::ui

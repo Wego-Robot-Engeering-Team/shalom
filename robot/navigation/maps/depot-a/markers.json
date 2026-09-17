@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "map_id": "depot-a",
+  "markers": [
+    {"id": 11, "x": -0.65, "y": 0.35},
+    {"id": 12, "x": 0.65, "y": 0.35}
+  ]
+}

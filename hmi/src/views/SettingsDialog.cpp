@@ -3,6 +3,7 @@
 #include "views/SettingsDialog.h"
 
 #include <QButtonGroup>
+#include <QCloseEvent>
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
@@ -16,6 +17,7 @@
 #include <QSlider>
 #include <QListWidget>
 #include <QSpinBox>
+#include <QStandardPaths>
 #include <QNetworkInterface>
 #include <QTabBar>
 #include <QTcpSocket>
@@ -108,14 +110,17 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QWidget(parent, Qt::Window)
 
     auto *buttons = new QHBoxLayout;
     auto *reset = new QPushButton(QStringLiteral("기본값으로"));
-    auto *close = new QPushButton(QStringLiteral("닫기"));
-    close->setProperty("variant", "primary");
+    auto *save = new QPushButton(QStringLiteral("저장"));
+    save->setProperty("variant", "primary");
+    auto *cancel = new QPushButton(QStringLiteral("취소"));
     buttons->addWidget(reset);
     buttons->addStretch(1);
-    buttons->addWidget(close);
+    buttons->addWidget(cancel);
+    buttons->addWidget(save);
     lay->addLayout(buttons);
 
-    connect(close, &QPushButton::clicked, this, &QWidget::close);
+    connect(save, &QPushButton::clicked, this, &SettingsDialog::save);
+    connect(cancel, &QPushButton::clicked, this, &QWidget::close);
     connect(reset, &QPushButton::clicked, this, [this] {
         const auto answer = QMessageBox::question(
             this, QStringLiteral("기본값으로 되돌리기"),
@@ -123,8 +128,7 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QWidget(parent, Qt::Window)
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (answer != QMessageBox::Yes)
             return;
-        Config::instance().resetToDefaults();
-        load();
+        loadDefaults();
     });
 
     load();
@@ -235,7 +239,8 @@ QWidget *SettingsDialog::buildAppearanceTab()
     // 한 번 조용히 죽었다.
     connect(scale_, &QSlider::valueChanged, this, [this](int v) {
         scaleValue_->setText(QStringLiteral("%1%").arg(v));
-        Config::instance().setUiScale(v / 100.0);
+        if (!loading_)
+            previewAppearance();
     });
 
     lay->addSpacing(metrics::s3);
@@ -259,10 +264,8 @@ QWidget *SettingsDialog::buildAppearanceTab()
 
     // 눌린 표시는 load() 가 맞춘다. 여기서만 맞추면 "기본값으로" 로 테마가
     // 라이트로 돌아가도 다크 쪽이 눌린 채로 남는다.
-    connect(lightBtn_, &QPushButton::clicked, this,
-            [] { Config::instance().setTheme(QStringLiteral("light")); });
-    connect(darkBtn_, &QPushButton::clicked, this,
-            [] { Config::instance().setTheme(QStringLiteral("dark")); });
+    connect(lightBtn_, &QPushButton::clicked, this, [this] { previewAppearance(); });
+    connect(darkBtn_, &QPushButton::clicked, this, [this] { previewAppearance(); });
 
     lay->addStretch(1);
     return page;
@@ -317,8 +320,7 @@ QWidget *SettingsDialog::buildConnectionTab()
     connect(robotList_, &QListWidget::currentRowChanged, this, [this](int row) {
         if (row < 0)
             return;
-        auto &cfg = Config::instance();
-        const int previous = cfg.currentRobot();
+        const int previous = pendingCurrentRobot_;
 
         // 저장하지 않은 편집을 말없이 버리지 않는다. 고친 것이 사라진 줄
         // 모르면, 나중에 "저장이 안 된다" 로 되돌아온다.
@@ -335,28 +337,27 @@ QWidget *SettingsDialog::buildConnectionTab()
             }
         }
 
-        cfg.setCurrentRobot(row);
+        pendingCurrentRobot_ = row;
         showSelectedRobot();
         refreshNetworkInfo();
     });
 
     connect(addBtn, &QPushButton::clicked, this, [this] {
-        auto list = Config::instance().robots();
+        auto list = pendingRobots_;
         // 이름은 비워 둔다. 붙으면 로봇이 알려 준다.
         list.append({QString(), QStringLiteral("192.168.0.10"), 9090});
-        Config::instance().setRobots(list);
-        Config::instance().setCurrentRobot(int(list.size()) - 1);
+        pendingRobots_ = list;
+        pendingCurrentRobot_ = int(list.size()) - 1;
         reloadRobotList();
     });
 
     connect(removeBtn, &QPushButton::clicked, this, [this] {
-        auto list = Config::instance().robots();
-        // 마지막 한 대는 남긴다. 목록이 비면 붙을 곳이 사라지고, 화면에는
-        // 그 사실이 "연결 안 됨" 으로만 보인다.
-        if (list.size() <= 1)
+        auto list = pendingRobots_;
+        if (pendingCurrentRobot_ < 0 || pendingCurrentRobot_ >= list.size())
             return;
-        list.removeAt(Config::instance().currentRobot());
-        Config::instance().setRobots(list);
+        list.removeAt(pendingCurrentRobot_);
+        pendingRobots_ = list;
+        pendingCurrentRobot_ = list.isEmpty() ? -1 : qMin(pendingCurrentRobot_, list.size() - 1);
         reloadRobotList();
     });
 
@@ -366,7 +367,7 @@ QWidget *SettingsDialog::buildConnectionTab()
     // 누르면 반쯤 고친 주소가 그대로 들어갔고, 화면에는 그 사실이 "연결
     // 안 됨" 으로만 보였다. 무엇을 바꿨는지 스스로 확인하고 누르게 한다.
     auto *saveRow = new QHBoxLayout;
-    robotSave_ = new QPushButton(QStringLiteral("저장"));
+    robotSave_ = new QPushButton(QStringLiteral("연결 정보 반영"));
     robotSave_->setProperty("variant", "primary");
     robotSave_->setEnabled(false);
     saveRow->addStretch(1);
@@ -452,12 +453,6 @@ QWidget *SettingsDialog::buildOperationTab()
     hint->setWordWrap(true);
     lay->addWidget(hint);
 
-    connect(linear_, &QDoubleSpinBox::valueChanged, this,
-            [](double v) { Config::instance().setDefaultLinearSpeed(v); });
-    connect(angular_, &QDoubleSpinBox::valueChanged, this, [](double deg) {
-        Config::instance().setDefaultAngularSpeed(qDegreesToRadians(deg));
-    });
-
     lay->addStretch(1);
     return page;
 }
@@ -493,17 +488,13 @@ QWidget *SettingsDialog::buildPowerTab()
     hint->setWordWrap(true);
     lay->addWidget(hint);
 
-    // 설정만 저장하고 끝나면 로봇은 예전 값으로 계속 돈다. 바뀔 때마다
-    // 즉시 로봇으로 보낸다.
-    connect(returnPct_, &QSpinBox::valueChanged, this, [this](int v) {
-        Config::instance().setBatteryReturnPercent(v);
+    // 로봇에 보내는 것은 전체 설정을 저장할 때뿐이다. 화면에서 숫자를
+    // 고치는 중간값이 실제 운용 정책이 되어서는 안 된다.
+    connect(returnPct_, &QSpinBox::valueChanged, this, [this](int) {
         applyBatteryBounds();
-        emit batteryPolicyChanged();
     });
-    connect(departPct_, &QSpinBox::valueChanged, this, [this](int v) {
-        Config::instance().setBatteryDeparturePercent(v);
+    connect(departPct_, &QSpinBox::valueChanged, this, [this](int) {
         applyBatteryBounds();
-        emit batteryPolicyChanged();
     });
 
     lay->addStretch(1);
@@ -570,16 +561,8 @@ QWidget *SettingsDialog::buildStorageTab()
     connect(browseNas, &QPushButton::clicked, this,
             [pick, this] { pick(nasPath_, QStringLiteral("촬영 데이터 저장 장치 경로")); });
 
-    connect(logDir_, &QLineEdit::editingFinished, this, [this] {
-        Config::instance().setLogDirectory(logDir_->text());
-        refreshPathStatus();
-    });
-    connect(retention_, &QSpinBox::valueChanged, this,
-            [](int v) { Config::instance().setLogRetentionDays(v); });
-    connect(nasPath_, &QLineEdit::editingFinished, this, [this] {
-        Config::instance().setNasMountPath(nasPath_->text());
-        refreshPathStatus();
-    });
+    connect(logDir_, &QLineEdit::textChanged, this, [this] { refreshPathStatus(); });
+    connect(nasPath_, &QLineEdit::textChanged, this, [this] { refreshPathStatus(); });
 
     lay->addStretch(1);
     return page;
@@ -597,13 +580,6 @@ void SettingsDialog::applyBatteryBounds()
 
     // 범위를 좁히면 스핀박스가 값을 말없이 끌어당긴다. 신호를 막아 둔
     // 참이라 그대로 두면 화면의 숫자와 저장된 값이 갈린다.
-    auto &cfg = Config::instance();
-    if (returnPct_->value() != int(cfg.batteryReturnPercent())
-        || departPct_->value() != int(cfg.batteryDeparturePercent())) {
-        cfg.setBatteryReturnPercent(returnPct_->value());
-        cfg.setBatteryDeparturePercent(departPct_->value());
-        emit batteryPolicyChanged();
-    }
 }
 
 void SettingsDialog::refreshPathStatus()
@@ -714,7 +690,7 @@ void SettingsDialog::refreshNetworkInfo()
     // 브릿지 주소가 어느 인터페이스와도 같은 서브넷에 없으면 알린다.
     // 에어갭 설치에서 가장 흔한 연결 실패 원인이고, 증상은 그냥 "연결 안 됨"
     // 이라 원인을 짚기 어렵다.
-    const QHostAddress target(Config::instance().bridgeHost());
+    const QHostAddress target(host_ ? host_->text().trimmed() : QString());
     if (target.isNull() || target.protocol() != QAbstractSocket::IPv4Protocol) {
         subnetWarning_->clear();
         subnetWarning_->hide();
@@ -749,7 +725,6 @@ void SettingsDialog::refreshNetworkInfo()
 
 void SettingsDialog::testConnection()
 {
-    auto &cfg = Config::instance();
     testButton_->setEnabled(false);
     testResult_->setText(QStringLiteral("확인 중…"));
 
@@ -769,10 +744,12 @@ void SettingsDialog::testConnection()
         testButton_->setEnabled(true);
     };
 
-    connect(socket, &QTcpSocket::connected, this, [finish, &cfg] {
+    const QString host = host_->text().trimmed();
+    const int port = port_->value();
+    connect(socket, &QTcpSocket::connected, this, [finish, host, port] {
         finish(QStringLiteral("연결됨 — %1:%2 에 응답이 있습니다.")
-                   .arg(cfg.bridgeHost())
-                   .arg(cfg.bridgePort()));
+                   .arg(host)
+                   .arg(port));
     });
     connect(socket, &QTcpSocket::errorOccurred, this,
             [finish, socket](QAbstractSocket::SocketError) {
@@ -783,16 +760,14 @@ void SettingsDialog::testConnection()
     });
 
     timer->start();
-    socket->connectToHost(cfg.bridgeHost(), quint16(cfg.bridgePort()));
+    socket->connectToHost(host, quint16(port));
 }
 
 void SettingsDialog::reloadRobotList()
 {
-    auto &cfg = Config::instance();
     const QSignalBlocker block(robotList_);
     robotList_->clear();
-    const auto list = cfg.robots();
-    for (const auto &e : list) {
+    for (const auto &e : pendingRobots_) {
         // 이름은 로봇이 알려 준다. 아직 붙어 본 적이 없으면 주소만 보인다 —
         // "(이름 없음)" 같은 자리표시를 넣으면 비어 있는 것이 이름인 줄 안다.
         robotList_->addItem(e.name.isEmpty()
@@ -800,17 +775,26 @@ void SettingsDialog::reloadRobotList()
                                 : QStringLiteral("%1      %2:%3")
                                       .arg(e.name, e.host).arg(e.port));
     }
-    robotList_->setCurrentRow(cfg.currentRobot());
+    robotList_->setCurrentRow(pendingCurrentRobot_);
     showSelectedRobot();
 }
 
 void SettingsDialog::showSelectedRobot()
 {
-    auto &cfg = Config::instance();
-    const auto list = cfg.robots();
-    if (list.isEmpty())
+    if (pendingCurrentRobot_ < 0 || pendingCurrentRobot_ >= pendingRobots_.size()) {
+        const QSignalBlocker b2(host_), b3(port_);
+        host_->clear();
+        port_->setValue(9090);
+        host_->setEnabled(false);
+        port_->setEnabled(false);
+        testButton_->setEnabled(false);
+        robotSave_->setEnabled(false);
         return;
-    const auto &e = list.at(cfg.currentRobot());
+    }
+    host_->setEnabled(true);
+    port_->setEnabled(false);
+    testButton_->setEnabled(true);
+    const auto &e = pendingRobots_.at(pendingCurrentRobot_);
     const QSignalBlocker b2(host_), b3(port_);
     host_->setText(e.host);
     port_->setValue(e.port);
@@ -821,12 +805,11 @@ void SettingsDialog::refreshRobotSaveState()
 {
     if (!robotSave_)
         return;
-    const auto list = Config::instance().robots();
-    if (list.isEmpty()) {
+    if (pendingCurrentRobot_ < 0 || pendingCurrentRobot_ >= pendingRobots_.size()) {
         robotSave_->setEnabled(false);
         return;
     }
-    const auto &e = list.at(Config::instance().currentRobot());
+    const auto &e = pendingRobots_.at(pendingCurrentRobot_);
     const bool changed = host_->text().trimmed() != e.host
                          || port_->value() != e.port;
     robotSave_->setEnabled(changed);
@@ -834,30 +817,29 @@ void SettingsDialog::refreshRobotSaveState()
 
 void SettingsDialog::applyRobotEdits()
 {
-    auto &cfg = Config::instance();
-    auto list = cfg.robots();
-    if (list.isEmpty())
+    if (pendingCurrentRobot_ < 0 || pendingCurrentRobot_ >= pendingRobots_.size())
         return;
-    const int i = cfg.currentRobot();
     // 주소가 비면 저장하지 않는다. 빈 주소는 목록에서 한 줄을 차지하면서
     // 아무 데도 붙지 못하는, 눈으로는 멀쩡해 보이는 항목이 된다.
     if (host_->text().trimmed().isEmpty()) {
         showSelectedRobot();
         return;
     }
-    list[i].host = host_->text().trimmed();
-    list[i].port = port_->value();
-    cfg.setRobots(list);
+    pendingRobots_[pendingCurrentRobot_].host = host_->text().trimmed();
+    pendingRobots_[pendingCurrentRobot_].port = port_->value();
     reloadRobotList();
 }
 
 void SettingsDialog::load()
 {
     auto &cfg = Config::instance();
+    loading_ = true;
     const QSignalBlocker b1(scale_), b2(host_), b3(port_);
     const QSignalBlocker bp1(returnPct_), bp2(departPct_);
     const QSignalBlocker b5(linear_), b6(angular_), b7(logDir_), b8(retention_), b9(nasPath_);
 
+    pendingRobots_ = cfg.robots();
+    pendingCurrentRobot_ = cfg.currentRobot();
     scale_->setValue(int(qRound(cfg.uiScale() * 100)));
     scaleValue_->setText(QStringLiteral("%1%").arg(scale_->value()));
     reloadRobotList();
@@ -875,6 +857,90 @@ void SettingsDialog::load()
 
     applyBatteryBounds();
     refreshPathStatus();
+    loading_ = false;
+}
+
+void SettingsDialog::reload()
+{
+    load();
+}
+
+void SettingsDialog::previewAppearance()
+{
+    const QString selectedTheme = darkBtn_->isChecked() ? QStringLiteral("dark")
+                                                         : QStringLiteral("light");
+    emit appearancePreviewChanged(selectedTheme, scale_->value() / 100.0);
+}
+
+void SettingsDialog::save()
+{
+    // "연결 정보 반영"을 누르지 않았어도 아래 저장은 현재 보이는 주소까지
+    // 저장한다. 저장 버튼이 화면의 값을 빠뜨리는 것은 더 놀라운 동작이다.
+    if (robotSave_ && robotSave_->isEnabled())
+        applyRobotEdits();
+
+    auto &cfg = Config::instance();
+    cfg.setRobots(pendingRobots_);
+    cfg.setCurrentRobot(pendingCurrentRobot_);
+    cfg.setUiScale(scale_->value() / 100.0);
+    cfg.setTheme(darkBtn_->isChecked() ? QStringLiteral("dark") : QStringLiteral("light"));
+    cfg.setDefaultLinearSpeed(linear_->value());
+    cfg.setDefaultAngularSpeed(qDegreesToRadians(angular_->value()));
+    cfg.setBatteryReturnPercent(returnPct_->value());
+    cfg.setBatteryDeparturePercent(departPct_->value());
+    cfg.setLogDirectory(logDir_->text().trimmed());
+    cfg.setLogRetentionDays(retention_->value());
+    cfg.setNasMountPath(nasPath_->text().trimmed());
+
+    // 배터리 임계값은 화면 설정만으로 끝나면 안 된다. 저장 완료 시점에만
+    // 로봇으로 전송하므로, 입력 중간값이 현장 정책으로 적용되지 않는다.
+    emit batteryPolicyChanged();
+    load();
+}
+
+void SettingsDialog::discardChanges()
+{
+    load();
+    // 화면 전용 미리보기도 영구 설정으로 되돌린다.
+    previewAppearance();
+}
+
+void SettingsDialog::loadDefaults()
+{
+    loading_ = true;
+    const QSignalBlocker b1(scale_), b2(host_), b3(port_);
+    const QSignalBlocker bp1(returnPct_), bp2(departPct_);
+    const QSignalBlocker b5(linear_), b6(angular_), b7(logDir_), b8(retention_), b9(nasPath_);
+
+    pendingRobots_.clear();
+    pendingCurrentRobot_ = -1;
+    scale_->setValue(100);
+    scaleValue_->setText(QStringLiteral("100%"));
+    linear_->setValue(0.30);
+    angular_->setValue(qRadiansToDegrees(0.50));
+    returnPct_->setValue(25);
+    departPct_->setValue(60);
+    logDir_->setText(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                     + QStringLiteral("/logs"));
+    retention_->setValue(90);
+#ifdef Q_OS_WIN
+    nasPath_->setText(QStringLiteral("\\\\nas\\inspection"));
+#else
+    nasPath_->setText(QStringLiteral("/mnt/nas/inspection"));
+#endif
+    lightBtn_->setChecked(true);
+    darkBtn_->setChecked(false);
+    reloadRobotList();
+    applyBatteryBounds();
+    refreshPathStatus();
+    loading_ = false;
+    previewAppearance();
+}
+
+void SettingsDialog::closeEvent(QCloseEvent *event)
+{
+    discardChanges();
+    QWidget::closeEvent(event);
 }
 
 

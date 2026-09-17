@@ -16,6 +16,7 @@
 #include <QtMath>
 
 #include <QLabel>
+#include <QImage>
 
 #include "Config.h"
 #include "RobotDef.h"
@@ -28,6 +29,7 @@
 #include "views/SettingsDialog.h"
 #include "views/WelcomeDialog.h"
 #include "widgets/NotificationCenter.h"
+#include "widgets/Robot3DView.h"
 #include "widgets/ValueSlider.h"
 
 using namespace hmi;
@@ -66,6 +68,23 @@ void paintEveryView(const QString &theme)
     QVERIFY(!window.grab().isNull());
 }
 
+/// 두 프레임이 실제로 달라졌는지 본다. QImage 의 내부 저장소가 달라도
+/// 그림이 같을 수 있으므로 포인터나 cache key가 아니라 픽셀을 비교한다.
+int changedPixels(const QImage &before, const QImage &after)
+{
+    if (before.size() != after.size() || before.format() != after.format())
+        return -1;
+
+    int changed = 0;
+    for (int y = 0; y < before.height(); ++y) {
+        for (int x = 0; x < before.width(); ++x) {
+            if (before.pixel(x, y) != after.pixel(x, y))
+                ++changed;
+        }
+    }
+    return changed;
+}
+
 }  // namespace
 
 class TestRender : public QObject {
@@ -82,6 +101,32 @@ private slots:
 
     void everyView_paints_light() { paintEveryView(QStringLiteral("light")); }
     void everyView_paints_dark() { paintEveryView(QStringLiteral("dark")); }
+
+    /// 첫 arm telemetry 전에도 조작자가 관절 또는 끝단 목표를 바꾸면
+    /// 즉시 3D 미리보기가 따라야 한다. 예전에는 diverged()가 기준값 없음을
+    /// false로 취급해 preview를 비워 버려, 값만 바뀌고 팔은 멈춰 보였다.
+    void armEdit_updates3dPreviewBeforeFirstTelemetry()
+    {
+        theme::setTheme(QStringLiteral("light"));
+        qApp->setStyleSheet(theme::buildQss());
+
+        ui::ArmPanel arm;
+        arm.resize(900, 900);
+        arm.show();
+        QTest::qWait(30);
+
+        auto *view = arm.findChild<ui::Robot3DView *>();
+        auto *j2 = arm.findChild<ui::ValueSlider *>(QStringLiteral("Joint2"));
+        QVERIFY2(view && j2, "3D 뷰 또는 J2 슬라이더를 찾지 못했다");
+
+        const QImage before = view->grab().toImage();
+        j2->setCommand(-1.2);
+        QTest::qWait(300);  // 미리보기 보간 타이머(20 ms)가 목표에 닿을 시간
+        const QImage after = view->grab().toImage();
+
+        QVERIFY2(changedPixels(before, after) > 100,
+                 "텔레메트리 전 관절 편집이 3D 미리보기에 반영되지 않았다");
+    }
 
     /// 대화상자는 창 계층 밖이라 위 순회에 걸리지 않는다.
     void dialogs_paint()

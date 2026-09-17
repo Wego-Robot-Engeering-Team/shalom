@@ -89,7 +89,6 @@ add_library(hmi_core STATIC
     src/panels/LocationPanel.cpp
     src/widgets/HealthRow.cpp
     src/widgets/Robot3DView.cpp
-    src/widgets/RobotMesh.cpp
     src/panels/DiagnosticsPanel.cpp
     src/MainWindow.cpp
 )
@@ -106,8 +105,6 @@ qt_add_resources(hmi_core "hmi_resources"
     PREFIX "/"
     BASE resources
     FILES resources/error_codes.json
-    # 3D 자세 뷰의 형상. 생성 방법은 tools/make_robot_mesh.py 참조.
-    FILES resources/robot_mesh.bin
 )
 
 # 발주기관 로고. 자산이 없으면 BrandMark 가 중립 마크로 폴백한다

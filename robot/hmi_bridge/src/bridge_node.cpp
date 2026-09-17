@@ -10,6 +10,7 @@
 #include <cstring>
 #include <vector>
 #include <fstream>
+#include <filesystem>
 #include <string>
 
 // 점유격자를 PNG 로 눌러 관제에 보낸다 (encodeGridPng).
@@ -39,6 +40,8 @@ constexpr auto kChWaypoints = "state/waypoints";
 constexpr auto kChLocations = "state/locations";
 constexpr auto kChMarkers = "state/markers";
 constexpr auto kChMission = "state/mission";
+constexpr auto kChMaps = "state/maps";
+constexpr auto kChActiveMap = "state/active_map";
 
 /// Nav2 has this long to say whether it accepts a goal before the station's
 /// request is answered with a failure. Goal acceptance is a planner-side
@@ -55,6 +58,8 @@ constexpr auto kCmdNavCancel = "cmd/nav_cancel";
 constexpr auto kCmdWaypointsSet = "cmd/waypoints/set";
 constexpr auto kCmdLocationsSet = "cmd/locations/set";
 constexpr auto kCmdMarkersSet = "cmd/markers/set";
+constexpr auto kCmdMapsList = "cmd/maps/list";
+constexpr auto kCmdMapsSelect = "cmd/maps/select";
 constexpr auto kChPreview = "capture/preview";
 constexpr auto kChCaptureSpool = "state/capture_spool";
 constexpr auto kCmdCapture = "cmd/capture/trigger";
@@ -97,6 +102,7 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
                 robotName_.c_str());
     mapFrame_ = declare_parameter("map_frame", mapFrame_);
     baseFrame_ = declare_parameter("base_frame", baseFrame_);
+    mapsDir_ = declare_parameter("maps_dir", mapsDir_);
     deadman_ = std::chrono::milliseconds(
         declare_parameter("deadman_ms", int(deadman_.count())));
     heartbeatTimeout_ = std::chrono::milliseconds(
@@ -227,6 +233,7 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     // 리매핑한다 — 여기에 파라미터를 하나 더 만들면 프로토콜 문서와 어긋날
     // 자리가 하나 더 생긴다.
     navClient_ = rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose");
+    mapLoadClient_ = create_client<nav2_msgs::srv::LoadMap>("map_server/load_map");
 
     // 미션을 한 걸음씩 나아가게 한다. 5 Hz 면 충분하다 — 판단은 Nav2 결과가
     // 오는 순간에 이미 정해지고, 이 타이머는 그것을 읽어 옮기는 일만 한다.
@@ -488,14 +495,17 @@ void BridgeNode::handleRequest(const Envelope &request)
 
     if (request.ch == kCmdWaypointsSet) {
         waypoints_ = request.p.value("points", json::array());
+        saveMapState("waypoints.json", waypoints_);
         respond(request, true);
         publishWaypoints();
+        publishMapCatalog();
         RCLCPP_INFO(get_logger(), "점검 지점 %zu 개 수신", waypoints_.size());
         return;
     }
 
     if (request.ch == kCmdLocationsSet) {
         locations_ = request.p.value("locations", json::array());
+        saveMapState("locations.json", locations_);
         respond(request, true);
         publishLocations();
         return;
@@ -506,9 +516,61 @@ void BridgeNode::handleRequest(const Envelope &request)
         // 그대로 들고 있다가 되돌려 준다 — 어느 태그가 어디 붙어 있는지는
         // 사람이 재어 오는 값이라 로봇이 스스로 정할 수 있는 것이 아니다.
         markers_ = request.p.value("markers", json::array());
+        saveMapState("markers.json", markers_);
         respond(request, true);
         publishMarkers();
         RCLCPP_INFO(get_logger(), "마커 %zu개 등록", markers_.size());
+        return;
+    }
+
+    if (request.ch == kCmdMapsList) {
+        respond(request, true);
+        publishMapCatalog();
+        publishActiveMap();
+        return;
+    }
+
+    if (request.ch == kCmdMapsSelect) {
+        const std::string id = request.p.value("id", std::string{});
+        if (missionFsm_.state() != mission_manager::MissionState::kIdle || navGoal_) {
+            respond(request, false, err::kBusy,
+                    "주행 또는 점검이 끝난 뒤에 지도를 전환하십시오");
+            return;
+        }
+        if (id.empty() || id.find('/') != std::string::npos || id.find("..") != std::string::npos
+            || !std::filesystem::is_regular_file(std::filesystem::path(mapsDir_) / id / "map.yaml")) {
+            respond(request, false, err::kBadPayload, "유효하지 않거나 없는 지도입니다");
+            return;
+        }
+        if (!mapLoadClient_->service_is_ready()) {
+            respond(request, false, err::kHardware,
+                    "map_server/load_map 서비스를 찾지 못했습니다");
+            return;
+        }
+
+        auto load = std::make_shared<nav2_msgs::srv::LoadMap::Request>();
+        load->map_url = (std::filesystem::path(mapsDir_) / id / "map.yaml").string();
+        mapLoadClient_->async_send_request(load, [this, request, id](
+                                                rclcpp::Client<nav2_msgs::srv::LoadMap>::SharedFuture future) {
+            const auto result = future.get();
+            if (result->result != nav2_msgs::srv::LoadMap::Response::RESULT_SUCCESS) {
+                respond(request, false, err::kHardware, "map_server가 지도를 불러오지 못했습니다");
+                return;
+            }
+            // loadMapBundle은 요청 전에 검증했지만, 서비스 응답이 돌아오는 동안
+            // 파일이 바뀌었을 수도 있으므로 상태도 성공 시점에 다시 읽는다.
+            std::string detail;
+            if (!loadMapBundle(id, &detail)) {
+                respond(request, false, err::kHardware, detail);
+                return;
+            }
+            publishActiveMap();
+            publishMapCatalog();
+            publishWaypoints();
+            publishLocations();
+            publishMarkers();
+            respond(request, true);
+        });
         return;
     }
 
@@ -753,6 +815,91 @@ void BridgeNode::publishWaypoints()
 void BridgeNode::publishLocations()
 {
     sendEnvelope(makePublish(kChLocations, json{{"locations", locations_}}));
+}
+
+void BridgeNode::publishActiveMap()
+{
+    json active{{"id", mapId_}, {"name", mapId_}};
+    const auto meta_path = std::filesystem::path(mapsDir_) / mapId_ / "metadata.json";
+    std::ifstream meta_in(meta_path);
+    json meta;
+    if (meta_in >> meta)
+        active["name"] = meta.value("name", mapId_);
+    sendEnvelope(makePublish(kChActiveMap, active));
+}
+
+void BridgeNode::publishMapCatalog()
+{
+    json maps = json::array();
+    std::error_code ec;
+    const std::filesystem::path root(mapsDir_);
+    for (const auto &entry : std::filesystem::directory_iterator(root, ec)) {
+        if (ec || !entry.is_directory())
+            continue;
+        const auto dir = entry.path();
+        if (!std::filesystem::is_regular_file(dir / "map.yaml"))
+            continue;
+
+        const std::string id = dir.filename().string();
+        json item{{"id", id}, {"name", id}, {"active", id == mapId_},
+                  {"waypoint_count", 0}};
+        std::ifstream meta_in(dir / "metadata.json");
+        json meta;
+        if (meta_in >> meta) {
+            item["name"] = meta.value("name", id);
+            item["created_at"] = meta.value("created_at", std::string{});
+        }
+        std::ifstream wp_in(dir / "waypoints.json");
+        json waypoints;
+        if (wp_in >> waypoints && waypoints["points"].is_array())
+            item["waypoint_count"] = waypoints["points"].size();
+        maps.push_back(std::move(item));
+    }
+    sendEnvelope(makePublish(kChMaps, json{{"maps", maps}}));
+}
+
+bool BridgeNode::loadMapBundle(const std::string &map_id, std::string *error)
+{
+    if (map_id.empty() || map_id.find('/') != std::string::npos || map_id.find("..") != std::string::npos) {
+        if (error) *error = "유효하지 않은 지도 ID";
+        return false;
+    }
+    const std::filesystem::path dir = std::filesystem::path(mapsDir_) / map_id;
+    if (!std::filesystem::is_regular_file(dir / "map.yaml")) {
+        if (error) *error = "지도 파일이 없습니다";
+        return false;
+    }
+
+    const auto read = [&dir](const char *name, const char *key) {
+        std::ifstream in(dir / name);
+        json out = json::array();
+        json doc;
+        if (in >> doc && doc[key].is_array())
+            out = doc[key];
+        return out;
+    };
+    waypoints_ = read("waypoints.json", "points");
+    locations_ = read("locations.json", "locations");
+    markers_ = read("markers.json", "markers");
+    mapId_ = map_id;
+    return true;
+}
+
+bool BridgeNode::saveMapState(const char *filename, const json &state)
+{
+    if (mapId_ == "live")
+        return false;
+    const std::filesystem::path path = std::filesystem::path(mapsDir_) / mapId_ / filename;
+    std::ofstream out(path);
+    if (!out)
+        return false;
+    const std::string key = std::string(filename) == "waypoints.json" ? "points"
+                            : std::string(filename) == "locations.json" ? "locations"
+                                                                          : "markers";
+    json document{{"schema_version", 1}, {"map_id", mapId_}};
+    document[key] = state;
+    out << document.dump(2);
+    return bool(out);
 }
 
 
@@ -1651,6 +1798,8 @@ void BridgeNode::publishHealth()
     // 마커도 없는 빈 지도가 떴다 — 로봇은 알고 있는데 화면만 몰랐다.
     const bool connected = server_.isConnected();
     if (connected && !wasConnected_) {
+        publishMapCatalog();
+        publishActiveMap();
         publishWaypoints();
         publishLocations();
         publishMarkers();

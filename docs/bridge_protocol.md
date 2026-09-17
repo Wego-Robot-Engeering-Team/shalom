@@ -65,6 +65,8 @@
 | `state/waypoints` | 점검 지점 |
 | `state/locations` | home·dock 위치 |
 | `state/markers` | 측량된 AprilTag 자리 |
+| `state/maps` | 로봇이 보유한 지도 목록 |
+| `state/active_map` | 로봇이 현재 사용하는 지도 |
 | `state/capture_spool` | 촬영 업로드 상태 |
 | `state/health` | 센서·링크 상태 |
 | `evt/log` | 이벤트·경고 |
@@ -74,6 +76,11 @@
 `map/occupancy`는 `width`, `height`, `resolution`, `origin`, `encoding: "png"`을
 `p`에 넣고 PNG를 payload로 보낸다. `capture/preview`도 metadata를 `p`에 넣고
 이미지를 payload로 보낸다.
+
+`state/maps`의 각 항목은 `id`, `name`, `created_at`, `active`, `waypoint_count`를
+가진다. HMI는 로봇 파일 시스템을 직접 읽지 않고 이 목록만 표시한다. 지도 전환이
+성공하면 브릿지는 `state/active_map`과 선택된 지도 기준의 `map/occupancy`,
+`state/waypoints`, `state/locations`, `state/markers`를 다시 보낸다.
 
 ### `state/mission` 의 상태 값
 
@@ -108,6 +115,8 @@
 | `cmd/waypoints/set` | 점검 지점 전체 설정 |
 | `cmd/locations/set` | home·dock 전체 설정 |
 | `cmd/markers/set` | 마커 전체 설정 |
+| `cmd/maps/list` | 로봇 지도 목록 요청 |
+| `cmd/maps/select` | `id`로 로봇의 활성 지도 전환 |
 | `cmd/power/policy` | 배터리 복귀·출발 기준 |
 | `cmd/mission/start` | 점검 시작 |
 | `cmd/mission/pause` | 점검 일시정지 |

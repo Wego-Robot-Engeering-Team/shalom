@@ -142,6 +142,16 @@ void BridgeClient::disconnectFromBridge()
     socket_->abort();
 }
 
+void BridgeClient::requestMapCatalog()
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdMapsList));
+}
+
+void BridgeClient::selectMap(const QString &mapId)
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdMapsSelect), {{"id", mapId}});
+}
+
 void BridgeClient::onConnected()
 {
     // Nagle 을 끈다. 하트비트와 조작 명령은 작고 지연에 민감해서,
@@ -158,7 +168,7 @@ void BridgeClient::onConnected()
                            hmi::ch::kSafety, hmi::ch::kNav, hmi::ch::kPlan,
                            hmi::ch::kTrail, hmi::ch::kArm, hmi::ch::kApriltag,
                            hmi::ch::kMission, hmi::ch::kWaypoints, hmi::ch::kLocations,
-                           hmi::ch::kMap,
+                           hmi::ch::kMap, hmi::ch::kMaps, hmi::ch::kActiveMap,
                            hmi::ch::kPreview, hmi::ch::kCaptureSpool,
                            hmi::ch::kHealth})
         channels << QLatin1String(ch);
@@ -173,6 +183,7 @@ void BridgeClient::onConnected()
         setBatteryPolicy(batteryReturnAt_, batteryDepartAt_);
 
     emit connectionChanged(true);
+    requestMapCatalog();
     // 첫 연결과 재연결을 구분한다. 처음 붙는 것을 "재연결됨" 이라고 하면
     // 조작자가 직전에 무슨 문제가 있었나 하고 로그를 뒤진다.
     emit robotEvent(everConnected_ ? QStringLiteral("LINK_RESTORED")
@@ -460,6 +471,13 @@ void BridgeClient::handlePublish(const Envelope &env)
         for (const auto &v : p.value(QStringLiteral("markers")).toArray())
             ms << v.toObject().toVariantMap();
         markers_ = ms;
+    } else if (ch == QLatin1String(hmi::ch::kMaps)) {
+        QList<QVariantMap> maps;
+        for (const auto &v : p.value(QStringLiteral("maps")).toArray())
+            maps << v.toObject().toVariantMap();
+        emit mapsReceived(maps);
+    } else if (ch == QLatin1String(hmi::ch::kActiveMap)) {
+        emit activeMapReceived(p.toVariantMap());
     } else if (ch == QLatin1String(hmi::ch::kCaptureSpool)) {
         telemetry_.nasOnline = p.value(QStringLiteral("nas_online")).toBool();
         telemetry_.pendingUploads = p.value(QStringLiteral("pending")).toInt();

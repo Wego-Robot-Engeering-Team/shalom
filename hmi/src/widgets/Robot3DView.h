@@ -21,19 +21,12 @@
 //     on-site support actually contain the view;
 //   - it needs no shader pipeline and no extra Qt module.
 //
-// This used to sort faces back to front and let QPainter fill them - the
-// painter's algorithm. That cannot draw geometry that interpenetrates, so
-// every link had to be reduced to its convex hull, and the robot on screen was
-// a set of blocks rather than the machine. Testing depth per pixel removes the
-// constraint, so the view now draws the vendor meshes themselves
-// (widgets/RobotMesh.h), reduced only enough to keep the resource small.
-//
-// It is also no slower: about 7.6 ms a frame at 640x480 in the delivery build,
-// against 7.9 ms for the blocks, because nothing is sorted any more.
-//
-// The arm geometry comes from FAIRINO's own URDF by way of
-// robot::jointOrigins(), so the joint origins are in the right places even
-// though the links are drawn as simple shapes.
+// The picture deliberately uses Wego-authored primitive geometry: a generic
+// mobile base made from boxes and legs, and a six-axis arm made from tapered
+// cylinders and joint hubs. It is a pose aid, not a CAD viewer, so no vendor
+// mesh, URDF mesh, or converted derivative is embedded in the customer HMI.
+// The arm still follows robot::jointFrames(), which is the same kinematic
+// chain used by the pose readout and command preview.
 
 #include <QVector3D>
 #include <QWidget>

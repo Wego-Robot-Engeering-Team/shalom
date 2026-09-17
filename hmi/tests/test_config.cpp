@@ -42,12 +42,13 @@ private slots:
         Config::instance().setCurrentRobot(0);
     }
 
-    /// 목록이 비어 본 적 없어야 한다. 비면 붙을 곳이 사라진다.
-    void never_returns_an_empty_list()
+    /// 최초 실행에는 자동 연결할 로봇 프로필이 없다.
+    void an_empty_list_means_offline_start()
     {
         Config::instance().setRobots({});
-        QCOMPARE(Config::instance().robots().size(), 1);
-        QVERIFY(!Config::instance().bridgeHost().isEmpty());
+        QCOMPARE(Config::instance().robots().size(), 0);
+        QCOMPARE(Config::instance().currentRobot(), -1);
+        QVERIFY(Config::instance().bridgeHost().isEmpty());
     }
 
     void current_selects_which_address_is_used()
@@ -64,7 +65,7 @@ private slots:
         Config::instance().setCurrentRobot(99);
         QCOMPARE(Config::instance().currentRobot(), 1);
         Config::instance().setCurrentRobot(-5);
-        QCOMPARE(Config::instance().currentRobot(), 0);
+        QCOMPARE(Config::instance().currentRobot(), -1);
     }
 
     void removing_the_current_entry_leaves_a_valid_one()
@@ -98,12 +99,13 @@ private slots:
         QCOMPARE(list.at(0).host, QStringLiteral("192.168.0.11"));
     }
 
-    /// 예전 단일 주소 설정만 있는 설치본이 갱신돼도 그 주소로 붙는다.
+    /// 예전 단일 주소 설정은 프로필로 보존하지만 자동 연결하지 않는다.
     void migrates_a_legacy_single_address()
     {
         QSettings s(QSettings::IniFormat, QSettings::UserScope,
                     QStringLiteral("WEGO Robotics"), QStringLiteral("Inspection HMI"));
         s.remove(QStringLiteral("connection/robots"));
+        s.remove(QStringLiteral("connection/current"));
         s.setValue(QStringLiteral("connection/host"), QStringLiteral("172.16.5.4"));
         s.setValue(QStringLiteral("connection/port"), 9090);
         s.sync();
@@ -111,7 +113,8 @@ private slots:
         const auto list = Config::instance().robots();
         QCOMPARE(list.size(), 1);
         QCOMPARE(list.at(0).host, QStringLiteral("172.16.5.4"));
-        QCOMPARE(Config::instance().bridgeHost(), QStringLiteral("172.16.5.4"));
+        QCOMPARE(Config::instance().currentRobot(), -1);
+        QVERIFY(Config::instance().bridgeHost().isEmpty());
     }
 
     void survives_a_round_trip()

@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "id": "depot-a",
+  "name": "차량기지 A",
+  "created_at": "2026-09-17T10:00:00+09:00",
+  "map_yaml": "map.yaml",
+  "description": "HMI 지도 선택·지도별 점검 지점 확인용 예시 지도"
+}

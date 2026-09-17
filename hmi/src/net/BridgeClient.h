@@ -58,6 +58,9 @@ public:
     /// deliberately disconnects, so that it does not silently come back.
     void disconnectFromBridge();
 
+    void requestMapCatalog();
+    void selectMap(const QString &mapId);
+
     // ---- RobotLink ------------------------------------------------------
     void setCmdVel(double vx, double vy, double wz) override;
     void requestGoal(double x, double y, double theta) override;
@@ -98,6 +101,8 @@ signals:
     void mapReceived(const QByteArray &pngBytes, const QJsonObject &meta);
     /// A photograph was taken: the JPEG bytes and its sidecar metadata.
     void previewReceived(const QByteArray &jpegBytes, const QJsonObject &meta);
+    void mapsReceived(const QList<QVariantMap> &maps);
+    void activeMapReceived(const QVariantMap &map);
 
 private:
     void onConnected();

@@ -8,16 +8,9 @@
 namespace hmi {
 namespace {
 
-// 기본값을 한곳에 모아둔다. 설정 초기화와 최초 실행이 같은 값을 쓰게 하기 위함.
-// 로컬이 기본이다. 시뮬레이터든 실기든 관제가 붙는 곳은 같은 브릿지이고,
-// 다른 것은 주소뿐이다 — 그리고 가장 흔한 경우가 이 PC 에서 시뮬레이터를
-// 돌리는 것이다.
-//
-// 실기 IP(192.168.123.100, Unitree 기본 서브넷)를 기본으로 두었더니, 화면이
-// 기본으로 브릿지에 붙게 바뀐 뒤로는 아무것도 안 뜨는 채로 열렸다. 로봇이
-// 없는 자리에서 그 주소로 붙을 방법이 없기 때문이다. 실기 주소는 설정 창의
-// 연결 탭에서 지정한다.
-constexpr auto kDefaultHost = "127.0.0.1";
+// 최초 실행에는 로봇 프로필을 만들지 않는다. 실기와 시뮬레이터는 모두
+// 명시적으로 등록·선택한 브릿지여야 하며, 127.0.0.1로 몰래 연결을 시도하면
+// 빈 HMI인지 연결 실패인지 구별할 수 없다.
 constexpr int kDefaultPort = 9090;
 
 constexpr auto kDefaultTheme = "light";
@@ -80,16 +73,14 @@ QList<RobotEntry> Config::robots() const
     }
     s.endArray();
 
-    // 목록이 비어 있으면 예전 단일 주소 설정에서 한 대를 만들어 준다. 이미
-    // 주소를 맞춰 둔 설치본이 갱신 뒤에 아무 데도 붙지 못하면 안 된다.
-    if (out.isEmpty()) {
-        RobotEntry e;
-        e.host = s.value(QStringLiteral("connection/host"),
-                         QLatin1String(kDefaultHost)).toString();
-        e.port = s.value(QStringLiteral("connection/port"), kDefaultPort).toInt();
-        e.name = QStringLiteral("로봇");
-        out.append(e);
+    // 구버전 단일 주소는 프로필로 보존하되 자동 연결의 근거로 쓰지 않는다.
+    if (out.isEmpty() && s.contains(QStringLiteral("connection/host"))) {
+        const QString host = s.value(QStringLiteral("connection/host")).toString();
+        if (!host.isEmpty())
+            out.append({QString(), host,
+                        s.value(QStringLiteral("connection/port"), kDefaultPort).toInt()});
     }
+
     return out;
 }
 
@@ -113,22 +104,24 @@ void Config::setRobots(const QList<RobotEntry> &robots)
 int Config::currentRobot() const
 {
     const int n = int(robots().size());
-    const int i = store().value(QStringLiteral("connection/current"), 0).toInt();
-    return qBound(0, i, n > 0 ? n - 1 : 0);
+    if (n == 0)
+        return -1;
+    const int i = store().value(QStringLiteral("connection/current"), -1).toInt();
+    return i < 0 ? -1 : qBound(0, i, n - 1);
 }
 
 void Config::setCurrentRobot(int index)
 {
     const int n = int(robots().size());
     store().setValue(QStringLiteral("connection/current"),
-                     qBound(0, index, n > 0 ? n - 1 : 0));
+                     index < 0 ? -1 : (n == 0 ? -1 : qBound(0, index, n - 1)));
 }
 
 QString Config::bridgeHost() const
 {
     const auto list = robots();
-    return list.isEmpty() ? QLatin1String(kDefaultHost)
-                          : list.at(currentRobot()).host;
+    const int current = currentRobot();
+    return current < 0 || current >= list.size() ? QString() : list.at(current).host;
 }
 
 void Config::setBridgeHost(const QString &host)
@@ -143,7 +136,8 @@ void Config::setBridgeHost(const QString &host)
 int Config::bridgePort() const
 {
     const auto list = robots();
-    return list.isEmpty() ? kDefaultPort : list.at(currentRobot()).port;
+    const int current = currentRobot();
+    return current < 0 || current >= list.size() ? kDefaultPort : list.at(current).port;
 }
 
 void Config::setBridgePort(int port)

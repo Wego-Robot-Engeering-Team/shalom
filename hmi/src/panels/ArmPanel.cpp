@@ -333,6 +333,7 @@ void ArmPanel::onSliderMoved()
 {
     if (syncing_)
         return;
+    commandEdited_ = true;
     for (auto *s : std::as_const(sliders_))
         s->update();
     syncEeFromJoints();
@@ -389,6 +390,7 @@ void ArmPanel::syncJointsFromEe()
 {
     if (syncing_ || sliders_.isEmpty())
         return;
+    commandEdited_ = true;
 
     robot::EePose target;
     target.x = ee_[QStringLiteral("x")]->command();
@@ -430,14 +432,22 @@ void ArmPanel::refreshPreview()
     // 않는다 — 실제 명령은 "보내기" 를 눌러야 나간다.
     QList<double> q;
     bool differs = false;
+    bool differsFromActual = !hadArmState_;
     for (int i = 0; i < sliders_.size(); ++i) {
         q << sliders_.at(i)->command();
         if (sliders_.at(i)->diverged())
             differs = true;
+        if (hadArmState_ && i < actual_.size()
+            && !qFuzzyCompare(q.back() + 1.0, actual_.at(i) + 1.0)) {
+            differsFromActual = true;
+        }
     }
     // 어느 탭에서 만졌든 3D 는 보낼 자세를 보여준다. 끝단 값은 역기구학을
-    // 거쳐 이미 관절로 옮겨져 있다.
-    view3d_->setPreviewJoints(differs ? q : QList<double>{});
+    // 거쳐 이미 관절로 옮겨져 있다. "보내지 않은 편집" 표시는 기준값과
+    // 두 눈금 이상 차이 날 때만 띄우지만, 3D 미리보기는 한 눈금 변화도
+    // 보여야 한다. 특히 첫 텔레메트리 전에는 기준값이 없더라도 입력을
+    // 버리면 안 된다.
+    view3d_->setPreviewJoints(commandEdited_ && differsFromActual ? q : QList<double>{});
 
     // 보내기 전에 조용히 알린다. 로봇이 최종 판정을 하지만, 눌러 본 뒤에야
     // 거부 코드로 알게 되는 것보다 낫다. 요란하게 막지는 않는다 — 조작자가
@@ -476,7 +486,9 @@ void ArmPanel::syncSlidersToActual()
     for (int i = 0; i < sliders_.size() && i < actual_.size(); ++i)
         sliders_[i]->setCommand(actual_.at(i));
     syncing_ = false;
-    onSliderMoved();
+    syncEeFromJoints();
+    commandEdited_ = false;
+    refreshPreview();
 }
 
 void ArmPanel::applyPresetToSliders(const QString &name)

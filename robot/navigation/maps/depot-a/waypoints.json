@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "map_id": "depot-a",
+  "points": [
+    {"id": "a-underbody-01", "name": "1번 하부", "x": -0.45, "y": -0.10, "theta": 0.0, "status": "todo"},
+    {"id": "a-underbody-02", "name": "2번 하부", "x": 0.35, "y": 0.25, "theta": 1.57, "status": "todo"}
+  ]
+}

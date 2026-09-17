@@ -117,6 +117,11 @@ private:
     /// an unsent edit would mean the screen opens claiming work in progress
     /// that nobody asked for.
     bool hadArmState_ = false;
+    /// True after the operator changes either command tab.  This is separate
+    /// from ValueSlider::diverged(): before the first telemetry arrives there
+    /// is no measured value to diverge from, but the 3D preview must still
+    /// show an operator's edit.
+    bool commandEdited_ = false;
     bool syncing_ = false;
     /// False while the pose fields name a place the arm cannot reach.
     bool eeReachable_ = true;

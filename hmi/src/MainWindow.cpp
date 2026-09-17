@@ -428,7 +428,15 @@ void MainWindow::openSettings()
         settings_ = new SettingsDialog(this);
         connect(settings_, &SettingsDialog::batteryPolicyChanged, this,
                 &MainWindow::pushBatteryPolicy);
+        // 표시 설정은 설정 창 안에서 먼저 미리 본다. Config 는 저장을 누를
+        // 때만 바뀌므로, 이 경로가 없으면 슬라이더를 움직여도 확인할 수 없다.
+        connect(settings_, &SettingsDialog::appearancePreviewChanged, this,
+                [this](const QString &theme, double scale) {
+                    setUiScale(scale);
+                    applyTheme(theme);
+                });
     }
+    settings_->reload();
     settings_->show();
     settings_->raise();
     settings_->activateWindow();
@@ -499,6 +507,18 @@ void MainWindow::wireRobotSignals()
                     log_->note(diag::Severity::Ok, QStringLiteral("지도 수신"),
                                QJsonObject{{"map_id", info->mapId}});
                 });
+        connect(bridge, &net::BridgeClient::mapsReceived, this,
+                [this](const QList<QVariantMap> &maps) {
+                    maps_ = maps;
+                    map_->mapButton()->setEnabled(!maps_.isEmpty());
+                });
+        connect(bridge, &net::BridgeClient::activeMapReceived, this,
+                [this](const QVariantMap &map) {
+                    const QString name = map.value(QStringLiteral("name")).toString();
+                    if (!name.isEmpty())
+                        map_->setMapLabel(name, QStringLiteral("불러오는 중"));
+                    map_->mapButton()->setEnabled(!maps_.isEmpty());
+                });
     }
 
     connect(robot_, &robot::RobotLink::connectionChanged, this, [this](bool ok) {
@@ -511,6 +531,8 @@ void MainWindow::wireRobotSignals()
         if (!ok) {
             saidId_.clear();
             saidName_.clear();
+            maps_.clear();
+            map_->mapButton()->setEnabled(false);
             refreshRobotButton();
         }
     });
@@ -596,6 +618,7 @@ void MainWindow::wireChromeSignals()
 void MainWindow::wireMapSignals()
 {
     auto *view = map_->view();
+    connect(map_->mapButton(), &QPushButton::clicked, this, &MainWindow::showMapPicker);
 
     connect(map_->goalButton(), &QPushButton::toggled, this, [this, view](bool on) {
         pendingPlacementKind_.clear();
@@ -1205,23 +1228,22 @@ void MainWindow::refreshRobotButton()
 {
     auto &cfg = Config::instance();
     const auto list = cfg.robots();
-    const QString configured = list.isEmpty()
+    const int current = cfg.currentRobot();
+    const QString configured = current < 0 || current >= list.size()
         ? QString()
-        : (list.at(cfg.currentRobot()).name.isEmpty()
-               ? list.at(cfg.currentRobot()).host
-               : list.at(cfg.currentRobot()).name);
+        : (list.at(current).name.isEmpty() ? list.at(current).host : list.at(current).name);
 
-    const QString address = list.isEmpty()
+    const QString address = current < 0 || current >= list.size()
         ? QString()
-        : QStringLiteral("%1:%2").arg(list.at(cfg.currentRobot()).host)
-              .arg(list.at(cfg.currentRobot()).port);
+        : QStringLiteral("%1:%2").arg(list.at(current).host).arg(list.at(current).port);
 
-    robotNameLabel_->setText(saidName_.isEmpty() ? configured : saidName_);
+    robotNameLabel_->setText(saidName_.isEmpty()
+                                 ? (configured.isEmpty() ? QStringLiteral("로봇 선택") : configured)
+                                 : saidName_);
     // 식별자는 주소 옆에 둔다. 기계를 가리키는 값끼리 모아 두면 이름줄이
     // 흔들리지 않는다.
-    robotAddrLabel_->setText(saidId_.isEmpty()
-                                 ? address
-                                 : QStringLiteral("%1 · %2").arg(saidId_, address));
+    robotAddrLabel_->setText(saidId_.isEmpty() ? address
+                                                : QStringLiteral("%1 · %2").arg(saidId_, address));
 
     QStringList tip;
     if (!configured.isEmpty())
@@ -1274,20 +1296,46 @@ void MainWindow::showRobotPicker()
     menu->popup(robotButton_->mapToGlobal(QPoint(0, robotButton_->height() + 4)));
 }
 
+void MainWindow::showMapPicker()
+{
+    if (maps_.isEmpty())
+        return;
+    auto *menu = new QMenu(this);
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    for (const auto &map : maps_) {
+        const QString id = map.value(QStringLiteral("id")).toString();
+        const QString name = map.value(QStringLiteral("name")).toString();
+        const int points = map.value(QStringLiteral("waypoint_count")).toInt();
+        auto *action = menu->addAction(QStringLiteral("%1  ·  점검 지점 %2개")
+                                           .arg(name.isEmpty() ? id : name)
+                                           .arg(points));
+        action->setCheckable(true);
+        action->setChecked(map.value(QStringLiteral("active")).toBool());
+        connect(action, &QAction::triggered, this, [this, id] {
+            if (auto *bridge = qobject_cast<net::BridgeClient *>(robot_)) {
+                map_->mapButton()->setEnabled(false);
+                map_->setMapLabel(QStringLiteral("지도 전환 중"), QString());
+                bridge->selectMap(id);
+            }
+        });
+    }
+    menu->popup(map_->mapButton()->mapToGlobal(QPoint(0, map_->mapButton()->height() + 4)));
+}
+
 void MainWindow::selectRobot(int index)
 {
     auto &cfg = Config::instance();
     const auto list = cfg.robots();
-    if (index < 0 || index >= list.size() || index == cfg.currentRobot())
+    if (index < 0 || index >= list.size())
         return;
 
     cfg.setCurrentRobot(index);
     const auto &e = list.at(index);
 
-    // 내장 모형으로 돌고 있으면 바꿀 주소가 없다. 그때는 목록이 설정을
-    // 바꿔 둘 뿐이고, 다음 실행에서 그 로봇으로 뜬다.
-    if (auto *bridge = qobject_cast<hmi::net::BridgeClient *>(robot_))
+    if (auto *bridge = qobject_cast<hmi::net::BridgeClient *>(robot_)) {
         bridge->setEndpoint(e.host, quint16(e.port));
+        bridge->connectToBridge();
+    }
 
     saidId_.clear();
     saidName_.clear();
@@ -1387,7 +1435,7 @@ void MainWindow::startSession()
                               .arg(mapData_.info.extentXMeters(), 0, 'f', 0)
                               .arg(mapData_.info.extentYMeters(), 0, 'f', 0));
     } else {
-        map_->setMapLabel(QStringLiteral("지도 수신 대기"), QString());
+        map_->setMapLabel(QStringLiteral("지도 없음 — 로봇을 연결하십시오"), QString());
     }
 
     const auto wps = robot_->waypoints();
@@ -1422,8 +1470,7 @@ void MainWindow::startSession()
         log_->note(diag::Severity::Info,
                    QStringLiteral("로봇 미연결 — 내장 시뮬레이터로 구동 중"));
     } else {
-        log_->note(diag::Severity::Info,
-                   QStringLiteral("로봇 연결 시도 — %1").arg(robot_->describe()));
+        log_->note(diag::Severity::Info, QStringLiteral("로봇을 선택해 연결하십시오"));
     }
 
     // 텔레메트리 주기는 링크가 정한다. 창이 자체 타이머를 돌리면

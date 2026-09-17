@@ -33,7 +33,13 @@ def _resolve_map(context, *_args, **_kwargs):
     elif os.path.isabs(raw):
         resolved = Path(raw)
     else:
-        resolved = maps_dir / (raw if raw.endswith(".yaml") else raw + ".yaml")
+        # 이전 평면 구조(`maps/<name>.yaml`)와 지도별 디렉터리 구조
+        # (`maps/<map_id>/map.yaml`)를 함께 받는다. 후자는 지도 이미지와
+        # 점검 지점·고정 위치 같은 지도 전용 상태를 한 단위로 보관하기 위한
+        # 구조다. `map:=depot-a`처럼 ID만 넘기면 된다.
+        flat = maps_dir / (raw if raw.endswith(".yaml") else raw + ".yaml")
+        packaged = maps_dir / raw / "map.yaml"
+        resolved = flat if flat.is_file() else packaged
 
     if not resolved.is_file():
         raise RuntimeError(f"그런 지도가 없다: {resolved}")

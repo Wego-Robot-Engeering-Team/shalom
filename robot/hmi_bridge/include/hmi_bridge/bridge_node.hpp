@@ -29,6 +29,7 @@
 #include <geometry_msgs/msg/twist.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <nav2_msgs/action/navigate_to_pose.hpp>
+#include <nav2_msgs/srv/load_map.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <nav_msgs/msg/odometry.hpp>
@@ -176,6 +177,10 @@ private:
     void publishWaypoints();
     void publishLocations();
     void publishMarkers();
+    void publishMapCatalog();
+    void publishActiveMap();
+    bool loadMapBundle(const std::string &map_id, std::string *error = nullptr);
+    bool saveMapState(const char *filename, const json &state);
 
     // ---- 점검 순회 -----------------------------------------------------
     //
@@ -317,6 +322,7 @@ private:
 
     /// 관제 화면에 뜨는 지도 이름. 저장된 지도와 구분되도록 이름을 붙인다.
     std::string mapId_ = "live";
+    std::string mapsDir_ = "/var/lib/shalom/maps";
 
     json waypoints_ = json::array();
     json markers_ = json::array();
@@ -402,6 +408,7 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr armCmdPub_;
 
     rclcpp_action::Client<NavigateToPose>::SharedPtr navClient_;
+    rclcpp::Client<nav2_msgs::srv::LoadMap>::SharedPtr mapLoadClient_;
 
     rclcpp::Subscription<sensor_msgs::msg::BatteryState>::SharedPtr batterySub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr jointSub_;

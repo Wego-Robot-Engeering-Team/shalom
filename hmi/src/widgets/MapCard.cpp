@@ -49,6 +49,12 @@ MapCard::MapCard(QWidget *parent) : QWidget(parent)
     goal_->setToolTip(QStringLiteral("켠 뒤 지도를 클릭해 목표를 지정합니다"));
     tb->addWidget(goal_);
 
+    mapButton_ = new QPushButton(QStringLiteral("지도 선택"));
+    mapButton_->setProperty("size", "sm");
+    mapButton_->setEnabled(false);
+    mapButton_->setToolTip(QStringLiteral("연결된 로봇의 지도를 선택합니다"));
+    tb->addWidget(mapButton_);
+
     // "전체 보기" 버튼은 뺐다. 확대를 되돌리는 일이 툴바 한 자리를 늘 차지할
     // 만큼 잦지 않다. 지도를 두 번 누르면 같은 일을 한다.
     tb->addSpacing(metrics::s3);

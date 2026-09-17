@@ -95,6 +95,7 @@ protected:
     bool eventFilter(QObject *obj, QEvent *ev) override;
 
     void showRobotPicker();
+    void showMapPicker();
     void setLinkTone(const QString &tone);
     void refreshRobotButton();
     void selectRobot(int index);
@@ -239,6 +240,7 @@ private:
     /// deliberately does not know which: everything goes through the interface.
     hmi::robot::RobotLink *robot_ = nullptr;
     hmi::robot::MapData mapData_;
+    QList<QVariantMap> maps_;
 };
 
 }  // namespace hmi::ui
