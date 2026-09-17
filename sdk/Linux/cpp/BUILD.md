@@ -22,22 +22,29 @@ cmake --build build
 
 ```bash
 ./build/shalom_monitor 192.168.210.88
-./build/shalom_api_example 192.168.210.88   # header API 조회 예제
+./build/shalom_api_example 192.168.210.88   # SDK API 조회 예제
 ```
 
 ## 내 프로그램에 붙이기
 
-헤더 전용이라 include 경로만 잡으면 된다.
+릴리스에서는 `include/`와 `lib/libshalom_sdk.so`만 고객에게 제공한다. 소스
+`src/`는 배포물에 넣지 않는다.
 
 ```cmake
-add_subdirectory(path/to/shalom-robot-sdk/Linux/cpp)
+find_package(ShalomSdk CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE shalom::sdk)
 ```
 
-CMake 를 쓰지 않는다면 `-I` 하나로 끝난다.
+SDK가 시스템 경로 밖에 있으면 고객 application을 구성할 때 설치 prefix를 준다.
 
 ```bash
-g++ -std=c++17 -I shalom-robot-sdk/Linux/cpp/include my_app.cpp -o my_app
+cmake -S . -B build -DCMAKE_PREFIX_PATH=/opt/shalom-sdk
+```
+
+개발·릴리스 패키지 설치는 다음과 같다.
+
+```bash
+cmake --install build --prefix "$PWD/shalom-sdk-linux"
 ```
 
 ## 알아 둘 것

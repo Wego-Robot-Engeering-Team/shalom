@@ -2,41 +2,54 @@
 
 #pragma once
 
-// Stable public facade.  Domain implementations live in shalom/api/; this
-// class deliberately keeps customer call sites flat and language-neutral.
+#include "shalom/client.hpp"
+#include "shalom/export.hpp"
+#include "shalom/types.hpp"
 
-#include "shalom/api/configuration.hpp"
-#include "shalom/api/inspection.hpp"
-#include "shalom/api/mission.hpp"
-#include "shalom/api/navigation.hpp"
-#include "shalom/api/safety.hpp"
-
+#include <optional>
 #include <string>
+#include <vector>
 
 namespace shalom {
 
-/// Public robot command API. It owns no socket: keep Client::run() active for
-/// heartbeat, responses and state events. A returned request id confirms only
-/// bridge acceptance; observe state frames for the physical result.
-class RobotApi : public api::SafetyApi,
-                 public api::NavigationApi,
-                 public api::MissionApi,
-                 public api::ConfigurationApi,
-                 public api::InspectionApi {
+/// Stable public command facade. Implementation is grouped by domain in the
+/// SDK binary; customers use this single, flat interface.
+class SHALOM_SDK_API RobotApi {
 public:
-    explicit RobotApi(Client &client)
-        : SafetyApi(client), NavigationApi(client), MissionApi(client),
-          ConfigurationApi(client), InspectionApi(client), client_(client)
-    {
-    }
+    explicit RobotApi(Client &client);
 
-    /// Advanced configuration and commissioning channels use this escape
-    /// hatch. The payload must be a JSON object specified in command.md.
+    std::string emergencyStop(std::string *err = nullptr);
+    std::string releaseEmergencyStop(std::string *err = nullptr);
+    std::string setMode(const std::string &mode, std::string *err = nullptr);
+
+    std::string navigateTo(const Pose2D &goal, std::string *err = nullptr);
+    std::string cancelNavigation(std::string *err = nullptr);
+    bool publishVelocity(const Twist2D &velocity, std::string *err = nullptr);
+
+    std::string startMission(std::string *err = nullptr);
+    std::string pauseMission(std::string *err = nullptr);
+    std::string resumeMission(std::string *err = nullptr);
+    std::string stopMission(std::string *err = nullptr);
+
+    std::string listMaps(std::string *err = nullptr);
+    std::string selectMap(const std::string &mapId, std::string *err = nullptr);
+    std::string setPowerPolicy(int returnAt, int departAt, std::string *err = nullptr);
+    std::string setWaypoints(const std::vector<Waypoint> &points, std::string *err = nullptr);
+    std::string setLocations(const std::vector<Location> &locations, std::string *err = nullptr);
+    std::string setMarkers(const std::vector<Marker> &markers, std::string *err = nullptr);
+
+    std::string triggerCapture(const std::string &vehicleNumber = "UNKNOWN",
+                               const std::string &carNumber = "00",
+                               const std::string &pointId = "MANUAL",
+                               std::optional<int> tagId = std::nullopt,
+                               std::string *err = nullptr);
+    std::string armPreset(const std::string &name, std::string *err = nullptr);
+    std::string armJointGoal(const std::vector<double> &positions, std::string *err = nullptr);
+    std::string armStop(std::string *err = nullptr);
+
+    /// Escape hatch for documented advanced channels only.
     std::string request(const std::string &channel, const std::string &payloadJson = "{}",
-                        std::string *err = nullptr)
-    {
-        return client_.sendRequest(channel, payloadJson, err);
-    }
+                        std::string *err = nullptr);
 
 private:
     Client &client_;

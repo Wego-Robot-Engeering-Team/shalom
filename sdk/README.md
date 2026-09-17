@@ -11,7 +11,9 @@ HMI와 같은 TCP `9090` API를 사용하며, 별도의 숨은 제어 경로는 
 
 ```bash
 # Linux C++
-cd <SDK_ROOT>/Linux && ./build.sh
+cd <SDK_ROOT>/Linux
+cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
 ./build/shalom_monitor <robot-host>
 
 # Linux Python
@@ -27,8 +29,9 @@ python3 examples/monitor.py <robot-host>
 ## 고객에게 전달하는 공개 경계
 
 ```text
-<OS>/cpp/include/       C++17 public headers
-<OS>/cpp/examples/      header 사용 예제
+<OS>/cpp/include/       C++17 public headers (declarations only)
+<OS>/cpp/lib/           delivered shared library (.so/.dylib/.dll + import library)
+<OS>/cpp/examples/      shared-library link example
 <OS>/python/            Python 3.9+ package와 예제
 docs/                   protocol 계약·보안·오류 기준
 LICENSE, NOTICE         사용권과 고지
@@ -43,9 +46,9 @@ RobotApi                 명령별 facade (safety/navigation/mission/configurati
 
 일반 C++ 연동은 `<shalom/api.hpp>`를 포함한다. Python은 `Client`를 만들고
 `RobotApi(client)`로 명령을 보낸다. 두 언어 모두 facade 내부를 safety,
-navigation, mission, configuration, inspection 도메인으로 나눈다. `socket.hpp`는
-header-only 구현 세부이므로 고객 application이 직접 사용할 API가 아니다. 모든
-sample은 read-only 또는 조회 명령만 사용한다.
+navigation, mission, configuration, inspection 도메인으로 나눈다. TCP, framing,
+heartbeat와 명령 구현은 C++ shared library 안에 있으며 공개 헤더에는 포함되지
+않는다. 모든 sample은 read-only 또는 조회 명령만 사용한다.
 
 ## 지원 범위와 제약
 

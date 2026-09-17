@@ -27,20 +27,28 @@ build\Release\shalom_api_example.exe 192.168.210.88
 ## 내 프로그램에 붙이기
 
 ```cmake
-add_subdirectory(path/to/shalom-robot-sdk/Windows/cpp)
+find_package(ShalomSdk CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE shalom::sdk)
 ```
 
-`shalom::sdk` 가 `ws2_32` 를 함께 걸어 주므로 따로 적지 않아도 된다.
+SDK가 시스템 경로 밖에 있으면 고객 application을 구성할 때 설치 prefix를 준다.
 
-CMake 를 쓰지 않는다면 포함 디렉터리에 `shalom-robot-sdk\Windows\cpp\include` 를 넣고 `ws2_32.lib` 를
-링크한다.
+```bat
+cmake -S . -B build -DCMAKE_PREFIX_PATH=C:\ShalomSDK
+```
+
+`shalom::sdk` 가 DLL import library와 `ws2_32` 의존성을 함께 제공하므로 따로
+링크하지 않는다. 릴리스에서는 `include/`, `bin\shalom_sdk.dll`,
+`lib\shalom_sdk.lib`만 고객에게 제공하고 `src\`는 넣지 않는다.
+
+```bat
+cmake --install build --config Release --prefix shalom-sdk-windows
+```
 
 ## 알아 둘 것
 
-**Winsock 초기화** — `WSAStartup` 은 `TcpClient` 가 처음 연결할 때 한 번
-부른다. 직접 소켓을 여는 코드가 따로 있다면 `shalom::SocketLibrary::ensureStarted()`
-를 먼저 부른다.
+**Winsock 초기화** — SDK `Client`가 연결할 때 내부적으로 한 번 처리한다. 고객
+application은 Winsock 초기화를 직접 호출할 필요가 없다.
 
 **한글 출력** — 콘솔 예제의 한글이 깨지면 코드 페이지를 바꾼다.
 

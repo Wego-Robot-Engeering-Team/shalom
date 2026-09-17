@@ -1,7 +1,7 @@
 # 고객 연동 API v1
 
 SDK `0.2.0`은 HMI와 동일한 TCP `9090`/protocol `v:1` 브릿지에 연결한다.
-별도의 숨은 제어 API는 없다. C++17 header API와 Python 3.9+ package가 같은
+별도의 숨은 제어 API는 없다. C++17 shared-library API와 Python 3.9+ package가 같은
 프레이밍, heartbeat, robot-id 검증, request/response 규칙을 구현한다.
 
 메시지 형식은 [transport.md](transport.md), 상태는 [state.md](state.md), 명령은
@@ -33,8 +33,8 @@ SDK `0.2.0`은 HMI와 동일한 TCP `9090`/protocol `v:1` 브릿지에 연결한
 ```
 
 빌드된 `shalom_api_example`은 `cmd/maps/list`만 보내는 안전한 요청·응답 예제다.
-이 예제는 `cpp/examples/api_example.cpp`에 있으며, header를 고객 프로젝트에
-직접 포함하는 방식과 동일하게 빌드된다.
+이 예제는 `cpp/examples/api_example.cpp`에 있으며, 제공된 `shalom::sdk` shared
+library를 고객 프로젝트에 링크하는 방식과 동일하게 빌드된다.
 
 `shalom::Client`는 연결·5 Hz heartbeat·프레임 수신을 맡고,
 `shalom::RobotApi`는 명령별 편의 함수를 제공한다. C++ API의 명령은 **비동기**다.

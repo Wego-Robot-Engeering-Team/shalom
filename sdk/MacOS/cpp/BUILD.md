@@ -19,7 +19,7 @@ cmake --build build
 
 ```bash
 ./build/shalom_monitor 192.168.210.88
-./build/shalom_api_example 192.168.210.88   # header API 조회 예제
+./build/shalom_api_example 192.168.210.88   # SDK API 조회 예제
 ```
 
 Xcode 프로젝트로 열려면 생성기를 바꾼다.
@@ -32,12 +32,21 @@ open build-xcode/shalom_sdk.xcodeproj
 ## 내 프로그램에 붙이기
 
 ```cmake
-add_subdirectory(path/to/shalom-robot-sdk/MacOS/cpp)
+find_package(ShalomSdk CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE shalom::sdk)
 ```
 
+SDK가 시스템 경로 밖에 있으면 고객 application을 구성할 때 설치 prefix를 준다.
+
 ```bash
-clang++ -std=c++17 -I shalom-robot-sdk/MacOS/cpp/include my_app.cpp -o my_app
+cmake -S . -B build -DCMAKE_PREFIX_PATH=/Applications/ShalomSDK
+```
+
+릴리스에서는 `include/`와 `lib/libshalom_sdk.dylib`만 고객에게 제공한다. 소스
+`src/`는 배포물에 넣지 않는다. 패키지는 다음으로 설치한다.
+
+```bash
+cmake --install build --prefix "$PWD/shalom-sdk-macos"
 ```
 
 ## 알아 둘 것
