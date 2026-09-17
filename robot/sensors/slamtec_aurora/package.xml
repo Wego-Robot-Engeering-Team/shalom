@@ -4,7 +4,7 @@
   <version>0.1.0</version>
   <description>Robot-specific SLAMTEC Aurora S integration and configuration.</description>
   <maintainer email="hw.jo@wego-robotics.com">juno</maintainer>
-  <license>Apache-2.0</license>
+  <license>Proprietary</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <exec_depend>launch</exec_depend>
