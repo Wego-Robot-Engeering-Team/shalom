@@ -53,9 +53,9 @@
 | `POWER_` | 7000 | 전원 |
 | `AUDIT_` | 8000 | 조작 이력 |
 
-전체 목록은 [`hmi/resources/error_codes.json`](../../hmi/resources/error_codes.json)
-에 있다. 원인과 조치까지 포함한 단일 출처이며, 이 파일과 코드가 어긋나면
-테스트가 잡는다.
+전체 목록은 이 SDK에 포함한 [`error_codes.json`](error_codes.json)에 있다. 원인과
+조치까지 포함한 고객 배포용 catalog이며, application은 `code`를 key로 삼아
+표시한다. `msg`는 사람이 읽는 보조 문장일 뿐 파싱 대상이 아니다.
 
 각 항목이 갖는 필드다.
 

@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shalom-robot-sdk"
+version = "0.2.0"
+description = "Customer Python API for the Shalom robot bridge protocol"
+requires-python = ">=3.9"
+license = {text = "Proprietary"}
+authors = [{name = "Wego Robotics"}]
+
+[tool.setuptools]
+packages = ["shalom_sdk"]

@@ -1,114 +1,70 @@
 # Shalom Robot SDK
 
-Shalom 로봇을 외부 프로그램에서 **관측·연동**하기 위한 고객 개발 키트다.
-관제 프로그램(HMI)도 같은 브릿지 규격을 사용하며, 별도의 숨은 제어 경로는 없다.
+Shalom 로봇 브릿지(protocol `v:1`)를 외부 application에서 연동하는 고객 SDK다.
+HMI와 같은 TCP `9090` API를 사용하며, 별도의 숨은 제어 경로는 없다.
 
-현재 버전은 `0.1.0`이며, 통신 규격 버전은 봉투의 `v: 1`이다.
+현재 SDK 버전은 [`VERSION`](VERSION)의 `0.2.0`이다.
 
-## 구조
+## 시작
 
-```text
-shalom-robot-sdk/
-├── README.md    시작 안내
-├── VERSION      SDK 배포 버전
-├── LICENSE      Wego Proprietary SDK License
-├── NOTICE       포함된 제3자 고지
-├── Linux/     Linux 용 SDK
-├── MacOS/     macOS 용 SDK
-├── Windows/   Windows 용 SDK
-└── docs/      통신 규격
-```
-
-고객에게는 이 디렉터리 전체를 전달한다. 플랫폼 폴더에는 헤더·예제·빌드 파일이
-있고, `docs/`에는 모든 플랫폼에 공통인 프로토콜 명세가 있다. 고객은 자신의 OS
-폴더만 빌드하면 된다.
-
-```text
-Linux/
-├── include/inspection/framing.hpp   프레이밍
-├── include/shalom/socket.hpp        소켓
-├── include/shalom/client.hpp        프로토콜 클라이언트
-├── monitor.cpp                      예제
-├── CMakeLists.txt
-├── build.sh
-└── BUILD.md                         빌드 방법과 플랫폼별 주의
-```
-
-세 폴더의 `include/` 내용은 같다. 소켓 차이는 `socket.hpp` 안의 분기로
-끝나며, 플랫폼별로 다른 것은 빌드 설정뿐이다.
-
-## 빠른 시작
+사용 OS의 `cpp/` 또는 `python/`만 선택한다.
 
 ```bash
-cd Linux && ./build.sh
-./build/shalom_monitor 192.168.210.88
+# Linux C++
+cd <SDK_ROOT>/Linux && ./build.sh
+./build/shalom_monitor <robot-host>
+
+# Linux Python
+cd <SDK_ROOT>/Linux/python
+python3 -m pip install .
+python3 examples/monitor.py <robot-host>
 ```
 
-Windows 는 개발자 명령 프롬프트에서 `Windows\build.bat` 를 실행한다.
+- C++: 각 OS의 [`cpp/BUILD.md`](Linux/cpp/BUILD.md)
+- Python: 각 OS의 [`python/README.md`](Linux/python/README.md)
+- Windows: Developer Command Prompt에서 `Windows\build.bat`
 
-## 지원 범위
-
-| 기능 | v0.1.0 상태 |
-| --- | --- |
-| 상태 수신·이벤트 수신 | 지원 |
-| 지도·점검 지점 조회 | 지원 |
-| 주행·미션·비상정지 명령 | 브릿지 규격에 정의됨. 운영 권한을 별도 승인한 고객만 사용 |
-| 팔 preset / joint goal | **커미셔닝 전용**. 실제 팔 제어 경로가 납품 구성에서 승인되기 전에는 사용 금지 |
-| `cmd/arm/ee_goal` | 미구현 |
-
-샘플은 의도적으로 읽기 전용이다. 복사한 예제 하나로 로봇을 움직이게 하지 않는다.
-
-## 연결 구조
+## 고객에게 전달하는 공개 경계
 
 ```text
-클라이언트                          로봇 브릿지
-    |  TCP 9090 연결                     |
-    |----------------------------------->|
-    |  hb (5 Hz, 양방향)                 |
-    |<---------------------------------->|
-    |  pub  state/*  (로봇 → 클라이언트) |
-    |<-----------------------------------|
-    |  req  cmd/*    (클라이언트 → 로봇) |
-    |----------------------------------->|
-    |  res                               |
-    |<-----------------------------------|
+<OS>/cpp/include/       C++17 public headers
+<OS>/cpp/examples/      header 사용 예제
+<OS>/python/            Python 3.9+ package와 예제
+docs/                   protocol 계약·보안·오류 기준
+LICENSE, NOTICE         사용권과 고지
 ```
 
-- **TCP 단일 연결.** 상태 구독과 명령이 같은 소켓을 쓴다.
-- **한 번에 한 클라이언트.** 브릿지는 두 번째 연결을 즉시 닫는다. 따라서 현재
-  버전에서는 HMI와 고객 프로그램을 동시에 같은 로봇에 연결할 수 없다. 고객
-  프로그램은 HMI를 대체해서 사용하며, 동시 관측·명령 권한 분리는 후속 브릿지
-  기능(다중 구독과 lease)이 생긴 뒤에 지원한다.
-- **UDP 는 쓰지 않는다.** 이유는 [docs/transport.md](docs/transport.md) 에 있다.
+```text
+framing                 프레임 byte layout
+socket / Client          TCP, heartbeat, raw request/response
+types / errors           공개 값과 오류
+RobotApi                 명령별 facade
+```
 
-## 규격
+일반 C++ 연동은 `<shalom/api.hpp>`를 포함한다. Python은 `Client`를 만들고
+`RobotApi(client)`로 명령을 보낸다. `socket.hpp`는 header-only 구현 세부이므로
+고객 application이 직접 사용할 API가 아니다. 모든 sample은 read-only 또는 조회
+명령만 사용한다.
 
-| 문서 | 내용 |
+## 지원 범위와 제약
+
+- C++/Python은 같은 protocol channel과 명령 의미를 제공한다.
+- 상태·이벤트의 소유자와 모든 안전 판단은 로봇이다.
+- `cmd/arm/ee_goal`은 아직 구현되지 않았다. 나머지 arm API는 커미셔닝 전용이다.
+- 현재 브릿지는 client 한 대만 허용한다. HMI와 고객 application을 동시에 연결할 수 없다.
+- TCP `9090`은 TLS·사용자 인증이 없는 전용 제어망 API다. 공개망에 노출하면 안 된다.
+
+## 문서
+
+| 문서 | 필요한 때 |
 | --- | --- |
-| [transport.md](docs/transport.md) | 프레이밍, 봉투, 연결 수명, 하트비트 |
-| [state.md](docs/state.md) | 상태 채널 — 로봇이 발행하는 것 |
-| [command.md](docs/command.md) | 명령 채널 — 외부에서 보내는 것 |
-| [errors.md](docs/errors.md) | 오류 코드와 처리 방침 |
-| [CHANGELOG.md](docs/CHANGELOG.md) | 규격 변경 이력 |
-| [API.md](docs/API.md) | 고객 연동 시 지켜야 할 사용 범위 |
+| [API](docs/API.md) | C++/Python API와 command parity 확인 |
+| [Transport](docs/transport.md) | 연결, heartbeat, framing 구현 |
+| [State](docs/state.md) | 상태·이벤트 payload 표시 |
+| [Command](docs/command.md) | 승인된 명령 payload와 결과 처리 |
+| [Errors](docs/errors.md) · [catalog](docs/error_codes.json) | 오류 코드와 운용 조치 표시 |
+| [Security](docs/security.md) | 네트워크·권한·배포 기준 |
+| [Changelog](docs/CHANGELOG.md) | SDK/protocol 호환성 확인 |
 
-## 설계 원칙
-
-**판정은 로봇이 한다.** 속도 한계, 촬영 가능 여부, E-Stop, 미션 상태 전이는
-전부 로봇이 정한다. 클라이언트의 제한은 편의일 뿐 안전장치가 아니다 — 화면에만
-있는 제한은 손으로 짠 클라이언트가 그냥 통과한다.
-
-**상태는 로봇이 소유한다.** 클라이언트는 받아서 보여 줄 뿐 스스로 정하지
-않는다. 미션 상태를 클라이언트가 추측하면 두 쪽의 화면이 갈린다.
-
-**모르는 것은 무시한다.** 모르는 채널은 양쪽 모두 조용히 버린다. 채널 추가는
-호환되는 변경이다. 다만 모르는 *열거값* 은 무시하지 않는다 — 그 처리는 각 채널
-문서에 적었다.
-
-## 버전
-
-현재 `v1`. 봉투의 `v` 필드로 확인한다. 버전이 다르면 브릿지가 `E_VERSION` 을
-응답하고 연결을 끊는다. 기능을 낮춰 이어 붙이지 않는다 — 규격이 어긋난 채 양쪽이
-각자 정상이라고 믿으며 도는 것이 가장 위험한 고장 형태다.
-
-기존 필드의 의미가 바뀌면 버전을 올린다. 채널·필드 추가는 올리지 않는다.
+릴리스 파일을 수정하거나 임의로 섞지 말고, `VERSION`과 robot runtime의 protocol
+version을 함께 확인한다.
