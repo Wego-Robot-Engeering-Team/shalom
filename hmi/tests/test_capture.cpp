@@ -40,7 +40,7 @@ private slots:
         const auto r = LocationPanel::checkCapture(healthy(), QStringLiteral("inspection"));
         QVERIFY(r.allowed);
         QVERIFY(!r.degraded);
-        QCOMPARE(r.code, QStringLiteral("LOC_CAPTURED"));
+        QCOMPARE(r.code, QStringLiteral("SETUP_LOC_CAPTURED"));
     }
 
     /// 이동 중 좌표는 뭉개진다. 10 Hz 갱신에 0.2 m/s 면 프레임 사이 2 cm 다.
@@ -50,7 +50,7 @@ private slots:
         s.speed = 0.2;
         const auto r = LocationPanel::checkCapture(s, QStringLiteral("inspection"));
         QVERIFY(!r.allowed);
-        QCOMPARE(r.code, QStringLiteral("LOC_CAPTURE_BLOCKED"));
+        QCOMPARE(r.code, QStringLiteral("SETUP_LOC_BLOCKED"));
         // 문안은 다듬어질 수 있으므로 코드로 계약을 고정하고, 사유에는
         // 조작자가 읽고 원인을 알 만한 낱말이 들어 있는지만 본다.
         QVERIFY2(r.reason.contains(QStringLiteral("움직")), "사유에 원인이 드러나야 한다");
@@ -71,7 +71,7 @@ private slots:
         s.poseFresh = false;
         const auto r = LocationPanel::checkCapture(s, QStringLiteral("inspection"));
         QVERIFY(!r.allowed);
-        QCOMPARE(r.code, QStringLiteral("LOC_CAPTURE_BLOCKED"));
+        QCOMPARE(r.code, QStringLiteral("SETUP_LOC_BLOCKED"));
     }
 
     /// 정지해 있어도 위치 정보가 오래되었으면 막아야 한다.
@@ -93,7 +93,7 @@ private slots:
         const auto r = LocationPanel::checkCapture(s, QStringLiteral("inspection"));
         QVERIFY(r.allowed);
         QVERIFY(r.degraded);
-        QCOMPARE(r.code, QStringLiteral("LOC_CAPTURE_DEGRADED"));
+        QCOMPARE(r.code, QStringLiteral("SETUP_LOC_DEGRADED"));
     }
 
     /// 점검포인트는 마커 연결이 없으면 2차 정밀 보정을 쓸 수 없다.
@@ -104,7 +104,7 @@ private slots:
         const auto r = LocationPanel::checkCapture(s, QStringLiteral("inspection"));
         QVERIFY(r.allowed);
         QVERIFY(r.degraded);
-        QCOMPARE(r.code, QStringLiteral("LOC_CAPTURE_DEGRADED"));
+        QCOMPARE(r.code, QStringLiteral("SETUP_LOC_DEGRADED"));
         QVERIFY2(r.reason.contains(QStringLiteral("마커")), "사유에 원인이 드러나야 한다");
     }
 

@@ -295,8 +295,8 @@ void BridgeClient::onReadyRead()
             // 스트림 정합이 깨졌다. 재동기화를 시도하지 않고 끊는다 (§1.3-3).
             ++telemetry_.link.decodeErrors;
             emit robotEvent(status == FrameDecoder::Status::BadMagic
-                                ? QStringLiteral("FRAME_BAD_MAGIC")
-                                : QStringLiteral("FRAME_TOO_LARGE"),
+                                ? QStringLiteral("LINK_FRAME_CORRUPT")
+                                : QStringLiteral("LINK_FRAME_TOO_LARGE"),
                             {{"peer", describe()}});
             socket_->abort();
             return;
@@ -520,7 +520,7 @@ void BridgeClient::checkTimeouts()
         telemetry_.poseFresh = false;
 
     if (isConnected() && now - lastHeartbeatMs_ > kLinkSilentMs) {
-        emit robotEvent(QStringLiteral("HEARTBEAT_TIMEOUT"),
+        emit robotEvent(QStringLiteral("LINK_HEARTBEAT_TIMEOUT"),
                         {{"silent_ms", now - lastHeartbeatMs_}});
         lastHeartbeatMs_ = now;   // 매 주기마다 반복해서 쏟아내지 않는다
     }

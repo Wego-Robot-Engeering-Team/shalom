@@ -101,8 +101,8 @@ private slots:
     /// 이름이 바뀌면 보고서 생성이 조용히 깨지므로 고정한다.
     void missionTimingCodesExist()
     {
-        QVERIFY(CodeCatalog::instance().find(QStringLiteral("CAR_START")) != nullptr);
-        QVERIFY(CodeCatalog::instance().find(QStringLiteral("CAR_COMPLETE")) != nullptr);
+        QVERIFY(CodeCatalog::instance().find(QStringLiteral("MISSION_CAR_START")) != nullptr);
+        QVERIFY(CodeCatalog::instance().find(QStringLiteral("MISSION_CAR_COMPLETE")) != nullptr);
     }
 };
 

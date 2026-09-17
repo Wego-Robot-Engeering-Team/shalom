@@ -33,12 +33,12 @@ CaptureCheck LocationPanel::checkCapture(const RobotSnapshot &snap, const QStrin
     // ---- 차단 조건 ----
     if (!snap.poseFresh) {
         r.reason = QStringLiteral("위치 정보가 오래되었습니다. 로봇 연결을 확인하십시오.");
-        r.code = QStringLiteral("LOC_CAPTURE_BLOCKED");
+        r.code = QStringLiteral("SETUP_LOC_BLOCKED");
         return r;
     }
     if (snap.speed > kStationarySpeed) {
         r.reason = QStringLiteral("로봇이 움직이는 중입니다. 멈춘 뒤에 등록할 수 있습니다.");
-        r.code = QStringLiteral("LOC_CAPTURE_BLOCKED");
+        r.code = QStringLiteral("SETUP_LOC_BLOCKED");
         return r;
     }
 
@@ -47,7 +47,7 @@ CaptureCheck LocationPanel::checkCapture(const RobotSnapshot &snap, const QStrin
     if (!snap.localizationOk) {
         r.degraded = true;
         r.reason = QStringLiteral("위치 추정 신뢰도가 낮습니다. 저장된 좌표에 오차가 클 수 있습니다.");
-        r.code = QStringLiteral("LOC_CAPTURE_DEGRADED");
+        r.code = QStringLiteral("SETUP_LOC_DEGRADED");
         return r;
     }
     if (kind == QLatin1String("inspection") && snap.visibleTagId < 0) {
@@ -55,12 +55,12 @@ CaptureCheck LocationPanel::checkCapture(const RobotSnapshot &snap, const QStrin
         r.degraded = true;
         r.reason = QStringLiteral("마커가 보이지 않습니다. 이대로 저장하면 나중에 "
                                   "위치를 정밀하게 맞출 수 없습니다.");
-        r.code = QStringLiteral("LOC_CAPTURE_DEGRADED");
+        r.code = QStringLiteral("SETUP_LOC_DEGRADED");
         return r;
     }
 
     r.reason = QStringLiteral("등록 가능");
-    r.code = QStringLiteral("LOC_CAPTURED");
+    r.code = QStringLiteral("SETUP_LOC_CAPTURED");
     return r;
 }
 

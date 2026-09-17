@@ -651,7 +651,7 @@ void MainWindow::wireMapSignals()
             loc[QStringLiteral("kind")] = kind;
             (kind == QLatin1String("dock") ? dock_ : home_) = loc;
             applyFixedLocations();
-            log_->log(QStringLiteral("LOC_CAPTURED"), QJsonObject::fromVariantMap(loc));
+            log_->log(QStringLiteral("SETUP_LOC_CAPTURED"), QJsonObject::fromVariantMap(loc));
             return;
         }
 
@@ -663,7 +663,7 @@ void MainWindow::wireMapSignals()
         wps << loc;
         waypoints_->setWaypoints(wps);
         map_->view()->setWaypoints(wps);
-        log_->log(QStringLiteral("LOC_CAPTURED"), QJsonObject::fromVariantMap(loc));
+        log_->log(QStringLiteral("SETUP_LOC_CAPTURED"), QJsonObject::fromVariantMap(loc));
     });
 
     connect(map_->legend(), &MapLegend::manageRequested, this,
@@ -1069,8 +1069,8 @@ void MainWindow::captureLocation(const QString &kind)
 
     // 신뢰도가 낮은 채로 저장된 위치는 별도 코드로 남긴다.
     // 나중에 "이 포인트는 어떻게 잡았나"를 로그로 추적할 수 있어야 한다.
-    log_->log(check.degraded ? QStringLiteral("LOC_CAPTURE_DEGRADED")
-                             : QStringLiteral("LOC_CAPTURED"),
+    log_->log(check.degraded ? QStringLiteral("SETUP_LOC_DEGRADED")
+                             : QStringLiteral("SETUP_LOC_CAPTURED"),
               QJsonObject::fromVariantMap(loc));
 }
 
@@ -1090,7 +1090,7 @@ void MainWindow::engageEstop()
     arm_->setControlsEnabled(false);
     autoBtn_->setChecked(false);
     manualBtn_->setChecked(false);
-    logAction(QStringLiteral("ESTOP_ENGAGED"));
+    logAction(QStringLiteral("SAFETY_ESTOP_ENGAGED"));
 }
 
 void MainWindow::releaseEstop()
@@ -1110,7 +1110,7 @@ void MainWindow::releaseEstop()
     robot_->releaseEstop();
     estop_->setEngaged(false);
     alert_->setActive(false);
-    logAction(QStringLiteral("ESTOP_RELEASED"));
+    logAction(QStringLiteral("SAFETY_ESTOP_RELEASED"));
     // 해제 후에는 수동 모드로 떨어뜨린다. 바로 자율로 복귀시키면
     // "명시적 재개" 요건을 UI 가 우회하는 셈이 된다.
     setMode(QStringLiteral("manual"));
@@ -1171,11 +1171,11 @@ void MainWindow::setMode(const QString &mode)
     arm_->setControlsEnabled(true);
 
     if (isAuto) {
-        log_->log(QStringLiteral("MODE_AUTO"));
+        log_->log(QStringLiteral("SAFETY_MODE_AUTO"));
     } else {
         // 수동 전환 시 자율주행 즉시 중단 (지시서 2.2.5 수동 조작 우선권).
         // 중단은 시뮬레이터가 수행하고 missionStateChanged 로 통보한다.
-        log_->log(QStringLiteral("MODE_MANUAL"));
+        log_->log(QStringLiteral("SAFETY_MODE_MANUAL"));
         // 수동 조작을 하려면 조작계가 보여야 한다.
         nav_->setCurrent(NavItem::Drive);
         navigate(NavItem::Drive);

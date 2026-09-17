@@ -73,6 +73,22 @@ constexpr auto kCmdArmJointGoal = "cmd/arm/joint_goal";
 constexpr auto kCmdArmEeGoal = "cmd/arm/ee_goal";
 constexpr auto kCmdArmStop = "cmd/arm/stop";
 
+/// 주행 결과를 카탈로그에 등록된 코드로 옮긴다.
+///
+/// 예전에는 "NAV_" + navStatus_ 로 문자열을 조립했다. 그러면 카탈로그에
+/// 없는 코드가 런타임에 생기고, 관제는 그 코드를 설명하지 못한 채 원문만
+/// 띄운다. 조작자에게는 원인도 조치도 없는 줄 하나가 남을 뿐이다.
+const char *navResultCode(const std::string &status)
+{
+    if (status == "succeeded")
+        return "MISSION_WAYPOINT_REACHED";
+    if (status == "canceled")
+        return "NAV_GOAL_CANCELED";
+    if (status == "rejected")
+        return "NAV_GOAL_REJECTED";
+    return "NAV_GOAL_FAILED";
+}
+
 /// FR3 joint names, in the order the arm reports them.
 const std::vector<std::string> kArmJointNames{
     "fr3_shoulder", "fr3_upperarm", "fr3_forearm",
@@ -295,7 +311,7 @@ void BridgeNode::pollLink()
                      events.protocolErrorDetail.c_str());
         // 이미 끊긴 뒤라 이 이벤트는 다음 연결에서야 전달된다. 그래도 보내는
         // 이유는, 재연결한 관제가 직전에 무슨 일이 있었는지 알아야 하기 때문이다.
-        sendEnvelope(makeEvent(kChLog, json{{"code", "FRAME_BAD_MAGIC"},
+        sendEnvelope(makeEvent(kChLog, json{{"code", "LINK_FRAME_CORRUPT"},
                                             {"level", "error"},
                                             {"msg", events.protocolErrorDetail}}));
     }
@@ -1157,7 +1173,7 @@ void BridgeNode::tickMission()
     ++missionIndex_;
     if (missionIndex_ >= waypoints_.size()) {
         dispatchMission(MissionEvent::kMissionComplete, "모든 지점 완료");
-        sendEnvelope(makeEvent(kChLog, json{{"code", "MISSION_DONE"}}));
+        sendEnvelope(makeEvent(kChLog, json{{"code", "MISSION_COMPLETE"}}));
     } else {
         publishMission();
     }
@@ -1335,7 +1351,7 @@ bool BridgeNode::sendPoseGoal(const json &wp)
         navGoal_.reset();
         navDistance_ = 0.0;
         navEta_ = nullptr;
-        sendEnvelope(makeEvent(kChLog, json{{"code", "NAV_" + navStatus_},
+        sendEnvelope(makeEvent(kChLog, json{{"code", navResultCode(navStatus_)},
                                             {"goal", navGoalPoint_}}));
         // 결과는 여기서 기록만 한다. 다음 tick 이 읽어 BT 에 돌려준다 —
         // 콜백 안에서 순회를 진행시키면 상태 변경이 두 곳에서 일어난다.
@@ -1619,7 +1635,7 @@ void BridgeNode::startNavigation(const Envelope &request)
         // 목표가 끝났다는 사실은 이벤트로도 한 번 보낸다. state/nav 는 손실을
         // 허용하는 스트림이라, 마지막 상태 한 프레임이 떨어지면 관제 화면에
         // 주행이 영영 끝나지 않은 것처럼 남는다.
-        sendEnvelope(makeEvent(kChLog, json{{"code", "NAV_" + navStatus_},
+        sendEnvelope(makeEvent(kChLog, json{{"code", navResultCode(navStatus_)},
                                             {"goal", navGoalPoint_}}));
     };
 

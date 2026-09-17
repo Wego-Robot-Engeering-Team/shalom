@@ -465,7 +465,7 @@ private slots:
         QVERIFY(waitFor([this] { return !client_->isConnected(); }));
         bool sawFrameError = false;
         for (const auto &sig : events)
-            if (sig.at(0).toString() == QLatin1String("FRAME_BAD_MAGIC"))
+            if (sig.at(0).toString() == QLatin1String("LINK_FRAME_CORRUPT"))
                 sawFrameError = true;
         QVERIFY2(sawFrameError, "정합 손상이 코드로 보고되어야 한다");
     }

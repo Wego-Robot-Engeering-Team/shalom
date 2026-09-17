@@ -289,10 +289,10 @@ private slots:
         for (const auto &sig : spy) {
             const QString code = sig.at(0).toString();
             const int car = sig.at(1).toMap().value(QStringLiteral("car")).toInt();
-            if (code == QLatin1String("CAR_START")) {
+            if (code == QLatin1String("MISSION_CAR_START")) {
                 ++starts;
                 started.insert(car);
-            } else if (code == QLatin1String("CAR_COMPLETE")) {
+            } else if (code == QLatin1String("MISSION_CAR_COMPLETE")) {
                 ++completes;
                 completed.insert(car);
             }
