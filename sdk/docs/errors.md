@@ -62,14 +62,13 @@
 | 필드 | 뜻 |
 |---|---|
 | `id` | 숫자 번호. 현장에서 부르고 매뉴얼과 대조한다 |
+| `severity` | `critical` · `error` · `warn` · `info` · `ok` |
+| `category` | 영역. 화면의 분류에 쓴다 |
 | `origin` | 발생처. `B2` · `FR3` · `D455` · `브릿지` · `안전 노드` 등 |
+| `channel` | 관련 채널. 없으면 `-` |
 | `clears` | `latched`(사람이 해제) / `clears_with`(짝 코드) / `momentary` |
-| `auto_action` | 시스템이 이미 한 일. `stopped` · `paused` · `returning` 등 |
 | `throttle_s` | 반복 억제 간격. 없으면 억제하지 않는다 |
-| `params` | 발생처가 인자로 정해지는 코드의 인자 이름 |
-
-**`auto_action` 을 먼저 읽는다.** 조작자가 가장 먼저 알아야 할 것은 "시스템이
-이미 무엇을 했는가" 이고, `actions` 는 "이제 무엇을 해야 하는가" 다.
+| `title` `cause` `actions` | 조작자에게 보여 줄 내용 |
 
 ## 처리 방침
 
