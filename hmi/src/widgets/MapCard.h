@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 #pragma once
 
 // Map view plus the controls that float on top of it.

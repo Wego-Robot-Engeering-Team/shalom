@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 #pragma once
 
 // Drawable geometry for the 3D pose view, loaded from resources/robot_mesh.bin.

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 #pragma once
 
 // Channel names. See docs/bridge_protocol.md sections 2 and 3.

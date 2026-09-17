@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 #pragma once
 
 // Forward and inverse kinematics for the FR3, used only to keep the two ways

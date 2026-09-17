@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // Simulator behaviour tests.
 //
 // These encode the safety-relevant rules the statement of work requires, so

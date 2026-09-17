@@ -1,3 +1,5 @@
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 """Bring up mapping, localisation, and Nav2 on top of the robot platform."""
 
 from launch import LaunchDescription

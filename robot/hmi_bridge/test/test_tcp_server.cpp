@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // Transport layer tests for the bridge.
 //
 // Sockets, a background thread and incremental framing meet here, which makes

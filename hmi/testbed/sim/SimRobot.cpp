@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 #include "sim/SimRobot.h"
 
 #include "mapview/MapFile.h"

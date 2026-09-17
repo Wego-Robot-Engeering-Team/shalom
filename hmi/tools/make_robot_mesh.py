@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 """Generate resources/robot_mesh.bin - drawable geometry for the 3D pose view.
 
 The view renders in software, with a depth buffer, not OpenGL: the delivered

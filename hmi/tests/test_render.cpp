@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // 모든 화면을 실제로 그려 보는 연기 테스트.
 //
 // 다른 테스트는 계산과 규약만 확인한다. 그리기 코드는 한 번도 실행되지

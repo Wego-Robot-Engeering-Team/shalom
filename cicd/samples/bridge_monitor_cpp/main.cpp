@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // Minimal read-only client for the Shalom HMI bridge protocol v1.
 //
 // This intentionally sends heartbeats only. Motion, mission, arm, and E-Stop

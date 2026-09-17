@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // 로봇 목록의 저장 규칙.
 //
 // 이 목록은 관제가 어디에 붙을지를 정하므로, 여기서 조용히 어긋나면 화면은

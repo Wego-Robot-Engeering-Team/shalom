@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // Inspection record parsing tests.
 //
 // The file name is the only thing that identifies a capture once it is on the

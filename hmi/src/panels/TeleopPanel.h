@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 #pragma once
 
 // Manual jog panel. Statement of work 2.2.7 [2] item 2.

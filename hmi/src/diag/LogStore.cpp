@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 #include "diag/LogStore.h"
 
 // 헤더는 QFile/QTextStream 을 전방 선언만 한다(빌드 시간). 구현부에서 실제 정의가 필요하다.

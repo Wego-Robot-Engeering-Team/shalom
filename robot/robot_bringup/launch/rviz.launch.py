@@ -1,3 +1,5 @@
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 """Launch one RViz profile against an already-running robot stack.
 
 This launch intentionally starts no robot, sensor, SLAM, or Nav2 nodes.  It is

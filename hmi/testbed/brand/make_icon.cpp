@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // 브랜드 SVG 로 실행 파일 아이콘 자산을 만든다.
 //
 // 빌드할 때마다 도는 것이 아니라, 로고가 바뀔 때 사람이 한 번 돌리는

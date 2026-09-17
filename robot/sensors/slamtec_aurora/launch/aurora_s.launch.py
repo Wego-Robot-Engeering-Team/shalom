@@ -1,3 +1,5 @@
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 """SLAMTEC Aurora S의 원시 6DoF odometry를 안전하게 올린다.
 
 기존 KISS-ICP의 odom -> base_link와 충돌하지 않도록 Aurora는

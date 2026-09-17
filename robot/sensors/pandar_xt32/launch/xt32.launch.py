@@ -1,3 +1,5 @@
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 """Expose a Pandar XT32 through the robot's standard LiDAR interface.
 
 The official Hesai driver stays unmodified in third_party.  Its native

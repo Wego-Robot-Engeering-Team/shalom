@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 #pragma once
 
 // JSON envelope. Implements docs/bridge_protocol.md sections 1.2 and 1.4.

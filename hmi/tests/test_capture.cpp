@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // Location capture validation tests.
 //
 // A waypoint recorded from a bad pose looks perfectly fine on screen and only

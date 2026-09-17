@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // 좌표 변환 테스트.
 //
 // 부호 하나가 틀리면 지도 클릭 목표점이 엉뚱한 곳으로 가고, 로봇이 실제로

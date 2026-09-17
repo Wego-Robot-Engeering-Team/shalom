@@ -1,3 +1,5 @@
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 """Start the arm-mounted D455 for still-image capture.
 
 The driver continuously supplies frames inside the robot so a capture request

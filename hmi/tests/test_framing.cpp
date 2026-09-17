@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // 프레이밍 단위 테스트.
 //
 // docs/bridge_protocol.md §1.3 이 "전부 처리해야 한다"고 못박은 항목을

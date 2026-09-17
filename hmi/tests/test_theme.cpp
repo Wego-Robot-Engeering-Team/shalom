@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // 테마/스타일시트 테스트.
 //
 // QSS 는 파싱 실패해도 예외가 없다. 규칙 하나가 조용히 무시될 뿐이라

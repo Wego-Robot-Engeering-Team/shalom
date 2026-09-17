@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 #include "hmi_bridge/bridge_node.hpp"
 
 #include <tf2/LinearMath/Quaternion.hpp>

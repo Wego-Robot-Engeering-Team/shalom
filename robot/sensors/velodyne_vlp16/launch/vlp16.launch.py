@@ -1,3 +1,5 @@
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 """임시 시험용 VLP-16 을 B2 내장 라이다 자리에 끼운다.
 
 B2 의 라이다가 없는 자리에서 인식·SLAM 을 시험하기 위한 것이다. 스택의

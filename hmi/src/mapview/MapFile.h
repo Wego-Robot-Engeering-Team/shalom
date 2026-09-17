@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 #pragma once
 
 // Reads a map in the ROS map_server format: a PGM image plus a YAML sidecar.

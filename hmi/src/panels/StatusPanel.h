@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 #pragma once
 
 // What the robot is doing right now. Statement of work 2.2.7 [5].

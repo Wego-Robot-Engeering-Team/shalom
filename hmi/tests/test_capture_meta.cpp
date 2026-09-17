@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // Capture metadata tests.
 //
 // The field set and the file name are fixed by the statement of work and are

@@ -1,3 +1,5 @@
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 """브릿지 노드 기동.
 
 안전 노드는 여기서 함께 띄우지 않는다. 브릿지가 죽어도 안전 노드는 살아

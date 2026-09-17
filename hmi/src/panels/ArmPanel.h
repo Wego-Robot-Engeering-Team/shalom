@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 #pragma once
 
 // FR3 arm control panel. Statement of work 2.2.7 [3].

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // Documentation drift checks.
 //
 // The protocol document is a contractual deliverable (the "ROS2 interface

@@ -1,3 +1,5 @@
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 """Bring up the ROS supervisory control plane without hardware wiring.
 
 This launch deliberately defaults its final Twist output to

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // Undercarriage inspection control station - application entry point.
 
 #include <QApplication>

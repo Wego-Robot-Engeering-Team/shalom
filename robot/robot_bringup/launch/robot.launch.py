@@ -1,3 +1,5 @@
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 """Bring up the robot platform and its physical sensors.
 
 This is deliberately below navigation and inspection.  It exposes the same

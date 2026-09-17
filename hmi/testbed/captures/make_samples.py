@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 """이력 화면을 확인하기 위한 표본 촬영 데이터를 만든다.
 
 실제 촬영본이 나오기 전까지 쓰는 대역이다. 이 폴더를 설정 · 저장의

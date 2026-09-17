@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 #include "motion_interlock_manager/motion_interlock.hpp"
 
 namespace motion_interlock_manager {

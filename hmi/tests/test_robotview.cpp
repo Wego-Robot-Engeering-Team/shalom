@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // 3D 자세 뷰의 그리기 경로 검사.
 //
 // 이 뷰는 OpenGL 이 아니라 QPainter 로 그린다 (이유는 Robot3DView.h). 그

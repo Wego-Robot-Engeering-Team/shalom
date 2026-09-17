@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 """검수고 점유격자 지도를 ROS map_server 형식(PGM + YAML)으로 만든다.
 
 SLAM Toolbox 가 실제 현장에서 뽑아 올 지도를 대신하는 파일이다. 실물이

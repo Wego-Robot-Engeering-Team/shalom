@@ -1,3 +1,5 @@
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 """3D LiDAR ground segmentation -> ground-relative obstacle filter -> 2D SLAM.
 
 Takes a PointCloud2 and a robot frame; everything above that is the caller's job.

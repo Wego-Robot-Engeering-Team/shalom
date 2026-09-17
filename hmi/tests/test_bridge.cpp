@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // BridgeClient tests against a mock bridge.
 //
 // A real TCP server is stood up on a loopback port and speaks the protocol

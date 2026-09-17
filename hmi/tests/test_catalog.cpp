@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // 코드 카탈로그 테스트.
 //
 // 핵심은 마지막 두 케이스다: 코드가 UI/브릿지/문서 세 곳에 쓰이므로

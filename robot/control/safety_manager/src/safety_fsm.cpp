@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 #include "safety_manager/safety_fsm.hpp"
 
 namespace safety_manager {

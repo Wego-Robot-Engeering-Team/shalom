@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // 정·역기구학 테스트.
 //
 // 이 계산은 관절 탭과 끝단 탭을 서로 맞추는 데만 쓰인다. 그래도 틀리면

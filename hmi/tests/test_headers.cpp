@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 // Header hygiene checks.
 //
 // These catch a class of mistake that compiles cleanly in the header itself and

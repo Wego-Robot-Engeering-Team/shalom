@@ -1,3 +1,5 @@
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
 """Run the complete inspection stack.
 
 The mission-manager C++ core and supervisory-control nodes exist under
