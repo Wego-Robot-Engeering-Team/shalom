@@ -69,26 +69,20 @@ class WaypointPanel;
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
-    /// Takes ownership of `link`. Passing the simulator or the real bridge
-    /// client is the only difference between offline and live operation.
+    /// Takes ownership of the TCP bridge link. The HMI does not distinguish a
+    /// simulator endpoint from a physical robot endpoint.
     explicit MainWindow(hmi::robot::RobotLink *link, QWidget *parent = nullptr);
 
     /// Rebuilds the stylesheet and repaints everything that draws itself.
     void applyTheme(const QString &name);
 
-    /// Selects the context column. Public so that a screenshot run can target
-    /// a specific view.
+    /// Selects the context column.
     void showView(NavItem item);
 
     /// Points the history view at a folder for this run only.
-    ///
-    /// Used by the development sample-data flag; it deliberately does not
-    /// write to the settings, so trying samples cannot leave the delivered
-    /// storage path pointing somewhere else afterwards.
     void setInspectionDirectory(const QString &path);
 
-    /// Switches drive mode from outside the window. Used by the development
-    /// screenshot options; the operator path goes through the top-bar buttons.
+    /// Switches drive mode from outside the window.
     void setDriveMode(const QString &mode) { setMode(mode); }
 
 protected:
@@ -99,6 +93,7 @@ protected:
     void setLinkTone(const QString &tone);
     void refreshRobotButton();
     void selectRobot(int index);
+    void openConnectionSettings();
 
     /// Fits the map on first show. The constructor cannot do it: the viewport
     /// has no final size until the layout has run, so fitting there leaves the
@@ -110,6 +105,7 @@ private:
     QWidget *buildContextColumn();
     QWidget *buildDriveContext();
     QWidget *buildLocationsContext();
+    QWidget *buildBaseContext();
     QWidget *buildArmContext();
     QWidget *buildCaptureContext();
     QWidget *buildDiagnosticsContext();
@@ -196,7 +192,6 @@ private:
     StatusPanel *status_ = nullptr;
     MissionPanel *mission_ = nullptr;
     TeleopPanel *teleop_ = nullptr;
-    QWidget *teleopHost_ = nullptr;
     EventLogPanel *events_ = nullptr;
     WaypointPanel *waypoints_ = nullptr;
     ArmPanel *arm_ = nullptr;

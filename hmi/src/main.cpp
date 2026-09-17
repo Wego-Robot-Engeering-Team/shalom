@@ -3,13 +3,14 @@
 // Undercarriage inspection control station - application entry point.
 
 #include <QApplication>
+#include <QAbstractButton>
+#include <QEvent>
 #include <QIcon>
+#include <QLabel>
 #include <QDir>
 #include <QFont>
 #include <QFontDatabase>
 #include <QStyleFactory>
-#include <QHash>
-#include <QTimer>
 
 #include "Config.h"
 #include "MainWindow.h"
@@ -17,11 +18,26 @@
 #include "theme/Style.h"
 #include "theme/Tokens.h"
 #include "auth/Session.h"
-#include "views/SettingsDialog.h"
 #include "views/WelcomeDialog.h"
-#include "widgets/NotificationCenter.h"
 
 namespace {
+
+/// 화면의 상태값·경고문·설명문은 조작 대상이 아니므로 드래그해서 복사할 수
+/// 있어야 한다. QLabel을 만드는 모든 지점에 같은 플래그를 빼먹지 않도록
+/// 애플리케이션 단계에서 한 번 적용한다. 버튼 내부 텍스트는 제외한다.
+class CopyableLabelFilter final : public QObject {
+public:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (event->type() != QEvent::Polish)
+            return QObject::eventFilter(watched, event);
+        auto *label = qobject_cast<QLabel *>(watched);
+        if (!label || qobject_cast<QAbstractButton *>(label->parentWidget()))
+            return QObject::eventFilter(watched, event);
+        label->setTextInteractionFlags(label->textInteractionFlags() | Qt::TextSelectableByMouse);
+        return QObject::eventFilter(watched, event);
+    }
+};
 
 /// Registers bundled fonts.
 ///
@@ -50,17 +66,6 @@ void applyUiFont(QApplication &app)
     }
 }
 
-/// Grabs the window and exits. Used for layout review during development and
-/// for collecting the on-screen state during on-site support.
-void captureAndQuit(QWidget *window, const QString &path)
-{
-    // 시뮬레이터가 궤적과 게이지를 채울 시간을 준다.
-    QTimer::singleShot(3000, window, [window, path] {
-        window->grab().save(path);
-        QApplication::quit();
-    });
-}
-
 }  // namespace
 
 int main(int argc, char *argv[])
@@ -76,6 +81,8 @@ int main(int argc, char *argv[])
     // 납품물이 Windows 와 Ubuntu 양쪽에서 같아야 하므로, 한 곳에서 검수한 화면이
     // 다른 곳에서 달라지지 않도록 스타일을 통일한다.
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+    CopyableLabelFilter copyableLabelFilter;
+    app.installEventFilter(&copyableLabelFilter);
 
     // 창·작업 표시줄·독 아이콘. 윈도우 탐색기가 보는 .exe 아이콘은 리소스에
     // 박혀 있고(resources/brand/app.rc), 이건 실행 중에 보이는 쪽이다.
@@ -85,54 +92,11 @@ int main(int argc, char *argv[])
     loadBundledFonts();
     applyUiFont(app);
 
-    const QStringList args = QApplication::arguments();
-
     // 저장된 표시 설정을 먼저 적용한 뒤 스타일시트를 만든다.
     auto &cfg = hmi::Config::instance();
-    hmi::theme::setTheme(args.contains(QStringLiteral("--dark")) ? QStringLiteral("dark")
-                                                                 : cfg.theme());
+    hmi::theme::setTheme(cfg.theme());
     hmi::theme::setUiScale(cfg.uiScale());
     app.setStyleSheet(hmi::theme::buildQss());
-
-    // 개발 중 대화상자 레이아웃 확인용. 납품 빌드에서 --shot 계열과 함께 제거한다.
-    const int dialogIdx = args.indexOf(QStringLiteral("--shot-dialog"));
-    if (dialogIdx >= 0 && dialogIdx + 2 < args.size()) {
-        const QString which = args.at(dialogIdx + 1);
-        const QString path = args.at(dialogIdx + 2);
-        QWidget *dialog = nullptr;
-        if (which == QLatin1String("welcome"))
-            dialog = new hmi::ui::WelcomeDialog;
-        else if (which == QLatin1String("notifications")) {
-            using hmi::ui::Notification;
-            const QDateTime now = QDateTime::currentDateTime();
-            dialog = new hmi::ui::NotificationPopup({
-                {now, QStringLiteral("사람 접근 감지 — 일시정지"),
-                 QStringLiteral("작업 구역에서 인원을 이격시키십시오(1m 이상)"),
-                 QStringLiteral("warn")},
-                {now.addSecs(-42), QStringLiteral("우회 경로 없음 — 정지"),
-                 QStringLiteral("경로상 장애물을 제거하십시오"), QStringLiteral("error")},
-                {now.addSecs(-95), QStringLiteral("지도 불러오기 완료"), {},
-                 QStringLiteral("ok")},
-                {now.addSecs(-140), QStringLiteral("저장 위치를 찾을 수 없습니다"),
-                 QStringLiteral("/mnt/nas/inspection"), QStringLiteral("warn")},
-            });
-        } else if (which.startsWith(QLatin1String("settings"))) {
-            auto *sd = new hmi::ui::SettingsDialog;
-            // "settings:2" 형태로 탭을 지정한다.
-            const auto parts = which.split(QLatin1Char(':'));
-            if (parts.size() > 1)
-                sd->setCurrentTab(parts.at(1).toInt());
-            dialog = sd;
-        }
-        if (!dialog)
-            return 2;
-        dialog->show();
-        QTimer::singleShot(600, dialog, [dialog, path] {
-            dialog->grab().save(path);
-            QApplication::quit();
-        });
-        return app.exec();
-    }
 
     // 조작자 확인. 여기서 입력한 이름이 이후 모든 조작 이력에 남는다.
     //
@@ -149,60 +113,11 @@ int main(int argc, char *argv[])
     // 기본은 빈 관제 화면이다. 실기와 시뮬레이터는 모두 설정에서 명시적으로
     // 선택한 브릿지 주소로만 연결한다. 127.0.0.1을 기본으로 붙이면 첫 화면의
     // "연결 안 됨"과 진짜 연결 실패를 구별할 수 없다.
-    QString host;
-    int port = 9090;
-    const int hostIdx = args.indexOf(QStringLiteral("--host"));
-    if (hostIdx >= 0 && hostIdx + 1 < args.size())
-        host = args.at(hostIdx + 1);
-    const int portIdx = args.indexOf(QStringLiteral("--port"));
-    if (portIdx >= 0 && portIdx + 1 < args.size())
-        port = args.at(portIdx + 1).toInt();
-
-    auto *bridge = new hmi::net::BridgeClient(host, quint16(port));
-    if (!host.isEmpty())
-        bridge->connectToBridge();
+    auto *bridge = new hmi::net::BridgeClient({}, 9090);
     hmi::robot::RobotLink *link = bridge;
 
     hmi::ui::MainWindow window(link);
     window.show();
-
-    const int viewIdx = args.indexOf(QStringLiteral("--view"));
-    if (viewIdx >= 0 && viewIdx + 1 < args.size()) {
-        static const QHash<QString, hmi::ui::NavItem> kViews{
-            {QStringLiteral("drive"), hmi::ui::NavItem::Drive},
-            {QStringLiteral("locations"), hmi::ui::NavItem::Locations},
-            {QStringLiteral("arm"), hmi::ui::NavItem::Arm},
-            {QStringLiteral("capture"), hmi::ui::NavItem::Capture},
-            {QStringLiteral("diagnostics"), hmi::ui::NavItem::Diagnostics},
-            {QStringLiteral("data"), hmi::ui::NavItem::Data},
-            {QStringLiteral("events"), hmi::ui::NavItem::Events},
-        };
-        const auto it = kViews.constFind(args.at(viewIdx + 1));
-        if (it != kViews.constEnd())
-            window.showView(*it);
-    }
-
-    // 이력 화면 확인용. 표본 촬영 폴더를 이번 실행에만 쓴다 — 설정에
-    // 저장하지 않으므로 실제 저장 장치 경로를 덮어쓰지 않는다.
-    const int samplesIdx = args.indexOf(QStringLiteral("--samples"));
-    if (samplesIdx >= 0 && samplesIdx + 1 < args.size())
-        window.setInspectionDirectory(args.at(samplesIdx + 1));
-
-    // 창 크기별 레이아웃 확인용. "--size 1280x760" 형태.
-    const int sizeIdx = args.indexOf(QStringLiteral("--size"));
-    if (sizeIdx >= 0 && sizeIdx + 1 < args.size()) {
-        const auto wh = args.at(sizeIdx + 1).split(QLatin1Char('x'));
-        if (wh.size() == 2)
-            window.resize(wh.at(0).toInt(), wh.at(1).toInt());
-    }
-
-    // 수동 모드에서만 나타나는 조작 패널을 확인하기 위한 개발용 옵션.
-    if (args.contains(QStringLiteral("--manual")))
-        window.setDriveMode(QStringLiteral("manual"));
-
-    const int shotIdx = args.indexOf(QStringLiteral("--shot"));
-    if (shotIdx >= 0 && shotIdx + 1 < args.size())
-        captureAndQuit(&window, args.at(shotIdx + 1));
 
     return app.exec();
 }

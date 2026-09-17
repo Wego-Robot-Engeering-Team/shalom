@@ -1660,6 +1660,64 @@
       ]
     },
     {
+      "id": 5107,
+      "code": "BASE_POSTURE_FAILED",
+      "severity": "error",
+      "category": "base",
+      "origin": "B2",
+      "channel": "cmd/base/posture",
+      "clears": "momentary",
+      "title": "자세 전환 실패",
+      "cause": "본체가 요청한 자세로 바꾸지 못했습니다. 지면 상태나 현재 자세 때문에 전환이 거부되었습니다.",
+      "actions": [
+        "로봇 주변에 걸리는 것이 없는지 확인하십시오",
+        "평평한 바닥에서 다시 시도하십시오",
+        "반복되면 담당자에게 알리십시오"
+      ]
+    },
+    {
+      "id": 5108,
+      "code": "BASE_POSTURE_BLOCKED",
+      "severity": "warn",
+      "category": "base",
+      "origin": "브릿지",
+      "channel": "cmd/base/posture",
+      "clears": "momentary",
+      "title": "자세 전환 거부 — 선행 조건 미충족",
+      "cause": "로봇팔이 동작 중이거나 본체가 이동 중이라 자세를 바꾸지 않았습니다. 팔이 펴진 채 앉으면 차체나 바닥에 부딪힙니다.",
+      "actions": [
+        "로봇팔을 정지시키고 접은 뒤 다시 시도하십시오",
+        "본체가 완전히 멈춘 것을 확인하십시오"
+      ]
+    },
+    {
+      "id": 5109,
+      "code": "BASE_POSTURE_CHANGED",
+      "severity": "ok",
+      "category": "base",
+      "origin": "B2",
+      "channel": "state/base",
+      "clears": "momentary",
+      "title": "자세 전환 완료",
+      "cause": "본체가 요청한 자세로 바뀌었습니다.",
+      "actions": []
+    },
+    {
+      "id": 5110,
+      "code": "BASE_POSTURE_SIMULATED",
+      "severity": "warn",
+      "category": "base",
+      "origin": "브릿지",
+      "channel": "state/base",
+      "clears": "momentary",
+      "title": "자세 전환을 모의로 처리했습니다",
+      "cause": "본체 드라이버가 없는 상태에서 base.posture_dry_run 이 켜져 있어, 로봇은 움직이지 않고 상태만 바뀌었습니다. 시뮬레이터 설정입니다.",
+      "actions": [
+        "실기에서 이 알람이 보이면 base.posture_dry_run 을 끄십시오",
+        "본체 드라이버가 올라와 있는지 확인하십시오"
+      ]
+    },
+    {
       "id": 6001,
       "code": "CAPTURE_SPOOL_FULL",
       "severity": "critical",

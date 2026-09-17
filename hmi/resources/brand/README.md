@@ -8,12 +8,8 @@
 | `app.rc` | `.ico` 를 실행 파일에 박는 리소스 스크립트 | 손으로 관리 |
 | `inspection-hmi.desktop` | 리눅스 런처 등록물 | 손으로 관리 |
 
-로고가 바뀌면 `logo.svg` 를 갈아 끼우고 파생 자산을 다시 만든다.
-
-```bash
-cmake --build --preset dev --target make_brand_icon
-./build/make_brand_icon resources/brand/logo.svg resources/brand
-```
+로고가 바뀌면 `logo.svg`와 배포용 아이콘 자산(`app.ico`, `app-*.png`)을 함께
+갱신해 검토한다. 이 저장소에는 아이콘 생성기를 포함하지 않는다.
 
 파생 자산은 저장소에 커밋한다. 빌드 환경에 SVG 래스터라이저를 요구하지
 않기 위해서다 — 에어갭에서 재빌드해야 하는 납품물이라 빌드에 필요한 것은

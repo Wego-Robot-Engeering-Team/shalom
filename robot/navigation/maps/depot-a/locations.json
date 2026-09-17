@@ -1,8 +1,0 @@
-{
-  "schema_version": 1,
-  "map_id": "depot-a",
-  "locations": [
-    {"kind": "dock", "name": "충전 위치", "x": -0.75, "y": -0.45, "theta": 0.0},
-    {"kind": "home", "name": "대기 위치", "x": 0.70, "y": -0.30, "theta": 3.14}
-  ]
-}

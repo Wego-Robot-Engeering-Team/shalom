@@ -116,36 +116,6 @@ qt_add_resources(hmi_core "hmi_brand"
 )
 
 # ---------------------------------------------------------------------------
-# 테스트베드 — 로봇 없이 화면을 돌리기 위한 것들
-# ---------------------------------------------------------------------------
-#
-# 시뮬레이터와 대역 지도는 관제 UI 가 아니다. 개발과 검수 때 로봇 없이
-# 화면을 띄우기 위한 것이고, 납품물에는 들어가면 안 된다 — 들어가면 현장에서
-# 로봇이 안 붙었을 때 조용히 가짜 데이터로 도는 화면이 만들어진다.
-#
-# 그래서 별도 타깃으로 두고 release 프리셋에서는 끈다.
-option(HMI_WITH_TESTBED "Build the robot-free simulator and stand-in map" ON)
-
-if(HMI_WITH_TESTBED)
-    add_library(hmi_testbed STATIC testbed/sim/SimRobot.cpp)
-    target_link_libraries(hmi_testbed PUBLIC hmi_core)
-    target_include_directories(hmi_testbed PUBLIC testbed)
-    set_target_properties(hmi_testbed PROPERTIES AUTOMOC ON)
-
-    # 브랜드 아이콘 생성기. 로고가 바뀔 때 사람이 한 번 돌리는 도구이고,
-    # 결과물은 저장소에 커밋한다 — 빌드 환경에 SVG 래스터라이저를 요구하지
-    # 않기 위해서다.
-    add_executable(make_brand_icon testbed/brand/make_icon.cpp)
-    target_link_libraries(make_brand_icon PRIVATE Qt6::Gui Qt6::Svg)
-
-    qt_add_resources(hmi_testbed "testbed_maps"
-        PREFIX "/maps"
-        BASE testbed/maps
-        FILES testbed/maps/gtxa_depot.yaml testbed/maps/gtxa_depot.pgm
-    )
-endif()
-
-# ---------------------------------------------------------------------------
 # 실행 파일
 # ---------------------------------------------------------------------------
 # 윈도우 실행 파일 아이콘. .rc 는 MSVC/MinGW 리소스 컴파일러가 처리하며,
@@ -159,12 +129,7 @@ add_executable(inspection_hmi
     src/main.cpp
     ${HMI_PLATFORM_SOURCES}
 )
-if(HMI_WITH_TESTBED)
-    target_link_libraries(inspection_hmi PRIVATE hmi_testbed)
-    target_compile_definitions(inspection_hmi PRIVATE HMI_WITH_TESTBED=1)
-else()
-    target_link_libraries(inspection_hmi PRIVATE hmi_core)
-endif()
+target_link_libraries(inspection_hmi PRIVATE hmi_core)
 # ---------------------------------------------------------------------------
 # 테스트
 # ---------------------------------------------------------------------------
@@ -183,13 +148,7 @@ if(HMI_BUILD_TESTS)
     # 테스트 타깃 공통 설정.
     function(hmi_add_test name)
         add_executable(${name} tests/${name}.cpp)
-        # hmi_testbed 는 hmi_core 를 PUBLIC 으로 물고 있다. 둘을 같이 적으면
-        # 링커가 같은 라이브러리를 두 번 받아 매 링크마다 경고를 낸다.
-        if(HMI_WITH_TESTBED)
-            target_link_libraries(${name} PRIVATE hmi_testbed Qt6::Test)
-        else()
-            target_link_libraries(${name} PRIVATE hmi_core Qt6::Test)
-        endif()
+        target_link_libraries(${name} PRIVATE hmi_core Qt6::Test)
         target_compile_options(${name} PRIVATE ${HMI_TEST_FLAGS})
         add_test(NAME ${name} COMMAND ${name})
     endfunction()
@@ -206,26 +165,14 @@ if(HMI_BUILD_TESTS)
 
     hmi_add_test(test_kinematics)
 
-    # 시뮬레이터가 있어야 도는 검사들. 납품 구성은 시뮬레이터를 빼고
-    # 빌드하므로 (HMI_WITH_TESTBED=OFF) 여기서도 빠져야 한다 — 그러지
-    # 않으면 납품 구성 자체가 컴파일되지 않는다.
-    #
-    # 화면을 그려 보는 검사가 납품 구성에서 빠지는 것은 감수한다. 위젯은
-    # 두 구성에서 같고, 다른 것은 로그인 요구와 코어를 공유 라이브러리로
-    # 내는지뿐이다. 로봇 없이 창을 띄우려면 RobotLink 구현이 하나는
-    # 있어야 하는데, 납품 빌드에는 브릿지 클라이언트밖에 없다.
-    if(HMI_WITH_TESTBED)
-        # 전 화면을 실제로 그려 보는 연기 테스트. 화면 없이 돌도록 offscreen
-        # 플랫폼을 강제한다. 그리기 경로에서만 터지는 버그를 잡는 유일한 검사다.
-        hmi_add_test(test_render)
-        set_tests_properties(test_render PROPERTIES
-            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    # 전 화면을 실제로 그려 보는 연기 테스트. 로봇 시뮬레이터가 아니라
+    # tests/의 최소 RobotLink mock을 쓰므로 HMI 실행 파일과 같은 경로를
+    # 검증하면서도 시뮬레이션 자산을 HMI에 들이지 않는다.
+    hmi_add_test(test_render)
+    set_tests_properties(test_render PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-        hmi_add_test(test_sim)
-    endif()
-
-    # 3D 뷰는 테스트베드에 기대지 않으므로 납품 구성에서도 돈다 — 그려지는
-    # 속도를 재는 검사가 정작 납품 빌드를 재지 않으면 의미가 없다.
+    # 3D 뷰 검사는 HMI 코어만으로 돈다.
     hmi_add_test(test_mapview)
     set_tests_properties(test_mapview PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
@@ -260,9 +207,9 @@ endif()
 #
 # 구성과 절차는 packaging/README.md 참조.
 #
-#   cmake --preset release
-#   cmake --build --preset release
-#   cmake --install build-release --prefix dist/inspection-hmi
+#   cmake --preset default
+#   cmake --build --preset default
+#   cmake --install build --prefix dist/inspection-hmi
 # ---------------------------------------------------------------------------
 include(GNUInstallDirs)
 

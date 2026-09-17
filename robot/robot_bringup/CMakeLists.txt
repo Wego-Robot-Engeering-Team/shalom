@@ -10,7 +10,6 @@ install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
 # package.xml을 두지 않으며, robot_bringup이 함께 설치해 런타임 경로를 제공한다.
 install(DIRECTORY
   ${CMAKE_CURRENT_SOURCE_DIR}/../navigation/config
-  ${CMAKE_CURRENT_SOURCE_DIR}/../navigation/maps
   ${CMAKE_CURRENT_SOURCE_DIR}/../navigation/rviz
   DESTINATION share/${PROJECT_NAME}/navigation)
 

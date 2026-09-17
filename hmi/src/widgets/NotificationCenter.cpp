@@ -206,6 +206,7 @@ void NotificationBell::add(const Notification &n)
         items_.removeLast();
     ++unread_;
     update();
+    emit unreadChanged(unread_);
 }
 
 void NotificationBell::enterEvent(QEnterEvent *ev)
@@ -237,6 +238,7 @@ void NotificationBell::openPopup()
     // 지워지면 자리를 비운 사이의 알림을 놓친다.
     unread_ = 0;
     update();
+    emit unreadChanged(unread_);
     emit opened();
 
     delete popup_;

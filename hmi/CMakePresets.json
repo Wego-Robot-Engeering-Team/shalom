@@ -17,49 +17,26 @@
       }
     },
     {
-      "name": "dev",
-      "displayName": "개발",
-      "description": "개발용. 내장 모형(--sim)과 테스트를 포함한다. 납품 빌드에 쓰지 말 것.",
+      "name": "default",
+      "displayName": "HMI",
+      "description": "실행 파일과 검증 타깃을 함께 빌드한다. 납품물에는 실행 파일만 넣는다.",
       "inherits": "base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "HMI_BUILD_TESTS": "ON"
-      }
-    },
-    {
-      "name": "release",
-      "displayName": "납품",
-      "description": "납품 구성. 내장 모형을 빼고 실행 파일 하나로 낸다.",
-      "inherits": "base",
-      "binaryDir": "${sourceDir}/build-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "HMI_BUILD_TESTS": "ON",
-        "HMI_WITH_TESTBED": "OFF"
+        "HMI_BUILD_TESTS": "ON"
       }
     }
   ],
   "buildPresets": [
     {
-      "name": "dev",
-      "configurePreset": "dev"
-    },
-    {
-      "name": "release",
-      "configurePreset": "release"
+      "name": "default",
+      "configurePreset": "default"
     }
   ],
   "testPresets": [
     {
-      "name": "dev",
-      "configurePreset": "dev",
-      "output": {
-        "outputOnFailure": true
-      }
-    },
-    {
-      "name": "release",
-      "configurePreset": "release",
+      "name": "default",
+      "configurePreset": "default",
       "output": {
         "outputOnFailure": true
       }

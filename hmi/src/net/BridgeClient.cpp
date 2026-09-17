@@ -152,6 +152,12 @@ void BridgeClient::selectMap(const QString &mapId)
     sendRequest(QLatin1String(hmi::ch::kCmdMapsSelect), {{"id", mapId}});
 }
 
+void BridgeClient::renameMap(const QString &mapId, const QString &name)
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdMapsRename),
+                {{"id", mapId}, {"name", name}});
+}
+
 void BridgeClient::onConnected()
 {
     // Nagle 을 끈다. 하트비트와 조작 명령은 작고 지연에 민감해서,
@@ -168,6 +174,7 @@ void BridgeClient::onConnected()
                            hmi::ch::kSafety, hmi::ch::kNav, hmi::ch::kPlan,
                            hmi::ch::kTrail, hmi::ch::kArm, hmi::ch::kApriltag,
                            hmi::ch::kMission, hmi::ch::kWaypoints, hmi::ch::kLocations,
+                           hmi::ch::kBase,
                            hmi::ch::kMap, hmi::ch::kMaps, hmi::ch::kActiveMap,
                            hmi::ch::kPreview, hmi::ch::kCaptureSpool,
                            hmi::ch::kHealth})
@@ -416,6 +423,14 @@ void BridgeClient::handlePublish(const Envelope &env)
         if (!mode.isEmpty())
             mode_ = mode == QLatin1String("manual") ? DriveMode::Manual : DriveMode::Auto;
         telemetry_.localizationOk = !p.value(QStringLiteral("localization_degraded")).toBool();
+    } else if (ch == QLatin1String(hmi::ch::kBase)) {
+        const QString posture = p.value(QStringLiteral("posture")).toString();
+        const QString authority = p.value(QStringLiteral("motion_authority")).toString();
+        if (posture != basePosture_ || authority != motionAuthority_) {
+            basePosture_ = posture;
+            motionAuthority_ = authority;
+            emit baseStateChanged(basePosture_, motionAuthority_);
+        }
     } else if (ch == QLatin1String(hmi::ch::kNav)) {
         telemetry_.navStatus = p.value(QStringLiteral("status")).toString();
     } else if (ch == QLatin1String(hmi::ch::kPlan)) {
@@ -620,6 +635,11 @@ void BridgeClient::setBatteryPolicy(double returnAt, double departAt)
     // 적힌 값과 로봇이 지키는 값이 갈라지는데, 그 차이는 눈에 보이지 않는다.
     batteryReturnAt_ = returnAt;
     batteryDepartAt_ = departAt;
+    // 최초 실행의 미연결 상태는 통신 장애가 아니다. 정책을 보관해 두었다가
+    // onConnected()에서 보내므로, 로봇을 고르기도 전에 LINK_LOST 알림을
+    // 만들지 않는다.
+    if (!isConnected())
+        return;
     sendRequest(QLatin1String(hmi::ch::kCmdPowerPolicy),
                 {{"return_at", returnAt}, {"depart_at", departAt}});
 }
@@ -646,11 +666,9 @@ void BridgeClient::missionStop()
 
 void BridgeClient::engageEstop()
 {
-    // 다른 명령과 달리 연결 상태를 확인하지 않고 시도한다. 링크가 이미
-    // 끊겼다면 로봇측 safety 노드가 3 초 규칙으로 스스로 정지한다.
+    // 화면 상태는 로봇이 state/safety로 확인한 값만 쓴다. 여기서 estop_를
+    // 미리 바꾸면 소켓 쓰기 실패도 "발동"으로 보이게 된다.
     sendRequest(QLatin1String(hmi::ch::kCmdEstop));
-    estop_ = true;
-    telemetry_.estop = true;
 }
 
 void BridgeClient::releaseEstop()
@@ -664,6 +682,16 @@ void BridgeClient::setMode(DriveMode mode)
     sendRequest(QLatin1String(hmi::ch::kCmdMode),
                 {{"mode", mode == DriveMode::Manual ? QStringLiteral("manual")
                                                     : QStringLiteral("auto")}});
+}
+
+void BridgeClient::setBasePosture(const QString &posture, bool confirm)
+{
+    // 화면은 자세를 추측하지 않는다. 요청만 보내고, 실제로 바뀌었는지는
+    // state/base 로 돌아오는 값을 본다. 로봇이 거절하면 아무것도 바뀌지 않는다.
+    QJsonObject payload{{"posture", posture}};
+    if (confirm)
+        payload.insert(QStringLiteral("confirm"), true);
+    sendRequest(QLatin1String(hmi::ch::kCmdBasePosture), payload);
 }
 
 void BridgeClient::setArmJointGoal(const QList<double> &q)

@@ -37,8 +37,9 @@ class NavButton;
 ///
 /// The order here is the display order.
 enum class NavItem {
-    Drive,        ///< mission progress and manual jog
+    Drive,        ///< mission progress and the map
     Locations,    ///< teach and edit waypoints, dock and home
+    Base,         ///< B2 manual driving and posture
     Arm,          ///< FR3 posture control
     Capture,      ///< capture control, preview and metadata
     Diagnostics,  ///< link health, sensor health, controller load

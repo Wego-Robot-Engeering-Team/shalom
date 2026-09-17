@@ -107,10 +107,9 @@ inline const std::array<double, kArmJointCount> kArmStow{
 /// Where the FR3 bolts onto B2's back, in base_link coordinates, and the trunk
 /// it has to avoid.
 ///
-/// Both are read off the MJCF the robot is simulated and trained with
-/// (`third_party/b2_simulation/mujoco/b2_mujoco/models/b2.xml`): `base1_collision` is a
-/// 0.50 x 0.28 x 0.15 m box centred on the body origin, and the mount is the
-/// deck that `rl_training/tools/make_b2_arm_asset.py` puts the payload on.
+/// The trunk dimensions come from the B2 base geometry (`base1_collision` is
+/// a 0.50 x 0.28 x 0.15 m box centred on the body origin). The arm mount is a
+/// Wego integration value, kept here so the pose check and 3D view agree.
 /// They live here because the pose check and the 3D view both need them and
 /// must agree - a warning that fires where the picture shows clearance teaches
 /// the operator to ignore warnings.

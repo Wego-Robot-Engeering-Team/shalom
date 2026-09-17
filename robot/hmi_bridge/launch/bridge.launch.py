@@ -44,6 +44,12 @@ def generate_launch_description():
     robot_name_arg = DeclareLaunchArgument(
         "robot_name", default_value="1호기",
         description="화면에 보일 이름")
+    maps_dir_arg = DeclareLaunchArgument(
+        "maps_dir", default_value="/var/lib/shalom/maps",
+        description="지도 번들과 지도별 상태가 있는 로봇 로컬 디렉터리")
+    initial_map_arg = DeclareLaunchArgument(
+        "initial_map", default_value="latest",
+        description="시작 지도 ID 또는 latest. map_server와 같은 지도를 사용해야 한다.")
 
     # 로봇이 실제로 내보내는 이름에 붙인다. 노드 안에서는 상대 이름을 쓰므로
     # 다른 스택에 얹을 때는 여기만 고치면 된다.
@@ -64,7 +70,9 @@ def generate_launch_description():
         parameters=[LaunchConfiguration("config"),
                     {"use_sim_time": LaunchConfiguration("use_sim_time"),
                      "robot_id": LaunchConfiguration("robot_id"),
-                     "robot_name": LaunchConfiguration("robot_name")}],
+                     "robot_name": LaunchConfiguration("robot_name"),
+                     "maps_dir": LaunchConfiguration("maps_dir"),
+                     "initial_map": LaunchConfiguration("initial_map")}],
         # 브릿지가 죽으면 생존 신호가 끊기고 안전 노드가 로봇을 정지시킨다.
         # 그 뒤 자동으로 다시 올라와 관제가 재연결할 수 있게 한다.
         respawn=True,
@@ -72,4 +80,5 @@ def generate_launch_description():
     )
 
     return LaunchDescription(
-        [config_arg, sim_time_arg, robot_id_arg, robot_name_arg, bridge])
+        [config_arg, sim_time_arg, robot_id_arg, robot_name_arg,
+         maps_dir_arg, initial_map_arg, bridge])

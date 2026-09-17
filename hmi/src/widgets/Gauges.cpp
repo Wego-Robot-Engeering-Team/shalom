@@ -140,10 +140,20 @@ BatteryPill::BatteryPill(QWidget *parent, double lowThreshold)
 
 void BatteryPill::setState(double socPercent, bool charging)
 {
+    available_ = true;
     charging_ = charging;
     setToolTip(charging_ ? QStringLiteral("충전 중 · %1%").arg(socPercent, 0, 'f', 0)
                          : QStringLiteral("배터리 %1%").arg(socPercent, 0, 'f', 0));
     animateTo(qBound(0.0, socPercent, 100.0));
+}
+
+void BatteryPill::setUnavailable(const QString &reason)
+{
+    available_ = false;
+    charging_ = false;
+    const QString why = reason.isEmpty() ? QStringLiteral("로봇 미연결") : reason;
+    setToolTip(QStringLiteral("%1 — 배터리 상태를 받을 수 없습니다").arg(why));
+    update();
 }
 
 void BatteryPill::paintEvent(QPaintEvent *)
@@ -153,6 +163,25 @@ void BatteryPill::paintEvent(QPaintEvent *)
     p.setRenderHint(QPainter::Antialiasing);
 
     const double soc = value();
+    if (!available_) {
+        // 0 % 는 방전이라는 측정값이다. 연결 전에는 값이 없다는 사실을
+        // 보여야 하므로 빈 셀과 "미연결"을 따로 그린다.
+        const QRectF cell(0.75, 5.5, 34.0, 15.0);
+        p.setPen(QPen(QColor(C.borderHi), 1.2));
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(cell, 3, 3);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(C.borderHi));
+        p.drawRoundedRect(QRectF(cell.right() + 1.0, 10.0, 2.8, 6.0), 1, 1);
+
+        QFont f;
+        f.setWeight(QFont::DemiBold);
+        p.setFont(f);
+        p.setPen(QColor(C.textDim));
+        p.drawText(QRectF(47, 0, width() - 47, height()), Qt::AlignLeft | Qt::AlignVCenter,
+                   QStringLiteral("미연결"));
+        return;
+    }
     const QColor tone = charging_       ? QColor(C.success)
                         : soc <= low_ / 2 ? QColor(C.danger)
                         : soc <= low_     ? QColor(C.warning)

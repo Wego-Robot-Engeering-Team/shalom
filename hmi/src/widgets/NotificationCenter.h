@@ -62,6 +62,9 @@ public:
 signals:
     /// The list is opening. The toast host uses this to clear what is floating.
     void opened();
+    /// Navigation uses this rather than treating the whole event history as
+    /// unread. Opening the bell deliberately resets it to zero.
+    void unreadChanged(int count);
 
 protected:
     void paintEvent(QPaintEvent *) override;

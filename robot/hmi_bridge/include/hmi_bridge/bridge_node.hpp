@@ -40,7 +40,11 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
+#include <unordered_map>
+
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/string.hpp>
+#include <std_srvs/srv/trigger.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
@@ -82,6 +86,11 @@ private:
     /// Publishes the control station's liveness for the safety node, and
     /// latches the jog command to zero when it stops arriving.
     void tickSafety();
+    /// Publishes robot-side safety state even if localization is unavailable.
+    void publishSafety();
+    void requestBaseAuthority();
+    void requestSafetyResume();
+    [[nodiscard]] bool estopActive() const;
 
     // ---- telemetry -------------------------------------------------------
     void publishPose();
@@ -165,6 +174,45 @@ private:
     /// the robot to fold its arm, not asking it to go to whatever six numbers
     /// the station happened to be built with.
     static const std::vector<double> *armPreset(const std::string &name);
+
+    // ---- 본체 자세 ----------------------------------------------------------
+    //
+    // B2 는 SDK 의 SportClient 를 std_srvs/Trigger 로 노출한다. 브릿지는 그
+    // 서비스를 부르기만 하고 무엇이 안전한지는 로봇이 정한다.
+    //
+    // 자세 전환은 팔이 접혀 있어야 안전하다. 팔이 펴진 채 앉으면 차체나 바닥에
+    // 부딪힌다. 그래서 모션 권한이 팔에 있는 동안은 거절한다 — 화면이 버튼을
+    // 잠그는 것과 별개로 판정은 여기서 한다.
+    void handleBasePosture(const Envelope &request);
+
+    /// 선행 조건 미충족으로 자세 전환을 거절한다. 응답과 함께
+    /// BASE_POSTURE_BLOCKED 를 이력에 남긴다.
+    void refusePosture(const Envelope &request, const std::string &code,
+                       const std::string &message);
+
+    /// 이 자세 이름이 지원되는지. 아니면 nullptr.
+    static const char *postureService(const std::string &posture);
+
+    /// 본체 자세와 현재 모션 권한을 관제로 올린다.
+    void publishBase();
+
+    std::unordered_map<std::string, rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr>
+        postureClients_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr authoritySub_;
+    std::string motionAuthority_{"none"};
+    std::string basePosture_{"unknown"};
+
+    /// 본체 드라이버 없이 자세 명령을 로그로만 처리한다.
+    ///
+    /// 시뮬레이터에는 SportClient 서비스가 없어 실제 자세 전환을 할 수 없다.
+    /// 그렇다고 요청이 통째로 막히면 관제 화면과 연동 코드를 시뮬레이터에서
+    /// 시험할 수 없다. 이 값이 켜지면 요청을 받아 로그에 남기고 상태만
+    /// 갱신한다.
+    ///
+    /// 기본값은 꺼짐이고 simulation_bringup 의 설정에서만 켠다. 실기에서 켜지면
+    /// 화면은 앉았다고 표시하는데 로봇은 서 있는 상태가 되므로, 그 사실이
+    /// 로그에 매번 드러나도록 경고로 찍는다.
+    bool postureDryRun_ = false;
 
     // ---- operator-owned lists ----------------------------------------------
     //
@@ -285,6 +333,7 @@ private:
     // ---- state -----------------------------------------------------------
     TcpServer server_;
     bool estopEngaged_ = false;
+    std::string safetyState_{"unknown"};
     bool manualMode_ = false;
     rclcpp::Time lastHeartbeat_;
     rclcpp::Time lastCmdVel_;
@@ -405,6 +454,8 @@ private:
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmdVelPub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr linkAlivePub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr estopPub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr safetyEventPub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr authorityRequestPub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr armCmdPub_;
 
     rclcpp_action::Client<NavigateToPose>::SharedPtr navClient_;
@@ -414,9 +465,16 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr jointSub_;
     rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr planSub_;
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr mapSub_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr safetyStateSub_;
 
     std::unique_ptr<tf2_ros::Buffer> tfBuffer_;
     std::shared_ptr<tf2_ros::TransformListener> tfListener_;
+
+    /// 관제 포트를 연다. 실패하면 false 를 돌려주고 재시도 타이머가 계속 부른다.
+    bool openControlPort();
+
+    rclcpp::TimerBase::SharedPtr bindRetryTimer_;
+    bool bindFailed_ = false;
 
     rclcpp::TimerBase::SharedPtr linkTimer_;
     rclcpp::TimerBase::SharedPtr poseTimer_;

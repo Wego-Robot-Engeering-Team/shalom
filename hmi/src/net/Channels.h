@@ -39,6 +39,7 @@ inline constexpr auto kLocations = "state/locations";  ///< dock, home - not par
 /// Surveyed AprilTag positions. Distinct from state/apriltag, which says what
 /// is being seen right now: this is the map of where the tags were put.
 inline constexpr auto kMarkers = "state/markers";      ///< on change
+inline constexpr auto kBase = "state/base";            ///< posture, motion authority, on change
 inline constexpr auto kMaps = "state/maps";             ///< installed map catalogue
 inline constexpr auto kActiveMap = "state/active_map";  ///< selected robot map
 
@@ -53,6 +54,7 @@ inline constexpr auto kCmdLocationsSet = "cmd/locations/set";   ///< dock and ho
 inline constexpr auto kCmdMarkersSet = "cmd/markers/set";       ///< replaces the whole list
 inline constexpr auto kCmdMapsList = "cmd/maps/list";
 inline constexpr auto kCmdMapsSelect = "cmd/maps/select";
+inline constexpr auto kCmdMapsRename = "cmd/maps/rename";
 
 /// Battery policy the robot must enforce: return_at and depart_at, in percent.
 ///
@@ -69,6 +71,11 @@ inline constexpr auto kCmdArmPreset = "cmd/arm/preset";
 inline constexpr auto kCmdArmJointGoal = "cmd/arm/joint_goal";
 inline constexpr auto kCmdArmEeGoal = "cmd/arm/ee_goal";
 inline constexpr auto kCmdArmStop = "cmd/arm/stop";
+
+/// Base posture. stand_up | stand_down | balance_stand | recovery_stand | damp.
+/// damp releases the joints, so the robot drops where it stands: the bridge
+/// only accepts it when confirm is sent along with it.
+inline constexpr auto kCmdBasePosture = "cmd/base/posture";
 inline constexpr auto kCmdCapture = "cmd/capture/trigger";
 
 /// Published at 20 Hz while the operator holds a jog control. The bridge

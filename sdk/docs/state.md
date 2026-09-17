@@ -17,6 +17,7 @@
 | `state/health` | 1 Hz | |
 | `state/capture_spool` | 촬영 시 | |
 | `state/safety` | 변경 시 + 1 Hz | |
+| `state/base` | 변경 시 | |
 | `state/mission` | 변경 시 | |
 | `state/waypoints` | 변경 시 | |
 | `state/locations` | 변경 시 | |
@@ -62,6 +63,23 @@
 |---|---|
 | `estop` | `true` 면 발동 중 |
 | `mode` | `"auto"` 또는 `"manual"` |
+
+## `state/base` — 본체 자세와 모션 권한
+
+```json
+{"posture": "balance_stand", "motion_authority": "none"}
+```
+
+| 필드 | 값 |
+|---|---|
+| `posture` | `stand_up` · `stand_down` · `balance_stand` · `recovery_stand` · `damp` · `unknown` |
+| `motion_authority` | `none` · `base_active` · `base_stopping` · `arm_active` · `arm_stopping` |
+
+`posture` 는 로봇이 마지막으로 성공한 자세다. 기동 직후나 외부에서 자세를 바꾼
+뒤에는 `unknown` 이다 — 브릿지가 모르는 것을 아는 척하지 않는다.
+
+`motion_authority` 는 본체와 로봇팔 중 어느 쪽이 움직일 권한을 갖는지다. 둘은
+동시에 움직이지 않는다.
 
 ## `state/nav` — 자율주행
 
@@ -162,8 +180,8 @@
 
 | 필드 | 설명 |
 |---|---|
-| `id` | 지도 식별자. `cmd/maps/select` 에 그대로 쓴다 |
-| `name` | 사람이 읽을 이름. `metadata.json` 이 없으면 `id` 와 같다 |
+| `id` | 지도 식별자. `cmd/maps/select` 에 그대로 쓴다. 변경하지 않는다 |
+| `name` | 사람이 읽을 이름. 로봇의 `metadata.json`에 저장되며 `cmd/maps/rename`으로 바꾼다. 파일이 없으면 `id`와 같다 |
 | `active` | 현재 쓰는 지도인지 |
 | `waypoint_count` | 그 지도에 등록된 점검포인트 수 |
 | `created_at` | 생성 시각. 없을 수 있다 |

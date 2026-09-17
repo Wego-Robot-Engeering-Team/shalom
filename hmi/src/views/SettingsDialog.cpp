@@ -8,14 +8,16 @@
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QHostAddress>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
 #include <QScrollArea>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSlider>
-#include <QListWidget>
+#include <QTreeWidget>
 #include <QSpinBox>
 #include <QStandardPaths>
 #include <QNetworkInterface>
@@ -287,20 +289,31 @@ QWidget *SettingsDialog::buildConnectionTab()
     // 입장에서 주고받는 것이 같으므로 특별 취급할 이유가 없다.
     lay->addWidget(sectionLabel(QStringLiteral("로봇")));
 
-    robotList_ = new QListWidget;
+    robotList_ = new QTreeWidget;
     robotList_->setObjectName(QStringLiteral("PickList"));
+    robotList_->setColumnCount(2);
+    robotList_->setHeaderLabels({QStringLiteral("IPv4 주소"), QStringLiteral("로봇 이름")});
+    robotList_->setRootIsDecorated(false);
+    robotList_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    robotList_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    robotList_->header()->setStretchLastSection(true);
+    robotList_->setColumnWidth(0, 180);
     robotList_->setMinimumHeight(110);
     lay->addWidget(robotList_);
 
     auto *listButtons = new QHBoxLayout;
-    auto *addBtn = new QPushButton(QStringLiteral("추가"));
     auto *removeBtn = new QPushButton(QStringLiteral("삭제"));
-    listButtons->addWidget(addBtn);
     listButtons->addWidget(removeBtn);
     listButtons->addStretch(1);
     lay->addLayout(listButtons);
 
+    lay->addWidget(new HLine);
+    lay->addWidget(sectionLabel(QStringLiteral("새 로봇 연결 추가")));
+
+    name_ = new QLineEdit;
+    name_->setPlaceholderText(QStringLiteral("예: 1호기 · A검수선"));
     host_ = new QLineEdit;
+    host_->setPlaceholderText(QStringLiteral("예: 192.168.10.21"));
     port_ = new QSpinBox;
     port_->setRange(1, 65535);
     // 포트는 규약이 정한 값이라 현장에서 바꿀 것이 아니다(9090, 통신 규약
@@ -308,46 +321,75 @@ QWidget *SettingsDialog::buildConnectionTab()
     // 확인해야 하는 값이고, 화면에 없으면 문서를 뒤지게 된다.
     port_->setEnabled(false);
     port_->setToolTip(QStringLiteral("통신 규약이 정한 값입니다 (9090)."));
-    lay->addWidget(fieldRow(QStringLiteral("주소"), host_, 96));
+    lay->addWidget(fieldRow(QStringLiteral("로봇 이름"), name_, 96));
+    lay->addWidget(fieldRow(QStringLiteral("IPv4 주소"), host_, 96));
     lay->addWidget(fieldRow(QStringLiteral("제어 포트"), port_, 96));
 
     auto *hint = new QLabel(QStringLiteral(
-        "이름은 연결되면 로봇이 알려 줍니다. 상단 바에서도 바꿀 수 있습니다."));
+        "로봇 이름과 IPv4 주소를 입력한 뒤 추가하십시오. 저장을 눌러야 "
+        "연결 목록에 영구 반영됩니다."));
     hint->setObjectName(QStringLiteral("Hint"));
     hint->setWordWrap(true);
     lay->addWidget(hint);
 
-    connect(robotList_, &QListWidget::currentRowChanged, this, [this](int row) {
-        if (row < 0)
-            return;
-        const int previous = pendingCurrentRobot_;
+    connect(robotList_, &QTreeWidget::currentItemChanged, this,
+            [this](QTreeWidgetItem *item, QTreeWidgetItem *) {
+                pendingCurrentRobot_ = item ? robotList_->indexOfTopLevelItem(item) : -1;
+            });
 
-        // 저장하지 않은 편집을 말없이 버리지 않는다. 고친 것이 사라진 줄
-        // 모르면, 나중에 "저장이 안 된다" 로 되돌아온다.
-        if (row != previous && robotSave_ && robotSave_->isEnabled()) {
-            const auto answer = QMessageBox::question(
-                this, QStringLiteral("저장하지 않은 변경"),
-                QStringLiteral("저장하지 않은 변경이 있습니다. 버리고 다른 로봇으로 "
-                               "옮길까요?"),
-                QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-            if (answer != QMessageBox::Yes) {
-                const QSignalBlocker block(robotList_);
-                robotList_->setCurrentRow(previous);
-                return;
-            }
-        }
+    addRobotButton_ = new QPushButton(QStringLiteral("로봇 추가"));
+    addRobotButton_->setProperty("variant", "primary");
+    addRobotButton_->setEnabled(false);
+    auto *addRow = new QHBoxLayout;
+    testButton_ = new QPushButton(QStringLiteral("연결 확인"));
+    addRow->addWidget(testButton_);
+    addRow->addStretch(1);
+    addRow->addWidget(addRobotButton_);
+    lay->addLayout(addRow);
+    testResult_ = new QLabel;
+    testResult_->setObjectName(QStringLiteral("Hint"));
+    testResult_->setWordWrap(true);
+    lay->addWidget(testResult_);
 
-        pendingCurrentRobot_ = row;
-        showSelectedRobot();
+    const auto refreshAddState = [this] {
+        const QHostAddress parsed(host_->text().trimmed());
+        addRobotButton_->setEnabled(!name_->text().trimmed().isEmpty()
+                                    && !parsed.isNull()
+                                    && parsed.protocol() == QAbstractSocket::IPv4Protocol);
+    };
+    connect(name_, &QLineEdit::textChanged, this, refreshAddState);
+    connect(host_, &QLineEdit::textChanged, this, [this, refreshAddState] {
+        refreshAddState();
         refreshNetworkInfo();
     });
 
-    connect(addBtn, &QPushButton::clicked, this, [this] {
+    connect(addRobotButton_, &QPushButton::clicked, this, [this] {
+        const QString displayName = name_->text().trimmed();
+        const QString address = host_->text().trimmed();
+        const QHostAddress parsed(address);
+        if (displayName.isEmpty() || parsed.isNull()
+            || parsed.protocol() != QAbstractSocket::IPv4Protocol) {
+            QMessageBox::warning(this, QStringLiteral("연결을 추가할 수 없습니다"),
+                                 QStringLiteral("로봇 이름과 올바른 IPv4 주소를 입력하십시오."));
+            return;
+        }
         auto list = pendingRobots_;
-        // 이름은 비워 둔다. 붙으면 로봇이 알려 준다.
-        list.append({QString(), QStringLiteral("192.168.0.10"), 9090});
+        for (const auto &entry : std::as_const(list)) {
+            if (entry.host == address && entry.port == 9090) {
+                QMessageBox::warning(this, QStringLiteral("이미 등록된 로봇"),
+                                     QStringLiteral("%1 은 이미 연결 목록에 있습니다.")
+                                         .arg(address));
+                return;
+            }
+        }
+        const bool hadSelection = pendingCurrentRobot_ >= 0;
+        list.append({displayName, address, 9090});
         pendingRobots_ = list;
-        pendingCurrentRobot_ = int(list.size()) - 1;
+        if (!hadSelection)
+            pendingCurrentRobot_ = int(list.size()) - 1;
+        name_->clear();
+        host_->clear();
+        testResult_->clear();
         reloadRobotList();
     });
 
@@ -361,37 +403,6 @@ QWidget *SettingsDialog::buildConnectionTab()
         reloadRobotList();
     });
 
-    // 저장은 눌러서 한다.
-    //
-    // 예전에는 칸을 벗어나는 순간 저장됐다. 주소를 고치다 말고 다른 데를
-    // 누르면 반쯤 고친 주소가 그대로 들어갔고, 화면에는 그 사실이 "연결
-    // 안 됨" 으로만 보였다. 무엇을 바꿨는지 스스로 확인하고 누르게 한다.
-    auto *saveRow = new QHBoxLayout;
-    robotSave_ = new QPushButton(QStringLiteral("연결 정보 반영"));
-    robotSave_->setProperty("variant", "primary");
-    robotSave_->setEnabled(false);
-    saveRow->addStretch(1);
-    saveRow->addWidget(robotSave_);
-    lay->addLayout(saveRow);
-
-    connect(robotSave_, &QPushButton::clicked, this, &SettingsDialog::applyRobotEdits);
-
-    // 고친 것이 있을 때만 또렷해진다. 늘 눌러도 되는 것처럼 보이면 누른
-    // 것인지 아닌지 기억에 의존하게 된다.
-    connect(host_, &QLineEdit::textEdited, this,
-            [this] { refreshRobotSaveState(); });
-    connect(port_, &QSpinBox::valueChanged, this,
-            [this] { refreshRobotSaveState(); });
-
-    // ---- 연결 확인 ----
-    auto *testRow = new QHBoxLayout;
-    testButton_ = new QPushButton(QStringLiteral("연결 확인"));
-    testResult_ = new QLabel;
-    testResult_->setObjectName(QStringLiteral("Hint"));
-    testResult_->setWordWrap(true);
-    testRow->addWidget(testButton_);
-    testRow->addWidget(testResult_, 1);
-    lay->addLayout(testRow);
     connect(testButton_, &QPushButton::clicked, this, &SettingsDialog::testConnection);
 
     lay->addSpacing(metrics::s2);
@@ -410,7 +421,6 @@ QWidget *SettingsDialog::buildConnectionTab()
     lay->addWidget(subnetWarning_);
 
     refreshNetworkInfo();
-    connect(host_, &QLineEdit::textChanged, this, [this] { refreshNetworkInfo(); });
 
     reloadRobotList();
 
@@ -525,12 +535,6 @@ QWidget *SettingsDialog::buildStorageTab()
     lay->addWidget(logDirStatus_);
     lay->addWidget(fieldRow(QStringLiteral("보관 기간"), retention_, 84));
 
-    auto *logHint = new QLabel(QStringLiteral(
-        "문제가 생겼을 때 담당자에게 보낼 수 있는 것은 내보낸 로그뿐입니다."));
-    logHint->setObjectName(QStringLiteral("Hint"));
-    logHint->setWordWrap(true);
-    lay->addWidget(logHint);
-
     lay->addSpacing(metrics::s2);
     lay->addWidget(new HLine);
     lay->addSpacing(metrics::s2);
@@ -540,13 +544,6 @@ QWidget *SettingsDialog::buildStorageTab()
     nasStatus_->setObjectName(QStringLiteral("Hint"));
     nasStatus_->setWordWrap(true);
     lay->addWidget(nasStatus_);
-
-    auto *hint = new QLabel(QStringLiteral(
-        "이력 화면에서 사진을 찾고 내려받을 때 쓰는 경로입니다. "
-        "사진을 저장 장치에 올리는 것은 로봇이며, 관제 화면은 읽기만 합니다."));
-    hint->setObjectName(QStringLiteral("Hint"));
-    hint->setWordWrap(true);
-    lay->addWidget(hint);
 
     // 긴 경로는 입력칸에서 잘린다. 도구 설명으로 전체를 볼 수 있게 한다.
     const auto pick = [this](QLineEdit *edit, const QString &title) {
@@ -621,11 +618,6 @@ QWidget *SettingsDialog::buildSafetyTab()
     lay->setContentsMargins(metrics::s3, metrics::s4, metrics::s3, metrics::s3);
     lay->setSpacing(metrics::s2);
 
-    auto *intro = new QLabel(QStringLiteral(
-        "아래 값은 로봇이 직접 지킵니다. 관제 화면에서는 바꿀 수 없습니다."));
-    intro->setObjectName(QStringLiteral("Hint"));
-    intro->setWordWrap(true);
-    lay->addWidget(intro);
     lay->addSpacing(metrics::s2);
 
     lay->addWidget(readOnlyRow(
@@ -768,78 +760,28 @@ void SettingsDialog::reloadRobotList()
     const QSignalBlocker block(robotList_);
     robotList_->clear();
     for (const auto &e : pendingRobots_) {
-        // 이름은 로봇이 알려 준다. 아직 붙어 본 적이 없으면 주소만 보인다 —
-        // "(이름 없음)" 같은 자리표시를 넣으면 비어 있는 것이 이름인 줄 안다.
-        robotList_->addItem(e.name.isEmpty()
-                                ? QStringLiteral("%1:%2").arg(e.host).arg(e.port)
-                                : QStringLiteral("%1      %2:%3")
-                                      .arg(e.name, e.host).arg(e.port));
+        robotList_->addTopLevelItem(new QTreeWidgetItem(
+            {QStringLiteral("%1:%2").arg(e.host).arg(e.port), e.name}));
     }
-    robotList_->setCurrentRow(pendingCurrentRobot_);
-    showSelectedRobot();
-}
-
-void SettingsDialog::showSelectedRobot()
-{
-    if (pendingCurrentRobot_ < 0 || pendingCurrentRobot_ >= pendingRobots_.size()) {
-        const QSignalBlocker b2(host_), b3(port_);
-        host_->clear();
-        port_->setValue(9090);
-        host_->setEnabled(false);
-        port_->setEnabled(false);
-        testButton_->setEnabled(false);
-        robotSave_->setEnabled(false);
-        return;
-    }
-    host_->setEnabled(true);
-    port_->setEnabled(false);
-    testButton_->setEnabled(true);
-    const auto &e = pendingRobots_.at(pendingCurrentRobot_);
-    const QSignalBlocker b2(host_), b3(port_);
-    host_->setText(e.host);
-    port_->setValue(e.port);
-    refreshRobotSaveState();
-}
-
-void SettingsDialog::refreshRobotSaveState()
-{
-    if (!robotSave_)
-        return;
-    if (pendingCurrentRobot_ < 0 || pendingCurrentRobot_ >= pendingRobots_.size()) {
-        robotSave_->setEnabled(false);
-        return;
-    }
-    const auto &e = pendingRobots_.at(pendingCurrentRobot_);
-    const bool changed = host_->text().trimmed() != e.host
-                         || port_->value() != e.port;
-    robotSave_->setEnabled(changed);
-}
-
-void SettingsDialog::applyRobotEdits()
-{
-    if (pendingCurrentRobot_ < 0 || pendingCurrentRobot_ >= pendingRobots_.size())
-        return;
-    // 주소가 비면 저장하지 않는다. 빈 주소는 목록에서 한 줄을 차지하면서
-    // 아무 데도 붙지 못하는, 눈으로는 멀쩡해 보이는 항목이 된다.
-    if (host_->text().trimmed().isEmpty()) {
-        showSelectedRobot();
-        return;
-    }
-    pendingRobots_[pendingCurrentRobot_].host = host_->text().trimmed();
-    pendingRobots_[pendingCurrentRobot_].port = port_->value();
-    reloadRobotList();
+    if (pendingCurrentRobot_ >= 0 && pendingCurrentRobot_ < robotList_->topLevelItemCount())
+        robotList_->setCurrentItem(robotList_->topLevelItem(pendingCurrentRobot_));
 }
 
 void SettingsDialog::load()
 {
     auto &cfg = Config::instance();
     loading_ = true;
-    const QSignalBlocker b1(scale_), b2(host_), b3(port_);
+    const QSignalBlocker b1(scale_), b2(name_), b3(host_), b4(port_);
     const QSignalBlocker bp1(returnPct_), bp2(departPct_);
     const QSignalBlocker b5(linear_), b6(angular_), b7(logDir_), b8(retention_), b9(nasPath_);
 
     pendingRobots_ = cfg.robots();
     pendingCurrentRobot_ = cfg.currentRobot();
+    name_->clear();
+    host_->clear();
+    port_->setValue(9090);
+    testResult_->clear();
+    addRobotButton_->setEnabled(false);
     scale_->setValue(int(qRound(cfg.uiScale() * 100)));
     scaleValue_->setText(QStringLiteral("%1%").arg(scale_->value()));
     reloadRobotList();
@@ -874,14 +816,10 @@ void SettingsDialog::previewAppearance()
 
 void SettingsDialog::save()
 {
-    // "연결 정보 반영"을 누르지 않았어도 아래 저장은 현재 보이는 주소까지
-    // 저장한다. 저장 버튼이 화면의 값을 빠뜨리는 것은 더 놀라운 동작이다.
-    if (robotSave_ && robotSave_->isEnabled())
-        applyRobotEdits();
-
     auto &cfg = Config::instance();
     cfg.setRobots(pendingRobots_);
     cfg.setCurrentRobot(pendingCurrentRobot_);
+    emit robotProfilesChanged();
     cfg.setUiScale(scale_->value() / 100.0);
     cfg.setTheme(darkBtn_->isChecked() ? QStringLiteral("dark") : QStringLiteral("light"));
     cfg.setDefaultLinearSpeed(linear_->value());
@@ -908,12 +846,17 @@ void SettingsDialog::discardChanges()
 void SettingsDialog::loadDefaults()
 {
     loading_ = true;
-    const QSignalBlocker b1(scale_), b2(host_), b3(port_);
+    const QSignalBlocker b1(scale_), b2(name_), b3(host_), b4(port_);
     const QSignalBlocker bp1(returnPct_), bp2(departPct_);
     const QSignalBlocker b5(linear_), b6(angular_), b7(logDir_), b8(retention_), b9(nasPath_);
 
     pendingRobots_.clear();
     pendingCurrentRobot_ = -1;
+    name_->clear();
+    host_->clear();
+    port_->setValue(9090);
+    testResult_->clear();
+    addRobotButton_->setEnabled(false);
     scale_->setValue(100);
     scaleValue_->setText(QStringLiteral("100%"));
     linear_->setValue(0.30);

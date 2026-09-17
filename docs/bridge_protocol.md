@@ -60,6 +60,7 @@
 | `state/plan` | 계획 경로 |
 | `state/trail` | 주행 궤적 |
 | `state/arm` | 관절·끝단 자세 |
+| `state/base` | 본체 자세·동작 권한 |
 | `state/apriltag` | 마커 검출 |
 | `state/mission` | 점검 시나리오 상태 |
 | `state/waypoints` | 점검 지점 |
@@ -78,8 +79,9 @@
 이미지를 payload로 보낸다.
 
 `state/maps`의 각 항목은 `id`, `name`, `created_at`, `active`, `waypoint_count`를
-가진다. HMI는 로봇 파일 시스템을 직접 읽지 않고 이 목록만 표시한다. 지도 전환이
-성공하면 브릿지는 `state/active_map`과 선택된 지도 기준의 `map/occupancy`,
+가진다. `id`는 지도 디렉터리의 변경하지 않는 식별자이고, `name`은 로봇의
+`metadata.json`에 저장된 표시 이름이다. HMI는 로봇 파일 시스템을 직접 읽지 않고 이
+목록만 표시한다. 지도 전환이 성공하면 브릿지는 `state/active_map`과 선택된 지도 기준의 `map/occupancy`,
 `state/waypoints`, `state/locations`, `state/markers`를 다시 보낸다.
 
 ### `state/mission` 의 상태 값
@@ -117,6 +119,7 @@
 | `cmd/markers/set` | 마커 전체 설정 |
 | `cmd/maps/list` | 로봇 지도 목록 요청 |
 | `cmd/maps/select` | `id`로 로봇의 활성 지도 전환 |
+| `cmd/maps/rename` | `id`의 로봇 측 표시 이름 변경 |
 | `cmd/power/policy` | 배터리 복귀·출발 기준 |
 | `cmd/mission/start` | 점검 시작 |
 | `cmd/mission/pause` | 점검 일시정지 |
@@ -126,19 +129,81 @@
 | `cmd/arm/joint_goal` | 암 관절 목표 |
 | `cmd/arm/ee_goal` | 암 끝단 목표 |
 | `cmd/arm/stop` | 암 정지 |
+| `cmd/base/posture` | 본체 자세 전환 (앉기·일어서기) |
 | `cmd/capture/trigger` | 촬영 |
 | `cmd/cmd_vel` | 수동 속도 (`vx`, `vy`, `wz`) |
+
+### `cmd/base/posture` — 본체 자세
+
+`p.posture`에 아래 값 하나를 넣는다. 관제가 보낸 문자열을 그대로 로봇 서비스
+이름으로 쓰지 않으므로, 목록에 없는 값은 `E_BAD_PAYLOAD`로 거절한다.
+
+| 값 | 뜻 |
+|---|---|
+| `balance_stand` | 균형 서기 (주행 가능한 기본 자세) |
+| `stand_up` | 일어서기 |
+| `stand_down` | 앉기 |
+| `recovery_stand` | 넘어짐 복구 |
+| `damp` | 관절 힘 빼기 |
+
+판정은 화면이 아니라 로봇이 한다. 화면이 버튼을 잠그더라도 다른 클라이언트가
+같은 명령을 보낼 수 있으므로, 브릿지가 아래를 모두 확인한다.
+
+- E-Stop 중이면 `E_ESTOP`.
+- 동작 권한이 `arm_active`·`arm_stopping`이면 `E_BUSY`. 팔이 펴진 채 앉으면
+  차체나 바닥에 부딪힌다.
+- 이동 중에 `stand_down`·`damp`를 받으면 `E_MODE`. 움직이는 중에 앉거나 힘을
+  빼면 넘어진다.
+- 오도메트리가 1초 이상 끊겨 정지 상태를 확인할 수 없으면 `stand_down`·`damp`는
+  `E_HARDWARE`. 정지를 확인하지 못한 채 앉히지 않는다.
+- `damp`는 `p.confirm`이 `true`가 아니면 `E_MODE`. 서 있는 상태에서 누르면
+  로봇이 그대로 주저앉으므로 실수로 눌리는 것을 막는다.
+- 본체 드라이버가 응답하지 않으면 `E_HARDWARE`.
+
+성공하면 브릿지가 `state/base`를 다시 발행한다. 응답 본문에는 자세가 실려
+오지 않으므로 결과는 `state/base`로 읽는다.
+
+`state/base`는 `posture`와 `motion_authority`를 보낸다. `motion_authority`는
+로봇의 동작 중재 결과(`none`, `base_active`, `base_stopping`, `arm_active`,
+`arm_stopping`)이고, 관제는 받아서 보여 줄 뿐 스스로 정하지 않는다.
+
+시뮬레이터에는 본체 드라이버가 없다. `base.posture_dry_run`이 켜져 있으면
+브릿지는 자세를 바꾸는 대신 로그와 `state/base`만 갱신하고, 응답과
+`evt/log`(`BASE_POSTURE_SIMULATED`)에 모의였다는 사실을 남긴다. 실기 설정에서는
+반드시 꺼야 한다.
 
 ## 안전·연결
 
 ```text
-Nav2 / 브릿지 → /cmd_vel_raw → 안전 게이트 → /cmd_vel → 로봇
+Nav2   →  /motion/nav/cmd_vel     ─┐
+브릿지  →  /motion/teleop/cmd_vel  ─┴→ motion_mux → /cmd_vel → 로봇
 ```
 
 - E-Stop, 통신 두절, 명령 중재는 로봇의 안전 노드 책임이다.
 - 관제와 브릿지는 5 Hz 하트비트를 교환한다.
 - 안전 노드는 통신 두절 **3초** 후 정지한다.
 - 재연결 후 자율주행은 자동 재개하지 않는다.
+
+### 수동과 자율의 우선순위
+
+`motion_mux`가 **teleop > mission > stair > dock > nav** 순으로 고르고, 각
+입력은 **300 ms** 안에 들어온 것만 유효하다. 같은 토픽에 두 발행자를 두면
+우선순위가 발행 순서로 정해지므로 중재를 한곳에 모았다.
+
+| 상태 | 로봇으로 나가는 것 |
+|---|---|
+| `auto`, 조작 입력 없음 | Nav2 |
+| `auto`, 조작 입력 중 | 수동. 멈추면 300 ms 뒤 Nav2 로 돌아간다 |
+| `manual`, 조작 입력 없음 | 브릿지가 만드는 제자리 명령 |
+| `manual`, 조작 입력 중 | 수동 |
+| E-Stop | 0 |
+
+수동 모드의 제자리 명령은 관제가 아니라 브릿지가 만든다. 관제가 0 을
+스트림하게 하면 링크가 끊긴 순간 수동 쪽 유효 시간이 만료되고, 수동 모드인데도
+Nav2 가 로봇을 몰기 시작한다.
+
+모드 전환은 자율주행을 취소하지 않는다. 수동인 동안 자율 출력이 막힐 뿐이고,
+`auto` 로 돌아가면 하던 주행이 이어진다. 취소는 `cmd/nav_cancel` 로만 한다.
 
 ## 촬영 데이터·위치·건강 상태
 

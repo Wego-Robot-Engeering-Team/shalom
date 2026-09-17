@@ -78,6 +78,8 @@ class BatteryPill : public AnimatedValue {
 public:
     explicit BatteryPill(QWidget *parent = nullptr, double lowThreshold = 25.0);
     void setState(double socPercent, bool charging = false);
+    /// There is no trustworthy battery value until a robot telemetry packet arrives.
+    void setUnavailable(const QString &reason = {});
 
 protected:
     void paintEvent(QPaintEvent *) override;
@@ -85,6 +87,7 @@ protected:
 private:
     double low_;
     bool charging_ = false;
+    bool available_ = false;
 };
 
 /// Half-circle arc gauge, used for the FR3 manipulability index.

@@ -60,6 +60,7 @@ public:
 
     void requestMapCatalog();
     void selectMap(const QString &mapId);
+    void renameMap(const QString &mapId, const QString &name);
 
     // ---- RobotLink ------------------------------------------------------
     void setCmdVel(double vx, double vy, double wz) override;
@@ -88,6 +89,10 @@ public:
 
     void setMode(hmi::robot::DriveMode mode) override;
     hmi::robot::DriveMode mode() const override { return mode_; }
+
+    void setBasePosture(const QString &posture, bool confirm = false) override;
+    QString basePosture() const override { return basePosture_; }
+    QString motionAuthority() const override { return motionAuthority_; }
 
     void setArmJointGoal(const QList<double> &q) override;
     void setArmPreset(const QString &name) override;
@@ -182,6 +187,11 @@ private:
     QVariantMap home_;
     hmi::robot::MissionState mission_ = hmi::robot::MissionState::Idle;
     hmi::robot::DriveMode mode_ = hmi::robot::DriveMode::Auto;
+
+    /// Posture and motion authority as reported by the robot. The UI does
+    /// not guess either of them.
+    QString basePosture_;
+    QString motionAuthority_;
     bool estop_ = false;
 
     qint64 rxBytes_ = 0;

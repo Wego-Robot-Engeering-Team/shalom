@@ -23,7 +23,7 @@
 #include "MainWindow.h"
 #include "panels/ArmPanel.h"
 #include "robot/Kinematics.h"
-#include "sim/SimRobot.h"
+#include "TestRobot.h"
 #include "theme/Style.h"
 #include "theme/Tokens.h"
 #include "views/SettingsDialog.h"
@@ -43,14 +43,14 @@ void paintEveryView(const QString &theme)
     theme::setTheme(theme);
     qApp->setStyleSheet(theme::buildQss());
 
-    auto *robot = new sim::SimRobot;
+    auto *robot = new test::TestRobot;
     ui::MainWindow window(robot);
     window.resize(1400, 900);
     window.show();
 
     static const ui::NavItem kAll[] = {
-        ui::NavItem::Drive,       ui::NavItem::Locations, ui::NavItem::Arm,
-        ui::NavItem::Capture,     ui::NavItem::Diagnostics,
+        ui::NavItem::Drive,       ui::NavItem::Locations, ui::NavItem::Base,
+        ui::NavItem::Arm,         ui::NavItem::Capture,   ui::NavItem::Diagnostics,
         ui::NavItem::Data,        ui::NavItem::Events,
     };
 
@@ -62,9 +62,11 @@ void paintEveryView(const QString &theme)
                                 .arg(int(item))));
     }
 
-    // 수동 모드에서만 나타나는 조작 패널도 한 번 그린다.
+    // 수동 모드로 바꾼 뒤의 본체 화면도 한 번 그린다. 조작 패널은 주행
+    // 모드와 무관하게 이 화면에 있지만, 모드 전환이 화면을 건드리는 경로가
+    // 남아 있으므로 그 뒤에도 그려지는지 본다.
     window.setDriveMode(QStringLiteral("manual"));
-    window.showView(ui::NavItem::Drive);
+    window.showView(ui::NavItem::Base);
     QVERIFY(!window.grab().isNull());
 }
 
@@ -268,7 +270,7 @@ private slots:
         theme::setTheme(QStringLiteral("light"));
         qApp->setStyleSheet(theme::buildQss());
 
-        auto *robot = new sim::SimRobot;
+        auto *robot = new test::TestRobot;
         ui::MainWindow window(robot);
         window.show();
 

@@ -1,11 +1,9 @@
 # Copyright (c) 2026 WeGo Robotics. All rights reserved.
 
-"""Bring up the ROS supervisory control plane without hardware wiring.
+"""Bring up the sole base-command safety path.
 
-This launch deliberately defaults its final Twist output to
-`/motion/safe/cmd_vel`, not `/cmd_vel`.  Change that argument only after every
-base command source has been remapped through motion_mux and the hardware
-timeout/physical E-stop path has been verified on the target robot.
+Every command source enters motion_mux, then safety_gate is the only publisher
+to the B2 driver's `/cmd_vel`. E-Stop therefore blocks teleop and Nav2 alike.
 """
 
 from launch import LaunchDescription
@@ -17,7 +15,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument("base_output_topic", default_value="/motion/safe/cmd_vel"),
+        DeclareLaunchArgument("base_output_topic", default_value="/cmd_vel"),
         DeclareLaunchArgument("require_external_heartbeat", default_value="false"),
         Node(
             package="safety_manager", executable="safety_manager_node",
@@ -38,6 +36,7 @@ def generate_launch_description():
         Node(
             package="motion_mux", executable="motion_mux_node",
             name="motion_mux", output="screen",
+            parameters=[{"output_topic": "/motion/base/cmd_vel"}],
         ),
         Node(
             package="safety_gate", executable="safety_gate_node",

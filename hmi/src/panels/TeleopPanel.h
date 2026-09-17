@@ -9,10 +9,14 @@
 //
 // Safety design:
 //   - Publishing happens only while a button is held. These are momentary
-//     controls, not toggles.
+//     controls, not toggles. That holds in autonomous mode too: the operator
+//     takes over for as long as they hold a control and the robot returns to
+//     the mission when they let go.
 //   - When publishing stops the bridge latches zero after 300 ms, so a frozen
 //     control station or a dropped link cannot leave the robot driving.
-//   - The controls are disabled unless the system is in manual mode.
+//   - The controls are disabled while the link is down or the emergency stop
+//     is engaged. Drive mode does not gate them - what is safe to do is the
+//     robot's ruling, and it arbitrates manual against autonomous itself.
 //   - The keyboard drives the same press/release path as the buttons, so the
 //     hold-to-move rule cannot be bypassed by using keys instead. Auto-repeat
 //     is ignored: without that, the platform's repeat stream looks like a
@@ -22,6 +26,7 @@
 #include <QWidget>
 
 class QKeyEvent;
+class QLabel;
 class QPushButton;
 class QSlider;
 class QTimer;
@@ -38,6 +43,10 @@ public:
     /// Enables the jog controls. The stop button stays live either way.
     void setJogEnabled(bool on);
 
+    /// Shows the posture the robot reported. The UI does not guess: pressing
+    /// a button changes nothing until state/base comes back.
+    void setBasePosture(const QString &posture);
+
 protected:
     /// Watches the whole window so the operator does not have to click the
     /// panel first. Keys are ignored while a text field has focus, otherwise
@@ -47,8 +56,18 @@ protected:
 signals:
     void cmdVel(double vx, double vy, double wz);
 
+    /// Base posture request. confirm is true for damp.
+    void basePosture(const QString &posture, bool confirm);
+
 private:
     QWidget *buildPad();
+
+    /// The posture button row. Sit and stand go straight out; damp goes
+    /// through a confirmation dialog first.
+    QWidget *buildPostureRow();
+
+    QHash<QString, QPushButton *> postureButtons_;
+    QLabel *postureLabel_ = nullptr;
 
     /// Direction key for this event, or an empty string if it is not one.
     static QString keyFor(const QKeyEvent *ev);

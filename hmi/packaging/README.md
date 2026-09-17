@@ -3,9 +3,9 @@
 `release` 프리셋으로 빌드한 뒤 `cmake --install` 로 만든다.
 
 ```bash
-cmake --preset release
-cmake --build --preset release
-cmake --install build-release --prefix dist/inspection-hmi
+cmake --preset default
+cmake --build --preset default
+cmake --install build --prefix dist/inspection-hmi
 ```
 
 ## 구조

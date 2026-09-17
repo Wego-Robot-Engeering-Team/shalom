@@ -22,7 +22,7 @@ class QCloseEvent;
 class QTabWidget;
 class QLabel;
 class QLineEdit;
-class QListWidget;
+class QTreeWidget;
 class QPushButton;
 class QSlider;
 class QSpinBox;
@@ -48,6 +48,9 @@ signals:
     /// a setting the robot never hears about is a number on a screen, not a
     /// rule the machine follows.
     void batteryPolicyChanged();
+    /// Saved connection profiles changed. A deleted active profile must also
+    /// clear the main window's live connection state.
+    void robotProfilesChanged();
     /// Appearance is previewed immediately, but is not persisted until save.
     void appearancePreviewChanged(const QString &theme, double scale);
 
@@ -56,12 +59,6 @@ private:
 
     /// Redraws the list widget from the pending (not yet persisted) robots.
     void reloadRobotList();
-    /// Fills the name, address and port fields from the current selection.
-    void showSelectedRobot();
-    /// Writes the edited fields back to the pending robot list.
-    void applyRobotEdits();
-    /// Enables the save button only when the fields differ from what is stored.
-    void refreshRobotSaveState();
 
     /// Lists this machine's usable IPv4 addresses, and warns when the bridge
     /// address is not on any of their subnets - the most common way an
@@ -96,8 +93,9 @@ private:
     void refreshPathStatus();
 
     QTabWidget *tabs_ = nullptr;
-    QListWidget *robotList_ = nullptr;
-    QPushButton *robotSave_ = nullptr;
+    QTreeWidget *robotList_ = nullptr;
+    QPushButton *addRobotButton_ = nullptr;
+    QLineEdit *name_ = nullptr;
     QLineEdit *host_ = nullptr;
     QSpinBox *port_ = nullptr;
     QSlider *scale_ = nullptr;

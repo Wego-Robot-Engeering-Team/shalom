@@ -43,7 +43,7 @@ public:
     const auto period = std::chrono::duration<double>(1.0 / output_hz);
     timer_ = create_wall_timer(std::chrono::duration_cast<std::chrono::milliseconds>(period),
       std::bind(&SafetyGateNode::tick, this));
-    RCLCPP_WARN(get_logger(), "Safety gate output is %s; set output_base_topic:=/cmd_vel only after integration validation.",
+    RCLCPP_INFO(get_logger(), "Safety gate is the sole base-command publisher: %s",
       output_base_topic.c_str());
   }
 

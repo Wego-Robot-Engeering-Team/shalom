@@ -7,6 +7,7 @@
 #include <QComboBox>
 #include <QKeyEvent>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QTextEdit>
 
@@ -53,6 +54,9 @@ TeleopPanel::TeleopPanel(QWidget *parent) : QWidget(parent)
     angular_ = addSpeedRow(QStringLiteral("각속도"), robot::kWzMax, 0.50,
                            QStringLiteral("°/s"), -1,
                            180.0 / M_PI, 0);
+
+    card_->body()->addSpacing(metrics::s2);
+    card_->body()->addWidget(buildPostureRow());
 
     // 첫 줄("누르고 있는 동안만 움직입니다")은 지웠다. 눌러 보면 바로 아는
     // 동작이고, 진단 화면에서 당연한 설명을 걷어낸 것과 같은 이유다.
@@ -103,6 +107,12 @@ bool TeleopPanel::eventFilter(QObject *watched, QEvent *ev)
 {
     const bool down = ev->type() == QEvent::KeyPress;
     if ((!down && ev->type() != QEvent::KeyRelease) || !enabled_ || typingSomewhere())
+        return QWidget::eventFilter(watched, ev);
+
+    // 이 패널이 보이는 화면에서만 키를 받는다. 창 전체를 감시하므로, 이
+    // 조건이 없으면 이력이나 진단 화면에서 방향키를 눌러도 로봇이 움직인다.
+    // 예전에는 조작 카드가 수동 모드에서만 나타나 그 자체가 조건이었다.
+    if (!isVisible())
         return QWidget::eventFilter(watched, ev);
 
     auto *ke = static_cast<QKeyEvent *>(ev);
@@ -218,6 +228,78 @@ QSlider *TeleopPanel::addSpeedRow(const QString &label, double vmax, double def,
     return slider;
 }
 
+QWidget *TeleopPanel::buildPostureRow()
+{
+    auto *host = new QWidget;
+    auto *lay = new QVBoxLayout(host);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->setSpacing(metrics::s1);
+
+    auto *head = new QHBoxLayout;
+    head->addWidget(sectionLabel(QStringLiteral("본체 자세")));
+    head->addStretch(1);
+    postureLabel_ = new QLabel(QStringLiteral("—"));
+    postureLabel_->setObjectName(QStringLiteral("Readout"));
+    head->addWidget(postureLabel_);
+    lay->addLayout(head);
+
+    // damp 을 다른 셋과 같은 줄에 두지 않는다. 앉기·서기는 되돌릴 수 있지만
+    // damp 은 관절 힘을 빼는 것이라 서 있는 상태에서 누르면 그대로 주저앉는다.
+    auto *row = new QHBoxLayout;
+    row->setSpacing(metrics::s1);
+    struct Item { const char *key; const char *label; };
+    for (const auto &it : {Item{"balance_stand", "균형 서기"},
+                           Item{"stand_up", "일어서기"},
+                           Item{"stand_down", "앉기"}}) {
+        auto *b = new QPushButton(QString::fromUtf8(it.label));
+        const QString key = QString::fromLatin1(it.key);
+        connect(b, &QPushButton::clicked, this,
+                [this, key] { emit basePosture(key, false); });
+        postureButtons_.insert(key, b);
+        row->addWidget(b);
+    }
+    lay->addLayout(row);
+
+    auto *damp = new QPushButton(QStringLiteral("힘 빼기 (damp)"));
+    damp->setObjectName(QStringLiteral("Danger"));
+    connect(damp, &QPushButton::clicked, this, [this] {
+        // 로봇도 confirm 없이는 거절하지만, 조작자가 결과를 알고 누르게 하는
+        // 것은 화면의 몫이다. 여기서 막지 않으면 로봇의 거절만 보고 "왜 안
+        // 되지" 하며 다시 누른다.
+        const auto answer = QMessageBox::warning(
+            this, QStringLiteral("힘 빼기"),
+            QStringLiteral("관절 힘을 뺍니다. 서 있는 상태라면 로봇이 주저앉습니다.\n"
+                           "주변에 사람과 장비가 없는지 확인하셨습니까?"),
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+        if (answer == QMessageBox::Yes)
+            emit basePosture(QStringLiteral("damp"), true);
+    });
+    postureButtons_.insert(QStringLiteral("damp"), damp);
+    lay->addWidget(damp);
+
+    return host;
+}
+
+void TeleopPanel::setBasePosture(const QString &posture)
+{
+    if (!postureLabel_)
+        return;
+    static const QHash<QString, QString> kNames{
+        {QStringLiteral("balance_stand"), QStringLiteral("균형 서기")},
+        {QStringLiteral("stand_up"), QStringLiteral("서 있음")},
+        {QStringLiteral("stand_down"), QStringLiteral("앉음")},
+        {QStringLiteral("recovery_stand"), QStringLiteral("복구 중")},
+        {QStringLiteral("damp"), QStringLiteral("힘 빠짐")},
+        // 로봇이 아직 자세를 확인하지 못한 상태. 브릿지가 접속 직후에
+        // 보내는 값이라 조작자가 가장 먼저 보게 된다.
+        {QStringLiteral("unknown"), QStringLiteral("확인 안 됨")},
+    };
+    // 모르는 값은 원문 그대로 보여 준다. 임의로 접으면 조작자는 로봇이 무슨
+    // 상태인지 모르는 채 아는 것처럼 읽는다.
+    postureLabel_->setText(posture.isEmpty() ? QStringLiteral("—")
+                                             : kNames.value(posture, posture));
+}
+
 void TeleopPanel::setJogEnabled(bool on)
 {
     enabled_ = on;
@@ -225,6 +307,9 @@ void TeleopPanel::setJogEnabled(bool on)
         it.value()->setEnabled(on || it.key() == QLatin1String("stop"));
     linear_->setEnabled(on);
     angular_->setEnabled(on);
+    // 자세 전환도 수동 모드에서만 받는다. 자율주행 중에 앉으면 미션이 깨진다.
+    for (auto it = postureButtons_.cbegin(); it != postureButtons_.cend(); ++it)
+        it.value()->setEnabled(on);
     if (!on)
         release();
 }

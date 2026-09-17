@@ -2,6 +2,8 @@
 
 #include "panels/EventLogPanel.h"
 
+#include <QApplication>
+#include <QClipboard>
 #include <QJsonObject>
 
 #include <QComboBox>
@@ -13,6 +15,9 @@
 #include <QListWidget>
 #include <QMessageBox>
 #include <QMouseEvent>
+#include <QKeyEvent>
+#include <QKeySequence>
+#include <QMenu>
 #include <QPainter>
 #include <QPushButton>
 #include <QStandardPaths>
@@ -129,7 +134,7 @@ public:
         const QColor sc = severityColor(sev);
         const bool loud = sev == Severity::Error || sev == Severity::Critical;
 
-        if (opt.state & QStyle::State_MouseOver) {
+        if (opt.state & (QStyle::State_MouseOver | QStyle::State_Selected)) {
             p->setPen(Qt::NoPen);
             p->setBrush(QColor(C.surfaceHi));
             p->drawRoundedRect(r.adjusted(2, 1, -2, -1), metrics::rSm, metrics::rSm);
@@ -266,9 +271,19 @@ public:
         viewport()->setMouseTracking(true);
         delegate_ = new LogDelegate(this);
         setItemDelegate(delegate_);
-        setSelectionMode(QAbstractItemView::NoSelection);
+        // 로그를 드래그해 고르고 Ctrl+C로 넘길 수 있다. 그려진 텍스트는
+        // QLabel이 아니라 delegate라 QLabel의 선택 플래그가 적용되지 않는다.
+        setSelectionMode(QAbstractItemView::ExtendedSelection);
         setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
         setUniformItemSizes(true);
+        setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(this, &QWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
+            QMenu menu(this);
+            auto *copy = menu.addAction(QStringLiteral("선택한 로그 복사"));
+            copy->setEnabled(!selectedItems().isEmpty());
+            connect(copy, &QAction::triggered, this, &LogList::copySelection);
+            menu.exec(viewport()->mapToGlobal(pos));
+        });
     }
 
 protected:
@@ -303,6 +318,16 @@ protected:
         QListWidget::mousePressEvent(ev);
     }
 
+    void keyPressEvent(QKeyEvent *ev) override
+    {
+        if (ev->matches(QKeySequence::Copy)) {
+            copySelection();
+            ev->accept();
+            return;
+        }
+        QListWidget::keyPressEvent(ev);
+    }
+
     bool viewportEvent(QEvent *ev) override
     {
         if (ev->type() == QEvent::ToolTip) {
@@ -322,6 +347,26 @@ protected:
     }
 
 private:
+    void copySelection()
+    {
+        QStringList rows;
+        for (const auto *entry : selectedItems()) {
+            QStringList fields;
+            fields << entry->data(kRoleTime).toString()
+                   << severityCode(Severity(entry->data(kRoleSeverity).toInt()));
+            const QString code = entry->data(kRoleCode).toString();
+            if (!code.isEmpty())
+                fields << code;
+            fields << entry->data(kRoleMessage).toString();
+            const QString detail = entry->data(kRoleDetail).toString();
+            if (!detail.isEmpty())
+                fields << detail;
+            rows << fields.join(QStringLiteral("  "));
+        }
+        if (!rows.isEmpty())
+            QApplication::clipboard()->setText(rows.join(QLatin1Char('\n')));
+    }
+
     int iconRowAt(const QPoint &pos) const
     {
         const QModelIndex idx = indexAt(pos);

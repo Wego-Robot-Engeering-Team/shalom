@@ -27,7 +27,10 @@ public:
       "/safety/event", 20, std::bind(&SafetyManagerNode::on_event, this, std::placeholders::_1));
     estop_sub_ = create_subscription<std_msgs::msg::Bool>(
       "/safety/physical_estop_active", 20,
-      std::bind(&SafetyManagerNode::on_estop, this, std::placeholders::_1));
+      std::bind(&SafetyManagerNode::on_physical_estop, this, std::placeholders::_1));
+    software_estop_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/safety/software_estop_active", rclcpp::QoS(1).transient_local(),
+      std::bind(&SafetyManagerNode::on_software_estop, this, std::placeholders::_1));
     heartbeat_sub_ = create_subscription<std_msgs::msg::Bool>(
       "/safety/heartbeat", 20, std::bind(&SafetyManagerNode::on_heartbeat, this, std::placeholders::_1));
 
@@ -47,9 +50,24 @@ private:
     else RCLCPP_WARN(get_logger(), "Ignored unknown safety event: %s", value.c_str());
   }
 
-  void on_estop(const std_msgs::msg::Bool::SharedPtr message) {
+  void on_physical_estop(const std_msgs::msg::Bool::SharedPtr message) {
+    physical_estop_active_ = message->data;
+    update_estop_state();
+  }
+
+  void on_software_estop(const std_msgs::msg::Bool::SharedPtr message) {
+    software_estop_active_ = message->data;
+    update_estop_state();
+  }
+
+  void update_estop_state() {
     using safety_manager::SafetyEvent;
-    dispatch(message->data ? SafetyEvent::kEmergencyStopPressed : SafetyEvent::kEmergencyStopReleased);
+    // HMI 해제 요청이 물리 E-Stop을 해제해서는 안 된다. 두 입력 중 하나라도
+    // 살아 있으면 래치 상태를 유지하고, 둘 다 해제된 경우에만 controlled stop
+    // 으로 내린다. 실제 재가동은 별도의 resume 사건이 필요하다.
+    dispatch((physical_estop_active_ || software_estop_active_)
+                 ? SafetyEvent::kEmergencyStopPressed
+                 : SafetyEvent::kEmergencyStopReleased);
   }
 
   void on_heartbeat(const std_msgs::msg::Bool::SharedPtr) { last_heartbeat_ = std::chrono::steady_clock::now(); }
@@ -80,6 +98,8 @@ private:
   }
 
   bool require_heartbeat_{};
+  bool physical_estop_active_{false};
+  bool software_estop_active_{false};
   std::chrono::milliseconds heartbeat_timeout_{500};
   std::chrono::steady_clock::time_point last_heartbeat_{};
   safety_manager::SafetyFsm fsm_;
@@ -87,6 +107,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr permit_pub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr event_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr estop_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr software_estop_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr heartbeat_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };

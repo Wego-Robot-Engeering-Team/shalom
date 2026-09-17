@@ -106,16 +106,19 @@ QMenu::item:disabled { color: @textMute; }
 QMenu::separator { height: 1px; background: @border; margin: 4px 6px; }
 QMenu::indicator { width: 14px; height: 14px; left: 7px; }
 
-/* 테두리를 평소에 그리지 않는다. 늘 상자로 감싸 두면 상단 바에 네모가
-   하나 더 늘어날 뿐이고, 누를 수 있다는 것은 호버로 말하는 편이 조용하다. */
+/* 로봇 선택은 현재 조작 대상과 연결 상태를 함께 보여 주는 제어다. 텍스트만
+   놓으면 클릭 가능한 영역이 어디까지인지 모호하므로, 다른 상단 정보와
+   구별되는 옅은 표면과 고정된 폭을 준다. */
 #RobotPicker {
-    background: transparent;
-    border: 1px solid transparent;
+    background: @surface;
+    border: 1px solid @border;
     border-radius: @rMd;
     padding: 0;
+    min-width: 210px;
+    min-height: 40px;
     text-align: left;
 }
-#RobotPicker:hover   { background: @surfaceHover; border-color: @border; }
+#RobotPicker:hover   { background: @surfaceHover; border-color: @accent; }
 #RobotPicker:pressed { background: @surfaceHi; }
 
 /* 이름이 먼저 읽히고 주소는 확인할 때만 읽힌다. 둘을 같은 무게로 두면
@@ -295,18 +298,18 @@ QListWidget::item { border: none; }
 
 /* 골라야 하는 목록은 칸처럼 보여야 한다. 위의 투명 규칙은 읽기만 하는
    목록을 위한 것이라, 선택 대상에는 테두리와 바탕을 되돌려 준다. */
-QListWidget#PickList {
+QListWidget#PickList, QTreeWidget#PickList {
     background: @surfaceHi;
     border: 1px solid @borderHi;
     border-radius: @rMd;
     padding: 2px;
 }
-QListWidget#PickList::item {
+QListWidget#PickList::item, QTreeWidget#PickList::item {
     padding: 4px 6px;
     border-radius: @rSm;
     color: @text;
 }
-QListWidget#PickList::item:selected {
+QListWidget#PickList::item:selected, QTreeWidget#PickList::item:selected {
     background: @accent;
     color: @textOnAccent;
 }

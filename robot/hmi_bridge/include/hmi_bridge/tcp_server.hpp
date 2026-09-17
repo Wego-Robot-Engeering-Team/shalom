@@ -66,6 +66,9 @@ public:
 
     bool isConnected() const { return connected_.load(); }
 
+    /// 수신 소켓이 열려 있는지. start() 를 다시 부르기 전에 확인한다.
+    bool isListening() const { return listenFd_ >= 0; }
+
     /// Queues an already-encoded frame. Safe to call from any thread.
     ///
     /// `lossy` marks a message that may be dropped when the outbound queue is

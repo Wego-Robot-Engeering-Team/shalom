@@ -1,6 +1,6 @@
 # Copyright (c) 2026 WeGo Robotics. All rights reserved.
 
-"""Bring up mapping, localisation, and Nav2 on top of the robot platform."""
+"""Bring up the navigation stack for either a physical robot or a simulator."""
 
 from launch import LaunchDescription
 import os
@@ -24,9 +24,17 @@ def _resolve_map(context, *_args, **_kwargs):
     if raw in ("", "none", "slam"):
         return [SetLaunchConfiguration("map", "")]
 
-    maps_dir = Path(get_package_share_directory("robot_bringup")) / "navigation" / "maps"
+    maps_dir = Path(LaunchConfiguration("maps_dir").perform(context)).expanduser()
     if raw == "latest":
-        found = sorted(maps_dir.glob("*.yaml"))
+        # 지도 번들은 map.yaml과 그 지도에만 속하는 작업 상태를 한 디렉터리에
+        # 담는다. 새 구조가 있으면 먼저 고르고, 예전 평면 지도는 호환용으로만
+        # 사용한다. bridge의 initial_map=latest도 같은 규칙을 쓴다.
+        # is_file() 로 거른다. --symlink-install 워크스페이스에서는 소스의
+        # 지도를 지워도 install 쪽 심링크가 남고, 그 껍데기가 이름순 마지막에
+        # 걸리면 실제 지도가 멀쩡한데도 기동이 통째로 실패한다.
+        found = sorted(p for p in maps_dir.glob("*/map.yaml") if p.is_file())
+        if not found:
+            found = sorted(p for p in maps_dir.glob("*.yaml") if p.is_file())
         if not found:
             raise RuntimeError(f"{maps_dir} 에 지도가 없다. map:=none 으로 SLAM을 사용하십시오.")
         resolved = found[-1]
@@ -36,7 +44,7 @@ def _resolve_map(context, *_args, **_kwargs):
         # 이전 평면 구조(`maps/<name>.yaml`)와 지도별 디렉터리 구조
         # (`maps/<map_id>/map.yaml`)를 함께 받는다. 후자는 지도 이미지와
         # 점검 지점·고정 위치 같은 지도 전용 상태를 한 단위로 보관하기 위한
-        # 구조다. `map:=depot-a`처럼 ID만 넘기면 된다.
+        # 구조다. `map:=2026-09-07`처럼 ID만 넘기면 된다.
         flat = maps_dir / (raw if raw.endswith(".yaml") else raw + ".yaml")
         packaged = maps_dir / raw / "map.yaml"
         resolved = flat if flat.is_file() else packaged
@@ -48,24 +56,12 @@ def _resolve_map(context, *_args, **_kwargs):
 
 def generate_launch_description():
     pkg = FindPackageShare("robot_bringup")
-    pandar_xt32 = FindPackageShare("pandar_xt32")
     config = PathJoinSubstitution([pkg, "navigation", "config"])
     lidar_slam = FindPackageShare("lidar_slam")
     kiss_icp = FindPackageShare("kiss_icp")
     nav2_bringup = FindPackageShare("nav2_bringup")
     use_sim_time = LaunchConfiguration("use_sim_time")
     localising = PythonExpression(["'", LaunchConfiguration("map"), "' != ''"])
-
-    platform = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(PathJoinSubstitution([pkg, "launch", "robot.launch.py"])),
-        launch_arguments={
-            name: LaunchConfiguration(name)
-            for name in ("domain_id", "robot", "use_sim_time", "network_interface",
-                         "pointcloud_topic", "lidar", "xt32_config_file", "xt32_x", "xt32_y", "xt32_z",
-                         "xt32_roll", "xt32_pitch", "xt32_yaw", "d455", "d455_serial",
-                         "aurora", "aurora_ip", "viewer", "payload")
-        }.items(),
-    )
 
     perception = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([lidar_slam, "/launch/ground_slam.launch.py"]),
@@ -129,31 +125,14 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        DeclareLaunchArgument("domain_id", default_value="0"),
-        DeclareLaunchArgument("robot", default_value="sim", choices=["sim", "real"]),
-        DeclareLaunchArgument("use_sim_time", default_value="true"),
-        DeclareLaunchArgument("network_interface", default_value=""),
+        DeclareLaunchArgument("use_sim_time", default_value="false"),
         DeclareLaunchArgument("pointcloud_topic", default_value="/b2/points"),
-        DeclareLaunchArgument("lidar", default_value="none", choices=["none", "vlp16", "xt32"]),
-        DeclareLaunchArgument(
-            "xt32_config_file",
-            default_value=PathJoinSubstitution([pandar_xt32, "config", "xt32.yaml"])),
-        DeclareLaunchArgument("xt32_x", default_value="0.34218"),
-        DeclareLaunchArgument("xt32_y", default_value="0.0"),
-        DeclareLaunchArgument("xt32_z", default_value="0.20"),
-        DeclareLaunchArgument("xt32_roll", default_value="0.0"),
-        DeclareLaunchArgument("xt32_pitch", default_value="0.0"),
-        DeclareLaunchArgument("xt32_yaw", default_value="0.0"),
-        DeclareLaunchArgument("d455", default_value="true"),
-        DeclareLaunchArgument("d455_serial", default_value=""),
-        DeclareLaunchArgument("aurora", default_value="false"),
-        DeclareLaunchArgument("aurora_ip", default_value="192.168.11.1"),
-        DeclareLaunchArgument("viewer", default_value="true"),
-        DeclareLaunchArgument("payload", default_value="none", choices=["none", "fr3"]),
+        DeclareLaunchArgument("maps_dir", default_value="/var/lib/shalom/maps",
+                              description="지도 번들과 지도별 상태가 있는 디렉터리"),
         DeclareLaunchArgument("map", default_value="latest",
                               description="latest | <name> | <absolute yaml> | none"),
         DeclareLaunchArgument("slam", default_value="true"),
         DeclareLaunchArgument("nav2", default_value="true"),
         OpaqueFunction(function=_resolve_map),
-        platform, perception, odometry, map_server, amcl, localisation_manager, nav2,
+        perception, odometry, map_server, amcl, localisation_manager, nav2,
     ])

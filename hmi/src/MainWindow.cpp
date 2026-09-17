@@ -27,6 +27,8 @@
 #include <QVBoxLayout>
 #include <QtMath>
 
+#include <algorithm>
+
 #include "Config.h"
 #include "auth/Session.h"
 #include "diag/CodeCatalog.h"
@@ -210,6 +212,7 @@ QWidget *MainWindow::buildTopBar()
     lay->addSpacing(metrics::s3);
     lay->addWidget(captionLabel(QStringLiteral("배터리")), 0, Qt::AlignVCenter);
     headerBattery_ = new BatteryPill(nullptr, 25.0);
+    headerBattery_->setUnavailable();
     lay->addWidget(headerBattery_, 0, Qt::AlignVCenter);
 
     lay->addStretch(1);
@@ -262,6 +265,7 @@ QWidget *MainWindow::buildContextColumn()
     // NavItem 순서와 페이지 인덱스가 일치해야 한다.
     stack->addWidget(buildDriveContext());
     stack->addWidget(buildLocationsContext());
+    stack->addWidget(buildBaseContext());
     stack->addWidget(buildArmContext());
     stack->addWidget(buildCaptureContext());
     stack->addWidget(buildDiagnosticsContext());
@@ -289,16 +293,6 @@ QWidget *MainWindow::buildDriveContext()
     status_ = new StatusPanel;
     lay->addWidget(status_);
 
-    // 수동 조작은 수동 모드에서만 나타난다. 자율 주행 중에는 의미가 없고,
-    // 비활성 컨트롤을 띄워두면 화면만 차지한다.
-    //
-    // 점검 목록보다 위에 둔다. 수동으로 바꿨다는 것은 지금 조작자가 직접
-    // 몰겠다는 뜻이므로, 그 순간 눌러야 할 것이 스크롤 아래에 있으면 안 된다.
-    teleop_ = new TeleopPanel;
-    teleopHost_ = teleop_;
-    teleopHost_->setVisible(false);
-    lay->addWidget(teleopHost_);
-
     // 점검 목록과 시작·정지는 위치 화면에 있다. 하지만 운용 중에는
     // 지도를 띄운 이 화면에 머무르므로, 진행 상황만이라도 여기서 읽히게 한다.
     // 카드는 내용만큼만 차지한다. 남는 세로는 아래 여백으로 흘린다.
@@ -307,8 +301,32 @@ QWidget *MainWindow::buildDriveContext()
     lay->addStretch(1);
 
     // 스크롤로 감싸지 않으면 이 열의 최소 높이가 카드 높이의 합이 된다.
-    // 수동 모드로 바꿔 조작 카드가 나타나는 순간 세로 스플리터가 밀려
-    // 지도와 로그의 높이가 같이 변한다. 나머지 다섯 화면과 같은 방식이다.
+    // 나머지 화면과 같은 방식이다.
+    auto *scroll = new QScrollArea;
+    scroll->setWidget(inner);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    return scroll;
+}
+
+/// 본체(B2) 화면. 로봇팔과 같은 자리에 같은 방식으로 둔다 — 조작자가 팔을
+/// 직접 모는 곳이 따로 있는데 본체만 주행 화면 구석에 숨어 있을 이유가 없다.
+///
+/// 주행 모드와 묶지 않는다. 자율 주행 중에도 조작자가 잡으면 그 동안은
+/// 수동이 앞서고(로봇의 motion_mux 가 중재한다), 손을 놓으면 자율로 돌아간다.
+/// 무엇이 안전한지는 로봇이 정하므로 화면은 명령을 보내기만 한다.
+QWidget *MainWindow::buildBaseContext()
+{
+    auto *inner = new QWidget;
+    auto *lay = new QVBoxLayout(inner);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->setSpacing(metrics::s3);
+
+    teleop_ = new TeleopPanel;
+    lay->addWidget(teleop_);
+    lay->addStretch(1);
+
     auto *scroll = new QScrollArea;
     scroll->setWidget(inner);
     scroll->setWidgetResizable(true);
@@ -428,6 +446,27 @@ void MainWindow::openSettings()
         settings_ = new SettingsDialog(this);
         connect(settings_, &SettingsDialog::batteryPolicyChanged, this,
                 &MainWindow::pushBatteryPolicy);
+        connect(settings_, &SettingsDialog::robotProfilesChanged, this, [this] {
+            // 목록에서 현재 로봇까지 지웠다면 Config 만 비우고 TCP 연결을
+            // 살려 두면, "로봇 선택" 화면이 실제로는 지운 로봇을 계속
+            // 조작하는 위험한 상태가 된다. 삭제는 연결 해제까지 한 동작이다.
+            if (Config::instance().currentRobot() >= 0)
+                return;
+
+            if (auto *bridge = qobject_cast<net::BridgeClient *>(robot_))
+                bridge->disconnectFromBridge();
+            saidId_.clear();
+            saidName_.clear();
+            maps_.clear();
+            map_->mapButton()->setEnabled(false);
+            map_->setMapLabel(QStringLiteral("지도 없음 — 로봇을 연결하십시오"), QString());
+            status_->setConnected(false);
+            setLinkTone(QStringLiteral("danger"));
+            headerBattery_->setUnavailable();
+            arm_->setControlsEnabled(false);
+            teleop_->setJogEnabled(false);
+            refreshRobotButton();
+        });
         // 표시 설정은 설정 창 안에서 먼저 미리 본다. Config 는 저장을 누를
         // 때만 바뀌므로, 이 경로가 없으면 슬라이더를 움직여도 확인할 수 없다.
         connect(settings_, &SettingsDialog::appearancePreviewChanged, this,
@@ -440,6 +479,14 @@ void MainWindow::openSettings()
     settings_->show();
     settings_->raise();
     settings_->activateWindow();
+}
+
+void MainWindow::openConnectionSettings()
+{
+    openSettings();
+    // 로봇 선택 메뉴에서 온 사람은 표시·전원 설정을 보려는 것이 아니라
+    // 주소를 추가·수정하려는 것이다. 첫 탭부터 다시 찾게 하지 않는다.
+    settings_->setCurrentTab(1);
 }
 
 // ================= 배선 =================
@@ -475,6 +522,8 @@ void MainWindow::wireRobotSignals()
 {
     connect(nav_, &NavRail::navigated, this, &MainWindow::navigate);
     connect(log_, &diag::LogStore::appended, this, &MainWindow::onLogAppended);
+    connect(bell_, &NotificationBell::unreadChanged, this,
+            [this](int count) { nav_->setEventAlerts(count); });
     connect(robot_, &robot::RobotLink::telemetry, this, &MainWindow::onTelemetry);
     if (auto *bridge = qobject_cast<net::BridgeClient *>(robot_)) {
         connect(bridge, &net::BridgeClient::mapReceived, this,
@@ -533,7 +582,18 @@ void MainWindow::wireRobotSignals()
             saidName_.clear();
             maps_.clear();
             map_->mapButton()->setEnabled(false);
+            headerBattery_->setUnavailable();
+            nav_->setDiagnosticsAlerts(0);
+            teleop_->setJogEnabled(false);
+            arm_->setControlsEnabled(false);
             refreshRobotButton();
+        } else if (!estop_->isEngaged()) {
+            // 연결 자체는 제어 권한이 아니다. 다만 기존의 빈 화면에서처럼
+            // 조작계를 계속 비활성으로 두면 새로 고른 로봇을 조작할 수 없다.
+            arm_->setControlsEnabled(true);
+            // 본체 조작도 같이 돌아와야 한다. 연결이 끊겼을 때 잠가 둔 것을
+            // 다시 풀지 않으면, 로봇이 붙어 있는데 조작만 죽은 채로 남는다.
+            teleop_->setJogEnabled(true);
         }
     });
 
@@ -545,17 +605,15 @@ void MainWindow::wireRobotSignals()
                 saidId_ = id;
                 saidName_ = name;
 
-                // 로봇이 자기 이름을 말하면 목록에도 그 이름을 적는다.
-                //
-                // 목록의 이름은 붙기 전에 쓰는 임시 이름표다. 로봇이 말한
-                // 뒤에도 옛 이름표가 남아 있으면 설정 화면과 상단 바가 서로
-                // 다른 이름을 보여 주고, 어느 쪽이 맞는지 알 수 없게 된다.
-                // 이름의 주인은 로봇이다 — 로봇이 robot_name 으로 뜬다.
+                // 사용자가 정한 표시 이름은 현장 식별용이다. 브릿지가 보내는
+                // 내부 robot_name 으로 덮어쓰면 "A검수선 1호기" 같은 이름이
+                // 연결할 때마다 사라진다. 이름을 아직 안 정한 옛 프로필에만
+                // 로봇 이름을 초기값으로 채운다.
                 if (!name.isEmpty()) {
                     auto &cfg = Config::instance();
                     auto list = cfg.robots();
                     const int i = cfg.currentRobot();
-                    if (i >= 0 && i < list.size() && list.at(i).name != name) {
+                    if (i >= 0 && i < list.size() && list.at(i).name.isEmpty()) {
                         const QString was = list.at(i).name;
                         list[i].name = name;
                         cfg.setRobots(list);
@@ -761,6 +819,16 @@ void MainWindow::wireLocationSignals()
 void MainWindow::wirePanelSignals()
 {
     connect(teleop_, &TeleopPanel::cmdVel, robot_, &robot::RobotLink::setCmdVel);
+    connect(teleop_, &TeleopPanel::basePosture, robot_,
+            [this](const QString &posture, bool confirm) {
+                robot_->setBasePosture(posture, confirm);
+            });
+    // 자세는 로봇이 알려 준 값만 표시한다. 버튼을 눌렀다고 화면을 먼저 바꾸면
+    // 로봇이 거절했을 때 조작자는 앉은 줄 알고 다음 동작을 시킨다.
+    connect(robot_, &robot::RobotLink::baseStateChanged, teleop_,
+            [this](const QString &posture, const QString &) {
+                teleop_->setBasePosture(posture);
+            });
 
     connect(arm_, &ArmPanel::presetRequested, this, [this](const QString &name) {
         arm_->applyPresetToSliders(name);
@@ -1079,14 +1147,14 @@ void MainWindow::captureLocation(const QString &kind)
 void MainWindow::engageEstop()
 {
     robot_->engageEstop();
-    estop_->setEngaged(true);
-    alert_->setActive(true);
+    // 빨간 래치와 테두리는 클릭 사실이 아니라 로봇이 state/safety로 확인한
+    // 사실을 표시한다. 연결이 막 끊긴 순간에도 화면만 "발동"으로 바뀌면
+    // 조작자는 정지됐다고 오해할 수 있다.
     // 지정해 둔 목표는 이 시점에 무효다. 지도에 남겨 두면 해제 후에도
     // 로봇이 그리로 갈 것처럼 읽힌다.
     map_->view()->clearGoal();
     status_->setMode({}, true);
     teleop_->setJogEnabled(false);
-    teleopHost_->setVisible(false);
     arm_->setControlsEnabled(false);
     autoBtn_->setChecked(false);
     manualBtn_->setChecked(false);
@@ -1108,12 +1176,9 @@ void MainWindow::releaseEstop()
         return;
 
     robot_->releaseEstop();
-    estop_->setEngaged(false);
-    alert_->setActive(false);
+    // 해제도 safety_manager의 실제 상태가 내려온 뒤에만 화면에 반영한다.
+    // 물리 E-Stop이 여전히 눌려 있으면 HMI 해제 요청으로 바뀌면 안 된다.
     logAction(QStringLiteral("SAFETY_ESTOP_RELEASED"));
-    // 해제 후에는 수동 모드로 떨어뜨린다. 바로 자율로 복귀시키면
-    // "명시적 재개" 요건을 UI 가 우회하는 셈이 된다.
-    setMode(QStringLiteral("manual"));
 }
 
 /// 두 자리를 화면 곳곳에 반영한다. 로봇에게는 보내지 않는다.
@@ -1159,26 +1224,37 @@ void MainWindow::setMode(const QString &mode)
     }
 
     const bool isAuto = mode == QLatin1String("auto");
-    robot_->setMode(isAuto ? DriveMode::Auto : DriveMode::Manual);
+    if (robot_->isConnected())
+        robot_->setMode(isAuto ? DriveMode::Auto : DriveMode::Manual);
     autoBtn_->setChecked(isAuto);
     manualBtn_->setChecked(!isAuto);
     status_->setMode(mode, false);
 
-    teleop_->setJogEnabled(!isAuto);
-    teleopHost_->setVisible(!isAuto);
-    if (!isAuto)
-        map_->view()->clearGoal();
-    arm_->setControlsEnabled(true);
+    // 조작 가능 여부는 연결에만 달렸다. 주행 모드로 잠그지 않는다 —
+    // 자율 주행 중에도 조작자가 잡으면 그 동안은 수동이 앞서야 하고, 그
+    // 중재는 로봇의 motion_mux 가 한다(수동 모드에서는 브릿지가 제자리
+    // 명령을 계속 내보내 자율 출력이 나가지 못하게 잡아 둔다).
+    const bool controlsAvailable = robot_->isConnected();
+    teleop_->setJogEnabled(controlsAvailable);
+    arm_->setControlsEnabled(controlsAvailable);
+
+    // 미연결 상태의 "자동"은 초기 화면의 선택값일 뿐 로봇 모드 전환이
+    // 아니다. 실제 로봇에 전달됐을 때만 안전 이력을 남긴다.
+    if (!robot_->isConnected())
+        return;
 
     if (isAuto) {
         log_->log(QStringLiteral("SAFETY_MODE_AUTO"));
     } else {
-        // 수동 전환 시 자율주행 즉시 중단 (지시서 2.2.5 수동 조작 우선권).
-        // 중단은 시뮬레이터가 수행하고 missionStateChanged 로 통보한다.
+        // 수동 전환은 자율주행을 취소하지 않는다. 지시서 2.2.5 가 요구하는
+        // 것은 수동이 우선한다는 것이지 자율을 버리라는 것이 아니고,
+        // 취소해 버리면 잠깐 비켜 세우려던 조작자가 목표까지 잃는다.
+        // 수동 모드인 동안 자율 출력은 로봇의 motion_mux 에서 막힌다.
         log_->log(QStringLiteral("SAFETY_MODE_MANUAL"));
-        // 수동 조작을 하려면 조작계가 보여야 한다.
-        nav_->setCurrent(NavItem::Drive);
-        navigate(NavItem::Drive);
+        // 수동으로 바꿨다는 것은 지금 직접 몰겠다는 뜻이다. 조작계가 있는
+        // 화면으로 데려간다.
+        nav_->setCurrent(NavItem::Base);
+        navigate(NavItem::Base);
     }
 }
 
@@ -1220,10 +1296,9 @@ void MainWindow::setLinkTone(const QString &tone)
 /// 섞지 않는 이유는 둘이 다른 질문에 답하기 때문이다 — "몇 호기에 붙었나" 와
 /// "정말 그 기계가 맞나" 는 같은 자리에서 겨루면 안 된다.
 ///
-/// 로봇이 이름을 말해 주기 전에는 설정에 적힌 이름을 쓴다. 빈 칸으로 두면
-/// 어디로 붙으려는 중인지 알 수 없고, 연결이 늦을 때 그 시간이 길다. 로봇이
-/// 말하면 그쪽이 이긴다 — 엉뚱한 로봇에 붙었을 때 그 사실이 이름으로 드러나야
-/// 하고, 내가 적어 둔 이름표는 그것을 가려 버린다.
+/// 설정에서 정한 이름은 현장 조작자가 쓰는 식별자다. 로봇이 말한 내부 이름은
+/// 그 이름이 비어 있는 구버전 프로필을 보완할 때만 쓰며, IP는 항상 아래 줄에
+/// 함께 둔다.
 void MainWindow::refreshRobotButton()
 {
     auto &cfg = Config::instance();
@@ -1237,9 +1312,11 @@ void MainWindow::refreshRobotButton()
         ? QString()
         : QStringLiteral("%1:%2").arg(list.at(current).host).arg(list.at(current).port);
 
-    robotNameLabel_->setText(saidName_.isEmpty()
-                                 ? (configured.isEmpty() ? QStringLiteral("로봇 선택") : configured)
-                                 : saidName_);
+    // 선택 목록에서 정한 이름이 먼저다. 브릿지 이름은 비어 있는 옛
+    // 프로필의 보완값이며, IP는 아래 줄에서 언제나 함께 확인할 수 있다.
+    robotNameLabel_->setText(configured.isEmpty()
+                                 ? (saidName_.isEmpty() ? QStringLiteral("로봇 선택") : saidName_)
+                                 : configured);
     // 식별자는 주소 옆에 둔다. 기계를 가리키는 값끼리 모아 두면 이름줄이
     // 흔들리지 않는다.
     robotAddrLabel_->setText(saidId_.isEmpty() ? address
@@ -1290,8 +1367,8 @@ void MainWindow::showRobotPicker()
     }
 
     menu->addSeparator();
-    auto *manage = menu->addAction(QStringLiteral("로봇 관리…"));
-    connect(manage, &QAction::triggered, this, [this] { openSettings(); });
+    auto *manage = menu->addAction(QStringLiteral("연결 설정…"));
+    connect(manage, &QAction::triggered, this, &MainWindow::openConnectionSettings);
 
     menu->popup(robotButton_->mapToGlobal(QPoint(0, robotButton_->height() + 4)));
 }
@@ -1319,6 +1396,29 @@ void MainWindow::showMapPicker()
             }
         });
     }
+
+    const auto active = std::find_if(maps_.cbegin(), maps_.cend(), [](const QVariantMap &map) {
+        return map.value(QStringLiteral("active")).toBool();
+    });
+    if (active != maps_.cend()) {
+        const QString id = active->value(QStringLiteral("id")).toString();
+        QString currentName = active->value(QStringLiteral("name")).toString();
+        if (currentName.isEmpty())
+            currentName = id;
+        menu->addSeparator();
+        auto *rename = menu->addAction(QStringLiteral("현재 지도 이름 변경…"));
+        connect(rename, &QAction::triggered, this, [this, id, currentName] {
+            bool accepted = false;
+            const QString name = QInputDialog::getText(this, QStringLiteral("지도 이름 변경"),
+                                                       QStringLiteral("표시 이름"),
+                                                       QLineEdit::Normal, currentName,
+                                                       &accepted).trimmed();
+            if (!accepted || name.isEmpty() || name == currentName)
+                return;
+            if (auto *bridge = qobject_cast<net::BridgeClient *>(robot_))
+                bridge->renameMap(id, name);
+        });
+    }
     menu->popup(map_->mapButton()->mapToGlobal(QPoint(0, map_->mapButton()->height() + 4)));
 }
 
@@ -1340,6 +1440,7 @@ void MainWindow::selectRobot(int index)
     saidId_.clear();
     saidName_.clear();
     refreshRobotButton();
+    headerBattery_->setUnavailable();
     logAction(QStringLiteral("ROBOT_SELECTED"),
               {{"name", e.name}, {"host", e.host}, {"port", e.port}});
 }
@@ -1409,10 +1510,15 @@ void MainWindow::pushBatteryPolicy()
 {
     const auto &cfg = Config::instance();
     robot_->setBatteryPolicy(cfg.batteryReturnPercent(), cfg.batteryDeparturePercent());
-    log_->note(diag::Severity::Info,
-               QStringLiteral("배터리 기준 전송 — 복귀 %1%, 출발 %2%")
-                   .arg(cfg.batteryReturnPercent(), 0, 'f', 0)
-                   .arg(cfg.batteryDeparturePercent(), 0, 'f', 0));
+    // 최초 실행은 아직 어떤 로봇에도 명령을 내리지 않은 상태다. 이력에는
+    // 실제로 전송된 일만 남기고, 보관만 한 정책은 연결 직후 BridgeClient가
+    // 보낸다.
+    if (robot_->isConnected()) {
+        log_->note(diag::Severity::Info,
+                   QStringLiteral("배터리 기준 전송 — 복귀 %1%, 출발 %2%")
+                       .arg(cfg.batteryReturnPercent(), 0, 'f', 0)
+                       .arg(cfg.batteryDeparturePercent(), 0, 'f', 0));
+    }
 }
 
 void MainWindow::startSession()
@@ -1467,19 +1573,34 @@ void MainWindow::startSession()
     if (initial) {
         log_->note(diag::Severity::Ok, QStringLiteral("지도 불러오기 완료"),
                    QJsonObject{{"map_id", mapData_.info.mapId}});
-        log_->note(diag::Severity::Info,
-                   QStringLiteral("로봇 미연결 — 내장 시뮬레이터로 구동 중"));
-    } else {
-        log_->note(diag::Severity::Info, QStringLiteral("로봇을 선택해 연결하십시오"));
     }
 
-    // 텔레메트리 주기는 링크가 정한다. 창이 자체 타이머를 돌리면
-    // 시뮬레이터와 브릿지에서 갱신 속도가 달라진다.
+    // 텔레메트리 갱신은 브릿지 링크가 정한다. HMI가 별도 상태 타이머로
+    // 로봇을 흉내 내지 않는다.
     robot_->start();
 }
 
 void MainWindow::onTelemetry(const Telemetry &tm)
 {
+    const bool estopChanged = estop_->isEngaged() != tm.estop;
+    if (estopChanged) {
+        estop_->setEngaged(tm.estop);
+        alert_->setActive(tm.estop);
+        if (tm.estop) {
+            map_->view()->clearGoal();
+            status_->setMode({}, true);
+            teleop_->setJogEnabled(false);
+            arm_->setControlsEnabled(false);
+            autoBtn_->setChecked(false);
+            manualBtn_->setChecked(false);
+        } else if (robot_->isConnected()) {
+            // 해제는 주행 재개가 아니다. 조작계만 다시 열고 실제 이동은 다음
+            // 명시적 수동 입력 또는 미션 재개가 safety_manager에 요청한다.
+            teleop_->setJogEnabled(true);
+            arm_->setControlsEnabled(true);
+        }
+    }
+
     auto *view = map_->view();
 
     view->setRobotPose(tm.x, tm.y, tm.theta, !tm.poseFresh);
@@ -1503,9 +1624,23 @@ void MainWindow::onTelemetry(const Telemetry &tm)
     arm_->setArmState(tm.joints, tm.manipulability, tm.sigmaMin, tm.armState);
 
     lastSoc_ = tm.soc;
-    headerBattery_->setState(tm.soc);
-    nav_->setDiagnosticsAlerts(log_->countAtOrAbove(diag::Severity::Error));
-    nav_->setEventAlerts(log_->countAtOrAbove(diag::Severity::Warn));
+    // BridgeClient 는 연결이 없을 때도 화면의 신선도·타임아웃을 갱신하려고
+    // 기본 Telemetry(초깃값 soc=0)를 내보낸다. 그것은 배터리 측정이 아니므로
+    // 상단에 방전으로 그리면 안 된다.
+    if (robot_->isConnected())
+        headerBattery_->setState(tm.soc);
+    else
+        headerBattery_->setUnavailable();
+    // 진단 배지는 과거 이벤트 수가 아니라 현재 고장 난 장치 수다. 누적
+    // 로그를 넣으면 고친 뒤에도 "2" 같은 숫자가 영구히 남는다.
+    int diagnosticAlerts = 0;
+    for (const auto &sensor : tm.sensors) {
+        if (sensor.state == QLatin1String("degraded")
+            || sensor.state == QLatin1String("lost")
+            || sensor.state == QLatin1String("fault"))
+            ++diagnosticAlerts;
+    }
+    nav_->setDiagnosticsAlerts(diagnosticAlerts);
 
     // 위치 등록 가능 여부는 실제 속력으로 판정한다. 시뮬레이터가 속력을
     // 직접 알려주므로 UI 가 궤적을 미분할 필요가 없다.

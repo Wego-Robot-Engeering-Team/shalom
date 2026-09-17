@@ -60,6 +60,7 @@ constexpr auto kCmdLocationsSet = "cmd/locations/set";
 constexpr auto kCmdMarkersSet = "cmd/markers/set";
 constexpr auto kCmdMapsList = "cmd/maps/list";
 constexpr auto kCmdMapsSelect = "cmd/maps/select";
+constexpr auto kCmdMapsRename = "cmd/maps/rename";
 constexpr auto kChPreview = "capture/preview";
 constexpr auto kChCaptureSpool = "state/capture_spool";
 constexpr auto kCmdCapture = "cmd/capture/trigger";
@@ -72,6 +73,8 @@ constexpr auto kCmdArmPreset = "cmd/arm/preset";
 constexpr auto kCmdArmJointGoal = "cmd/arm/joint_goal";
 constexpr auto kCmdArmEeGoal = "cmd/arm/ee_goal";
 constexpr auto kCmdArmStop = "cmd/arm/stop";
+constexpr auto kCmdBasePosture = "cmd/base/posture";
+constexpr auto kChBase = "state/base";
 
 /// 주행 결과를 카탈로그에 등록된 코드로 옮긴다.
 ///
@@ -119,6 +122,43 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     mapFrame_ = declare_parameter("map_frame", mapFrame_);
     baseFrame_ = declare_parameter("base_frame", baseFrame_);
     mapsDir_ = declare_parameter("maps_dir", mapsDir_);
+    const auto initialMap = declare_parameter("initial_map", std::string{});
+    if (!initialMap.empty() && initialMap != "none" && initialMap != "slam") {
+        std::string mapId = initialMap;
+        // navigation.launch.py는 map ID를 map_server가 쓸 절대 map.yaml 경로로
+        // 바꾼다. 같은 LaunchConfiguration을 bridge에 넘겨도 지도별 상태를
+        // 놓치지 않도록, 우리 maps_dir 안의 bundle 경로는 다시 ID로 바꾼다.
+        const std::filesystem::path requested(initialMap);
+        if (requested.is_absolute()) {
+            std::error_code ec;
+            const auto relative = std::filesystem::relative(
+                requested, std::filesystem::path(mapsDir_), ec);
+            if (!ec && relative.filename() == "map.yaml")
+                mapId = relative.parent_path().filename().string();
+            else
+                mapId.clear();  // 외부의 평면 지도에는 bundle 상태가 없다.
+        }
+        if (mapId == "latest") {
+            std::vector<std::string> ids;
+            std::error_code ec;
+            for (const auto &entry : std::filesystem::directory_iterator(mapsDir_, ec)) {
+                if (!entry.is_directory()
+                    || !std::filesystem::is_regular_file(entry.path() / "map.yaml"))
+                    continue;
+                ids.push_back(entry.path().filename().string());
+            }
+            std::sort(ids.begin(), ids.end());
+            if (!ids.empty())
+                mapId = ids.back();
+            else
+                mapId.clear();
+        }
+        std::string detail;
+        if (!mapId.empty() && !loadMapBundle(mapId, &detail)) {
+            RCLCPP_WARN(get_logger(), "시작 지도 %s 상태를 읽지 못했습니다: %s",
+                        mapId.c_str(), detail.c_str());
+        }
+    }
     deadman_ = std::chrono::milliseconds(
         declare_parameter("deadman_ms", int(deadman_.count())));
     heartbeatTimeout_ = std::chrono::milliseconds(
@@ -130,13 +170,24 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     lastHeartbeat_ = now();
     lastCmdVel_ = now();
 
-    cmdVelPub_ = create_publisher<geometry_msgs::msg::Twist>("cmd_vel", 10);
+    // 수동 명령은 motion_mux 의 teleop 입력으로 나간다. 예전에는 /cmd_vel 에
+    // 바로 썼는데, 그러면 Nav2 와 같은 토픽에 각각 20 Hz 로 쓰게 되어 어느
+    // 쪽이 이길지가 발행 순서에 달린 문제가 된다. 중재는 mux 가 한다
+    // (teleop > mission > stair > dock > nav, 300 ms lease).
+    cmdVelPub_ = create_publisher<geometry_msgs::msg::Twist>(
+        declare_parameter("teleop_cmd_vel_topic", std::string("/motion/teleop/cmd_vel")), 10);
 
     // 안전 노드가 지켜보는 생존 신호. 이 노드가 죽으면 발행이 멈추고,
     // 안전 노드가 그것을 근거로 로봇을 정지시킨다. 정지 판단을 여기에 두면
     // 이 노드의 크래시가 곧 감시자 없는 주행이 된다.
-    linkAlivePub_ = create_publisher<std_msgs::msg::Bool>("~/link_alive", 10);
-    estopPub_ = create_publisher<std_msgs::msg::Bool>("~/estop_request", 10);
+    linkAlivePub_ = create_publisher<std_msgs::msg::Bool>("/safety/heartbeat", 10);
+    // HMI E-Stop is a software input, not the physical circuit. Its last
+    // state is durable so restarting safety_manager cannot silently clear it.
+    estopPub_ = create_publisher<std_msgs::msg::Bool>(
+        "/safety/software_estop_active", rclcpp::QoS(1).transient_local());
+    safetyEventPub_ = create_publisher<std_msgs::msg::String>("/safety/event", 10);
+    authorityRequestPub_ = create_publisher<std_msgs::msg::String>(
+        "/motion/request_authority", 10);
 
     batterySub_ = create_subscription<sensor_msgs::msg::BatteryState>(
         "battery_state", 10, [this](const sensor_msgs::msg::BatteryState::ConstSharedPtr &msg) {
@@ -199,18 +250,65 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     tfBuffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
     tfListener_ = std::make_shared<tf2_ros::TransformListener>(*tfBuffer_);
 
-    std::string err;
-    if (!server_.start(std::uint16_t(port_), &err)) {
-        RCLCPP_FATAL(get_logger(), "관제 포트 %d 를 열지 못했습니다: %s", port_,
-                     err.c_str());
-        throw std::runtime_error("failed to open control port");
-    }
-    RCLCPP_INFO(get_logger(), "관제 연결 대기 중 — 포트 %d", port_);
-
+    // 포트를 열지 못해도 죽지 않는다.
+    //
+    // 예전에는 여기서 예외를 던졌고, launch 의 respawn=true 가 2 초마다 노드를
+    // 되살렸다. 포트를 쥔 쪽이 살아 있는 한 결과는 매번 같으므로, 복구되지
+    // 않는 조건을 무한히 재시도하며 FATAL 로그만 쌓였다. respawn 은 간헐적
+    // 크래시를 위한 장치이지 이런 상태를 위한 것이 아니다.
+    //
+    // 대신 프로세스를 유지한 채 주기적으로 다시 시도한다. 포트를 쥔 쪽이
+    // 사라지면 그때 올라오고, 프로세스가 갈리지 않으니 ROS 그래프도 흔들리지
+    // 않는다.
     using namespace std::chrono_literals;
+
+    if (!openControlPort())
+        bindRetryTimer_ = create_wall_timer(5s, [this] {
+            if (openControlPort())
+                bindRetryTimer_->cancel();
+        });
+
+    // 본체 자세는 B2 드라이버의 Trigger 서비스를 부른다. 드라이버가 없으면
+    // 클라이언트는 만들어지되 호출이 실패하고, 그 사유가 관제로 간다.
+    for (const auto &name : {"stand_up", "stand_down", "balance_stand",
+                             "recovery_stand", "damp"})
+        postureClients_[name] = create_client<std_srvs::srv::Trigger>(name);
+    postureDryRun_ = declare_parameter("base.posture_dry_run", false);
+    if (postureDryRun_)
+        RCLCPP_WARN(get_logger(),
+                    "본체 자세 명령을 로그로만 처리합니다 (base.posture_dry_run). "
+                    "실기에서는 반드시 꺼야 합니다.");
+
+    // 모션 권한을 듣는다. 팔이 움직이는 중에는 자세 전환을 받지 않는다.
+    // transient_local 이라 나중에 붙어도 마지막 값을 받는다.
+    authoritySub_ = create_subscription<std_msgs::msg::String>(
+        "/motion/authority", rclcpp::QoS(1).transient_local(),
+        [this](const std_msgs::msg::String::SharedPtr msg) {
+            if (motionAuthority_ == msg->data)
+                return;
+            motionAuthority_ = msg->data;
+            // 자세 버튼을 잠그고 푸는 근거가 이 값이다. 바뀐 것을 보내지
+            // 않으면 화면은 팔이 멈춘 뒤에도 버튼을 잠근 채로 둔다. 관제가
+            // 없을 때 쌓아 두지는 않는다 — 새로 붙는 화면에는 접속 시점에
+            // 현재 값을 한 번 밀어 준다(publishHealth).
+            if (server_.isConnected())
+                publishBase();
+        });
+    safetyStateSub_ = create_subscription<std_msgs::msg::String>(
+        "/safety/state", rclcpp::QoS(1).transient_local(),
+        [this](const std_msgs::msg::String::SharedPtr msg) {
+            if (safetyState_ == msg->data)
+                return;
+            safetyState_ = msg->data;
+            publishSafety();
+        });
+
     linkTimer_ = create_wall_timer(10ms, [this] { pollLink(); });
     poseTimer_ = create_wall_timer(100ms, [this] { publishPose(); });     // 10 Hz
-    safetyTimer_ = create_wall_timer(50ms, [this] { tickSafety(); });     // 20 Hz
+    safetyTimer_ = create_wall_timer(50ms, [this] {
+        tickSafety();
+        publishSafety();
+    });                                                                    // 20 Hz
     healthTimer_ = create_wall_timer(1s, [this] { publishHealth(); });
     navTimer_ = create_wall_timer(200ms, [this] { publishNav(); });       // 5 Hz
     systemTimer_ = create_wall_timer(1s, [this] { publishSystem(); });
@@ -397,7 +495,7 @@ void BridgeNode::respond(const Envelope &request, bool ok, const std::string &co
 
 bool BridgeNode::commandsAllowed(const Envelope &request)
 {
-    if (estopEngaged_ && request.ch != kCmdEstopRelease && request.ch != kCmdEstop) {
+    if (estopActive() && request.ch != kCmdEstopRelease && request.ch != kCmdEstop) {
         respond(request, false, err::kEstopEngaged, "E-Stop 발동 상태입니다");
         return false;
     }
@@ -425,6 +523,7 @@ void BridgeNode::handleRequest(const Envelope &request)
         // 다시 돌지 않고, 화면에도 재개 버튼이 남는다.
         dispatchMission(mission_manager::MissionEvent::kEmergencyStop, "E-Stop");
         cancelNavigation("E-Stop 발동");
+        publishSafety();
         respond(request, true);
         RCLCPP_WARN(get_logger(), "E-Stop 발동 (관제 요청)");
         return;
@@ -436,10 +535,14 @@ void BridgeNode::handleRequest(const Envelope &request)
         std_msgs::msg::Bool msg;
         msg.data = false;
         estopPub_->publish(msg);
+        // 해제는 재가동이 아니다. 이후 실제 주행/미션 재개 요청이 별도로
+        // safety_manager의 resume 사건을 보내야 한다.
+        manualMode_ = true;
         // FSM 에도 알린다. 이것을 빠뜨리면 미션이 emergency_stopped 에
         // 붙잡힌 채로 남아, 해제해도 재개도 취소도 받지 않는다.
         dispatchMission(mission_manager::MissionEvent::kEmergencyStopReleased,
                         "E-Stop 해제");
+        publishSafety();
         respond(request, true);
         RCLCPP_WARN(get_logger(), "E-Stop 해제 (관제 요청)");
         return;
@@ -447,9 +550,12 @@ void BridgeNode::handleRequest(const Envelope &request)
 
     if (request.ch == kCmdMode) {
         manualMode_ = request.p.value("mode", std::string("auto")) == "manual";
-        // 수동 전환 시 자율주행을 즉시 중단한다 (지시서 2.2.5).
-        if (manualMode_)
-            cancelNavigation("수동 모드 전환");
+        // 수동 전환은 자율주행을 취소하지 않는다. 지시서 2.2.5 가 요구하는
+        // 것은 수동이 우선한다는 것이고, 그 우선권은 mux 가 준다 — 수동
+        // 모드인 동안 이 노드가 제자리 명령을 계속 내보내 teleop 이 가장
+        // 높은 우선순위를 놓지 않으므로 자율 출력은 로봇까지 가지 못한다.
+        // 취소해 버리면 잠깐 비켜 세우려던 조작자가 목표까지 잃는다.
+        RCLCPP_INFO(get_logger(), "주행 모드: %s", manualMode_ ? "수동" : "자율");
         respond(request, true);
         return;
     }
@@ -460,6 +566,11 @@ void BridgeNode::handleRequest(const Envelope &request)
         // 그냥 "여기서 서라" 보다 훨씬 큰 조치다.
         cancelNavigation("관제 취소 요청");
         respond(request, true);
+        return;
+    }
+
+    if (request.ch == kCmdBasePosture) {
+        handleBasePosture(request);
         return;
     }
 
@@ -590,6 +701,85 @@ void BridgeNode::handleRequest(const Envelope &request)
         return;
     }
 
+    if (request.ch == kCmdMapsRename) {
+        const std::string id = request.p.value("id", std::string{});
+        const std::string name = request.p.value("name", std::string{});
+        if (missionFsm_.state() != mission_manager::MissionState::kIdle || navGoal_) {
+            respond(request, false, err::kBusy,
+                    "주행 또는 점검이 끝난 뒤에 지도 이름을 바꾸십시오");
+            return;
+        }
+        if (id.empty() || id.find('/') != std::string::npos || id.find("..") != std::string::npos
+            || !std::filesystem::is_regular_file(std::filesystem::path(mapsDir_) / id / "map.yaml")) {
+            respond(request, false, err::kBadPayload, "유효하지 않거나 없는 지도입니다");
+            return;
+        }
+        // 이름은 UTF-8 바이트 기준으로 제한한다. 줄바꿈을 허용하면 UI와 로그의
+        // 한 항목 경계가 깨지므로 표시 이름으로 쓸 수 없다.
+        if (name.empty() || name.size() > 120 || name.find('\n') != std::string::npos
+            || name.find('\r') != std::string::npos) {
+            respond(request, false, err::kBadPayload, "지도 이름은 줄바꿈 없는 1~120바이트여야 합니다");
+            return;
+        }
+
+        const std::filesystem::path dir = std::filesystem::path(mapsDir_) / id;
+        const std::filesystem::path metadata_path = dir / "metadata.json";
+        json metadata{{"schema_version", 1}, {"id", id}};
+        try {
+            std::ifstream in(metadata_path);
+            if (in)
+                in >> metadata;
+        } catch (const json::parse_error &e) {
+            RCLCPP_ERROR(get_logger(), "지도 메타데이터가 손상되어 이름을 바꾸지 않습니다 (%s): %s",
+                         metadata_path.c_str(), e.what());
+            respond(request, false, err::kHardware, "지도 메타데이터를 읽지 못했습니다");
+            return;
+        }
+        if (!metadata.is_object()) {
+            RCLCPP_ERROR(get_logger(), "지도 메타데이터 형식이 객체가 아닙니다: %s",
+                         metadata_path.c_str());
+            respond(request, false, err::kHardware, "지도 메타데이터 형식이 올바르지 않습니다");
+            return;
+        }
+        metadata["schema_version"] = 1;
+        metadata["id"] = id;
+        metadata["name"] = name;
+
+        // 같은 디렉터리에 완성본을 쓴 뒤 rename한다. 전원 장애나 HMI 연결이
+        // 끊겨도 metadata.json이 반쯤 쓰인 상태로 남지 않게 한다.
+        const std::filesystem::path temporary_path = dir / ".metadata.json.tmp";
+        {
+            std::ofstream out(temporary_path, std::ios::trunc);
+            if (!out) {
+                respond(request, false, err::kHardware, "지도 메타데이터를 쓸 수 없습니다");
+                return;
+            }
+            out << metadata.dump(2) << '\n';
+            if (!out) {
+                std::error_code remove_ec;
+                std::filesystem::remove(temporary_path, remove_ec);
+                respond(request, false, err::kHardware, "지도 메타데이터 저장에 실패했습니다");
+                return;
+            }
+        }
+        std::error_code rename_ec;
+        std::filesystem::rename(temporary_path, metadata_path, rename_ec);
+        if (rename_ec) {
+            std::error_code remove_ec;
+            std::filesystem::remove(temporary_path, remove_ec);
+            RCLCPP_ERROR(get_logger(), "지도 메타데이터 교체 실패 (%s): %s",
+                         metadata_path.c_str(), rename_ec.message().c_str());
+            respond(request, false, err::kHardware, "지도 메타데이터를 반영하지 못했습니다");
+            return;
+        }
+
+        publishMapCatalog();
+        if (id == mapId_)
+            publishActiveMap();
+        respond(request, true);
+        return;
+    }
+
     if (request.ch == kCmdCapture) {
         handleCapture(request);
         return;
@@ -602,11 +792,13 @@ void BridgeNode::handleRequest(const Envelope &request)
             respond(request, false, err::kBadPayload, "점검포인트가 없습니다");
             return;
         }
-        if (estopEngaged_) {
+        if (estopActive()) {
             respond(request, false, err::kMode,
                     "비상정지 상태입니다. 해제한 뒤 시작하십시오");
             return;
         }
+        requestSafetyResume();
+        requestBaseAuthority();
         const auto t = dispatchMission(mission_manager::MissionEvent::kStart, "관제 요청");
         if (!t.accepted) {
             respond(request, false, err::kMode, t.reason);
@@ -627,11 +819,13 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdMissionResume) {
-        if (estopEngaged_) {
+        if (estopActive()) {
             respond(request, false, err::kMode,
                     "비상정지 상태입니다. 해제한 뒤 재개하십시오");
             return;
         }
+        requestSafetyResume();
+        requestBaseAuthority();
         const auto t = dispatchMission(mission_manager::MissionEvent::kResume, "관제 요청");
         if (!t.accepted) {
             respond(request, false, err::kMode, t.reason);
@@ -670,6 +864,8 @@ void BridgeNode::handleRequest(const Envelope &request)
             respond(request, false, err::kMode, "수동 모드에서는 자율 이동을 실행하지 않습니다");
             return;
         }
+        requestSafetyResume();
+        requestBaseAuthority();
         startNavigation(request);
         return;
     }
@@ -681,7 +877,10 @@ void BridgeNode::handleRequest(const Envelope &request)
 
 void BridgeNode::applyCmdVel(const json &payload)
 {
-    if (estopEngaged_ || !manualMode_)
+    // 자율 주행 중에도 받는다. 조작자가 잡고 있는 동안은 수동이 앞서고,
+    // 놓으면 lease 가 끊겨 mux 가 자율로 돌아간다. 예전에는 수동 모드가
+    // 아니면 버렸는데, 그러면 사람이 비켜 세우려 해도 모드부터 바꿔야 했다.
+    if (estopActive())
         return;
 
     const auto clamp = [](double v, double lim) { return std::max(-lim, std::min(v, lim)); };
@@ -692,6 +891,11 @@ void BridgeNode::applyCmdVel(const json &payload)
     pendingTwist_.linear.x = clamp(vx, maxLinVelX_);
     pendingTwist_.linear.y = clamp(vy, maxLinVelY_);
     pendingTwist_.angular.z = clamp(wz, maxAngVelZ_);
+    if (pendingTwist_.linear.x != 0.0 || pendingTwist_.linear.y != 0.0
+        || pendingTwist_.angular.z != 0.0) {
+        requestSafetyResume();
+        requestBaseAuthority();
+    }
 
     // 잘라냈다는 사실은 알려야 한다. 조용히 줄이면 관제는 자기가 보낸 대로
     // 가고 있다고 믿고, 로봇이 왜 느린지 아무도 모른다. 조작 중에는 이 명령이
@@ -839,8 +1043,13 @@ void BridgeNode::publishActiveMap()
     const auto meta_path = std::filesystem::path(mapsDir_) / mapId_ / "metadata.json";
     std::ifstream meta_in(meta_path);
     json meta;
-    if (meta_in >> meta)
-        active["name"] = meta.value("name", mapId_);
+    try {
+        if (meta_in >> meta)
+            active["name"] = meta.value("name", mapId_);
+    } catch (const json::parse_error &e) {
+        RCLCPP_WARN(get_logger(), "지도 메타데이터를 읽지 못했습니다 (%s): %s",
+                    meta_path.c_str(), e.what());
+    }
     sendEnvelope(makePublish(kChActiveMap, active));
 }
 
@@ -859,18 +1068,28 @@ void BridgeNode::publishMapCatalog()
         const std::string id = dir.filename().string();
         json item{{"id", id}, {"name", id}, {"active", id == mapId_},
                   {"waypoint_count", 0}};
-        std::ifstream meta_in(dir / "metadata.json");
-        json meta;
-        if (meta_in >> meta) {
-            item["name"] = meta.value("name", id);
-            item["created_at"] = meta.value("created_at", std::string{});
+        try {
+            std::ifstream meta_in(dir / "metadata.json");
+            json meta;
+            if (meta_in >> meta) {
+                item["name"] = meta.value("name", id);
+                item["created_at"] = meta.value("created_at", std::string{});
+            }
+            std::ifstream wp_in(dir / "waypoints.json");
+            json waypoints;
+            if (wp_in >> waypoints && waypoints["points"].is_array())
+                item["waypoint_count"] = waypoints["points"].size();
+        } catch (const json::parse_error &e) {
+            RCLCPP_WARN(get_logger(), "지도 카탈로그 항목을 읽지 못했습니다 (%s): %s",
+                        dir.c_str(), e.what());
         }
-        std::ifstream wp_in(dir / "waypoints.json");
-        json waypoints;
-        if (wp_in >> waypoints && waypoints["points"].is_array())
-            item["waypoint_count"] = waypoints["points"].size();
         maps.push_back(std::move(item));
     }
+    // 날짜 기반 ID는 문자열 정렬 자체가 시간순이다. directory_iterator의 순서는
+    // 파일 시스템마다 달라 HMI 목록까지 흔들리므로 여기서 고정한다.
+    std::sort(maps.begin(), maps.end(), [](const json &left, const json &right) {
+        return left.value("id", std::string{}) < right.value("id", std::string{});
+    });
     sendEnvelope(makePublish(kChMaps, json{{"maps", maps}}));
 }
 
@@ -886,12 +1105,17 @@ bool BridgeNode::loadMapBundle(const std::string &map_id, std::string *error)
         return false;
     }
 
-    const auto read = [&dir](const char *name, const char *key) {
+    const auto read = [this, &dir](const char *name, const char *key) {
         std::ifstream in(dir / name);
         json out = json::array();
         json doc;
-        if (in >> doc && doc[key].is_array())
-            out = doc[key];
+        try {
+            if (in >> doc && doc[key].is_array())
+                out = doc[key];
+        } catch (const json::parse_error &e) {
+            RCLCPP_WARN(get_logger(), "지도 상태를 읽지 못했습니다 (%s): %s",
+                        (dir / name).c_str(), e.what());
+        }
         return out;
     };
     waypoints_ = read("waypoints.json", "points");
@@ -970,7 +1194,7 @@ void BridgeNode::handleCapture(const Envelope &request)
                 "카메라 영상이 없습니다. 카메라 연결을 확인하십시오");
         return;
     }
-    if (estopEngaged_) {
+    if (estopActive()) {
         respond(request, false, err::kMode, "비상정지 상태에서는 촬영하지 않습니다");
         return;
     }
@@ -1711,6 +1935,18 @@ void BridgeNode::tickSafety()
         cmdVelPub_->publish(pendingTwist_);
     } else if (haveJogCommand_) {
         cmdVelPub_->publish(pendingTwist_);
+    } else if (manualMode_ || estopActive()) {
+        // 수동 모드에서는 조작이 없어도 제자리 명령을 계속 내보낸다. 두 가지
+        // 일을 한꺼번에 한다 — 로봇을 세워 두고, teleop 이 mux 의 가장 높은
+        // 우선순위를 놓지 않게 해 자율 출력이 로봇까지 가지 못하게 한다.
+        //
+        // 관제가 아니라 여기서 내보내는 이유는 링크다. 관제가 0 을 스트림하게
+        // 하면 링크가 끊긴 순간 lease 가 만료되고, 수동 모드인데도 Nav2 가
+        // 로봇을 몰기 시작한다. 모드를 아는 것은 이 노드이므로 여기서 잡는다.
+        //
+        // E-Stop 중에도 같은 이유로 내보낸다. 발동할 때 자율주행을 취소하지만
+        // 그것은 Nav2 가 따라 주기를 기다리는 일이고, 이쪽은 기다리지 않는다.
+        cmdVelPub_->publish(geometry_msgs::msg::Twist{});
     }
 
     // 생존 신호. 관제 하트비트가 신선한 동안에만 발행한다.
@@ -1720,6 +1956,33 @@ void BridgeNode::tickSafety()
     std_msgs::msg::Bool msg;
     msg.data = alive;
     linkAlivePub_->publish(msg);
+}
+
+bool BridgeNode::estopActive() const
+{
+    return estopEngaged_ || safetyState_ == "e_stop_latched";
+}
+
+void BridgeNode::requestBaseAuthority()
+{
+    std_msgs::msg::String request;
+    request.data = "base";
+    authorityRequestPub_->publish(request);
+}
+
+void BridgeNode::requestSafetyResume()
+{
+    std_msgs::msg::String event;
+    event.data = "resume";
+    safetyEventPub_->publish(event);
+}
+
+void BridgeNode::publishSafety()
+{
+    sendEnvelope(makePublish(kChSafety,
+                             json{{"estop", estopActive()},
+                                  {"mode", manualMode_ ? "manual" : "auto"},
+                                  {"state", safetyState_}}));
 }
 
 // ================= 텔레메트리 =================
@@ -1785,8 +2048,6 @@ void BridgeNode::publishPose()
                              ++seq_),
                  true);
 
-    sendEnvelope(makePublish(kChSafety, json{{"estop", estopEngaged_},
-                                             {"mode", manualMode_ ? "manual" : "auto"}}));
 }
 
 void BridgeNode::markSeen(Sensor &sensor)
@@ -1805,6 +2066,169 @@ void BridgeNode::markSeen(Sensor &sensor)
     }
     sensor.lastSeen = stamp;
     sensor.everSeen = true;
+}
+
+/// 관제 포트를 연다. 이미 열려 있으면 아무것도 하지 않는다.
+///
+/// 실패 사유는 카탈로그의 LINK_PORT_BIND_FAIL 에 해당한다. 그 코드는 사람이
+/// 해제해야 사라지는 것으로 분류돼 있어, 여기서도 한 번만 크게 알리고 이후는
+/// 눌러서 찍는다 — 5 초마다 같은 줄이 쌓이면 다른 로그가 묻힌다.
+bool BridgeNode::openControlPort()
+{
+    if (server_.isListening())
+        return true;
+
+    std::string err;
+    if (server_.start(std::uint16_t(port_), &err)) {
+        RCLCPP_INFO(get_logger(), "관제 연결 대기 중 — 포트 %d", port_);
+        return true;
+    }
+
+    if (!bindFailed_) {
+        bindFailed_ = true;
+        RCLCPP_ERROR(get_logger(),
+                     "관제 포트 %d 를 열지 못했습니다: %s. 5 초마다 다시 시도합니다 "
+                     "(LINK_PORT_BIND_FAIL). 다른 브릿지가 떠 있는지 확인하십시오.",
+                     port_, err.c_str());
+    } else {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 30000,
+                             "관제 포트 %d 아직 열지 못함: %s", port_, err.c_str());
+    }
+    return false;
+}
+
+const char *BridgeNode::postureService(const std::string &posture)
+{
+    // 이름이 곧 서비스 이름이다. 목록을 여기 두는 이유는 관제가 보낸 문자열을
+    // 그대로 서비스 이름으로 쓰지 않기 위해서다 — 그러면 임의의 서비스를
+    // 부르게 할 수 있다.
+    if (posture == "stand_up" || posture == "stand_down"
+        || posture == "balance_stand" || posture == "recovery_stand"
+        || posture == "damp")
+        return "supported";
+    return nullptr;
+}
+
+// 선행 조건 때문에 자세 전환을 거절할 때 쓴다. 응답은 명령을 보낸 화면만
+// 보지만, 이벤트는 이력에 남는다 — 조작자가 버튼을 눌렀는데 아무 일도
+// 일어나지 않은 것처럼 보이는 상황이 기록에 남지 않으면 나중에 짚을 수 없다.
+void BridgeNode::refusePosture(const Envelope &request, const std::string &code,
+                               const std::string &message)
+{
+    respond(request, false, code, message);
+    sendEnvelope(makeEvent(kChLog, json{{"code", "BASE_POSTURE_BLOCKED"},
+                                        {"level", "warn"},
+                                        {"msg", message}}));
+}
+
+void BridgeNode::handleBasePosture(const Envelope &request)
+{
+    const std::string posture = request.p.value("posture", std::string());
+    if (!postureService(posture)) {
+        respond(request, false, err::kBadPayload,
+                "알 수 없는 자세: " + posture);
+        return;
+    }
+
+    if (estopActive()) {
+        respond(request, false, err::kEstopEngaged,
+                "비상정지 상태에서는 자세를 바꾸지 않습니다");
+        return;
+    }
+
+    // 팔이 움직이는 중이면 받지 않는다. 팔이 펴진 채 앉으면 차체나 바닥에
+    // 부딪힌다. 화면이 버튼을 잠그는 것과 별개로 판정은 로봇이 한다.
+    if (motionAuthority_ == "arm_active" || motionAuthority_ == "arm_stopping") {
+        refusePosture(request, err::kBusy,
+                      "로봇팔이 동작 중입니다. 팔을 멈춘 뒤 다시 시도하십시오");
+        return;
+    }
+
+    // 움직이는 중에 앉거나 힘을 빼면 넘어진다.
+    if (posture == "stand_down" || posture == "damp") {
+        // isMoving() 은 오도메트리가 끊긴 것도 "움직인다" 로 본다(정지를
+        // 확인할 수 없으니 거절하는 편이 안전하다). 다만 그 이유를 "이동 중"
+        // 이라고 말하면, 조작자는 멈춰 서 있는 로봇 앞에서 멈추라는 말을
+        // 듣게 되고 다음에 무엇을 해야 하는지 알 수 없다.
+        const bool odomStale = lastOdomAt_.nanoseconds() == 0
+                               || (now() - lastOdomAt_).seconds() > 1.0;
+        if (odomStale) {
+            refusePosture(request, err::kHardware,
+                          "주행 정보가 들어오지 않아 정지 상태를 확인할 수 없습니다");
+            return;
+        }
+        if (isMoving()) {
+            refusePosture(request, err::kMode,
+                          "이동 중에는 이 자세로 바꾸지 않습니다. 정지한 뒤 시도하십시오");
+            return;
+        }
+    }
+
+    // damp 은 관절 힘을 빼는 것이라 서 있는 상태에서 누르면 주저앉는다.
+    // 실수로 누르는 것을 막기 위해 확인 필드를 요구한다.
+    if (posture == "damp" && !request.p.value("confirm", false)) {
+        respond(request, false, err::kMode,
+                "damp 은 로봇이 주저앉습니다. confirm: true 를 함께 보내십시오");
+        return;
+    }
+
+    auto client = postureClients_[posture];
+    const bool ready = client && client->service_is_ready();
+
+    // 시뮬레이터에는 SportClient 서비스가 없다. 여기서 막아 버리면 관제 화면과
+    // 연동 코드를 시뮬레이터에서 시험할 방법이 없으므로, 설정이 켜져 있으면
+    // 로그에 남기고 상태만 갱신한다. 로봇이 실제로 움직인 것은 아니라는 사실을
+    // 응답과 로그 양쪽에 남긴다.
+    if (!ready && postureDryRun_) {
+        basePosture_ = posture;
+        RCLCPP_WARN(get_logger(), "[모의] 자세 전환 %s — 본체 드라이버 없음", posture.c_str());
+        respond(request, true, std::string(), posture + " (모의)");
+        publishBase();
+        sendEnvelope(makeEvent(kChLog, json{{"code", "BASE_POSTURE_SIMULATED"},
+                                            {"level", "warn"},
+                                            {"msg", posture}}));
+        return;
+    }
+
+    if (!ready) {
+        const std::string msg = "본체 드라이버가 응답하지 않습니다 (" + posture + ")";
+        respond(request, false, err::kHardware, msg);
+        sendEnvelope(makeEvent(kChLog, json{{"code", "BASE_POSTURE_FAILED"},
+                                            {"level", "error"},
+                                            {"msg", msg}}));
+        return;
+    }
+
+    // 응답은 비동기로 온다. 요청 봉투를 값으로 복사해 두는 이유는, 콜백이
+    // 도는 시점에 원본이 이미 사라져 있기 때문이다.
+    const Envelope pending = request;
+    client->async_send_request(
+        std::make_shared<std_srvs::srv::Trigger::Request>(),
+        [this, pending, posture](
+            rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+            const auto result = future.get();
+            if (result && result->success) {
+                basePosture_ = posture;
+                respond(pending, true, std::string(), posture);
+                publishBase();
+                sendEnvelope(makeEvent(kChLog, json{{"code", "BASE_POSTURE_CHANGED"},
+                                                    {"level", "info"},
+                                                    {"msg", posture}}));
+            } else {
+                const std::string msg =
+                    result ? result->message : std::string("본체가 자세 전환을 거부했습니다");
+                respond(pending, false, err::kHardware, msg);
+                sendEnvelope(makeEvent(kChLog, json{{"code", "BASE_POSTURE_FAILED"},
+                                                    {"level", "error"},
+                                                    {"msg", msg}}));
+            }
+        });
+}
+
+void BridgeNode::publishBase()
+{
+    sendEnvelope(makePublish(kChBase, json{{"posture", basePosture_},
+                                           {"motion_authority", motionAuthority_}}));
 }
 
 void BridgeNode::publishHealth()
@@ -1826,6 +2250,10 @@ void BridgeNode::publishHealth()
         // 점검이 도는 중에 관제가 새로 붙을 수 있다. 상태를 안 보내면
         // 화면은 대기로 보고, 버튼이 "자율주행 시작" 인 채로 남는다.
         publishMission();
+        // 자세도 바뀔 때만 보내는 채널이라 같은 문제가 있다. 없으면 갓 붙은
+        // 화면의 자세 표시가 비어 있고, 조작자는 로봇이 서 있는지 앉아
+        // 있는지를 화면에서 알 수 없다.
+        publishBase();
     }
     wasConnected_ = connected;
 

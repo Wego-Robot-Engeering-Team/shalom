@@ -4,16 +4,9 @@
 
 // The control station's view of the robot.
 //
-// Two implementations exist:
-//
-//   - SimRobot:     an in-process simulator, used until the bridge is available
-//                   and afterwards for exercising the interface offline
-//   - BridgeClient: the real connection over raw TCP (docs/bridge_protocol.md)
-//
-// The command surface mirrors the protocol's command channels one for one, so
-// that swapping implementations is a matter of what MainWindow constructs. The
-// simulator's test suite is written against this interface, which makes it the
-// acceptance criteria the bridge client has to meet rather than a throwaway.
+// The production implementation is BridgeClient, the raw TCP connection to a
+// robot endpoint (docs/bridge_protocol.md). A physical robot and MuJoCo
+// simulator expose the same endpoint, so MainWindow has no simulator branch.
 //
 // Commands are fire-and-forget from the caller's point of view. Rejections
 // come back as robotEvent() with a catalog code, because a rejected command is
@@ -107,6 +100,26 @@ public:
     virtual DriveMode mode() const = 0;
 
     // ---- arm ------------------------------------------------------------
+    // ---- Base posture -------------------------------------------------------
+    //
+    // The robot decides what is safe. The UI only greys buttons out; the
+    // ruling is the bridge's, and it refuses while the arm is moving or the
+    // base is driving.
+    //
+    // damp releases the joints, so pressing it while the robot stands drops
+    // it where it is. That is why confirmation is carried separately.
+    virtual void setBasePosture(const QString &posture, bool confirm = false)
+    {
+        Q_UNUSED(posture);
+        Q_UNUSED(confirm);
+    }
+
+    /// The last posture the robot reached. Empty when unknown.
+    virtual QString basePosture() const { return {}; }
+
+    /// Which of the base and the arm currently holds permission to move.
+    virtual QString motionAuthority() const { return {}; }
+
     virtual void setArmJointGoal(const QList<double> &q) = 0;
     virtual void setArmPreset(const QString &name) = 0;
     virtual void stopArm() = 0;
@@ -122,11 +135,8 @@ public:
 
     /// A map the link can supply before any arrives over the wire.
     ///
-    /// The bridge returns nothing: the real map comes on map/occupancy and the
-    /// screen says it is waiting. The testbed returns a stand-in so the screen
-    /// is usable without a robot. MainWindow does not need to know which it is
-    /// talking to - it used to test for the simulator type by hand, which put
-    /// the simulator into the delivered binary.
+    /// The bridge returns nothing: the robot sends the real map on
+    /// map/occupancy and the screen waits until it arrives.
     virtual std::optional<MapData> initialMap() const { return std::nullopt; }
 
     /// Markers the link knows about up front. Empty for the bridge.
@@ -141,11 +151,8 @@ public:
     virtual QVariantMap dockPose() const { return {}; }
     virtual QVariantMap homePose() const { return {}; }
 
-    /// Starts producing telemetry. The bridge connects on construction and
-    /// does nothing here; the testbed starts its clock.
-    ///
-    /// The window used to reach for the simulator type to call start(), which
-    /// is how the simulator ended up compiled into every build.
+    /// Starts a link that needs explicit activation. BridgeClient connects when
+    /// the operator selects a configured robot, so it does nothing here.
     virtual void start() {}
 
 signals:
@@ -160,6 +167,9 @@ signals:
     /// The mission state is owned by the robot side. The UI follows it rather
     /// than tracking its own copy, so the buttons cannot disagree with reality.
     void missionStateChanged(hmi::robot::MissionState state);
+
+    /// The base posture or the motion authority changed.
+    void baseStateChanged(const QString &posture, const QString &authority);
 
     void connectionChanged(bool connected);
 

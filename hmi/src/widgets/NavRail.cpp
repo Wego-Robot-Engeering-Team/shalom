@@ -71,6 +71,15 @@ void drawIcon(QPainter &p, NavItem item, const QRectF &r, const QColor &c)
         p.drawEllipse(QPointF(x + s * 0.50, y + s * 0.37), s * 0.10, s * 0.10);
         break;
     }
+    case NavItem::Base: {
+        // 네발 로봇을 옆에서 본 모양 — 몸통과 다리 넷.
+        p.drawRoundedRect(QRectF(x + s * 0.16, y + s * 0.30, s * 0.68, s * 0.26), 3, 3);
+        for (const double dx : {0.26, 0.42, 0.58, 0.74})
+            p.drawLine(QPointF(x + s * dx, y + s * 0.56), QPointF(x + s * dx, y + s * 0.84));
+        // 머리. 앞쪽이 어디인지 없으면 몸통이 그냥 상자로 읽힌다.
+        p.drawLine(QPointF(x + s * 0.84, y + s * 0.36), QPointF(x + s * 0.92, y + s * 0.22));
+        break;
+    }
     case NavItem::Arm: {
         // 두 마디 링크와 관절점
         p.drawLine(QPointF(x + s * 0.18, y + s * 0.86), QPointF(x + s * 0.42, y + s * 0.38));
@@ -135,6 +144,7 @@ struct ItemSpec {
 const ItemSpec kItems[] = {
     {NavItem::Drive, "주행"},
     {NavItem::Locations, "위치"},
+    {NavItem::Base, "로봇개"},
     {NavItem::Arm, "로봇팔"},
     {NavItem::Capture, "카메라"},
     {NavItem::Diagnostics, "진단"},

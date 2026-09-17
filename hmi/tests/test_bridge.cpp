@@ -204,6 +204,20 @@ private slots:
         QVERIFY(channels.contains(QLatin1String(hmi::ch::kMission)));
     }
 
+    /// 최초 실행에서 정책을 준비하는 것은 명령 실패가 아니다. 사용자가
+    /// 로봇을 선택하기도 전에 "연결 끊김" 알림이 생기면 미연결 상태와
+    /// 실제 통신 장애를 구별할 수 없다.
+    void batteryPolicy_isDeferredUntilConnected()
+    {
+        client_ = new BridgeClient(QStringLiteral("127.0.0.1"), 9, this);
+        QSignalSpy events(client_, &hmi::robot::RobotLink::robotEvent);
+
+        client_->setBatteryPolicy(30.0, 80.0);
+        QTest::qWait(50);
+
+        QCOMPARE(events.count(), 0);
+    }
+
     void heartbeat_isSentPeriodically()
     {
         connectPair();
@@ -447,6 +461,48 @@ private slots:
         QVERIFY(waitFor([this] {
             return client_->missionState() == hmi::robot::MissionState::Paused;
         }));
+    }
+
+    // ---- 본체 자세 -------------------------------------------------------
+
+    /// 자세는 로봇이 알려 준 것만 표시한다. 버튼을 눌렀다고 화면이 먼저
+    /// 바꾸면, 로봇이 거절했을 때 화면과 로봇이 어긋난 채로 남는다.
+    void basePosture_followsRobot()
+    {
+        connectPair();
+        QSignalSpy spy(client_, &hmi::robot::RobotLink::baseStateChanged);
+        server_->send(pub(hmi::ch::kBase, {{"posture", QStringLiteral("stand_down")},
+                                           {"motion_authority", QStringLiteral("none")}}));
+
+        QVERIFY(waitFor([&spy] { return !spy.isEmpty(); }));
+        QCOMPARE(client_->basePosture(), QStringLiteral("stand_down"));
+        QCOMPARE(client_->motionAuthority(), QStringLiteral("none"));
+    }
+
+    /// damp 은 confirm 이 같이 가야 브릿지가 받는다. 이 필드가 빠지면
+    /// 조작자는 버튼이 먹지 않는 이유를 알 수 없다.
+    void basePosture_carriesConfirmationForDamp()
+    {
+        connectPair();
+        client_->setBasePosture(QStringLiteral("stand_up"));
+        client_->setBasePosture(QStringLiteral("damp"), true);
+
+        QVERIFY(waitFor([this] {
+            int n = 0;
+            for (const auto &e : server_->received)
+                if (e.ch == QLatin1String(hmi::ch::kCmdBasePosture))
+                    ++n;
+            return n >= 2;
+        }));
+
+        for (const auto &e : server_->received) {
+            if (e.ch != QLatin1String(hmi::ch::kCmdBasePosture))
+                continue;
+            QCOMPARE(e.t, QString::fromLatin1(mtype::kReq));
+            const QString posture = e.p.value(QStringLiteral("posture")).toString();
+            QCOMPARE(e.p.value(QStringLiteral("confirm")).toBool(),
+                     posture == QLatin1String("damp"));
+        }
     }
 
     // ---- 스트림 손상 -----------------------------------------------------

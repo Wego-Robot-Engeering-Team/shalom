@@ -1,0 +1,28 @@
+# The simulator uses the real HMI protocol. Hardware absent from the simulator
+# is not monitored, so the HMI does not report fictional failures.
+/hmi_bridge:
+  ros__parameters:
+    port: 9090
+    capture.enabled: false
+    sensors: ["lidar", "imu", "joints_b2"]
+    sensor:
+      lidar:
+        name: "LiDAR"
+        topic: "/b2/points"
+        type: "sensor_msgs/msg/PointCloud2"
+        expected_hz: 10.0
+      imu:
+        name: "IMU"
+        topic: "/b2/imu"
+        type: "sensor_msgs/msg/Imu"
+        expected_hz: 200.0
+      joints_b2:
+        name: "B2 joints"
+        topic: "/b2/joint_states"
+        type: "sensor_msgs/msg/JointState"
+        expected_hz: 200.0
+
+    # 시뮬레이터에는 B2 SDK 의 SportClient 서비스가 없어 실제 자세 전환을 할 수
+    # 없다. 요청을 로그로만 처리해 관제 화면과 연동 코드를 여기서 시험한다.
+    # 실기 설정(robot/hmi_bridge/config/bridge.yaml)에는 이 줄이 없어야 한다.
+    base.posture_dry_run: true
