@@ -38,13 +38,14 @@ LICENSE, NOTICE         사용권과 고지
 framing                 프레임 byte layout
 socket / Client          TCP, heartbeat, raw request/response
 types / errors           공개 값과 오류
-RobotApi                 명령별 facade
+RobotApi                 명령별 facade (safety/navigation/mission/configuration/inspection)
 ```
 
 일반 C++ 연동은 `<shalom/api.hpp>`를 포함한다. Python은 `Client`를 만들고
-`RobotApi(client)`로 명령을 보낸다. `socket.hpp`는 header-only 구현 세부이므로
-고객 application이 직접 사용할 API가 아니다. 모든 sample은 read-only 또는 조회
-명령만 사용한다.
+`RobotApi(client)`로 명령을 보낸다. 두 언어 모두 facade 내부를 safety,
+navigation, mission, configuration, inspection 도메인으로 나눈다. `socket.hpp`는
+header-only 구현 세부이므로 고객 application이 직접 사용할 API가 아니다. 모든
+sample은 read-only 또는 조회 명령만 사용한다.
 
 ## 지원 범위와 제약
 
