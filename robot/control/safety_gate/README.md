@@ -1,7 +1,7 @@
 # safety_gate
 
 `safety_gate`는 motion command를 final driver topic으로 보내기 전 마지막으로
-검사한다. `/safety/motion_permitted` heartbeat가 만료되거나 authority가 맞지 않으면
+검사한다. `/safety/state`가 만료되거나 authority가 맞지 않으면
 base에는 0 `Twist`만 발행한다.
 
 기본 `output_base_topic`은 `/motion/safe/cmd_vel`이다. 실기에서 `/cmd_vel`로 연결하는
