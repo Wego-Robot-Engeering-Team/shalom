@@ -27,7 +27,7 @@ shalom/
 ```bash
 cd ~/shalom_ws
 source /opt/ros/jazzy/setup.bash
-colcon build --base-paths src/shalom --symlink-install \
+MAKEFLAGS=-j2 colcon build --executor parallel --parallel-workers 2 --base-paths src/shalom --symlink-install \
   --packages-select b2_mujoco hmi_bridge robot_bringup simulation_bringup
 source install/setup.bash
 ```

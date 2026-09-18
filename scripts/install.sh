@@ -34,11 +34,47 @@ apt_install() {
   run sudo apt-get install -y --no-install-recommends "$@"
 }
 
-# ROS 2 packages are not in Ubuntu's standard archive.  Keep this here rather
-# than making a freshly flashed Jetson rely on a developer having remembered a
-# one-off, machine-global setup step from the ROS web site.
+# ROS 2 packages are not in Ubuntu's standard archive. A machine may already
+# have the official ros2-apt-source package, which uses a .sources file and an
+# embedded key. Do not add a second entry with a different Signed-By value.
+ros_apt_source_in_other_file() {
+  local source_file
+  for source_file in /etc/apt/sources.list \
+    /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+    [ -f "$source_file" ] || continue
+    [ "$source_file" = /etc/apt/sources.list.d/ros2.list ] && continue
+    if grep -Eq '^[[:space:]]*(deb([[:space:]]|\[)|URIs:[[:space:]]).*https?://packages[.]ros[.]org/ros2/ubuntu/?([[:space:]]|$)' "$source_file"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 setup_ros_apt_source() {
-  if [ -f /etc/apt/sources.list.d/ros2.list ]; then
+  local ros_list=/etc/apt/sources.list.d/ros2.list
+  local expected_ros_list
+  printf -v expected_ros_list \
+    'deb [arch=%s signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu %s main' \
+    "$(dpkg --print-architecture)" "$VERSION_CODENAME"
+
+  if ros_apt_source_in_other_file; then
+    if [ -f "$ros_list" ]; then
+      if [ "$(cat "$ros_list")" != "$expected_ros_list" ]; then
+        echo "기존 ROS 2 저장소 설정을 확인해야 합니다: $ros_list" >&2
+        exit 1
+      fi
+      if [ -e "$ros_list.disabled" ]; then
+        echo "백업 파일이 이미 있습니다: $ros_list.disabled" >&2
+        exit 1
+      fi
+      say "중복 ROS 2 apt 저장소 비활성화"
+      run sudo mv "$ros_list" "$ros_list.disabled"
+    fi
+    note "ROS 2 apt 저장소가 이미 설정됨"
+    return
+  fi
+
+  if [ -f "$ros_list" ]; then
     note "ROS 2 apt 저장소가 이미 설정됨"
     return
   fi
@@ -55,9 +91,7 @@ setup_ros_apt_source() {
 
   curl -fsSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
     | sudo gpg --dearmor --yes -o /usr/share/keyrings/ros-archive-keyring.gpg
-  printf 'deb [arch=%s signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu %s main\n' \
-    "$(dpkg --print-architecture)" "$VERSION_CODENAME" \
-    | sudo tee /etc/apt/sources.list.d/ros2.list >/dev/null
+  printf '%s\n' "$expected_ros_list" | sudo tee "$ros_list" >/dev/null
 }
 
 # ---------------------------------------------------------------------------
@@ -128,11 +162,11 @@ if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
 fi
 
 # Aurora 공식 ROS2 드라이버는 Jazzy에서 cv_bridge 헤더 확장자가 바뀐 전
-# 배포본이다. 동일 API의 .hpp 헤더를 쓰도록 최소 호환 보정을 적용한다.
+# 배포본이다. 이전 설치 시 반복 치환된 .hpppp 경로도 함께 복구한다.
 if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
   AURORA_SRC="$REPO_ROOT/third_party/aurora_ros/src/slamware_ros_sdk/src/server"
   if [ -f "$AURORA_SRC/server_workers.cpp" ]; then
-    run sed -i 's|cv_bridge/cv_bridge\.h|cv_bridge/cv_bridge.hpp|g' \
+    run sed -i 's|<cv_bridge/cv_bridge\.hp*>|<cv_bridge/cv_bridge.hpp>|g' \
       "$AURORA_SRC/server_workers.cpp" "$AURORA_SRC/slamware_ros_sdk_server.cpp"
   fi
 fi
@@ -200,7 +234,7 @@ fi
 if [ "$ROLE" = dev ] || [ "$ROLE" = station ]; then
   say "관제 HMI (Qt6)"
   note "HMI 는 ROS 를 쓰지 않는 Qt 프로그램이다. colcon 이 아니라 CMake 로 짓는다."
-  apt_install qt6-base-dev qt6-base-dev-tools qt6-svg-dev
+  apt_install qt6-base-dev qt6-base-dev-tools qt6-svg-dev ninja-build
 fi
 
 # ---------------------------------------------------------------------------
@@ -210,9 +244,11 @@ if [ "$ROLE" = dev ]; then
   say "시뮬레이터 (MuJoCo)"
   VENV="$WORKSPACE_ROOT/.venv-b2sim"
   note "apt 가 관리하는 시스템 Python 을 건드리지 않도록 전용 venv 에 넣는다."
-  if [ -d "$VENV" ]; then
+  apt_install python3-venv
+  if [ -x "$VENV/bin/pip" ]; then
     note "이미 있음: $VENV"
   else
+    # ensurepip 누락으로 디렉터리만 남은 경우에도 venv를 다시 완성한다.
     run python3 -m venv --system-site-packages "$VENV"
   fi
   run "$VENV/bin/pip" install --quiet mujoco onnxruntime
@@ -251,23 +287,25 @@ if [ -d "$REPO_ROOT" ]; then
 fi
 
 say "ROS 워크스페이스 빌드"
+# colcon과 CMake가 각각 CPU 수만큼 병렬 작업을 만들면 메모리가 고갈된다.
+# 패키지는 최대 두 개, 각 패키지 내부 컴파일은 최대 두 개로 제한한다.
 if [ "$DRY_RUN" = 1 ]; then
-  note "[dry-run] cd $WORKSPACE_ROOT && colcon build --base-paths src/shalom --symlink-install"
+  note "[dry-run] cd $WORKSPACE_ROOT && MAKEFLAGS=-j2 colcon build --executor parallel --parallel-workers 2 --base-paths src/shalom --symlink-install"
 else
   (
     cd "$WORKSPACE_ROOT"
-    colcon build --base-paths src/shalom --symlink-install
+    MAKEFLAGS=-j2 colcon build --executor parallel --parallel-workers 2 --base-paths src/shalom --symlink-install
   )
 fi
 
 say "관제 HMI 빌드"
 if [ "$DRY_RUN" = 1 ]; then
-  note "[dry-run] cd $REPO_ROOT/hmi && cmake --preset dev && cmake --build --preset dev"
+  note "[dry-run] cd $REPO_ROOT/hmi && cmake --preset default && cmake --build --preset default --parallel 4"
 else
   (
     cd "$REPO_ROOT/hmi"
-    cmake --preset dev
-    cmake --build --preset dev
+    cmake --preset default
+    cmake --build --preset default --parallel 4
   )
 fi
 

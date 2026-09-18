@@ -233,11 +233,11 @@ cd ~/shalom_ws/src/shalom
 ./scripts/install.sh
 
 cd hmi
-ctest --preset dev
+ctest --preset default
 ./build/inspection_hmi
 ```
 
-납품 구성은 `--preset release`다. 내장 모형이 빠지고 실행 파일 하나로 나온다.
+납품할 때도 `default` 프리셋으로 만든 실행 파일을 설치 경로로 복사한다.
 
 실행하면 로그인 창이 먼저 뜬다. 지금은 자리표시 자격증명(`admin` / `admin`)이고,
 입력한 이름이 조작 이력에 남는다.
@@ -251,7 +251,7 @@ CMake가 시스템이 아닌 다른 Python을 잡은 것이다. `~/.local/bin`�
 Python이 있으면 그렇게 된다.
 
 ```bash
-PATH="/usr/bin:/bin:$PATH" colcon build --base-paths src/shalom --symlink-install \
+PATH="/usr/bin:/bin:$PATH" MAKEFLAGS=-j2 colcon build --executor parallel --parallel-workers 2 --base-paths src/shalom --symlink-install \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3.12
 ```
 
@@ -270,7 +270,7 @@ cd ~/shalom_ws
 git -C src/shalom submodule update --init --recursive
 rm -rf src/third_party src/b2_driver src/b2_simulation
 rm -rf build install log
-colcon build --base-paths src/shalom --symlink-install
+MAKEFLAGS=-j2 colcon build --executor parallel --parallel-workers 2 --base-paths src/shalom --symlink-install
 ```
 
 **옮긴 패키지가 `does not match the source` 로 죽는다**
@@ -294,7 +294,7 @@ SO=libfastcdr.so.2.2.7          # 오류 메시지의 파일명
 PKGS=$(grep -rl "$SO" build/*/ 2>/dev/null | cut -d/ -f2 | sort -u)
 echo $PKGS
 for p in $PKGS; do rm -rf build/$p install/$p; done
-colcon build --base-paths src/shalom --symlink-install
+MAKEFLAGS=-j2 colcon build --executor parallel --parallel-workers 2 --base-paths src/shalom --symlink-install
 ```
 
 ROS 를 올릴 때마다 재발한다.
