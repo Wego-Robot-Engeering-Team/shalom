@@ -28,11 +28,27 @@ public:
 
     // Order is policy: first fresh source wins. Changing priorities is a launch
     // configuration decision, not an incidental ROS publisher race.
+    //
+    //   100 teleop       operator jogging right now (UDP teleop_bridge)
+    //    90 manual_hold  manual mode with no jog: hold still, and keep the
+    //                    autonomous sources from reaching the robot
+    //    40 stair
+    //    30 dock
+    //    20 nav
+    //
+    // manual_hold sits above the autonomous sources for one reason: switching
+    // to manual has to mean the robot stops driving itself. Without it, Nav2
+    // keeps filling the nav source and the robot carries on to its goal while
+    // the operator believes they have taken over.
+    //
+    // This mirrors joint_mux on the arm side, which already has the same three
+    // classes of source.
     constexpr std::array<const char *, 5> names{
-      "teleop", "mission", "stair", "dock", "nav"};
+      "teleop", "manual_hold", "stair", "dock", "nav"};
     constexpr std::array<const char *, 5> defaults{
-      "/motion/teleop/cmd_vel", "/motion/mission/cmd_vel", "/motion/stair/cmd_vel",
-      "/motion/dock/cmd_vel", "/motion/nav/cmd_vel"};
+      "/motion/base/cmd_vel/teleop", "/motion/base/cmd_vel/manual_hold",
+      "/motion/base/cmd_vel/stair", "/motion/base/cmd_vel/dock",
+      "/motion/base/cmd_vel/nav"};
     for (std::size_t i = 0; i < sources_.size(); ++i) {
       sources_[i].name = names[i];
       const auto topic = declare_parameter<std::string>(std::string(names[i]) + "_topic", defaults[i]);

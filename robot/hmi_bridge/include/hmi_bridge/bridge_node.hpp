@@ -434,6 +434,10 @@ private:
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr safetyEventPub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr authorityRequestPub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr armCmdPub_;
+    /// Manual-mode hold for the base. Zero velocity at 20 Hz, which is what
+    /// keeps motion_mux from falling through to Nav2 while the operator has
+    /// taken manual control. The arm has the same source in joint_mux.
+    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr baseHoldPub_;
 
     rclcpp_action::Client<NavigateToPose>::SharedPtr navClient_;
     rclcpp::Client<nav2_msgs::srv::LoadMap>::SharedPtr mapLoadClient_;

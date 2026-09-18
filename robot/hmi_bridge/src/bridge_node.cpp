@@ -307,6 +307,12 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     armCmdPub_ = create_publisher<sensor_msgs::msg::JointState>(
         "/motion/arm/joint_command/manual_hold", 10);
 
+    // 본체의 수동 제자리. 조작자가 수동으로 넘긴 동안 20 Hz 로 0 을 내보내
+    // motion_mux 의 manual_hold(90) 자리를 잡아 둔다. 이것이 없으면 수동으로
+    // 바꿔도 mux 가 nav(20) 로 내려가 로봇이 목표를 향해 계속 간다.
+    baseHoldPub_ = create_publisher<geometry_msgs::msg::Twist>(
+        "/motion/base/cmd_vel/manual_hold", 10);
+
     // ---- 촬영 -------------------------------------------------------------
     captureEnabled_ = declare_parameter("capture.enabled", false);
     if (captureEnabled_) {
@@ -539,9 +545,16 @@ void BridgeNode::handleRequest(const Envelope &request)
         manualMode_ = request.p.value("mode", std::string("auto")) == "manual";
         // 수동 전환은 자율주행을 취소하지 않는다. 지시서 2.2.5 가 요구하는
         // 것은 수동이 우선한다는 것이고, 그 우선권은 mux 가 준다 — 수동
-        // 모드인 동안 이 노드가 제자리 명령을 계속 내보내 teleop 이 가장
-        // 높은 우선순위를 놓지 않으므로 자율 출력은 로봇까지 가지 못한다.
-        // 취소해 버리면 잠깐 비켜 세우려던 조작자가 목표까지 잃는다.
+        // 모드인 동안 이 노드가 manual_hold(90) 로 제자리 명령을 계속
+        // 내보내므로 자율 출력(nav 20)은 선택되지 않는다. 취소해 버리면
+        // 잠깐 비켜 세우려던 조작자가 목표까지 잃는다.
+        // 수동으로 넘겼다는 것은 지금 본체를 직접 몰겠다는 뜻이다. 권한을
+        // 받아 두지 않으면 안전 게이트가 base_active 가 아니라는 이유로
+        // 조작 명령을 버리고, 조작자는 버튼이 먹지 않는 이유를 알 수 없다.
+        // 예전에는 미션 시작과 cmd/goto 에서만 권한을 요청해서, 부팅 뒤
+        // 자율 주행을 한 번도 하지 않으면 수동 조작이 통째로 막혔다.
+        if (manualMode_)
+            requestBaseAuthority();
         RCLCPP_INFO(get_logger(), "주행 모드: %s", manualMode_ ? "수동" : "자율");
         respond(request, true);
         return;
@@ -1876,6 +1889,18 @@ void BridgeNode::tickSafety()
     const auto elapsedMs = [this](const rclcpp::Time &since) {
         return (now() - since).nanoseconds() / 1000000;
     };
+
+    // 수동 모드인 동안 제자리 명령을 계속 내보낸다. 두 가지를 한꺼번에 한다 —
+    // 로봇을 세워 두고, mux 에서 자율 출력이 선택되지 못하게 한다.
+    //
+    // 관제가 아니라 여기서 내보내는 이유는 링크다. 관제가 0 을 스트림하게
+    // 하면 링크가 끊긴 순간 lease 가 만료되고, 수동 모드인데도 Nav2 가 로봇을
+    // 몰기 시작한다. 모드를 아는 것은 이 노드이므로 여기서 잡는다.
+    //
+    // E-Stop 중에도 내보낸다. 멈추는 것은 안전 게이트가 하지만, 그 사이에
+    // 자율 출력이 mux 에서 선택되어 있을 이유는 없다.
+    if (manualMode_ || estopEngaged_)
+        baseHoldPub_->publish(geometry_msgs::msg::Twist{});
 
     // 생존 신호. 관제 하트비트가 신선한 동안에만 발행한다.
     // 이 노드가 죽으면 발행 자체가 멈추고, 안전 노드가 그것을 정지 근거로 쓴다.
