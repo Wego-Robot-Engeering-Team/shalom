@@ -6,10 +6,12 @@
 
 ```text
 mission_manager ── action/intent ─────────────────────┐
-teleop_bridge ────────────────────────────────┐        │
-Nav2 / dock / stair ──────────────────────────┼─ motion_mux ─ safety_gate ─ driver
+HMI UDP ─ teleop_bridge ───────────────────────┐        │
+Nav2 / dock / stair ──────────────────────────┼─ motion_mux ─ safety_gate ─ B2 driver
                                                 │                         ↑
 motion_interlock_manager ─ authority ──────────┘                  safety_manager
+
+HMI arm / FR3 BT ─ joint_mux ─ safety_gate ─ FR3 driver
 ```
 
 | Package | Owns | Does not own |
@@ -17,25 +19,32 @@ motion_interlock_manager ─ authority ──────────┘        
 | `mission_manager` | Mission FSM and BT ordering | final actuator commands |
 | `teleop_bridge` | deadman and input lease | hardware command topic |
 | `motion_mux` | fresh base command source priority | safety state |
+| `joint_mux` | fresh arm command source priority | FR3 stop/mode control |
 | `motion_interlock_manager` | base/arm operational authority | E-stop or fault state |
 | `safety_manager` | software safety state and motion permit | physical E-stop circuit |
 | `safety_gate` | final ROS command permission | physical safe stop |
 
 `robot_bringup/control.launch.py` starts this plane with the final base output
-at `/motion/safe/cmd_vel`, deliberately **not** `/cmd_vel`. FR3 is also
-intentionally blocked until its vendor stop/mode interface is integrated.
+at `/motion/safe/cmd_vel`, deliberately **not** `/cmd_vel`. `joint_mux`도
+같이 기동하지만, FR3 vendor stop/mode 연동 전까지 `safety_gate`의 팔 출력은
+기본 비활성이다.
 
 ## 지금 주행 경로에 들어가 있는 것
 
-`motion_mux` 하나다. `navigation.launch.py`가 `output_topic:=/cmd_vel`로
-띄우고, Nav2는 `/motion/nav/cmd_vel`, hmi_bridge는 `/motion/teleop/cmd_vel`로
-내보낸다. 둘이 `/cmd_vel`에 같이 쓰던 것을 중재 한 곳으로 모은 것이다. 덕분에
-자율 주행 중 조작자 개입이 모드 전환 없이 되고(teleop이 fresh한 300 ms 동안만
-이긴다), 수동 모드에서는 브릿지가 제자리 명령을 계속 내보내 자율 출력이
-로봇까지 가지 않는다.
+`motion_mux`와 `safety_gate`까지가 실기 base command 경로다. Nav2는
+`/motion/nav/cmd_vel`, HMI는 UDP `teleop_bridge`를 통해
+`/motion/teleop/cmd_vel`로 들어간다. mux가 fresh한 300 ms lease 기준으로
+`teleop > mission > stair > dock > nav` 우선순위를 고르고, gate가 안전 허가와
+authority를 다시 확인한 뒤에만 B2 driver로 내보낸다.
 
-`safety_manager`·`motion_interlock_manager`·`safety_gate`·`teleop_bridge`는
-아직 기동하지 않는다. `motion_mux`는 우선순위만 고르고 안전 판단은 하지
-않으므로, gate를 B2 driver 앞에 넣는 일은 여전히 별도 검증 뒤에 할 일이다.
-`teleop_bridge`는 조종기(UDP) 입력이 붙을 때 쓴다 — 관제 HMI는 자체 deadman을
-가지고 있어 mux의 teleop 입력으로 바로 들어간다.
+E-Stop은 UDP가 아니라 HMI TCP bridge에서 `/safety/software_estop_active`로
+들어간다. 물리 E-Stop은 별도 `/safety/physical_estop_active` 입력이다. 둘 중
+하나라도 활성화되면 `safety_manager`가 motion permit을 내리고 gate가 base 출력을
+0으로 만든다.
+
+## 현장 UDP 설정
+
+TCP와 UDP는 모두 기본 포트 번호 `9090`을 쓴다. 전송 계층이 달라 충돌하지 않는다.
+`teleop_allowed_peer`에는 승인된 HMI PC의 고정 IP를 지정해야 하며, 비어 있으면
+UDP 속도 명령을 fail-closed로 전부 버린다. 시뮬레이터는 `127.0.0.1`을 자동으로
+설정한다.

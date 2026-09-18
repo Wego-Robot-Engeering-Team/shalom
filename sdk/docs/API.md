@@ -21,7 +21,8 @@ SDK `0.2.0`은 HMI와 동일한 TCP `9090`/protocol `v:1` 브릿지에 연결한
 - `sub` / `unsub`은 현재 수신 기록만 하고, 브릿지는 연결된 client에 모든 상태를 보낸다.
 - `cmd/arm/ee_goal`은 `E_UNREACHABLE`로 거절된다.
 - `state/nav.current_waypoint_id`는 현재 `null`이며, `state/apriltag`은 검출기 연동 전이다.
-- `cmd/cmd_vel` 상한 초과 값은 로봇에서 잘린다. 요청 응답이 없으므로 client가 잘린 값을 알 수 없다.
+- 수동 속도 명령은 고객 TCP SDK에서 제공하지 않는다. 승인된 HMI만 UDP teleop
+  경로를 사용할 수 있다.
 - 촬영 원본은 NAS로 직접 전송한다. API에는 preview와 spool 상태만 온다.
 
 ## C++ API
@@ -62,7 +63,7 @@ client.run([&](const shalom::Message &message) {
 `RobotApi`는 `setMode`, `navigateTo`, `cancelNavigation`, `startMission`,
 `pauseMission`, `resumeMission`, `stopMission`, `listMaps`, `selectMap`,
 `setPowerPolicy`, `setWaypoints`, `setLocations`, `setMarkers`, `triggerCapture`,
-`emergencyStop`, `releaseEmergencyStop`, `publishVelocity`를 제공한다.
+`emergencyStop`, `releaseEmergencyStop`를 제공한다. 수동 속도는 고객 SDK 범위가 아니다.
 `armPreset`, `armJointGoal`, `armStop`은 커미셔닝 전용이다.
 
 ## Python API
@@ -89,12 +90,12 @@ reply = robot.navigate_to(3.0, 1.5, theta=0.0)
 Python `RobotApi`는 `emergency_stop`, `release_emergency_stop`, `set_mode`,
 `navigate_to`, `cancel_navigation`, `mission_start/pause/resume/stop`,
 `list_maps`, `select_map`, `set_power_policy`, `set_waypoints`, `set_locations`,
-`set_markers`, `trigger_capture`, `publish_velocity`와 범용 `send_request`/
+`set_markers`, `trigger_capture`와 범용 `send_request`/
 `request`를 제공한다. `arm_preset`, `arm_joint_goal`, `arm_stop`은
 커미셔닝 전용이다.
 
-`publish_velocity`는 응답이 없는 `cmd/cmd_vel` 한 표본을 보낼 뿐이다. 수동 조작을
-의도했다면 호출자가 20 Hz로 계속 보내야 하며, 300 ms 동안 끊기면 로봇이 정지한다.
+`publish_velocity`는 호환성을 위해 이름만 남아 있으나 항상 예외를 발생시킨다.
+수동 조작은 고객 SDK 계약에 포함되지 않으며, 승인된 HMI UDP teleop만 사용한다.
 
 ## 최소 연동
 
@@ -123,7 +124,6 @@ camelCase와 비동기 request id, Python은 snake_case와 동기 `Response`를 
 | `cmd/locations/set` | `setLocations` | `set_locations` |
 | `cmd/markers/set` | `setMarkers` | `set_markers` |
 | `cmd/capture/trigger` | `triggerCapture` | `trigger_capture` |
-| `cmd/cmd_vel` | `publishVelocity` | `publish_velocity` |
 | `cmd/arm/preset`, `joint_goal`, `stop` | `armPreset/JointGoal/Stop` | `arm_preset/joint_goal/stop` |
 | 모든 향후 `req` channel | `request` | `send_request` / `request` |
 

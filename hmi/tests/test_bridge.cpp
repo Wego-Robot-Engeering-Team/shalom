@@ -17,10 +17,12 @@
 //   - reconnecting after the peer disappears
 
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QSignalSpy>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QUdpSocket>
 #include <QTest>
 
 #include "net/BridgeClient.h"
@@ -44,6 +46,16 @@ public:
             emit clientConnected();
         });
         server_->listen(QHostAddress::LocalHost, 0);
+        udp_ = new QUdpSocket(this);
+        udp_->bind(QHostAddress::LocalHost, server_->serverPort());
+        connect(udp_, &QUdpSocket::readyRead, this, [this] {
+            while (udp_->hasPendingDatagrams()) {
+                QByteArray bytes;
+                bytes.resize(int(udp_->pendingDatagramSize()));
+                udp_->readDatagram(bytes.data(), bytes.size());
+                udpPackets << bytes;
+            }
+        });
     }
 
     quint16 port() const { return server_->serverPort(); }
@@ -72,6 +84,7 @@ public:
     void rememberPort() { port_ = server_->serverPort(); }
 
     QList<Envelope> received;
+    QList<QByteArray> udpPackets;
 
 signals:
     void clientConnected();
@@ -91,6 +104,7 @@ private:
     }
 
     QTcpServer *server_ = nullptr;
+    QUdpSocket *udp_ = nullptr;
     QTcpSocket *peer_ = nullptr;
     FrameDecoder decoder_;
     quint16 port_ = 0;
@@ -429,20 +443,24 @@ private slots:
                  "응답 없는 명령이 보고되어야 한다");
     }
 
-    void cmdVel_isPublishedNotRequested()
+    void cmdVel_isSentOverUdpWithDeadman()
     {
         connectPair();
+        auto identity = pub(hmi::ch::kSystem, {});
+        identity.robot = QStringLiteral("R1");
+        server_->send(identity);
+        QVERIFY(waitFor([this] { return client_->describe() == QLatin1String("R1"); }));
         client_->setCmdVel(0.3, 0.0, 0.1);
 
         QVERIFY(waitFor([this] {
-            for (const auto &e : server_->received)
-                if (e.ch == QLatin1String(hmi::ch::kCmdVel))
-                    return true;
-            return false;
+            return !server_->udpPackets.isEmpty();
         }));
-        for (const auto &e : server_->received)
-            if (e.ch == QLatin1String(hmi::ch::kCmdVel))
-                QCOMPARE(e.t, QLatin1String(mtype::kPub));   // 응답을 기다리지 않는다
+        const auto packet = QJsonDocument::fromJson(server_->udpPackets.last()).object();
+        QCOMPARE(packet.value(QStringLiteral("v")).toInt(), 1);
+        QCOMPARE(packet.value(QStringLiteral("t")).toString(), QLatin1String("teleop"));
+        QCOMPARE(packet.value(QStringLiteral("robot")).toString(), QLatin1String("R1"));
+        QVERIFY(packet.value(QStringLiteral("deadman")).toBool());
+        QCOMPARE(packet.value(QStringLiteral("vx")).toDouble(), 0.3);
     }
 
     // ---- 미션 상태 -------------------------------------------------------

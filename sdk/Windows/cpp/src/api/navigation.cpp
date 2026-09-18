@@ -21,15 +21,10 @@ std::string RobotApi::cancelNavigation(std::string *err)
 
 bool RobotApi::publishVelocity(const Twist2D &velocity, std::string *err)
 {
-    if (!api::detail::finite(velocity.vx) || !api::detail::finite(velocity.vy)
-        || !api::detail::finite(velocity.wz)) {
-        if (err)
-            *err = "velocity must contain finite numbers";
-        return false;
-    }
-    return client_.publish("cmd/cmd_vel", "{\"vx\":" + api::detail::number(velocity.vx)
-                                      + ",\"vy\":" + api::detail::number(velocity.vy)
-                                      + ",\"wz\":" + api::detail::number(velocity.wz) + "}", err);
+    (void)velocity;
+    if (err)
+        *err = "manual velocity is available only through the commissioned HMI UDP teleop path";
+    return false;
 }
 
 }  // namespace shalom

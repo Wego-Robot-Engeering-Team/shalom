@@ -36,7 +36,11 @@ def generate_launch_description():
     )
     control = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([robot, "launch", "control.launch.py"])),
-        launch_arguments={"base_output_topic": "/cmd_vel"}.items(),
+        launch_arguments={
+            "base_output_topic": "/cmd_vel",
+            "teleop_allowed_peer": "127.0.0.1",
+            "robot_id": LaunchConfiguration("robot_id"),
+        }.items(),
     )
     station_bridge = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([bridge, "launch", "bridge.launch.py"])),

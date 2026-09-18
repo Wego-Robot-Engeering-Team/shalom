@@ -4,10 +4,12 @@
 
 ## 전송
 
-- TCP 제어 포트 `9090`, `TCP_NODELAY` 필수
-- 상태 확인 포트는 제어 포트 다음 번호(기본 `9091`)다. HMI 목록의 생존
-  확인에만 쓰며 고정 표식을 반환한 뒤 연결을 닫는다.
-  명령·상태 데이터·제어권을 제공하지 않는다.
+- TCP 포트 `9090`, `TCP_NODELAY` 필수. 상태·지도·미션·E-Stop·SDK 요청은
+  이 연결만 사용한다.
+- HMI 목록의 생존 확인도 TCP `9090`에 `INSPECTION-PRESENCE/1\\n`을 보내고 같은
+  표식을 돌려받는 짧은 probe다. 제어 연결·이벤트를 만들지 않는다.
+- 수동 속도 명령은 이 프로토콜에 넣지 않는다. HMI는 같은 번호의 UDP `9090`으로
+  `teleop_bridge`에 보내며, 그 UDP 규약과 300 ms lease는 `teleop_bridge`가 소유한다.
 - 리틀 엔디언, 최대 프레임 본문 `32 MiB`
 - 프레임: `magic("SHLM") | body_len(uint32) | header_len(uint32) | header(JSON) | payload`
 - 부분 수신·복수 프레임 수신을 모두 처리한다. magic 또는 길이가 잘못되면 연결을 끊는다.
@@ -107,8 +109,8 @@
 
 ## 명령 채널
 
-모든 명령은 `req`/`res`를 쓴다. `cmd/cmd_vel`만 `pub`로 20 Hz 발행한다.
-브릿지는 300 ms 동안 `cmd/cmd_vel`을 받지 못하면 0 속도를 발행한다.
+모든 명령은 `req`/`res`를 쓴다. 수동 속도는 TCP 명령이 아니라 별도 UDP teleop
+경로이며, E-Stop은 반드시 이 TCP 요청 경로를 사용한다.
 
 | 채널 | 내용 |
 |---|---|
@@ -134,7 +136,6 @@
 | `cmd/arm/stop` | 암 정지 |
 | `cmd/base/posture` | 본체 자세 전환 (앉기·일어서기) |
 | `cmd/capture/trigger` | 촬영 |
-| `cmd/cmd_vel` | 수동 속도 (`vx`, `vy`, `wz`) |
 
 ### `cmd/base/posture` — 본체 자세
 
