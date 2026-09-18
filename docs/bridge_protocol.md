@@ -179,8 +179,10 @@
 ## 안전·연결
 
 ```text
-Nav2   →  /motion/nav/cmd_vel     ─┐
-브릿지  →  /motion/teleop/cmd_vel  ─┴→ motion_mux → /cmd_vel → 로봇
+Nav2        →  /motion/base/cmd_vel/nav          ─┐
+teleop(UDP) →  /motion/base/cmd_vel/teleop       ─┤
+브릿지(수동) →  /motion/base/cmd_vel/manual_hold  ─┴→ motion_mux
+                    → /motion/base/cmd_vel → safety_gate → /cmd_vel → 로봇
 ```
 
 - E-Stop, 통신 두절, 명령 중재는 로봇의 안전 노드 책임이다.
@@ -190,9 +192,11 @@ Nav2   →  /motion/nav/cmd_vel     ─┐
 
 ### 수동과 자율의 우선순위
 
-`motion_mux`가 **teleop > mission > stair > dock > nav** 순으로 고르고, 각
-입력은 **300 ms** 안에 들어온 것만 유효하다. 같은 토픽에 두 발행자를 두면
-우선순위가 발행 순서로 정해지므로 중재를 한곳에 모았다.
+`motion_mux`가 **teleop(100) > manual_hold(90) > stair(40) > dock(30) >
+nav(20)** 순으로 고르고, 각 입력은 **300 ms** 안에 들어온 것만 유효하다. 같은
+토픽에 두 발행자를 두면 우선순위가 발행 순서로 정해지므로 중재를 한곳에 모았다.
+고른 결과는 `safety_gate`가 `/safety/state`를 보고 통과·0 출력·차단 중 하나로
+처리한 뒤에야 로봇에 닿는다.
 
 | 상태 | 로봇으로 나가는 것 |
 |---|---|
@@ -200,11 +204,17 @@ Nav2   →  /motion/nav/cmd_vel     ─┐
 | `auto`, 조작 입력 중 | 수동. 멈추면 300 ms 뒤 Nav2 로 돌아간다 |
 | `manual`, 조작 입력 없음 | 브릿지가 만드는 제자리 명령 |
 | `manual`, 조작 입력 중 | 수동 |
-| E-Stop | 0 |
+| E-Stop | 없음 — 게이트가 발행 자체를 끊는다 |
+| 해제 직후(controlled_stop) | 0. 명시적 재개 전까지 자율은 나가지 않는다 |
 
-수동 모드의 제자리 명령은 관제가 아니라 브릿지가 만든다. 관제가 0 을
-스트림하게 하면 링크가 끊긴 순간 수동 쪽 유효 시간이 만료되고, 수동 모드인데도
-Nav2 가 로봇을 몰기 시작한다.
+수동 모드의 제자리 명령은 관제가 아니라 브릿지가 `manual_hold` 로 만든다.
+관제가 0 을 스트림하게 하면 링크가 끊긴 순간 유효 시간이 만료되고, 수동
+모드인데도 Nav2 가 로봇을 몰기 시작한다.
+
+E-Stop 과 정지의 차이는 게이트가 만든다. `controlled_stop`·`fault` 는 0 을
+계속 내보내 로봇을 세워 두고, `e_stop_latched` 는 아무것도 내보내지 않는다 —
+0 도 명령이고, 비상정지는 명령하지 않는 것이 맞다. 로봇은 드라이버의 300 ms
+명령 시간초과로 선다. 안전 관리자가 조용해지면 게이트는 차단 쪽으로 닫힌다.
 
 모드 전환은 자율주행을 취소하지 않는다. 수동인 동안 자율 출력이 막힐 뿐이고,
 `auto` 로 돌아가면 하던 주행이 이어진다. 취소는 `cmd/nav_cancel` 로만 한다.
