@@ -75,7 +75,7 @@ namespace {
 
 constexpr int kPresenceProbeIntervalMs = 3000;
 constexpr int kPresenceProbeTimeoutMs = 800;
-constexpr char kPresenceReply[] = "SHALOM-PRESENCE/1\n";
+constexpr char kPresenceReply[] = "INSPECTION-PRESENCE/1\n";
 
 QIcon presenceIcon(bool reachable)
 {
@@ -1551,18 +1551,16 @@ void MainWindow::probeRobotPresence(const QString &host, int controlPort)
         setRobotPresence(found->host, found->port, reachable);
     };
 
-    connect(socket, &QTcpSocket::readyRead, this, [socket, finish] {
-        const QByteArray reply = socket->readAll();
-        finish(reply.startsWith(kPresenceReply));
+    connect(socket, &QTcpSocket::connected, this, [socket] {
+        socket->write(kPresenceReply);
     });
-    connect(socket, &QTcpSocket::disconnected, this, [socket, finish] {
-        const QByteArray reply = socket->readAll();
-        finish(reply.startsWith(kPresenceReply));
+    connect(socket, &QTcpSocket::readyRead, this, [socket, finish] {
+        finish(socket->readAll().startsWith(kPresenceReply));
     });
     connect(socket, &QTcpSocket::errorOccurred, this,
             [finish](QAbstractSocket::SocketError) { finish(false); });
     QTimer::singleShot(kPresenceProbeTimeoutMs, socket, [finish] { finish(false); });
-    socket->connectToHost(host, quint16(controlPort + 1));
+    socket->connectToHost(host, quint16(controlPort));
 }
 
 void MainWindow::setRobotPresence(const QString &host, int controlPort, bool reachable)

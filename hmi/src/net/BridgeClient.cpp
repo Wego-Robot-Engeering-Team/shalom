@@ -3,9 +3,12 @@
 #include "net/BridgeClient.h"
 
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
+#include <QHostAddress>
 #include <QTcpSocket>
 #include <QTimer>
+#include <QUdpSocket>
 
 #include "net/Channels.h"
 
@@ -64,6 +67,7 @@ BridgeClient::BridgeClient(QString host, quint16 port, QObject *parent)
     connect(socket_, &QTcpSocket::disconnected, this, &BridgeClient::onDisconnected);
     connect(socket_, &QTcpSocket::errorOccurred, this, &BridgeClient::onSocketError);
     connect(socket_, &QTcpSocket::readyRead, this, &BridgeClient::onReadyRead);
+    teleopSocket_ = new QUdpSocket(this);
 
     heartbeatTimer_ = new QTimer(this);
     heartbeatTimer_->setInterval(kHeartbeatMs);
@@ -573,10 +577,23 @@ void BridgeClient::emitTelemetry()
 
 void BridgeClient::setCmdVel(double vx, double vy, double wz)
 {
-    // 발행이 멈추면 브릿지가 300 ms 데드맨으로 0 을 래치한다. 여기서 별도
-    // 정지 명령을 보내지 않는 것은 그 계약을 신뢰한다는 뜻이다.
-    publish(QLatin1String(hmi::ch::kCmdVel),
-            {{"vx", vx}, {"vy", vy}, {"wz", wz}});
+    // TCP는 명령·상태·E-Stop의 신뢰성 있는 제어 경로다. 저지연이고 손실을
+    // lease로 처리할 수 있는 수동 속도만 UDP로 분리한다. TCP와 같은 숫자
+    // 포트(기본 9090)를 써도 전송 계층이 달라 충돌하지 않는다.
+    if (!isConnected() || robotId_.isEmpty())
+        return;
+    const QHostAddress peer(host_);
+    if (peer.isNull())
+        return;  // 로봇 등록은 IP 주소만 허용한다. 이름 해석 실패로 브로드캐스트하지 않는다.
+
+    const bool deadman = vx != 0.0 || vy != 0.0 || wz != 0.0;
+    const QJsonObject packet{{"v", 1},
+                             {"t", QStringLiteral("teleop")},
+                             {"robot", robotId_},
+                             {"seq", ++teleopSeq_},
+                             {"deadman", deadman},
+                             {"vx", vx}, {"vy", vy}, {"wz", wz}};
+    teleopSocket_->writeDatagram(QJsonDocument(packet).toJson(QJsonDocument::Compact), peer, port_);
 }
 
 void BridgeClient::requestGoal(double x, double y, double theta)

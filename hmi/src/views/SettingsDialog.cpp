@@ -720,8 +720,8 @@ void SettingsDialog::testConnection()
     testButton_->setEnabled(false);
     testResult_->setText(QStringLiteral("확인 중…"));
 
-    // 소켓을 열었다 닫는 것으로 끝낸다. 프로토콜 핸드셰이크는 하지 않는다 —
-    // 여기서 확인하려는 것은 "포트에 닿는가" 뿐이다.
+    // 제어권을 만들지 않는 짧은 probe를 보낸다. 단순 TCP connect만 보면
+    // 다른 서비스가 같은 포트에 있어도 "연결됨"으로 보일 수 있다.
     auto *socket = new QTcpSocket(this);
     auto *timer = new QTimer(this);
     timer->setSingleShot(true);
@@ -738,10 +738,17 @@ void SettingsDialog::testConnection()
 
     const QString host = host_->text().trimmed();
     const int port = port_->value();
-    connect(socket, &QTcpSocket::connected, this, [finish, host, port] {
-        finish(QStringLiteral("연결됨 — %1:%2 에 응답이 있습니다.")
-                   .arg(host)
-                   .arg(port));
+    connect(socket, &QTcpSocket::connected, this, [socket] {
+        socket->write("INSPECTION-PRESENCE/1\n");
+    });
+    connect(socket, &QTcpSocket::readyRead, this, [finish, socket, host, port] {
+        if (socket->readAll().startsWith("INSPECTION-PRESENCE/1\n")) {
+            finish(QStringLiteral("연결됨 — %1:%2 브릿지가 응답했습니다.")
+                       .arg(host)
+                       .arg(port));
+        } else {
+            finish(QStringLiteral("연결 실패 — Shalom 브릿지 응답이 아닙니다."));
+        }
     });
     connect(socket, &QTcpSocket::errorOccurred, this,
             [finish, socket](QAbstractSocket::SocketError) {

@@ -37,7 +37,11 @@ def generate_launch_description():
     )
     control = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([pkg, "launch", "control.launch.py"])),
-        launch_arguments={"base_output_topic": "/cmd_vel"}.items(),
+        launch_arguments={
+            "base_output_topic": "/cmd_vel",
+            "robot_id": LaunchConfiguration("robot_id"),
+            "teleop_allowed_peer": LaunchConfiguration("teleop_allowed_peer"),
+        }.items(),
     )
     station_bridge = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([bridge, "launch", "bridge.launch.py"])),
@@ -62,6 +66,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("domain_id", default_value="0"),
         DeclareLaunchArgument("robot_id", default_value="R1"),
+        DeclareLaunchArgument("teleop_allowed_peer", default_value=""),
         DeclareLaunchArgument("robot_name", default_value="1호기"),
         DeclareLaunchArgument("network_interface", default_value=""),
         DeclareLaunchArgument("pointcloud_topic", default_value="/b2/points"),

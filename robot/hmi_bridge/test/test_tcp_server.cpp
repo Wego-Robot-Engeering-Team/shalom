@@ -142,18 +142,18 @@ void acceptsClientAndReportsConnection(std::uint16_t port)
     server.stop();
 }
 
-/// 목록의 생존 확인은 제어 포트에 붙지 않는다. 이 짧은 응답이 실제
-/// 제어 연결·이벤트를 만들면, 관제가 목록을 새로 그리는 것만으로도
-/// one-client 규칙을 건드리게 된다.
-void presencePortDoesNotBecomeControlClient(std::uint16_t port)
+/// 목록의 생존 확인은 제어 포트 번호를 공유하지만, probe 표식으로 구분한다.
+/// 이 짧은 응답이 제어 연결·이벤트를 만들면 안 된다.
+void presenceProbeDoesNotBecomeControlClient(std::uint16_t port)
 {
     TcpServer server;
     std::string err;
     check(server.start(port, std::uint16_t(port + 1), &err), "start: " + err);
 
     Client probe;
-    check(probe.connect(std::uint16_t(port + 1)), "presence probe connects");
-    check(probe.readSome() == "SHALOM-PRESENCE/1\n", "presence marker returned");
+    check(probe.connect(port), "presence probe connects");
+    probe.write("INSPECTION-PRESENCE/1\n");
+    check(probe.readSome() == "INSPECTION-PRESENCE/1\n", "presence marker returned");
     std::this_thread::sleep_for(20ms);
     check(!server.isConnected(), "presence probe did not become a control client");
     check(server.drain().empty(), "presence probe did not emit control events");
@@ -399,7 +399,7 @@ int main()
     std::cout << "hmi_bridge transport tests\n";
 
     run("acceptsClientAndReportsConnection", acceptsClientAndReportsConnection);
-    run("presencePortDoesNotBecomeControlClient", presencePortDoesNotBecomeControlClient);
+    run("presenceProbeDoesNotBecomeControlClient", presenceProbeDoesNotBecomeControlClient);
     run("receivesCompleteFrame", receivesCompleteFrame);
     run("reassemblesSplitFrame", reassemblesSplitFrame);
     run("handlesCoalescedFrames", handlesCoalescedFrames);

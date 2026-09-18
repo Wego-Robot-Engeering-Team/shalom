@@ -81,6 +81,5 @@ inline constexpr auto kCmdCapture = "cmd/capture/trigger";
 /// Published at 20 Hz while the operator holds a jog control. The bridge
 /// latches zero velocity if it stops arriving for 300 ms, so a frozen or
 /// disconnected control station cannot leave the robot driving.
-inline constexpr auto kCmdVel = "cmd/cmd_vel";
 
 }  // namespace hmi::ch
