@@ -30,28 +30,22 @@ git -C ~/shalom_ws/src/shalom submodule update --init --recursive
 
 ```bash
 cd ~/shalom_ws/src/shalom
-./scripts/install.sh --role robot
+./scripts/install.sh
 ```
 
-ROS 2 Jazzy, Nav2, SLAM, RealSense 래퍼와 Pandar XT32 드라이버의 시스템
-의존성(Boost, yaml-cpp)을 설치하고, `third_party/`의 재귀 서브모듈을 검증된
-커밋으로 맞춘다. D4xx USB UDEV 규칙도 함께 설치한다.
-
-`--role`은 `robot`(로봇) / `station`(관제 PC) / `dev`(둘 다 + 시뮬레이터)다.
-로봇에 Qt를, 관제 PC에 RealSense 드라이버를 깔지 않기 위해 나눈다.
+이 명령 하나가 ROS 2 Jazzy, Nav2, SLAM, RealSense 래퍼, Pandar XT32 드라이버,
+Qt6, MuJoCo의 의존성을 설치하고 `third_party/` 재귀 서브모듈과 D4xx USB UDEV
+규칙을 구성한다. 이어서 ROS 워크스페이스와 HMI를 빌드한다.
 
 무엇을 할지 먼저 보려면 `--dry-run`을 붙인다.
 
-## 3. 빌드
+## 3. 실행
 
 ```bash
 cd ~/shalom_ws
 source /opt/ros/jazzy/setup.bash
-colcon build --base-paths src/shalom --symlink-install --packages-skip inspection_hmi
 source install/setup.bash
 ```
-
-`inspection_hmi`는 관제 PC에서만 쓰므로 로봇에서는 건너뛴다.
 
 확인:
 
@@ -236,10 +230,9 @@ inspection_hmi --host <로봇-IP>
 
 ```bash
 cd ~/shalom_ws/src/shalom
-./scripts/install.sh --role station
+./scripts/install.sh
 
 cd hmi
-cmake --preset dev && cmake --build --preset dev
 ctest --preset dev
 ./build/inspection_hmi
 ```

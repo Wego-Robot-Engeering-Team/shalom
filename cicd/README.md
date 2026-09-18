@@ -11,7 +11,7 @@
 | --- | --- | --- |
 | 로봇 컴퓨터 | 타깃별 Release 런타임 번들 | 오프라인 bundle → `.deb` |
 | 관제 HMI | 별도 portable HMI 패키지 | 압축 해제 후 실행 |
-| 개발자 | 이 Git 저장소와 submodule | `scripts/install.sh` + `colcon build` |
+| 개발자 | 이 Git 저장소와 submodule | `scripts/install.sh` |
 
 고객 장비에는 Git 저장소, `src/`, `third_party/`, compiler, CMake, colcon을
 설치하지 않는다. 이 저장소의 `scripts/install.sh`는 **개발/통합 환경용**이며

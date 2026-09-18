@@ -1,39 +1,22 @@
 #!/usr/bin/env bash
 #
-# 개발·운용 환경을 한 번에 구성한다.
-#
-# 과업지시서 7.3 절이 임치 대상으로 "설치·환경구성 스크립트: install.sh 등
-# 환경을 새로 구성할 때 필요한 설치 자동화 스크립트" 를 요구한다. 문서에
-# 흩어진 명령을 사람이 순서대로 옮겨 치면 반드시 하나를 빠뜨리므로, 그
-# 목록을 여기 한 곳에 둔다.
-#
-#   ./scripts/install.sh --role dev        모두 (기본값)
-#   ./scripts/install.sh --role robot      로봇: ROS·주행·카메라
-#   ./scripts/install.sh --role station    관제 PC: Qt
-#   ./scripts/install.sh --role dev --dry-run
-#
-# 역할을 나누는 이유는 로봇에 Qt 가, 관제 PC 에 RealSense 드라이버가 필요
-# 없기 때문이다. 안 쓰는 것을 깔아 두면 납품 시 의존성 목록(과업지시서
-# 7.3)만 길어지고, 그만큼 라이선스 고지 대상도 늘어난다.
+#   ./scripts/install.sh
+#   ./scripts/install.sh --dry-run
 
 set -euo pipefail
 
+# 역할 분기는 더 이상 CLI로 노출하지 않는다. 전체 개발·로봇·관제 환경을
+# 항상 설치하므로, 기존 조건문은 모두 참이 되는 dev로 고정한다.
 ROLE=dev
 DRY_RUN=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --role) ROLE="${2:?--role 뒤에 dev|robot|station 이 와야 한다}"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "모르는 인자: $1" >&2; exit 2 ;;
   esac
 done
-
-case "$ROLE" in
-  dev|robot|station) ;;
-  *) echo "--role 은 dev, robot, station 중 하나여야 한다 (받은 값: $ROLE)" >&2; exit 2 ;;
-esac
 
 say()  { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 note() { printf '   %s\n' "$*"; }
@@ -80,26 +63,27 @@ setup_ros_apt_source() {
 # ---------------------------------------------------------------------------
 # 환경 확인
 #
-# 과업지시서 0.5 절이 Ubuntu 22.04 + ROS 2 Humble 을 지정하고, 변경 시
-# 발주기관의 서면 승인을 요구한다. 현재 개발은 24.04 + Jazzy 에서 하고
-# 있으므로 그 사실을 여기서 눈에 띄게 알린다 — 조용히 넘어가면 검수
-# 자리에서야 드러난다.
+# 이 저장소의 설치·빌드 대상은 Ubuntu 24.04 + ROS 2 Jazzy다.
 # ---------------------------------------------------------------------------
 say "환경 확인"
 . /etc/os-release
 note "OS      $PRETTY_NAME"
 ROS_DISTRO_FOUND="$(ls /opt/ros 2>/dev/null | head -1 || true)"
 note "ROS     ${ROS_DISTRO_FOUND:-없음}"
-note "역할    $ROLE"
 
-if [ "${VERSION_CODENAME:-}" != "jammy" ] || [ "$ROS_DISTRO_FOUND" != "humble" ]; then
-  note ""
-  note "주의: 과업지시서 0.5 절의 지정 버전은 Ubuntu 22.04 + ROS 2 Humble 이다."
-  note "      다른 조합으로 개발·납품하려면 발주기관의 서면 승인이 필요하다."
+if [ "${VERSION_CODENAME:-}" != "noble" ]; then
+  echo "지원 OS가 아닙니다: Ubuntu 24.04 (noble)가 필요합니다. 현재: $PRETTY_NAME" >&2
+  exit 1
 fi
 
-ROS="${ROS_DISTRO_FOUND:-jazzy}"
+if [ -n "$ROS_DISTRO_FOUND" ] && [ "$ROS_DISTRO_FOUND" != "jazzy" ]; then
+  echo "지원 ROS 배포판이 아닙니다: ROS 2 Jazzy가 필요합니다. 현재: $ROS_DISTRO_FOUND" >&2
+  exit 1
+fi
+
+ROS=jazzy
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+WORKSPACE_ROOT="$(cd "$REPO_ROOT/../.." && pwd)"
 
 setup_ros_apt_source
 
@@ -224,7 +208,7 @@ fi
 # ---------------------------------------------------------------------------
 if [ "$ROLE" = dev ]; then
   say "시뮬레이터 (MuJoCo)"
-  VENV="$HOME/shalom_ws/.venv-b2sim"
+  VENV="$WORKSPACE_ROOT/.venv-b2sim"
   note "apt 가 관리하는 시스템 Python 을 건드리지 않도록 전용 venv 에 넣는다."
   if [ -d "$VENV" ]; then
     note "이미 있음: $VENV"
@@ -266,17 +250,28 @@ if [ -d "$REPO_ROOT" ]; then
     --skip-keys "unitree_go unitree_api"
 fi
 
-say "완료"
-note "빌드:"
-if [ "$ROLE" = robot ]; then
-  note "  cd ~/shalom_ws && colcon build --base-paths src/shalom --symlink-install --packages-skip inspection_hmi"
+say "ROS 워크스페이스 빌드"
+if [ "$DRY_RUN" = 1 ]; then
+  note "[dry-run] cd $WORKSPACE_ROOT && colcon build --base-paths src/shalom --symlink-install"
 else
-  note "  cd ~/shalom_ws && colcon build --base-paths src/shalom --symlink-install"
+  (
+    cd "$WORKSPACE_ROOT"
+    colcon build --base-paths src/shalom --symlink-install
+  )
 fi
-if [ "$ROLE" = dev ] || [ "$ROLE" = station ]; then
-  note "  cd ~/shalom_ws/src/shalom/hmi && cmake --preset dev && cmake --build --preset dev"
+
+say "관제 HMI 빌드"
+if [ "$DRY_RUN" = 1 ]; then
+  note "[dry-run] cd $REPO_ROOT/hmi && cmake --preset dev && cmake --build --preset dev"
+else
+  (
+    cd "$REPO_ROOT/hmi"
+    cmake --preset dev
+    cmake --build --preset dev
+  )
 fi
-note ""
-note "colcon 이 catkin_pkg 를 못 찾는다고 하면 CMake 가 다른 Python 을 잡은 것이다:"
-note "  PATH=\"/usr/bin:/bin:\$PATH\" colcon build --base-paths src/shalom --symlink-install \\"
-note "    --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3.12"
+
+say "완료"
+note "현재 셸에서 실행 환경을 불러온 뒤 로봇을 기동한다:"
+note "  source /opt/ros/$ROS/setup.bash && source $WORKSPACE_ROOT/install/setup.bash"
+note "  ros2 launch robot_bringup bringup.launch.py network_interface:=<B2-NIC> maps_dir:=/var/lib/shalom/maps map:=latest"
