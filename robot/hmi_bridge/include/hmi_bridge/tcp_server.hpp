@@ -60,8 +60,10 @@ public:
     TcpServer(const TcpServer &) = delete;
     TcpServer &operator=(const TcpServer &) = delete;
 
-    /// Binds and starts the accept loop. Returns false with a reason in `err`.
-    bool start(std::uint16_t port, std::string *err);
+    /// Binds the exclusive control port and the read-only presence port, then
+    /// starts the accept loop. The presence port only returns a fixed marker;
+    /// it never becomes a control client. Returns false with a reason in err.
+    bool start(std::uint16_t port, std::uint16_t presencePort, std::string *err);
     void stop();
 
     bool isConnected() const { return connected_.load(); }
@@ -98,6 +100,7 @@ private:
     static constexpr std::size_t kMaxOutboundBytes = 4u * 1024u * 1024u;
 
     int listenFd_ = -1;
+    int presenceFd_ = -1;
     int clientFd_ = -1;
     int wakeFd_[2] = {-1, -1};   ///< self-pipe so stop() interrupts poll()
 

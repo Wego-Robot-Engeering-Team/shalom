@@ -2079,8 +2079,17 @@ bool BridgeNode::openControlPort()
         return true;
 
     std::string err;
-    if (server_.start(std::uint16_t(port_), &err)) {
-        RCLCPP_INFO(get_logger(), "관제 연결 대기 중 — 포트 %d", port_);
+    // HMI 프로필에는 제어 포트 하나만 저장한다. 상태 확인 포트를 따로
+    // 설정하게 하면 둘이 어긋나는 순간 목록이 영원히 빨갛게 보이므로,
+    // 바로 다음 포트로 고정한다.
+    if (port_ <= 0 || port_ >= 65535) {
+        RCLCPP_ERROR(get_logger(), "관제 제어 포트가 올바르지 않습니다: %d", port_);
+        return false;
+    }
+    const int presencePort = port_ + 1;
+    if (server_.start(std::uint16_t(port_), std::uint16_t(presencePort), &err)) {
+        RCLCPP_INFO(get_logger(), "관제 연결 대기 중 — 제어 %d, 상태 확인 %d", port_,
+                    presencePort);
         return true;
     }
 

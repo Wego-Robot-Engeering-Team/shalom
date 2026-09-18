@@ -21,6 +21,34 @@ bool setNonBlocking(int fd)
     return flags >= 0 && ::fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
 }
 
+int openListeningSocket(std::uint16_t port, std::string *err, const char *label)
+{
+    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        if (err)
+            *err = std::string(label) + " socket: " + std::strerror(errno);
+        return -1;
+    }
+
+    int one = 1;
+    ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(port);
+
+    if (::bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0
+        || ::listen(fd, 4) < 0 || !setNonBlocking(fd)) {
+        const int savedErrno = errno;
+        ::close(fd);
+        if (err)
+            *err = std::string(label) + ": " + std::strerror(savedErrno);
+        return -1;
+    }
+    return fd;
+}
+
 }  // namespace
 
 TcpServer::~TcpServer()
@@ -28,50 +56,31 @@ TcpServer::~TcpServer()
     stop();
 }
 
-bool TcpServer::start(std::uint16_t port, std::string *err)
+bool TcpServer::start(std::uint16_t port, std::uint16_t presencePort, std::string *err)
 {
-    const auto fail = [err](const std::string &m) {
-        if (err)
-            *err = m + ": " + std::strerror(errno);
-        return false;
-    };
-
-    listenFd_ = ::socket(AF_INET, SOCK_STREAM, 0);
+    listenFd_ = openListeningSocket(port, err, "control port");
     if (listenFd_ < 0)
-        return fail("socket");
+        return false;
 
-    // 재기동 시 TIME_WAIT 로 바인드가 막히지 않게 한다. 로봇 소프트웨어는
-    // 현장에서 자주 재시작되고, 그때마다 몇 분을 기다릴 수는 없다.
-    int one = 1;
-    ::setsockopt(listenFd_, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port = htons(port);
-
-    if (::bind(listenFd_, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
+    // 상태 조회를 제어 포트에 붙이면 one-client 규칙을 깨뜨린다. 별도 포트는
+    // "브릿지가 살아 있다"는 짧은 응답만 내며 제어 연결·이벤트에 관여하지 않는다.
+    presenceFd_ = openListeningSocket(presencePort, err, "presence port");
+    if (presenceFd_ < 0) {
         ::close(listenFd_);
         listenFd_ = -1;
-        return fail("bind");
-    }
-    if (::listen(listenFd_, 4) < 0) {
-        ::close(listenFd_);
-        listenFd_ = -1;
-        return fail("listen");
-    }
-    if (!setNonBlocking(listenFd_)) {
-        ::close(listenFd_);
-        listenFd_ = -1;
-        return fail("fcntl");
+        return false;
     }
 
     // stop() 이 poll() 을 즉시 깨울 수 있도록 자기 파이프를 둔다. 타임아웃에
     // 기대면 종료가 그만큼 늦어지고, 종료 지연은 재기동 시간에 그대로 붙는다.
     if (::pipe(wakeFd_) != 0) {
         ::close(listenFd_);
+        ::close(presenceFd_);
         listenFd_ = -1;
-        return fail("pipe");
+        presenceFd_ = -1;
+        if (err)
+            *err = std::string("wake pipe: ") + std::strerror(errno);
+        return false;
     }
     setNonBlocking(wakeFd_[0]);
 
@@ -93,7 +102,7 @@ void TcpServer::stop()
         thread_.join();
 
     closeClient(false);
-    for (int *fd : {&listenFd_, &wakeFd_[0], &wakeFd_[1]}) {
+    for (int *fd : {&listenFd_, &presenceFd_, &wakeFd_[0], &wakeFd_[1]}) {
         if (*fd >= 0) {
             ::close(*fd);
             *fd = -1;
@@ -145,11 +154,12 @@ void TcpServer::resetByteCounters()
 void TcpServer::runLoop()
 {
     while (running_.load()) {
-        pollfd fds[3];
+        pollfd fds[4];
         int n = 0;
 
         fds[n++] = {wakeFd_[0], POLLIN, 0};
         fds[n++] = {listenFd_, POLLIN, 0};
+        fds[n++] = {presenceFd_, POLLIN, 0};
 
         bool wantWrite = false;
         {
@@ -198,8 +208,23 @@ void TcpServer::runLoop()
             }
         }
 
-        if (clientFd_ >= 0 && n >= 3) {
-            const short re = fds[2].revents;
+        if (fds[2].revents & POLLIN) {
+            // A presence probe must never become a control session. Write a
+            // fixed marker and close immediately; the HMI verifies the bytes,
+            // so merely finding another TCP service on this port is not green.
+            for (;;) {
+                const int fd = ::accept(presenceFd_, nullptr, nullptr);
+                if (fd < 0)
+                    break;
+                static constexpr char kPresenceReply[] = "SHALOM-PRESENCE/1\n";
+                [[maybe_unused]] const auto sent =
+                    ::send(fd, kPresenceReply, sizeof(kPresenceReply) - 1, MSG_NOSIGNAL);
+                ::close(fd);
+            }
+        }
+
+        if (clientFd_ >= 0 && n >= 4) {
+            const short re = fds[3].revents;
             if (re & (POLLHUP | POLLERR | POLLNVAL)) {
                 closeClient(true);
                 continue;
