@@ -1,0 +1,29 @@
+twist_mux:
+  ros__parameters:
+    # The current HMI, Nav2 output, and safety gate use geometry_msgs/Twist.
+    # twist_mux 4.5 defaults to TwistStamped, so keep the wire type explicit.
+    use_stamped: false
+
+    # A source must continuously renew its 300 ms lease. Higher numeric values
+    # win; equal priorities are intentionally avoided.
+    topics:
+      teleop:
+        topic: /motion/teleop/cmd_vel
+        timeout: 0.3
+        priority: 100
+      mission:
+        topic: /motion/mission/cmd_vel
+        timeout: 0.3
+        priority: 80
+      stair:
+        topic: /motion/stair/cmd_vel
+        timeout: 0.3
+        priority: 40
+      dock:
+        topic: /motion/dock/cmd_vel
+        timeout: 0.3
+        priority: 30
+      navigation:
+        topic: /motion/nav/cmd_vel
+        timeout: 0.3
+        priority: 20

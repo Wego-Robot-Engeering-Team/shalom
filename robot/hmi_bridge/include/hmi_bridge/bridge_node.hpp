@@ -10,7 +10,7 @@
 //
 // SAFETY IS NOT THIS NODE'S JOB
 // -----------------------------
-// The three-second communication-loss stop and the one-second emergency stop
+// The one-second communication-loss stop and the one-second emergency stop
 // are enforced by a separate safety node. This one only reports liveness: it
 // publishes a heartbeat topic while the control station's heartbeat is fresh,
 // and stops publishing otherwise.
@@ -42,9 +42,16 @@
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <unordered_map>
 
-#include <std_msgs/msg/bool.hpp>
-#include <std_msgs/msg/string.hpp>
 #include <std_srvs/srv/trigger.hpp>
+#include <shalom_interfaces/msg/mission_plan.hpp>
+#include <shalom_interfaces/msg/mission_state.hpp>
+#include <shalom_interfaces/msg/motion_authority.hpp>
+#include <shalom_interfaces/msg/safety_heartbeat.hpp>
+#include <shalom_interfaces/msg/safety_state.hpp>
+#include <shalom_interfaces/srv/authority_request.hpp>
+#include <shalom_interfaces/srv/configure_mission.hpp>
+#include <shalom_interfaces/srv/mission_control.hpp>
+#include <shalom_interfaces/srv/safety_command.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
@@ -55,18 +62,13 @@
 #include <vector>
 
 #include "hmi_bridge/envelope.hpp"
-#include "mission_manager/bt/nav2_bt.hpp"
-#include "mission_manager/mission_fsm.hpp"
 #include "hmi_bridge/tcp_server.hpp"
 
 namespace hmi_bridge {
 
-/// 미션의 순서와 상태는 mission_manager 가 갖는다. 이 노드는 그 판단을 실제
-/// 동작으로 옮기는 어댑터다 — Nav2 목표를 보내고, 결과를 되돌려 준다.
-///
-/// 예전에는 이 노드가 직접 3 단계 상태기계를 들고 순회를 돌렸다. 같은 개념이
-/// 두 곳에 있으면 갈라지고, 실제로 갈라졌을 때 어느 쪽이 맞는지 알 방법이 없다.
-class BridgeNode : public rclcpp::Node, public mission_manager::bt::Nav2Runtime {
+/// TCP/HMI adapter. Mission, safety, and authority decisions belong to their
+/// independent ROS processes and cross this boundary only through typed APIs.
+class BridgeNode : public rclcpp::Node {
 public:
     BridgeNode();
     ~BridgeNode() override;
@@ -90,6 +92,7 @@ private:
     void publishSafety();
     void requestBaseAuthority();
     void requestSafetyResume();
+    void sendSafetyCommand(const Envelope &request, uint8_t operation);
     [[nodiscard]] bool estopActive() const;
 
     // ---- telemetry -------------------------------------------------------
@@ -198,7 +201,6 @@ private:
 
     std::unordered_map<std::string, rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr>
         postureClients_;
-    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr authoritySub_;
     std::string motionAuthority_{"none"};
     std::string basePosture_{"unknown"};
 
@@ -230,29 +232,16 @@ private:
     bool loadMapBundle(const std::string &map_id, std::string *error = nullptr);
     bool saveMapState(const char *filename, const json &state);
 
-    // ---- 점검 순회 -----------------------------------------------------
-    //
-    // 관제는 점검포인트를 순서대로 도는 하나의 작업으로 다룬다. 여기가
-    // 없으면 화면의 시작·일시정지·재개·취소가 눌리는 곳이 없고, 상태를
-    // 알려주지 않으니 버튼 글자도 영영 "자율주행 시작" 에 머문다.
-    /// 관제 명령과 안전 사건을 FSM 사건으로 옮긴다.
-    mission_manager::Transition dispatchMission(mission_manager::MissionEvent event,
-                                                const char *why);
-    /// 상태에 맞춰 한 걸음 나아간다. 타이머가 부른다.
-    void tickMission();
-
-    /// 목표 하나가 끝났을 때 다음으로 넘긴다.
-
-    /// index 번째 점검포인트로 보낸다. 보낼 수 없으면 false.
-    /// 한 지점으로 Nav2 목표를 보낸다. 보냈으면 true.
-    bool sendWaypointGoal(std::size_t index);
-    /// 좌표가 든 JSON 하나를 Nav2 목표로 보낸다.
-    bool sendPoseGoal(const json &pose);
-    /// 복귀 구간을 한 걸음 나아간다.
-    void tickReturn();
+    // ---- mission adapter ------------------------------------------------
+    /// Converts the robot-owned map bundle into an immutable typed plan.
+    std::optional<shalom_interfaces::msg::MissionPlan> makeMissionPlan(
+        std::string *error = nullptr);
+    void configureAndStartMission(const Envelope &request);
+    void sendMissionControl(const Envelope &request, uint8_t operation);
+    void pauseMissionForManualTakeover();
+    void onMissionState(const shalom_interfaces::msg::MissionState::SharedPtr message);
     /// 등록된 위치에서 충전 스테이션을 찾는다. 없으면 -1.
     int findDock() const;
-    void setWaypointStatus(std::size_t index, const char *status);
     void publishMission();
 
     // ---- 촬영 -----------------------------------------------------------
@@ -268,10 +257,6 @@ private:
     double centreDistanceMm() const;
 
     void publishCaptureSpool();
-
-    // ---- mission_manager::bt::Nav2Runtime ----
-    mission_manager::bt::Status navigate_to(const std::string &goal_id) override;
-    void cancel_navigation() override;
 
     /// Accumulated driven path, in map coordinates.
     void publishTrail();
@@ -313,7 +298,7 @@ private:
     std::chrono::milliseconds deadman_{300};
 
     /// The control station is considered present while its heartbeat is no
-    /// older than this. The safety node's own three-second rule is separate
+    /// older than this. The safety node independently enforces the same one-second contract
     /// and deliberately longer.
     std::chrono::milliseconds heartbeatTimeout_{1000};
 
@@ -333,6 +318,7 @@ private:
     // ---- state -----------------------------------------------------------
     TcpServer server_;
     bool estopEngaged_ = false;
+    bool softwareEstopRequested_ = false;
     std::string safetyState_{"unknown"};
     bool manualMode_ = false;
     rclcpp::Time lastHeartbeat_;
@@ -377,22 +363,10 @@ private:
     json markers_ = json::array();
     bool wasConnected_ = false;
 
-    mission_manager::MissionFsm missionFsm_;
-    mission_manager::bt::Nav2Bt navBt_;
-    std::size_t missionIndex_ = 0;
-
-    /// Nav2 목표 한 건의 진행. 콜백으로 채우고 tick 에서 읽는다 — BT 는
-    /// 물어보는 쪽이고 Nav2 는 알려 주는 쪽이라, 그 사이를 이것이 잇는다.
-    enum class GoalPhase { Idle, Active, Succeeded, Failed };
-    GoalPhase goalPhase_ = GoalPhase::Idle;
-    /// 목표를 보내 보지도 못했는지. 지점 실패와 구분해야 오류로 굳지 않는다.
-    bool goalUnsendable_ = false;
-    /// 복귀 목표로 쓸 위치의 자리. -1 이면 아직 찾지 않았다.
-    int dockIndex_ = -1;
-    rclcpp::TimerBase::SharedPtr missionTimer_;
-    /// 지금 Nav2 에 걸린 목표가 순회의 것인지. 조작자가 지도를 눌러 보낸
-    /// 목표와 구분해야, 그 목표가 끝났다고 순회가 한 칸 넘어가지 않는다.
-    bool missionOwnsGoal_ = false;
+    shalom_interfaces::msg::MissionState missionState_;
+    bool haveMissionState_ = false;
+    uint64_t missionPlanRevision_ = 0;
+    uint64_t rosRequestSequence_ = 0;
 
     // 로봇 식별자. 지금은 한 대뿐이라 화면에 이름을 띄우는 데만 쓰지만,
     // 여러 대가 되면 관제가 어느 로봇의 값인지 가르는 근거가 된다. 나중에
@@ -452,20 +426,23 @@ private:
 
     // ---- ROS interfaces --------------------------------------------------
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmdVelPub_;
-    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr linkAlivePub_;
-    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr estopPub_;
-    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr safetyEventPub_;
-    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr authorityRequestPub_;
+    rclcpp::Publisher<shalom_interfaces::msg::SafetyHeartbeat>::SharedPtr linkAlivePub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr armCmdPub_;
 
     rclcpp_action::Client<NavigateToPose>::SharedPtr navClient_;
     rclcpp::Client<nav2_msgs::srv::LoadMap>::SharedPtr mapLoadClient_;
+    rclcpp::Client<shalom_interfaces::srv::ConfigureMission>::SharedPtr missionConfigureClient_;
+    rclcpp::Client<shalom_interfaces::srv::MissionControl>::SharedPtr missionControlClient_;
+    rclcpp::Client<shalom_interfaces::srv::SafetyCommand>::SharedPtr safetyCommandClient_;
+    rclcpp::Client<shalom_interfaces::srv::AuthorityRequest>::SharedPtr authorityRequestClient_;
 
     rclcpp::Subscription<sensor_msgs::msg::BatteryState>::SharedPtr batterySub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr jointSub_;
     rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr planSub_;
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr mapSub_;
-    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr safetyStateSub_;
+    rclcpp::Subscription<shalom_interfaces::msg::SafetyState>::SharedPtr safetyStateSub_;
+    rclcpp::Subscription<shalom_interfaces::msg::MotionAuthority>::SharedPtr authoritySub_;
+    rclcpp::Subscription<shalom_interfaces::msg::MissionState>::SharedPtr missionStateSub_;
 
     std::unique_ptr<tf2_ros::Buffer> tfBuffer_;
     std::shared_ptr<tf2_ros::TransformListener> tfListener_;

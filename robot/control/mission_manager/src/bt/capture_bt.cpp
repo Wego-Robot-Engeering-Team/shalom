@@ -6,32 +6,32 @@ namespace mission_manager::bt {
 
 Status CaptureBt::tick(CaptureRuntime & runtime) {
   while (true) {
-    Status status = Status::kFailure;
+    Status status = Status::Failure;
     switch (next_step_) {
-      case Step::kCorrectPose:
+      case Step::CorrectPose:
         status = runtime.correct_pose_with_apriltag();
-        if (status == Status::kSuccess) next_step_ = Step::kPositionArm;
+        if (status == Status::Success) next_step_ = Step::PositionArm;
         break;
-      case Step::kPositionArm:
+      case Step::PositionArm:
         status = runtime.move_arm_to_capture_pose();
-        if (status == Status::kSuccess) next_step_ = Step::kConfirmStop;
+        if (status == Status::Success) next_step_ = Step::ConfirmStop;
         break;
-      case Step::kConfirmStop:
+      case Step::ConfirmStop:
         status = runtime.confirm_robot_stopped();
-        if (status == Status::kSuccess) next_step_ = Step::kCapture;
+        if (status == Status::Success) next_step_ = Step::Capture;
         break;
-      case Step::kCapture:
+      case Step::Capture:
         status = runtime.capture_and_store();
-        if (status == Status::kSuccess) next_step_ = Step::kCorrectPose;
+        if (status == Status::Success) next_step_ = Step::CorrectPose;
         break;
     }
-    if (status != Status::kSuccess || next_step_ == Step::kCorrectPose) return status;
+    if (status != Status::Success || next_step_ == Step::CorrectPose) return status;
   }
 }
 
 void CaptureBt::halt(CaptureRuntime & runtime) {
   runtime.halt_capture();
-  next_step_ = Step::kCorrectPose;
+  next_step_ = Step::CorrectPose;
 }
 
 }  // namespace mission_manager::bt

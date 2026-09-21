@@ -3,7 +3,7 @@ project(motion_interlock_manager)
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(std_msgs REQUIRED)
+find_package(shalom_interfaces REQUIRED)
 
 add_library(motion_interlock_logic src/motion_interlock.cpp)
 target_compile_features(motion_interlock_logic PUBLIC cxx_std_17)
@@ -13,7 +13,7 @@ target_include_directories(motion_interlock_logic PUBLIC
 
 add_executable(motion_interlock_manager_node src/motion_interlock_manager_node.cpp)
 target_link_libraries(motion_interlock_manager_node motion_interlock_logic)
-ament_target_dependencies(motion_interlock_manager_node rclcpp std_msgs)
+ament_target_dependencies(motion_interlock_manager_node rclcpp shalom_interfaces)
 
 if(BUILD_TESTING)
   enable_testing()

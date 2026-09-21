@@ -23,8 +23,8 @@ public:
   void halt(StairRuntime & runtime);
 
 private:
-  enum class Step { kConfirmRoute, kEngageMode, kTraverse, kConfirmExit };
-  Step next_step_{Step::kConfirmRoute};
+  enum class Step { ConfirmRoute, EngageMode, Traverse, ConfirmExit };
+  Step next_step_{Step::ConfirmRoute};
 };
 
 }  // namespace mission_manager::bt

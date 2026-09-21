@@ -7,6 +7,7 @@ TCP 브릿지가 있는 로봇의 IP와 포트에만 연결한다.
 shalom/
 ├── robot/                  # 제품 공통 동작 코드와 실기 플랫폼 bringup
 │   ├── control/            # FSM·BT·미션·안전·motion authority
+│   ├── interfaces/         # Mission·Safety·Motion Authority ROS 2 계약
 │   ├── hmi_bridge/         # HMI TCP ↔ ROS 2, 지도 카탈로그 API
 │   ├── navigation/         # Nav2·AMCL·SLAM·KISS-ICP 설정
 │   └── robot_bringup/      # B2 실기·XT32·Aurora와 공통 stack 조립
@@ -22,13 +23,16 @@ shalom/
 공통 FSM·BT·미션·navigation·HMI bridge는 `robot/`에 한 번만 둔다. 실기와
 시뮬레이터는 그 공통 코드를 공유하고, 달라지는 것은 플랫폼 계층뿐이다.
 
+Mission·Safety·Motion Authority의 목표 상태와 B2 시뮬레이션 검증 범위는
+[제어 아키텍처 계약](docs/control_architecture_contract.md)에 정의한다.
+
 ## 빌드
 
 ```bash
 cd ~/shalom_ws
 source /opt/ros/jazzy/setup.bash
 MAKEFLAGS=-j2 colcon build --executor parallel --parallel-workers 2 --base-paths src/shalom --symlink-install \
-  --packages-select b2_mujoco hmi_bridge robot_bringup simulation_bringup
+  --packages-select shalom_interfaces b2_mujoco hmi_bridge robot_bringup simulation_bringup
 source install/setup.bash
 ```
 

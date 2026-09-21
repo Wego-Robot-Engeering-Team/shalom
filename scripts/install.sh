@@ -214,7 +214,8 @@ if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
   apt_install \
     "ros-$ROS-navigation2" "ros-$ROS-nav2-bringup" \
     "ros-$ROS-slam-toolbox" "ros-$ROS-pointcloud-to-laserscan" \
-    "ros-$ROS-rosidl-generator-dds-idl" "ros-$ROS-cv-bridge"
+    "ros-$ROS-rosidl-generator-dds-idl" "ros-$ROS-cv-bridge" \
+    "ros-$ROS-twist-mux"
 
   say "Hesai Pandar XT32 드라이버"
   # HesaiLidar_ROS_2.0가 직접 찾는 시스템 라이브러리다. 공식 드라이버는

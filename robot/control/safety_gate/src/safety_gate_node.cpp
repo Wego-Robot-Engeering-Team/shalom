@@ -7,8 +7,8 @@
 #include "geometry_msgs/msg/twist.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
-#include "std_msgs/msg/bool.hpp"
-#include "std_msgs/msg/string.hpp"
+#include "shalom_interfaces/msg/motion_authority.hpp"
+#include "shalom_interfaces/msg/safety_state.hpp"
 
 namespace {
 
@@ -35,10 +35,12 @@ public:
       input_base_topic, 20, std::bind(&SafetyGateNode::on_base_command, this, std::placeholders::_1));
     arm_sub_ = create_subscription<sensor_msgs::msg::JointState>(
       input_arm_topic, 20, std::bind(&SafetyGateNode::on_arm_command, this, std::placeholders::_1));
-    permit_sub_ = create_subscription<std_msgs::msg::Bool>(
-      "/safety/motion_permitted", 20, std::bind(&SafetyGateNode::on_permit, this, std::placeholders::_1));
-    authority_sub_ = create_subscription<std_msgs::msg::String>(
-      "/motion/authority", 20, std::bind(&SafetyGateNode::on_authority, this, std::placeholders::_1));
+    safety_sub_ = create_subscription<shalom_interfaces::msg::SafetyState>(
+      "/safety/state", rclcpp::QoS(1).reliable().transient_local(),
+      std::bind(&SafetyGateNode::on_safety, this, std::placeholders::_1));
+    authority_sub_ = create_subscription<shalom_interfaces::msg::MotionAuthority>(
+      "/motion/authority", rclcpp::QoS(1).reliable().transient_local(),
+      std::bind(&SafetyGateNode::on_authority, this, std::placeholders::_1));
 
     const auto period = std::chrono::duration<double>(1.0 / output_hz);
     timer_ = create_wall_timer(std::chrono::duration_cast<std::chrono::milliseconds>(period),
@@ -58,12 +60,14 @@ private:
     last_arm_command_ = std::chrono::steady_clock::now();
   }
 
-  void on_permit(const std_msgs::msg::Bool::SharedPtr message) {
-    motion_permitted_ = message->data;
+  void on_safety(const shalom_interfaces::msg::SafetyState::SharedPtr message) {
+    motion_permitted_ = message->motion_permitted;
     last_permit_ = std::chrono::steady_clock::now();
   }
 
-  void on_authority(const std_msgs::msg::String::SharedPtr message) { authority_ = message->data; }
+  void on_authority(const shalom_interfaces::msg::MotionAuthority::SharedPtr message) {
+    authority_ = message->state;
+  }
 
   bool permit_valid() const {
     return motion_permitted_ && std::chrono::steady_clock::now() - last_permit_ <= permit_timeout_;
@@ -72,7 +76,8 @@ private:
   void tick() {
     const auto now = std::chrono::steady_clock::now();
     geometry_msgs::msg::Twist output{};  // zero is the only fail-closed base command.
-    if (permit_valid() && authority_ == "base_active" && now - last_base_command_ <= command_timeout_) {
+    if (permit_valid() && authority_ == shalom_interfaces::msg::MotionAuthority::BASE_ACTIVE &&
+        now - last_base_command_ <= command_timeout_) {
       output = base_command_;
     }
     base_pub_->publish(output);
@@ -80,7 +85,8 @@ private:
     // A zero JointState is not a safe stop for position-controlled arms.  The
     // production FR3 integration must use its own stop/mode interface.  Until
     // that is wired, arm output remains disabled by default.
-    if (arm_output_enabled_ && permit_valid() && authority_ == "arm_active" &&
+    if (arm_output_enabled_ && permit_valid() &&
+        authority_ == shalom_interfaces::msg::MotionAuthority::ARM_ACTIVE &&
         now - last_arm_command_ <= command_timeout_) {
       arm_pub_->publish(arm_command_);
     }
@@ -88,7 +94,7 @@ private:
 
   bool motion_permitted_{false};
   bool arm_output_enabled_{false};
-  std::string authority_{"none"};
+  uint8_t authority_{shalom_interfaces::msg::MotionAuthority::NONE};
   std::chrono::milliseconds command_timeout_{300};
   std::chrono::milliseconds permit_timeout_{250};
   SteadyTime last_permit_{};
@@ -100,8 +106,8 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr arm_pub_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr base_sub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr arm_sub_;
-  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr permit_sub_;
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr authority_sub_;
+  rclcpp::Subscription<shalom_interfaces::msg::SafetyState>::SharedPtr safety_sub_;
+  rclcpp::Subscription<shalom_interfaces::msg::MotionAuthority>::SharedPtr authority_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

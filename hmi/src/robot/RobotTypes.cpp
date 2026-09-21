@@ -6,10 +6,14 @@ namespace hmi::robot {
 
 MissionState missionStateFromWire(const QString &value)
 {
+    if (value == QLatin1String("ready"))              return MissionState::Ready;
     if (value == QLatin1String("running"))            return MissionState::Running;
+    if (value == QLatin1String("pausing"))            return MissionState::Pausing;
     if (value == QLatin1String("paused"))             return MissionState::Paused;
+    if (value == QLatin1String("recovering"))         return MissionState::Recovering;
     if (value == QLatin1String("returning"))          return MissionState::Returning;
     if (value == QLatin1String("completed"))          return MissionState::Completed;
+    if (value == QLatin1String("failed"))             return MissionState::Failed;
     if (value == QLatin1String("emergency_stopped"))  return MissionState::EmergencyStopped;
     if (value == QLatin1String("idle"))               return MissionState::Idle;
 
@@ -23,10 +27,14 @@ QString missionStateLabel(MissionState state)
 {
     switch (state) {
     case MissionState::Idle:             return QStringLiteral("대기");
+    case MissionState::Ready:            return QStringLiteral("시작 준비");
     case MissionState::Running:          return QStringLiteral("점검 중");
+    case MissionState::Pausing:          return QStringLiteral("정지 확인 중");
     case MissionState::Paused:           return QStringLiteral("일시정지");
+    case MissionState::Recovering:       return QStringLiteral("재개 확인 중");
     case MissionState::Returning:        return QStringLiteral("복귀 중");
     case MissionState::Completed:        return QStringLiteral("완료");
+    case MissionState::Failed:           return QStringLiteral("실패");
     case MissionState::Fault:            return QStringLiteral("오류");
     case MissionState::EmergencyStopped: return QStringLiteral("비상정지");
     }

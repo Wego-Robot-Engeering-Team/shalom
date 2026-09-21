@@ -92,6 +92,49 @@ const char *navResultCode(const std::string &status)
     return "NAV_GOAL_FAILED";
 }
 
+const char *safetyStateName(uint8_t state)
+{
+    using State = shalom_interfaces::msg::SafetyState;
+    switch (state) {
+    case State::INITIALIZING: return "initializing";
+    case State::CONTROLLED_STOP: return "controlled_stop";
+    case State::NORMAL: return "normal";
+    case State::E_STOP_LATCHED: return "e_stop_latched";
+    case State::FAULT: return "fault";
+    default: return "unknown";
+    }
+}
+
+const char *authorityName(uint8_t state)
+{
+    using Authority = shalom_interfaces::msg::MotionAuthority;
+    switch (state) {
+    case Authority::NONE: return "none";
+    case Authority::BASE_ACTIVE: return "base_active";
+    case Authority::BASE_STOPPING: return "base_stopping";
+    case Authority::ARM_ACTIVE: return "arm_active";
+    case Authority::ARM_STOPPING: return "arm_stopping";
+    default: return "unknown";
+    }
+}
+
+const char *missionStateName(uint8_t state)
+{
+    using State = shalom_interfaces::msg::MissionState;
+    switch (state) {
+    case State::IDLE: return "idle";
+    case State::READY: return "ready";
+    case State::RUNNING: return "running";
+    case State::PAUSING: return "pausing";
+    case State::PAUSED: return "paused";
+    case State::RECOVERING: return "recovering";
+    case State::RETURNING: return "returning";
+    case State::COMPLETED: return "completed";
+    case State::FAILED: return "failed";
+    default: return "failed";
+    }
+}
+
 /// FR3 joint names, in the order the arm reports them.
 const std::vector<std::string> kArmJointNames{
     "fr3_shoulder", "fr3_upperarm", "fr3_forearm",
@@ -170,24 +213,25 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     lastHeartbeat_ = now();
     lastCmdVel_ = now();
 
-    // 수동 명령은 motion_mux 의 teleop 입력으로 나간다. 예전에는 /cmd_vel 에
+    // 수동 명령은 twist_mux 의 teleop 입력으로 나간다. 예전에는 /cmd_vel 에
     // 바로 썼는데, 그러면 Nav2 와 같은 토픽에 각각 20 Hz 로 쓰게 되어 어느
     // 쪽이 이길지가 발행 순서에 달린 문제가 된다. 중재는 mux 가 한다
     // (teleop > mission > stair > dock > nav, 300 ms lease).
     cmdVelPub_ = create_publisher<geometry_msgs::msg::Twist>(
         declare_parameter("teleop_cmd_vel_topic", std::string("/motion/teleop/cmd_vel")), 10);
-
     // 안전 노드가 지켜보는 생존 신호. 이 노드가 죽으면 발행이 멈추고,
     // 안전 노드가 그것을 근거로 로봇을 정지시킨다. 정지 판단을 여기에 두면
     // 이 노드의 크래시가 곧 감시자 없는 주행이 된다.
-    linkAlivePub_ = create_publisher<std_msgs::msg::Bool>("/safety/heartbeat", 10);
-    // HMI E-Stop is a software input, not the physical circuit. Its last
-    // state is durable so restarting safety_manager cannot silently clear it.
-    estopPub_ = create_publisher<std_msgs::msg::Bool>(
-        "/safety/software_estop_active", rclcpp::QoS(1).transient_local());
-    safetyEventPub_ = create_publisher<std_msgs::msg::String>("/safety/event", 10);
-    authorityRequestPub_ = create_publisher<std_msgs::msg::String>(
-        "/motion/request_authority", 10);
+    linkAlivePub_ = create_publisher<shalom_interfaces::msg::SafetyHeartbeat>(
+        "/safety/heartbeat", 10);
+    safetyCommandClient_ = create_client<shalom_interfaces::srv::SafetyCommand>(
+        "/safety/command");
+    authorityRequestClient_ = create_client<shalom_interfaces::srv::AuthorityRequest>(
+        "/motion/authority/request");
+    missionConfigureClient_ = create_client<shalom_interfaces::srv::ConfigureMission>(
+        "/mission/configure");
+    missionControlClient_ = create_client<shalom_interfaces::srv::MissionControl>(
+        "/mission/control");
 
     batterySub_ = create_subscription<sensor_msgs::msg::BatteryState>(
         "battery_state", 10, [this](const sensor_msgs::msg::BatteryState::ConstSharedPtr &msg) {
@@ -281,12 +325,13 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
 
     // 모션 권한을 듣는다. 팔이 움직이는 중에는 자세 전환을 받지 않는다.
     // transient_local 이라 나중에 붙어도 마지막 값을 받는다.
-    authoritySub_ = create_subscription<std_msgs::msg::String>(
+    authoritySub_ = create_subscription<shalom_interfaces::msg::MotionAuthority>(
         "/motion/authority", rclcpp::QoS(1).transient_local(),
-        [this](const std_msgs::msg::String::SharedPtr msg) {
-            if (motionAuthority_ == msg->data)
+        [this](const shalom_interfaces::msg::MotionAuthority::SharedPtr msg) {
+            const std::string next = authorityName(msg->state);
+            if (motionAuthority_ == next)
                 return;
-            motionAuthority_ = msg->data;
+            motionAuthority_ = next;
             // 자세 버튼을 잠그고 푸는 근거가 이 값이다. 바뀐 것을 보내지
             // 않으면 화면은 팔이 멈춘 뒤에도 버튼을 잠근 채로 둔다. 관제가
             // 없을 때 쌓아 두지는 않는다 — 새로 붙는 화면에는 접속 시점에
@@ -294,14 +339,32 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
             if (server_.isConnected())
                 publishBase();
         });
-    safetyStateSub_ = create_subscription<std_msgs::msg::String>(
+    safetyStateSub_ = create_subscription<shalom_interfaces::msg::SafetyState>(
         "/safety/state", rclcpp::QoS(1).transient_local(),
-        [this](const std_msgs::msg::String::SharedPtr msg) {
-            if (safetyState_ == msg->data)
+        [this](const shalom_interfaces::msg::SafetyState::SharedPtr msg) {
+            const std::string next = safetyStateName(msg->state);
+            const bool estop_active = msg->software_estop_active || msg->physical_estop_active;
+            const bool changed = safetyState_ != next || estopEngaged_ != estop_active;
+            safetyState_ = next;
+            estopEngaged_ = estop_active;
+            if (msg->software_estop_active)
+                softwareEstopRequested_ = true;
+            if (msg->state == shalom_interfaces::msg::SafetyState::INITIALIZING &&
+                softwareEstopRequested_ && safetyCommandClient_->service_is_ready()) {
+                auto request = std::make_shared<shalom_interfaces::srv::SafetyCommand::Request>();
+                request->request_id = "hmi-estop-restore-" + std::to_string(++rosRequestSequence_);
+                request->operator_id = "hmi_bridge";
+                request->operation =
+                    shalom_interfaces::srv::SafetyCommand::Request::ENGAGE_SOFTWARE_ESTOP;
+                safetyCommandClient_->async_send_request(request);
+            }
+            if (!changed)
                 return;
-            safetyState_ = msg->data;
             publishSafety();
         });
+    missionStateSub_ = create_subscription<shalom_interfaces::msg::MissionState>(
+        "/mission/state", rclcpp::QoS(1).transient_local(),
+        std::bind(&BridgeNode::onMissionState, this, std::placeholders::_1));
 
     linkTimer_ = create_wall_timer(10ms, [this] { pollLink(); });
     poseTimer_ = create_wall_timer(100ms, [this] { publishPose(); });     // 10 Hz
@@ -348,11 +411,6 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     // 자리가 하나 더 생긴다.
     navClient_ = rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose");
     mapLoadClient_ = create_client<nav2_msgs::srv::LoadMap>("map_server/load_map");
-
-    // 미션을 한 걸음씩 나아가게 한다. 5 Hz 면 충분하다 — 판단은 Nav2 결과가
-    // 오는 순간에 이미 정해지고, 이 타이머는 그것을 읽어 옮기는 일만 한다.
-    missionTimer_ = create_wall_timer(std::chrono::milliseconds(200),
-                                      [this] { tickMission(); });
 
     // 감시할 센서 목록은 파라미터에서 온다 (bridge.yaml 의 sensors).
     for (const auto &id : declare_parameter<std::vector<std::string>>(
@@ -509,10 +567,7 @@ void BridgeNode::handleRequest(const Envelope &request)
 
     if (request.ch == kCmdEstop) {
         // 발동에는 어떤 조건도 걸지 않는다. 실제 정지는 안전 노드가 수행한다.
-        estopEngaged_ = true;
-        std_msgs::msg::Bool msg;
-        msg.data = true;
-        estopPub_->publish(msg);
+        softwareEstopRequested_ = true;
         haveJogCommand_ = false;
         // 정지는 안전 노드가 시킨다. 여기서 취소하는 것은 해제 뒤에 Nav2 가
         // 아무도 다시 누르지 않은 목표로 출발하는 것을 막기 위해서다.
@@ -521,40 +576,32 @@ void BridgeNode::handleRequest(const Envelope &request)
         // 어느 상태에서든 받는다. 순회 중이었다면 멈춘 자리를 기억한 채
         // EmergencyStopped 로 가고, 해제하면 일시정지로 내려온다 — 처음부터
         // 다시 돌지 않고, 화면에도 재개 버튼이 남는다.
-        dispatchMission(mission_manager::MissionEvent::kEmergencyStop, "E-Stop");
         cancelNavigation("E-Stop 발동");
         publishSafety();
-        respond(request, true);
+        sendSafetyCommand(
+            request, shalom_interfaces::srv::SafetyCommand::Request::ENGAGE_SOFTWARE_ESTOP);
         RCLCPP_WARN(get_logger(), "E-Stop 발동 (관제 요청)");
         return;
     }
 
     if (request.ch == kCmdEstopRelease) {
         // 해제 권한 확인은 관제가 수행한다. 여기서는 상태만 되돌린다.
-        estopEngaged_ = false;
-        std_msgs::msg::Bool msg;
-        msg.data = false;
-        estopPub_->publish(msg);
+        softwareEstopRequested_ = false;
         // 해제는 재가동이 아니다. 이후 실제 주행/미션 재개 요청이 별도로
         // safety_manager의 resume 사건을 보내야 한다.
         manualMode_ = true;
-        // FSM 에도 알린다. 이것을 빠뜨리면 미션이 emergency_stopped 에
-        // 붙잡힌 채로 남아, 해제해도 재개도 취소도 받지 않는다.
-        dispatchMission(mission_manager::MissionEvent::kEmergencyStopReleased,
-                        "E-Stop 해제");
         publishSafety();
-        respond(request, true);
+        sendSafetyCommand(
+            request, shalom_interfaces::srv::SafetyCommand::Request::RELEASE_SOFTWARE_ESTOP);
         RCLCPP_WARN(get_logger(), "E-Stop 해제 (관제 요청)");
         return;
     }
 
     if (request.ch == kCmdMode) {
         manualMode_ = request.p.value("mode", std::string("auto")) == "manual";
-        // 수동 전환은 자율주행을 취소하지 않는다. 지시서 2.2.5 가 요구하는
-        // 것은 수동이 우선한다는 것이고, 그 우선권은 mux 가 준다 — 수동
-        // 모드인 동안 이 노드가 제자리 명령을 계속 내보내 teleop 이 가장
-        // 높은 우선순위를 놓지 않으므로 자율 출력은 로봇까지 가지 못한다.
-        // 취소해 버리면 잠깐 비켜 세우려던 조작자가 목표까지 잃는다.
+        if (manualMode_) {
+            pauseMissionForManualTakeover();
+        }
         RCLCPP_INFO(get_logger(), "주행 모드: %s", manualMode_ ? "수동" : "자율");
         respond(request, true);
         return;
@@ -621,7 +668,14 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdWaypointsSet) {
+        if (haveMissionState_ && missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
+            missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
+            missionState_.state != shalom_interfaces::msg::MissionState::FAILED) {
+            respond(request, false, err::kBusy, "미션이 끝난 뒤 점검 지점을 변경하십시오");
+            return;
+        }
         waypoints_ = request.p.value("points", json::array());
+        ++missionPlanRevision_;
         saveMapState("waypoints.json", waypoints_);
         respond(request, true);
         publishWaypoints();
@@ -631,7 +685,14 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdLocationsSet) {
+        if (haveMissionState_ && missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
+            missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
+            missionState_.state != shalom_interfaces::msg::MissionState::FAILED) {
+            respond(request, false, err::kBusy, "미션이 끝난 뒤 위치를 변경하십시오");
+            return;
+        }
         locations_ = request.p.value("locations", json::array());
+        ++missionPlanRevision_;
         saveMapState("locations.json", locations_);
         respond(request, true);
         publishLocations();
@@ -659,7 +720,8 @@ void BridgeNode::handleRequest(const Envelope &request)
 
     if (request.ch == kCmdMapsSelect) {
         const std::string id = request.p.value("id", std::string{});
-        if (missionFsm_.state() != mission_manager::MissionState::kIdle || navGoal_) {
+        if (!haveMissionState_ || missionState_.state != shalom_interfaces::msg::MissionState::IDLE ||
+            navGoal_) {
             respond(request, false, err::kBusy,
                     "주행 또는 점검이 끝난 뒤에 지도를 전환하십시오");
             return;
@@ -704,7 +766,8 @@ void BridgeNode::handleRequest(const Envelope &request)
     if (request.ch == kCmdMapsRename) {
         const std::string id = request.p.value("id", std::string{});
         const std::string name = request.p.value("name", std::string{});
-        if (missionFsm_.state() != mission_manager::MissionState::kIdle || navGoal_) {
+        if (!haveMissionState_ || missionState_.state != shalom_interfaces::msg::MissionState::IDLE ||
+            navGoal_) {
             respond(request, false, err::kBusy,
                     "주행 또는 점검이 끝난 뒤에 지도 이름을 바꾸십시오");
             return;
@@ -786,35 +849,12 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdMissionStart) {
-        // 점검포인트와 비상정지는 FSM 이 모르는 사정이라 여기서 본다.
-        // 상태 판단은 FSM 이 한다.
-        if (waypoints_.empty()) {
-            respond(request, false, err::kBadPayload, "점검포인트가 없습니다");
-            return;
-        }
-        if (estopActive()) {
-            respond(request, false, err::kMode,
-                    "비상정지 상태입니다. 해제한 뒤 시작하십시오");
-            return;
-        }
-        requestSafetyResume();
-        requestBaseAuthority();
-        const auto t = dispatchMission(mission_manager::MissionEvent::kStart, "관제 요청");
-        if (!t.accepted) {
-            respond(request, false, err::kMode, t.reason);
-            return;
-        }
-        respond(request, true);
+        configureAndStartMission(request);
         return;
     }
 
     if (request.ch == kCmdMissionPause) {
-        const auto t = dispatchMission(mission_manager::MissionEvent::kPause, "관제 요청");
-        if (!t.accepted) {
-            respond(request, false, err::kMode, t.reason);
-            return;
-        }
-        respond(request, true);
+        sendMissionControl(request, shalom_interfaces::srv::MissionControl::Request::PAUSE);
         return;
     }
 
@@ -824,29 +864,17 @@ void BridgeNode::handleRequest(const Envelope &request)
                     "비상정지 상태입니다. 해제한 뒤 재개하십시오");
             return;
         }
-        requestSafetyResume();
-        requestBaseAuthority();
-        const auto t = dispatchMission(mission_manager::MissionEvent::kResume, "관제 요청");
-        if (!t.accepted) {
-            respond(request, false, err::kMode, t.reason);
-            return;
-        }
-        respond(request, true);
+        sendMissionControl(request, shalom_interfaces::srv::MissionControl::Request::RESUME);
         return;
     }
 
     if (request.ch == kCmdMissionStop) {
-        // 오류로 멈춘 것도 이 버튼으로 걷어낸다. 복구할 길이 화면에 없으면
-        // 로봇을 다시 띄우는 것 말고는 방법이 없어진다.
-        const auto ev = missionFsm_.state() == mission_manager::MissionState::kFault
-                            ? mission_manager::MissionEvent::kResetFault
-                            : mission_manager::MissionEvent::kStop;
-        const auto t = dispatchMission(ev, "관제 요청");
-        if (!t.accepted) {
-            respond(request, false, err::kMode, t.reason);
-            return;
-        }
-        respond(request, true);
+        const uint8_t operation = haveMissionState_ &&
+            (missionState_.state == shalom_interfaces::msg::MissionState::COMPLETED ||
+             missionState_.state == shalom_interfaces::msg::MissionState::FAILED)
+            ? shalom_interfaces::srv::MissionControl::Request::RESET
+            : shalom_interfaces::srv::MissionControl::Request::STOP;
+        sendMissionControl(request, operation);
         return;
     }
 
@@ -862,6 +890,13 @@ void BridgeNode::handleRequest(const Envelope &request)
     if (request.ch == kCmdGoto) {
         if (manualMode_) {
             respond(request, false, err::kMode, "수동 모드에서는 자율 이동을 실행하지 않습니다");
+            return;
+        }
+        if (haveMissionState_ &&
+            missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
+            missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
+            missionState_.state != shalom_interfaces::msg::MissionState::FAILED) {
+            respond(request, false, err::kBusy, "미션이 끝난 뒤 개별 목표를 지정하십시오");
             return;
         }
         requestSafetyResume();
@@ -1303,138 +1338,192 @@ void BridgeNode::handleCapture(const Envelope &request)
     publishCaptureSpool();
 }
 
-// ================= 미션 =================
-//
-// 순서와 상태는 mission_manager 가 갖는다. 여기서는 그 판단을 Nav2 목표로
-// 옮기고, 결과를 되돌려 준다.
+// ================= mission adapter =================
 
-mission_manager::Transition BridgeNode::dispatchMission(
-    mission_manager::MissionEvent event, const char *why)
+std::optional<shalom_interfaces::msg::MissionPlan> BridgeNode::makeMissionPlan(
+    std::string *error)
 {
-    using mission_manager::MissionState;
+    const auto fail = [error](const std::string &message)
+        -> std::optional<shalom_interfaces::msg::MissionPlan> {
+        if (error)
+            *error = message;
+        return std::nullopt;
+    };
+    if (!waypoints_.is_array() || waypoints_.empty())
+        return fail("점검포인트가 없습니다");
 
-    const auto before = missionFsm_.state();
-    const auto t = missionFsm_.dispatch(event);
-    if (!t.accepted) {
-        RCLCPP_DEBUG(get_logger(), "미션 사건 %s 는 %s 상태에서 받지 않는다 (%s)",
-                     mission_manager::to_string(event),
-                     mission_manager::to_string(before), t.reason);
-        return t;
-    }
+    shalom_interfaces::msg::MissionPlan plan;
+    plan.created_at = now();
+    plan.revision = missionPlanRevision_ == 0 ? ++missionPlanRevision_ : missionPlanRevision_;
+    plan.map_id = mapId_.empty() ? "live" : mapId_;
+    plan.mission_id = plan.map_id + ":" + std::to_string(plan.revision);
+    plan.required_capabilities = {"navigation"};
 
-    // 시작할 때만 처음으로 되돌린다. 일시정지에서 재개할 때 자리를 잃으면
-    // 조작자가 멈춘 지점이 아니라 1 번부터 다시 돌게 된다.
-    if (event == mission_manager::MissionEvent::kStart) {
-        missionIndex_ = 0;
-        for (std::size_t i = 0; i < waypoints_.size(); ++i)
-            waypoints_[i]["status"] = "todo";
-        publishWaypoints();
-    }
-
-    // 스스로 움직여도 되는 상태가 아니면 하던 목표를 놓는다. 물린 채 두면
-    // 해제한 뒤 아무도 다시 누르지 않은 자리로 출발한다.
-    if (!missionFsm_.autonomous_motion_allowed())
-        navBt_.halt(*this);
-
-    if (t.to == MissionState::kIdle || t.to == MissionState::kCompleted) {
-        missionIndex_ = 0;
-        if (t.to == MissionState::kIdle) {
-            // 취소한 순회의 진행 표시는 지운다. 어디까지 갔는지는 이력에
-            // 남고, 화면에 남겨 두면 다음 시작 때 완료된 것처럼 보인다.
-            for (std::size_t i = 0; i < waypoints_.size(); ++i)
-                waypoints_[i]["status"] = "todo";
-            publishWaypoints();
+    for (std::size_t i = 0; i < waypoints_.size(); ++i) {
+        const auto &point = waypoints_[i];
+        if (!point.is_object() || !point.contains("x") || !point.contains("y") ||
+            !point["x"].is_number() || !point["y"].is_number()) {
+            return fail("점검포인트 " + std::to_string(i + 1) + "의 좌표가 올바르지 않습니다");
         }
+        shalom_interfaces::msg::MissionWaypoint waypoint;
+        waypoint.waypoint_id = point.value("id", "P" + std::to_string(i + 1));
+        waypoint.target_pose.header.frame_id = mapFrame_;
+        waypoint.target_pose.header.stamp = now();
+        waypoint.target_pose.pose.position.x = point["x"].get<double>();
+        waypoint.target_pose.pose.position.y = point["y"].get<double>();
+        tf2::Quaternion q;
+        q.setRPY(0.0, 0.0, point.value("theta", 0.0));
+        waypoint.target_pose.pose.orientation.x = q.x();
+        waypoint.target_pose.pose.orientation.y = q.y();
+        waypoint.target_pose.pose.orientation.z = q.z();
+        waypoint.target_pose.pose.orientation.w = q.w();
+        waypoint.operation = shalom_interfaces::msg::MissionWaypoint::NAVIGATE_ONLY;
+        plan.waypoints.push_back(std::move(waypoint));
     }
 
+    const int dock = findDock();
+    plan.return_to_dock = dock >= 0;
+    plan.has_dock_approach = dock >= 0;
+    if (dock >= 0) {
+        const auto &location = locations_[std::size_t(dock)];
+        if (!location.contains("x") || !location.contains("y") ||
+            !location["x"].is_number() || !location["y"].is_number()) {
+            return fail("충전 스테이션 접근 좌표가 올바르지 않습니다");
+        }
+        auto &waypoint = plan.dock_approach;
+        waypoint.waypoint_id = location.value("id", std::string("dock"));
+        waypoint.target_pose.header.frame_id = mapFrame_;
+        waypoint.target_pose.header.stamp = now();
+        waypoint.target_pose.pose.position.x = location["x"].get<double>();
+        waypoint.target_pose.pose.position.y = location["y"].get<double>();
+        tf2::Quaternion q;
+        q.setRPY(0.0, 0.0, location.value("theta", 0.0));
+        waypoint.target_pose.pose.orientation.x = q.x();
+        waypoint.target_pose.pose.orientation.y = q.y();
+        waypoint.target_pose.pose.orientation.z = q.z();
+        waypoint.target_pose.pose.orientation.w = q.w();
+        waypoint.operation = shalom_interfaces::msg::MissionWaypoint::NAVIGATE_ONLY;
+    }
+    return plan;
+}
+
+void BridgeNode::configureAndStartMission(const Envelope &request)
+{
+    if (estopActive()) {
+        respond(request, false, err::kMode, "비상정지 상태입니다. 해제한 뒤 시작하십시오");
+        return;
+    }
+    if (!missionConfigureClient_->service_is_ready() ||
+        !missionControlClient_->service_is_ready()) {
+        respond(request, false, err::kUnreachable, "Mission Manager가 준비되지 않았습니다");
+        return;
+    }
+    if (navGoal_ || pendingGoto_) {
+        respond(request, false, err::kBusy, "개별 자율주행 목표가 끝난 뒤 미션을 시작하십시오");
+        return;
+    }
+    std::string detail;
+    auto plan = makeMissionPlan(&detail);
+    if (!plan) {
+        respond(request, false, err::kBadPayload, detail);
+        return;
+    }
+
+    auto configure = std::make_shared<shalom_interfaces::srv::ConfigureMission::Request>();
+    const std::string request_id = request.id.empty()
+        ? "hmi-" + std::to_string(++rosRequestSequence_) : request.id;
+    configure->request_id = request_id + ":configure";
+    configure->operator_id = "hmi";
+    configure->plan = *plan;
+    missionConfigureClient_->async_send_request(
+        configure,
+        [this, request, request_id](
+            rclcpp::Client<shalom_interfaces::srv::ConfigureMission>::SharedFuture future) {
+            const auto configured = future.get();
+            if (!configured->accepted) {
+                respond(request, false, err::kMode, configured->detail);
+                return;
+            }
+            auto control = std::make_shared<shalom_interfaces::srv::MissionControl::Request>();
+            control->request_id = request_id + ":start";
+            control->operator_id = "hmi";
+            control->mission_id = configured->state.mission_id;
+            control->operation = shalom_interfaces::srv::MissionControl::Request::START;
+            missionControlClient_->async_send_request(
+                control,
+                [this, request](
+                    rclcpp::Client<shalom_interfaces::srv::MissionControl>::SharedFuture result) {
+                    const auto started = result.get();
+                    respond(request, started->accepted,
+                            started->accepted ? std::string() : err::kMode,
+                            started->detail);
+                });
+        });
+}
+
+void BridgeNode::sendMissionControl(const Envelope &request, uint8_t operation)
+{
+    if (!missionControlClient_->service_is_ready()) {
+        respond(request, false, err::kUnreachable, "Mission Manager가 준비되지 않았습니다");
+        return;
+    }
+    auto control = std::make_shared<shalom_interfaces::srv::MissionControl::Request>();
+    control->request_id = (request.id.empty()
+        ? "hmi-" + std::to_string(++rosRequestSequence_) : request.id) + ":control";
+    control->operator_id = "hmi";
+    control->mission_id = missionState_.mission_id;
+    control->operation = operation;
+    missionControlClient_->async_send_request(
+        control,
+        [this, request](rclcpp::Client<shalom_interfaces::srv::MissionControl>::SharedFuture future) {
+            const auto result = future.get();
+            respond(request, result->accepted,
+                    result->accepted ? std::string() : err::kMode, result->detail);
+        });
+}
+
+void BridgeNode::pauseMissionForManualTakeover()
+{
+    if (!haveMissionState_ ||
+        (missionState_.state != shalom_interfaces::msg::MissionState::RUNNING &&
+         missionState_.state != shalom_interfaces::msg::MissionState::RETURNING))
+        return;
+    if (!missionControlClient_->service_is_ready()) {
+        RCLCPP_ERROR(get_logger(), "수동 전환 중 Mission Manager에 일시정지를 요청하지 못했습니다");
+        return;
+    }
+    auto control = std::make_shared<shalom_interfaces::srv::MissionControl::Request>();
+    control->request_id = "hmi-manual-" + std::to_string(++rosRequestSequence_);
+    control->operator_id = "hmi_manual_takeover";
+    control->mission_id = missionState_.mission_id;
+    control->operation = shalom_interfaces::srv::MissionControl::Request::PAUSE;
+    missionControlClient_->async_send_request(control);
+}
+
+void BridgeNode::onMissionState(
+    const shalom_interfaces::msg::MissionState::SharedPtr message)
+{
+    const uint8_t previous = haveMissionState_ ? missionState_.state
+                                               : shalom_interfaces::msg::MissionState::IDLE;
+    missionState_ = *message;
+    haveMissionState_ = true;
+    for (std::size_t i = 0; i < waypoints_.size(); ++i) {
+        const bool completed = message->state == shalom_interfaces::msg::MissionState::COMPLETED ||
+                               message->state == shalom_interfaces::msg::MissionState::RETURNING;
+        const bool before_current = message->current_step >= 0 &&
+                                    i < std::size_t(message->current_step);
+        const bool current = message->current_step >= 0 &&
+                             i == std::size_t(message->current_step);
+        waypoints_[i]["status"] = completed || before_current ? "done"
+            : current && message->state == shalom_interfaces::msg::MissionState::FAILED ? "error"
+            : current ? "current" : "todo";
+    }
+    publishWaypoints();
     publishMission();
-    RCLCPP_INFO(get_logger(), "미션 %s -> %s (%s)",
-                mission_manager::to_string(before),
-                mission_manager::to_string(t.to), why ? why : t.reason);
-    return t;
-}
-
-void BridgeNode::tickMission()
-{
-    using mission_manager::MissionEvent;
-    using mission_manager::MissionState;
-    using mission_manager::bt::Status;
-
-    if (missionFsm_.state() == MissionState::kReturning) {
-        tickReturn();
-        return;
-    }
-    if (missionFsm_.state() != MissionState::kRunning)
-        return;
-
-    if (waypoints_.empty()) {
-        dispatchMission(MissionEvent::kMissionComplete, "점검포인트가 없다");
-        return;
-    }
-    if (missionIndex_ >= waypoints_.size()) {
-        dispatchMission(MissionEvent::kMissionComplete, "모든 지점 완료");
-        return;
-    }
-
-    // 목표 식별자로 순번을 쓴다. BT 는 목표가 바뀌었는지만 알면 되고,
-    // 좌표는 navigate_to 가 waypoints_ 에서 읽는다.
-    const Status status = navBt_.tick(*this, std::to_string(missionIndex_));
-    if (status == Status::kRunning)
-        return;
-
-    if (status == Status::kFailure) {
-        if (goalUnsendable_) {
-            goalUnsendable_ = false;
-            dispatchMission(MissionEvent::kPause, "목표를 보내지 못했다");
-            return;
-        }
-        setWaypointStatus(missionIndex_, "error");
-        dispatchMission(MissionEvent::kStepFailed, "목표에 도달하지 못했다");
-        return;
-    }
-
-    setWaypointStatus(missionIndex_, "done");
-    ++missionIndex_;
-    if (missionIndex_ >= waypoints_.size()) {
-        dispatchMission(MissionEvent::kMissionComplete, "모든 지점 완료");
+    if (message->state == shalom_interfaces::msg::MissionState::COMPLETED &&
+        previous != message->state) {
         sendEnvelope(makeEvent(kChLog, json{{"code", "MISSION_COMPLETE"}}));
-    } else {
-        publishMission();
     }
-}
-
-/// 충전 스테이션으로 돌아간다.
-///
-/// FSM 이 복귀를 하나의 구간으로 본다. 점검이 끝나면 곧바로 완료가 아니라
-/// 복귀를 거치는데, 그것을 실행하는 쪽이 없으면 상태가 "복귀 중" 에 붙잡힌다.
-void BridgeNode::tickReturn()
-{
-    using mission_manager::MissionEvent;
-    using mission_manager::bt::Status;
-
-    if (dockIndex_ < 0) {
-        dockIndex_ = findDock();
-        if (dockIndex_ < 0) {
-            // 등록된 도크가 없으면 돌아갈 곳이 없다. 붙잡아 두는 대신
-            // 완료로 두고 그 사실을 남긴다 — 점검 자체는 끝났다.
-            RCLCPP_WARN(get_logger(),
-                        "충전 스테이션이 등록되어 있지 않아 복귀를 건너뛴다");
-            dispatchMission(MissionEvent::kReturnComplete, "도크 없음");
-            return;
-        }
-    }
-
-    const Status status = navBt_.tick(*this, "dock");
-    if (status == Status::kRunning)
-        return;
-
-    dockIndex_ = -1;
-    goalUnsendable_ = false;
-    if (status == Status::kFailure) {
-        dispatchMission(MissionEvent::kPause, "충전 스테이션으로 돌아가지 못했다");
-        return;
-    }
-    dispatchMission(MissionEvent::kReturnComplete, "복귀 완료");
 }
 
 /// 등록된 위치에서 충전 스테이션을 찾는다. 없으면 -1.
@@ -1448,151 +1537,16 @@ int BridgeNode::findDock() const
     return -1;
 }
 
-// ---- mission_manager::bt::Nav2Runtime ----
-
-mission_manager::bt::Status BridgeNode::navigate_to(const std::string &goal_id)
-{
-    using mission_manager::bt::Status;
-
-    switch (goalPhase_) {
-    case GoalPhase::Active:
-        return Status::kRunning;
-    case GoalPhase::Succeeded:
-        goalPhase_ = GoalPhase::Idle;
-        return Status::kSuccess;
-    case GoalPhase::Failed:
-        goalPhase_ = GoalPhase::Idle;
-        return Status::kFailure;
-    case GoalPhase::Idle:
-        break;
-    }
-
-    const bool toDock = goal_id == "dock";
-    const bool sent = toDock ? sendPoseGoal(locations_[std::size_t(dockIndex_)])
-                             : sendWaypointGoal(std::stoul(goal_id));
-    if (!sent) {
-        // 아직 보내 보지도 못했다 — Nav2 가 안 떴거나 좌표가 없다. 이것은
-        // 지점 실패가 아니라 시작할 수 없는 상태이므로, 되돌릴 수 없는
-        // fault 대신 일시정지로 둔다. 조작자가 원인을 고치고 재개하면 된다.
-        goalPhase_ = GoalPhase::Idle;
-        goalUnsendable_ = true;
-        return Status::kFailure;
-    }
-    goalPhase_ = GoalPhase::Active;
-    return Status::kRunning;
-}
-
-void BridgeNode::cancel_navigation()
-{
-    if (goalPhase_ == GoalPhase::Active)
-        cancelNavigation("미션 중단");
-    goalPhase_ = GoalPhase::Idle;
-}
-
 void BridgeNode::publishMission()
 {
+    const uint8_t state = haveMissionState_ ? missionState_.state
+        : shalom_interfaces::msg::MissionState::IDLE;
     sendEnvelope(makePublish(kChMission,
-                             json{{"state", mission_manager::to_string(missionFsm_.state())},
-                                  {"index", missionIndex_},
-                                  {"total", waypoints_.size()}}));
-}
-
-void BridgeNode::setWaypointStatus(std::size_t index, const char *status)
-{
-    if (index >= waypoints_.size())
-        return;
-    waypoints_[index]["status"] = status;
-    publishWaypoints();
-}
-
-bool BridgeNode::sendWaypointGoal(std::size_t index)
-{
-    if (index >= waypoints_.size())
-        return false;
-    if (!sendPoseGoal(waypoints_[index]))
-        return false;
-    // 지금 가고 있는 지점을 화면에 표시한다. 도크 복귀에는 해당 없다.
-    setWaypointStatus(index, "current");
-    return true;
-}
-
-/// 좌표가 든 JSON 하나를 Nav2 목표로 보낸다. 점검포인트와 도크가 같은 길을
-/// 쓰므로 한 곳에 둔다.
-bool BridgeNode::sendPoseGoal(const json &wp)
-{
-    if (!wp.contains("x") || !wp.contains("y")) {
-        RCLCPP_ERROR(get_logger(), "목표에 좌표가 없다");
-        return false;
-    }
-    if (!navClient_->action_server_is_ready()) {
-        RCLCPP_ERROR(get_logger(), "자율주행이 준비되지 않았다 (Nav2 응답 없음)");
-        return false;
-    }
-
-    NavigateToPose::Goal goal;
-    goal.pose.header.frame_id = mapFrame_;
-    goal.pose.header.stamp = now();
-    goal.pose.pose.position.x = wp["x"].get<double>();
-    goal.pose.pose.position.y = wp["y"].get<double>();
-
-    tf2::Quaternion q;
-    q.setRPY(0.0, 0.0, wp.value("theta", 0.0));
-    goal.pose.pose.orientation.x = q.x();
-    goal.pose.pose.orientation.y = q.y();
-    goal.pose.pose.orientation.z = q.z();
-    goal.pose.pose.orientation.w = q.w();
-
-    rclcpp_action::Client<NavigateToPose>::SendGoalOptions opts;
-    opts.goal_response_callback = [this](NavGoalHandle::SharedPtr handle) {
-        if (!handle) {
-            navStatus_ = "rejected";
-            RCLCPP_ERROR(get_logger(), "자율주행이 점검 목표를 거부했다");
-            // 거부도 "가 보지도 못한" 쪽이다. 지점을 실패로 적고 오류로
-            // 굳히면, 정작 고칠 것은 Nav2 인데 화면은 그 지점을 탓한다.
-            goalUnsendable_ = true;
-            goalPhase_ = GoalPhase::Failed;
-            return;
-        }
-        navGoal_ = handle;
-        navGoalId_ = handle->get_goal_id();
-        navStatus_ = "navigating";
-    };
-    opts.feedback_callback = [this](NavGoalHandle::SharedPtr handle,
-                                    const std::shared_ptr<const NavigateToPose::Feedback> fb) {
-        if (!handle || handle->get_goal_id() != navGoalId_)
-            return;
-        navDistance_ = fb->distance_remaining;
-        const double eta = double(fb->estimated_time_remaining.sec)
-                           + double(fb->estimated_time_remaining.nanosec) * 1e-9;
-        navEta_ = eta > 0.0 ? json(eta) : json(nullptr);
-    };
-    opts.result_callback = [this](const NavGoalHandle::WrappedResult &result) {
-        if (result.goal_id != navGoalId_)
-            return;
-        const bool ok = result.code == rclcpp_action::ResultCode::SUCCEEDED;
-        const bool canceled = result.code == rclcpp_action::ResultCode::CANCELED;
-        navStatus_ = ok ? "succeeded" : canceled ? "canceled" : "failed";
-        navGoal_.reset();
-        navDistance_ = 0.0;
-        navEta_ = nullptr;
-        sendEnvelope(makeEvent(kChLog, json{{"code", navResultCode(navStatus_)},
-                                            {"goal", navGoalPoint_}}));
-        // 결과는 여기서 기록만 한다. 다음 tick 이 읽어 BT 에 돌려준다 —
-        // 콜백 안에서 순회를 진행시키면 상태 변경이 두 곳에서 일어난다.
-        if (goalPhase_ == GoalPhase::Active)
-            goalPhase_ = canceled ? GoalPhase::Idle
-                                  : (ok ? GoalPhase::Succeeded : GoalPhase::Failed);
-    };
-
-    navGoalPoint_ = json{{"x", goal.pose.pose.position.x},
-                         {"y", goal.pose.pose.position.y},
-                         {"theta", wp.value("theta", 0.0)}};
-    navStatus_ = "accepting";
-    navDistance_ = 0.0;
-    navEta_ = nullptr;
-    missionOwnsGoal_ = true;
-    navClient_->async_send_goal(goal, opts);
-    return true;
+                             json{{"state", missionStateName(state)},
+                                  {"index", haveMissionState_ ? missionState_.current_step : -1},
+                                  {"total", haveMissionState_ ? missionState_.total_steps : 0},
+                                  {"reason_code", haveMissionState_
+                                      ? missionState_.reason_code : std::string()}}));
 }
 
 
@@ -1953,8 +1907,11 @@ void BridgeNode::tickSafety()
     // 이 노드가 죽으면 발행 자체가 멈추고, 안전 노드가 그것을 정지 근거로 쓴다.
     const bool alive = server_.isConnected()
                        && elapsedMs(lastHeartbeat_) <= heartbeatTimeout_.count();
-    std_msgs::msg::Bool msg;
-    msg.data = alive;
+    shalom_interfaces::msg::SafetyHeartbeat msg;
+    msg.stamp = now();
+    msg.sequence = ++rosRequestSequence_;
+    msg.source = "hmi_bridge";
+    msg.alive = alive;
     linkAlivePub_->publish(msg);
 }
 
@@ -1965,16 +1922,44 @@ bool BridgeNode::estopActive() const
 
 void BridgeNode::requestBaseAuthority()
 {
-    std_msgs::msg::String request;
-    request.data = "base";
-    authorityRequestPub_->publish(request);
+    if (!authorityRequestClient_->service_is_ready())
+        return;
+    auto request = std::make_shared<shalom_interfaces::srv::AuthorityRequest::Request>();
+    request->request_id = "hmi-authority-" + std::to_string(++rosRequestSequence_);
+    request->requester = "hmi_bridge";
+    request->operation = shalom_interfaces::srv::AuthorityRequest::Request::REQUEST_BASE;
+    authorityRequestClient_->async_send_request(request);
 }
 
 void BridgeNode::requestSafetyResume()
 {
-    std_msgs::msg::String event;
-    event.data = "resume";
-    safetyEventPub_->publish(event);
+    if (!safetyCommandClient_->service_is_ready())
+        return;
+    auto request = std::make_shared<shalom_interfaces::srv::SafetyCommand::Request>();
+    request->request_id = "hmi-safety-" + std::to_string(++rosRequestSequence_);
+    request->operator_id = "hmi";
+    request->operation = shalom_interfaces::srv::SafetyCommand::Request::RESUME;
+    safetyCommandClient_->async_send_request(request);
+}
+
+void BridgeNode::sendSafetyCommand(const Envelope &request, uint8_t operation)
+{
+    if (!safetyCommandClient_->service_is_ready()) {
+        respond(request, false, err::kUnreachable, "Safety Manager가 준비되지 않았습니다");
+        return;
+    }
+    auto command = std::make_shared<shalom_interfaces::srv::SafetyCommand::Request>();
+    command->request_id = (request.id.empty()
+        ? "hmi-" + std::to_string(++rosRequestSequence_) : request.id) + ":safety";
+    command->operator_id = "hmi";
+    command->operation = operation;
+    safetyCommandClient_->async_send_request(
+        command,
+        [this, request](rclcpp::Client<shalom_interfaces::srv::SafetyCommand>::SharedFuture future) {
+            const auto result = future.get();
+            respond(request, result->accepted,
+                    result->accepted ? std::string() : err::kMode, result->detail);
+        });
 }
 
 void BridgeNode::publishSafety()

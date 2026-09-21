@@ -424,7 +424,7 @@ collision_monitor:
     base_frame_id: "base_link"
     odom_frame_id: "odom"
     cmd_vel_in_topic: "cmd_vel_smoothed"
-    # motion_mux 의 nav 입력으로 보낸다. /cmd_vel 에 바로 쓰면 관제의 수동
+    # twist_mux 의 nav 입력으로 보낸다. /cmd_vel 에 바로 쓰면 관제의 수동
     # 명령과 같은 토픽을 두고 다투게 되고, 우선순위가 발행 순서로 정해진다.
     cmd_vel_out_topic: "/motion/nav/cmd_vel"
     state_topic: "collision_monitor_state"
