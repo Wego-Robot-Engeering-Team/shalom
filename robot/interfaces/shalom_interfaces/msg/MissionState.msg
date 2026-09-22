@@ -10,6 +10,7 @@ uint8 COMPLETED=7
 uint8 FAILED=8
 
 builtin_interfaces/Time stamp
+# Monotonically increasing revision of published mission-state snapshots.
 uint64 sequence
 string mission_id
 uint8 state
