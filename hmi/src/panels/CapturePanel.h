@@ -54,9 +54,9 @@ public:
     /// robot. Sent with the trigger so the robot writes the sidecar.
     hmi::capture::CaptureMetadata currentMetadata() const;
 
-    /// Integration seam: the robot returns the captured frames over
-    /// evt/capture_done. Nothing calls these while the control station runs
-    /// against the simulator, so do not remove them as unused.
+    /// Integration seam: a robot with capture capability returns frames over
+    /// evt/capture_done. Keep these available even when the selected endpoint
+    /// has capture disabled.
     void showPreview2d(const QImage &image);
     void showPreview3d(const QImage &image);
 

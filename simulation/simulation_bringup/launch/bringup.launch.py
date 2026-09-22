@@ -7,6 +7,7 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetE
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -55,6 +56,16 @@ def generate_launch_description():
             "initial_map": LaunchConfiguration("map"),
         }.items(),
     )
+    # The bridge calls the same B2 posture services for hardware and MuJoCo.
+    # This adapter is the simulator-side implementation of that platform
+    # contract; hmi_bridge has no simulation fallback.
+    posture_adapter = Node(
+        package="simulation_bringup",
+        executable="base_posture_adapter.py",
+        name="base_posture_adapter",
+        output="screen",
+        parameters=[{"use_sim_time": True}],
+    )
     rviz = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([robot, "launch", "rviz.launch.py"])),
         launch_arguments={
@@ -88,5 +99,5 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "bridge_config",
             default_value=PathJoinSubstitution([sim, "config", "bridge_sim.yaml"])),
-        platform, navigation, control, station_bridge, rviz,
+        platform, navigation, control, posture_adapter, station_bridge, rviz,
     ])

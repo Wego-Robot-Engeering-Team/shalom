@@ -164,7 +164,7 @@ strip 만으로는 부족하다. 디버그 정보는 줄지만 동적 심볼과 
   `ground_segmentation_ros2`, `nav2_ground_consistency_costmap_plugin`,
   `slamware_ros_sdk` 는 `-O` 플래그 없이 빌드되고 있다.
 - 가시성 hidden, strip, 디버그 심볼은 별도 보관
-- testbed와 개발 도구 제외
+- 테스트 실행 파일과 개발 도구 제외
 
 ### 4. 라이선스 선언 정리
 

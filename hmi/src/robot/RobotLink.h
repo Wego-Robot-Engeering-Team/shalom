@@ -127,10 +127,9 @@ public:
     // ---- link -----------------------------------------------------------
     virtual bool isConnected() const = 0;
 
-    /// Short description of what is on the other end, shown in the title bar
-    /// badge: the word "simulator" in the operator's language, or the bridge
-    /// address and port. Localised strings live in the implementation so that
-    /// this header stays a plain English API reference.
+    /// Short description of the selected endpoint, shown in the title bar.
+    /// Localised strings live in the implementation so that this header stays
+    /// a plain English API reference.
     virtual QString describe() const = 0;
 
     /// A map the link can supply before any arrives over the wire.

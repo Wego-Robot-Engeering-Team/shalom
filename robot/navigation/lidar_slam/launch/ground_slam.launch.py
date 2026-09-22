@@ -109,16 +109,6 @@ def generate_launch_description():
                               description="Run slam_toolbox. Off when localizing against a saved map."),
         DeclareLaunchArgument("range_min", default_value="0.4"),
         DeclareLaunchArgument("range_max", default_value="30.0"),
-        # 설정 파일은 부르는 쪽이 준다. 기본값을 두지 않는다.
-        #
-        # 예전에는 이 패키지 안에 한 벌을 두고 기본값으로 걸어 두었는데, 실제로
-        # 도는 것은 늘 robot_bringup 이 넘기는 navigation/config/ 쪽이었다.
-        # 두 벌이 갈라져도 아무도 몰랐고 — 지면 높이가 1.20 과 1.50 으로 달랐다 —
-        # 패키지 안의 것을 고치면 아무 일도 일어나지 않았다. slam.yaml 은
-        # 아예 없는 파일을 가리키고 있었다.
-        #
-        # 이 값들은 로봇마다 다르다. 라이다 장착 높이와 로봇 좌표계가 들어
-        # 있으므로, "그럴듯한 기본값" 이라는 것이 존재하지 않는다.
         DeclareLaunchArgument(
             "gseg_params_file",
             description="지면 분리 파라미터. 라이다 장착 높이와 로봇 좌표계가 "

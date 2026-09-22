@@ -21,8 +21,3 @@
         topic: "/b2/joint_states"
         type: "sensor_msgs/msg/JointState"
         expected_hz: 200.0
-
-    # 시뮬레이터에는 B2 SDK 의 SportClient 서비스가 없어 실제 자세 전환을 할 수
-    # 없다. 요청을 로그로만 처리해 관제 화면과 연동 코드를 여기서 시험한다.
-    # 실기 설정(robot/hmi_bridge/config/bridge.yaml)에는 이 줄이 없어야 한다.
-    base.posture_dry_run: true

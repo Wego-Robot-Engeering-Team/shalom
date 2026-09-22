@@ -245,8 +245,8 @@ private:
 
     bool didInitialFit_ = false;
 
-    /// Either the built-in simulator or the real bridge client. The window
-    /// deliberately does not know which: everything goes through the interface.
+    /// The selected robot endpoint. The window deliberately knows no platform
+    /// implementation details: everything goes through this interface.
     hmi::robot::RobotLink *robot_ = nullptr;
     hmi::robot::MapData mapData_;
     QList<QVariantMap> maps_;

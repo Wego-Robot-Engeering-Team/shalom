@@ -4,9 +4,9 @@
 
 // Types shared between the control station and whatever is driving the robot.
 //
-// These are deliberately transport-agnostic: the same structures are produced
-// by the built-in simulator and by the real bridge client, so the panels never
-// learn which one they are talking to.
+// These are deliberately transport-agnostic: every robot endpoint supplies
+// the same structures through the bridge client, so the panels never learn how
+// that endpoint is implemented.
 
 #include <QList>
 #include <QMetaType>

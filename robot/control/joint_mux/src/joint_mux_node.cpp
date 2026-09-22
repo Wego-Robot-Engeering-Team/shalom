@@ -28,9 +28,6 @@ public:
     const auto output_hz = declare_parameter<double>("output_hz", 20.0);
     source_timeout_ = std::chrono::milliseconds(source_timeout_ms);
 
-    // Priority is the array order. No two publishers ever race on the final
-    // arm topic: a fresh teleop command wins, then an operator hold, then the
-    // FR3 behaviour tree. Each source must renew its own lease.
     constexpr std::array<const char *, 3> names{"teleop", "manual_hold", "fr3_bt"};
     constexpr std::array<const char *, 3> defaults{
       "/motion/arm/joint_command/teleop",
@@ -61,8 +58,6 @@ private:
         return;
       }
     }
-    // No synthetic zero JointState: position-controlled arms must be stopped
-    // by their vendor stop/mode interface, never by inventing a joint target.
   }
 
   std::array<Source, 3> sources_{};

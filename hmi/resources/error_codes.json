@@ -1703,21 +1703,6 @@
       "actions": []
     },
     {
-      "id": 5110,
-      "code": "BASE_POSTURE_SIMULATED",
-      "severity": "warn",
-      "category": "base",
-      "origin": "브릿지",
-      "channel": "state/base",
-      "clears": "momentary",
-      "title": "자세 전환을 모의로 처리했습니다",
-      "cause": "본체 드라이버가 없는 상태에서 base.posture_dry_run 이 켜져 있어, 로봇은 움직이지 않고 상태만 바뀌었습니다. 시뮬레이터 설정입니다.",
-      "actions": [
-        "실기에서 이 알람이 보이면 base.posture_dry_run 을 끄십시오",
-        "본체 드라이버가 올라와 있는지 확인하십시오"
-      ]
-    },
-    {
       "id": 6001,
       "code": "CAPTURE_SPOOL_FULL",
       "severity": "critical",
