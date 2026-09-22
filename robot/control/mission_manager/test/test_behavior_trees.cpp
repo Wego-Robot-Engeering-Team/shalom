@@ -8,6 +8,7 @@
 #include "mission_manager/bt/capture_bt.hpp"
 #include "mission_manager/bt/nav2_bt.hpp"
 #include "mission_manager/bt/stair_bt.hpp"
+#include "mission_manager/operation_registry.hpp"
 
 namespace {
 
@@ -18,6 +19,7 @@ using mission_manager::bt::Nav2Runtime;
 using mission_manager::bt::StairBt;
 using mission_manager::bt::StairRuntime;
 using mission_manager::bt::Status;
+using mission_manager::execution::OperationRegistry;
 
 void expect(bool condition, const char * message) {
   if (!condition) {
@@ -94,11 +96,42 @@ void test_stair_bt_fails_closed() {
   expect(runtime.halted_stairs_ == 1, "stair halt must reach mobility adapter");
 }
 
+void test_operation_registry_requires_an_implemented_executor() {
+  OperationRegistry registry;
+  int ticks = 0;
+  int halts = 0;
+  expect(registry.add(
+      0, {"navigate", {"navigation"},
+        [&ticks](const std::string &) {
+          ++ticks;
+          return OperationRegistry::Result{Status::Success};
+        },
+        [&halts]() { ++halts; }}),
+    "implemented operation must be registered");
+  expect(!registry.add(
+      0, {"duplicate", {},
+        [](const std::string &) { return OperationRegistry::Result{Status::Success}; },
+        []() {}}),
+    "duplicate operation IDs must be rejected");
+  expect(registry.find(1) == nullptr, "unimplemented operation must remain unavailable");
+
+  const auto * executor = registry.find(0);
+  expect(executor != nullptr, "registered operation must be discoverable");
+  expect(executor->required_capabilities.size() == 1 &&
+         executor->required_capabilities.front() == "navigation",
+    "executor must declare its required capabilities");
+  expect(executor->tick("waypoint-1").status == Status::Success && ticks == 1,
+    "registry must invoke the registered tick callback");
+  executor->halt();
+  expect(halts == 1, "registry must invoke the registered halt callback");
+}
+
 }  // namespace
 
 int main() {
   test_nav2_bt_tracks_and_cancels_one_goal();
   test_capture_bt_requires_all_steps();
   test_stair_bt_fails_closed();
+  test_operation_registry_requires_an_implemented_executor();
   return 0;
 }

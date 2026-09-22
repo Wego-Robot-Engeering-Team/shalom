@@ -137,8 +137,14 @@ plan과 checkpoint를 소유한다. 따라서 HMI 또는 bridge가 끊기거나 
 - `request_id` 재전송은 기존 응답을 반환하고 plan을 두 번 적용하지 않는다.
 - active 상태에서는 다른 plan/revision으로 교체할 수 없다.
 - `return_to_dock=true`이면 dock approach가 반드시 있어야 `READY`에 진입한다.
-- B2-only waypoint는 `NAVIGATE_ONLY`를 사용한다.
-- `INSPECT` waypoint는 필요한 capture capability가 없으면 plan 전체를 거부한다.
+- waypoint operation은 등록된 executor가 있을 때만 수락한다. 현재 B2 배포에는
+  `NAVIGATE_ONLY` executor만 등록돼 있다.
+- capability는 로봇 배포 설정의 `available_capabilities`로 명시한다. executor가
+  등록돼 있어도 필요한 capability가 없으면 plan 전체를 거부한다.
+- operation의 기본 capability는 executor가 선언한다. Mission plan과 waypoint의
+  `required_capabilities`에는 해당 미션에만 필요한 추가 요구사항을 기록한다.
+- `INSPECT` 등 아직 연결되지 않은 operation은 capability 문자열만 추가해서 활성화할
+  수 없으며, 실제 executor와 adapter가 등록될 때까지 fail-closed로 거절한다.
 
 도킹은 다음 세 단계로 분리한다.
 

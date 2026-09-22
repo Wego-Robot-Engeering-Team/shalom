@@ -1269,7 +1269,6 @@ std::optional<shalom_interfaces::msg::MissionPlan> BridgeNode::makeMissionPlan(
     plan.revision = missionPlanRevision_ == 0 ? ++missionPlanRevision_ : missionPlanRevision_;
     plan.map_id = mapId_.empty() ? "live" : mapId_;
     plan.mission_id = plan.map_id + ":" + std::to_string(plan.revision);
-    plan.required_capabilities = {"navigation"};
 
     for (std::size_t i = 0; i < waypoints_.size(); ++i) {
         const auto &point = waypoints_[i];

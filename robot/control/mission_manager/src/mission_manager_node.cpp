@@ -7,6 +7,7 @@
 #include <deque>
 #include <functional>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -29,6 +30,7 @@
 
 #include "mission_manager/bt/nav2_bt.hpp"
 #include "mission_manager/mission_state_machine.hpp"
+#include "mission_manager/operation_registry.hpp"
 
 namespace {
 
@@ -92,7 +94,7 @@ public:
     stopped_feedback_timeout_ = std::chrono::milliseconds(
       declare_parameter<int>("stopped_feedback_timeout_ms", 500));
     for (const auto & capability : declare_parameter<std::vector<std::string>>(
-           "available_capabilities", std::vector<std::string>{"navigation"})) {
+           "available_capabilities", std::vector<std::string>{})) {
       available_capabilities_.insert(capability);
     }
 
@@ -126,6 +128,7 @@ public:
     safety_client_ = create_client<SafetyCommand>("/safety/command");
     authority_client_ = create_client<AuthorityRequest>("/motion/authority/request");
     nav_client_ = rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose");
+    register_operation_executors();
     timer_ = create_wall_timer(100ms, std::bind(&MissionManagerNode::tick, this));
     publish_state();
   }
@@ -154,6 +157,64 @@ private:
 
   bool has_capability(const std::string & capability) const {
     return available_capabilities_.find(capability) != available_capabilities_.end();
+  }
+
+  void register_operation_executors() {
+    const bool added = operation_registry_.add(
+      MissionWaypoint::NAVIGATE_ONLY,
+      {
+        "navigate",
+        {"navigation"},
+        [this](const std::string & goal_id) {
+          const auto status = nav_bt_.tick(*this, goal_id);
+          if (status != mission_manager::bt::Status::Failure) {
+            return mission_manager::execution::OperationRegistry::Result{status};
+          }
+          const bool unavailable = goal_unsendable_;
+          goal_unsendable_ = false;
+          return mission_manager::execution::OperationRegistry::Result{
+            status,
+            unavailable
+              ? mission_manager::execution::OperationRegistry::FailurePolicy::Pause
+              : mission_manager::execution::OperationRegistry::FailurePolicy::Fail,
+            unavailable ? "MISSION_NAV_UNAVAILABLE" : "MISSION_NAV_FAILED"};
+        },
+        [this]() { nav_bt_.halt(*this); },
+      });
+    if (!added) {
+      throw std::logic_error("failed to register NAVIGATE_ONLY executor");
+    }
+  }
+
+  bool executor_is_available(
+      const mission_manager::execution::OperationRegistry::Executor & executor,
+      std::string & missing_capability) const {
+    for (const auto & capability : executor.required_capabilities) {
+      if (!has_capability(capability)) {
+        missing_capability = capability;
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool validate_operation(uint8_t operation, const std::string & context,
+                          std::string & code, std::string & detail) const {
+    const auto * executor = operation_registry_.find(operation);
+    if (executor == nullptr) {
+      code = "MISSION_OPERATION_UNAVAILABLE";
+      detail = "no executor is registered for " + context + " operation " +
+        std::to_string(operation);
+      return false;
+    }
+    std::string missing_capability;
+    if (!executor_is_available(*executor, missing_capability)) {
+      code = "MISSION_CAPABILITY_UNAVAILABLE";
+      detail = context + " operation " + executor->name +
+        " requires unavailable capability: " + missing_capability;
+      return false;
+    }
+    return true;
   }
 
   bool validate_plan(const MissionPlan & plan, std::string & code, std::string & detail) const {
@@ -186,11 +247,7 @@ private:
         detail = "waypoint pose is not finite or has an invalid orientation";
         return false;
       }
-      if (waypoint.operation != MissionWaypoint::NAVIGATE_ONLY) {
-        code = "MISSION_CAPABILITY_UNAVAILABLE";
-        detail = "inspection execution is not connected in the B2-only phase";
-        return false;
-      }
+      if (!validate_operation(waypoint.operation, "waypoint", code, detail)) return false;
       for (const auto & capability : waypoint.required_capabilities) {
         if (!has_capability(capability)) {
           code = "MISSION_CAPABILITY_UNAVAILABLE";
@@ -199,11 +256,27 @@ private:
         }
       }
     }
-    if (plan.return_to_dock &&
-        (!plan.has_dock_approach || !finite_pose(plan.dock_approach.target_pose))) {
-      code = "MISSION_DOCK_APPROACH_REQUIRED";
-      detail = "return_to_dock requires a valid dock approach pose";
-      return false;
+    if (plan.return_to_dock) {
+      if (!plan.has_dock_approach || !finite_pose(plan.dock_approach.target_pose)) {
+        code = "MISSION_DOCK_APPROACH_REQUIRED";
+        detail = "return_to_dock requires a valid dock approach pose";
+        return false;
+      }
+      if (plan.dock_approach.operation != MissionWaypoint::NAVIGATE_ONLY) {
+        code = "MISSION_DOCK_APPROACH_INVALID";
+        detail = "dock approach must use the navigation operation";
+        return false;
+      }
+      if (!validate_operation(plan.dock_approach.operation, "dock approach", code, detail)) {
+        return false;
+      }
+      for (const auto & capability : plan.dock_approach.required_capabilities) {
+        if (!has_capability(capability)) {
+          code = "MISSION_CAPABILITY_UNAVAILABLE";
+          detail = "dock approach capability is unavailable: " + capability;
+          return false;
+        }
+      }
     }
     return true;
   }
@@ -405,7 +478,12 @@ private:
     if (!transition.accepted) return false;
     reason_code_ = reason_code;
     ++sequence_;
-    if (transition.to == mission_manager::core::State::Pausing) nav_bt_.halt(*this);
+    if (transition.to == mission_manager::core::State::Pausing) {
+      if (active_operation_.has_value()) {
+        if (const auto * executor = operation_registry_.find(*active_operation_)) executor->halt();
+        active_operation_.reset();
+      }
+    }
     if (event == mission_manager::core::Event::StartRequested) mission_index_ = 0;
     if (transition.to == mission_manager::core::State::Idle) {
       has_plan_ = false;
@@ -486,14 +564,25 @@ private:
       return;
     }
     const std::string goal_id = returning ? "dock" : std::to_string(mission_index_);
-    const auto status = nav_bt_.tick(*this, goal_id);
-    if (status == Status::Running) return;
-    if (status == Status::Failure) {
-      dispatch(goal_unsendable_ ? Event::PauseRequested : Event::FatalStepFailure,
-               goal_unsendable_ ? "MISSION_NAV_UNAVAILABLE" : "MISSION_NAV_FAILED");
-      goal_unsendable_ = false;
+    const auto operation = returning
+      ? plan_.dock_approach.operation : plan_.waypoints[mission_index_].operation;
+    const auto * executor = operation_registry_.find(operation);
+    if (executor == nullptr) {
+      dispatch(Event::FatalStepFailure, "MISSION_OPERATION_UNAVAILABLE");
       return;
     }
+    active_operation_ = operation;
+    const auto result = executor->tick(goal_id);
+    if (result.status == Status::Running) return;
+    if (result.status == Status::Failure) {
+      dispatch(
+        result.failure_policy ==
+          mission_manager::execution::OperationRegistry::FailurePolicy::Pause
+          ? Event::PauseRequested : Event::FatalStepFailure,
+        result.reason_code.empty() ? "MISSION_STEP_FAILED" : result.reason_code);
+      return;
+    }
+    active_operation_.reset();
     if (returning) {
       dispatch(Event::ReturnComplete, "MISSION_RETURN_COMPLETE");
       return;
@@ -568,6 +657,7 @@ private:
 
   mission_manager::core::StateMachine fsm_;
   mission_manager::bt::Nav2Bt nav_bt_;
+  mission_manager::execution::OperationRegistry operation_registry_;
   MissionPlan plan_;
   bool has_plan_{false};
   bool start_requested_{false};
@@ -594,6 +684,7 @@ private:
   std::optional<std::chrono::steady_clock::time_point> last_dependency_request_;
   GoalPhase goal_phase_{GoalPhase::Idle};
   bool goal_unsendable_{false};
+  std::optional<uint8_t> active_operation_;
   NavGoalHandle::SharedPtr nav_goal_;
 
   std::unordered_map<std::string, ConfigureMission::Response> configure_cache_;

@@ -44,9 +44,16 @@ The plan is replaced only while Mission is `IDLE`, `READY`, `COMPLETED`, or
 different plan revision. Retrying the same `request_id` returns the original
 response without replacing the plan twice.
 
-`NAVIGATE_ONLY` is the B2 simulation operation. `INSPECT` additionally requires
-the capture capabilities declared by the waypoint. A missing capability rejects
-the complete plan before Mission enters `READY`; a step is never faked or skipped.
+Waypoint operations are accepted only when `mission_manager` has a registered
+executor and the deployment configuration declares every capability required by
+that executor and waypoint. The current B2 profile registers `NAVIGATE_ONLY` and
+enables `navigation`. `INSPECT` remains fail-closed until its real executor and
+adapters are connected; a step is never faked or skipped.
+
+An executor owns the baseline capabilities inherent to its operation. Mission-
+and waypoint-level `required_capabilities` contain only additional requirements
+for that particular plan, avoiding duplicated capability declarations in the HMI
+bridge.
 
 When `return_to_dock` is true, `has_dock_approach` must also be true and the dock
 waypoint must require only available capabilities. Reaching it means only that
