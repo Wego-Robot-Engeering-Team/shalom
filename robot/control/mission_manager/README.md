@@ -26,8 +26,14 @@ IDLE ─구성→ READY ─시작→ RUNNING ─점검 완료→ RETURNING(선�
 - 목표 FSM: `IDLE`, `READY`, `RUNNING`, `PAUSING`, `PAUSED`, `RECOVERING`,
   `RETURNING`, `COMPLETED`, `FAILED`와 명시적 재개를 모델링한다.
 - BT: 지점 작업과 복귀 순서를 모델링한다.
-- `mission_manager_node`가 이 단일 `StateMachine`, immutable plan과 Nav2 adapter를
+- `mission_manager_node`가 이 단일 `StateMachine`, immutable plan과 실행 adapter를
   소유한다. `hmi_bridge`는 typed service를 호출하고 상태를 HMI TCP로 변환할 뿐이다.
+- waypoint operation은 `OperationRegistry`에 등록된 executor로 실행한다. 새 작업은
+  executor와 필요 capability를 등록하며, 공통 plan 검증과 tick 경로는 바꾸지 않는다.
+- `available_capabilities`는 코드 기본값이 아니라 로봇 배포 설정에서 명시한다.
+  executor 등록과 capability 활성화가 모두 충족돼야 해당 작업을 수락한다.
+- operation의 기본 capability는 executor가 소유한다. Mission plan의
+  `required_capabilities`는 특정 미션이나 waypoint의 추가 요구사항에만 사용한다.
 - 실제 E-stop, watchdog, `/cmd_vel` 최종 차단은 별도 `safety_manager`,
   `safety_gate`, 드라이버 레벨 timeout이 맡는다. 이 FSM만으로 안전 기능이 구현되지는 않는다.
 
@@ -35,9 +41,11 @@ IDLE ─구성→ READY ─시작→ RUNNING ─점검 완료→ RETURNING(선�
 
 - `mission_manager::core::StateMachine`과 전이 테스트가 구현됐다. 이 코어는
   `PAUSING`에서 BT halt, gate zero, B2 정지가 모두 확인된 뒤에만 다음 상태로 간다.
-- `Nav2Bt`가 점검포인트 순회와 도크 복귀를 모두 맡는다. `hmi_bridge`가
-  `Nav2Runtime`을 구현해 Nav2 목표를 보내고 결과를 되돌려 준다.
-- 상태는 `state/mission`으로 관제에 그대로 나간다.
+- `Nav2Bt`가 점검포인트 순회와 도크 복귀를 모두 맡는다. `mission_manager_node`가
+  `Nav2Runtime`을 구현해 Nav2 목표를 보내고 결과를 되돌려 받는다.
+- 현재 배포 설정은 `navigation` capability와 `NAVIGATE_ONLY` executor만 활성화한다.
+  연결되지 않은 작업은 plan 구성 단계에서 fail-closed로 거절한다.
+- 상태는 `/mission/state`로 관제에 그대로 나간다.
 
 ## 아직 연결되지 않은 것
 

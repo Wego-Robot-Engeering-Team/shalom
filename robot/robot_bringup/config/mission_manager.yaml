@@ -1,0 +1,6 @@
+mission_manager:
+  ros__parameters:
+    # Capabilities are deployment facts, not compiled-in assumptions. An
+    # operation is accepted only when its executor is registered as well.
+    available_capabilities:
+      - navigation

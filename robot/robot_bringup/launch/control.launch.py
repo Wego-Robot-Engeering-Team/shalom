@@ -18,10 +18,14 @@ def generate_launch_description():
     twist_mux_config = PathJoinSubstitution([
         FindPackageShare("robot_bringup"), "config", "twist_mux.yaml"
     ])
+    mission_manager_config = PathJoinSubstitution([
+        FindPackageShare("robot_bringup"), "config", "mission_manager.yaml"
+    ])
     use_sim_time = ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool)
 
     return LaunchDescription([
         DeclareLaunchArgument("use_sim_time", default_value="false"),
+        DeclareLaunchArgument("mission_manager_config", default_value=mission_manager_config),
         DeclareLaunchArgument("base_output_topic", default_value="/cmd_vel"),
         DeclareLaunchArgument("base_odometry_topic", default_value="/b2/odom"),
         DeclareLaunchArgument("require_external_heartbeat", default_value="true"),
@@ -33,7 +37,10 @@ def generate_launch_description():
         Node(
             package="mission_manager", executable="mission_manager_node",
             name="mission_manager", output="screen",
-            parameters=[{"use_sim_time": use_sim_time}],
+            parameters=[
+                LaunchConfiguration("mission_manager_config"),
+                {"use_sim_time": use_sim_time},
+            ],
         ),
         Node(
             package="safety_manager", executable="safety_manager_node",
