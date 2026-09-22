@@ -11,8 +11,7 @@
 // WHAT THIS CLASS IS RESPONSIBLE FOR
 // ----------------------------------
 //   - framing, via FrameDecoder (protocol section 1.1)
-//   - the heartbeat in both directions, and deciding when the pose has gone
-//     stale (section 5)
+//   - the general HMI heartbeat and a separate E-Stop heartbeat (section 5)
 //   - reconnecting with backoff, and *not* resuming anything afterwards
 //   - assembling per-channel messages into whole telemetry snapshots
 //   - the link counters the diagnostics panel shows
@@ -115,12 +114,18 @@ private:
     void onDisconnected();
     void onSocketError();
     void onReadyRead();
+    void onEstopConnected();
+    void onEstopDisconnected();
+    void onEstopSocketError();
+    void onEstopReadyRead();
 
     void sendEnvelope(const Envelope &env);
+    void sendEstopEnvelope(const Envelope &env);
 
     /// Sends a command and remembers it so a missing response can be reported
     /// rather than silently swallowed.
     void sendRequest(const QString &channel, const QJsonObject &payload = {});
+    void sendEstopRequest(const QString &channel, const QJsonObject &payload = {});
 
     /// Publishes a loss-tolerant message. Dropped when the socket is backed up,
     /// because queueing stale velocity commands is worse than skipping them.
@@ -130,22 +135,29 @@ private:
     void handleResponse(const Envelope &env);
     void handlePublish(const Envelope &env);
     void handleHeartbeat(const Envelope &env);
+    void handleEstopFrame(const Frame &frame);
 
     void scheduleReconnect();
+    void scheduleEstopReconnect();
     void resetLinkState();
     void checkTimeouts();
     void emitTelemetry();
 
     QString host_;
     quint16 port_;
+    quint16 estopPort_;
 
     QTcpSocket *socket_ = nullptr;
+    QTcpSocket *estopSocket_ = nullptr;
     QUdpSocket *teleopSocket_ = nullptr;
     FrameDecoder decoder_;
+    FrameDecoder estopDecoder_;
 
     QTimer *heartbeatTimer_ = nullptr;   ///< outgoing, 5 Hz
+    QTimer *estopHeartbeatTimer_ = nullptr; ///< outgoing, dedicated E-Stop link
     QTimer *watchdogTimer_ = nullptr;    ///< checks for silence and timeouts
     QTimer *reconnectTimer_ = nullptr;
+    QTimer *estopReconnectTimer_ = nullptr;
     QTimer *telemetryTimer_ = nullptr;   ///< emits assembled snapshots
 
     /// Backoff grows to a ceiling rather than retrying tightly: a bridge that
@@ -169,6 +181,7 @@ private:
     double batteryDepartAt_ = 0.0;
 
     qint64 heartbeatSeq_ = 0;
+    qint64 estopHeartbeatSeq_ = 0;
     qint64 teleopSeq_ = 0;
     QHash<qint64, qint64> heartbeatSentAt_;   ///< seq -> monotonic ms
     qint64 lastHeartbeatMs_ = 0;

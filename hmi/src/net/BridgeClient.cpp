@@ -10,6 +10,8 @@
 #include <QTimer>
 #include <QUdpSocket>
 
+#include <limits>
+
 #include "net/Channels.h"
 
 namespace hmi::net {
@@ -36,6 +38,7 @@ constexpr qint64 kRequestTimeoutMs = 3000;
 
 constexpr int kReconnectMinMs = 500;
 constexpr int kReconnectMaxMs = 5000;
+constexpr quint16 kEstopPortOffset = 1;
 
 /// 송신 버퍼가 이보다 쌓이면 손실 허용 메시지를 버린다. 밀린 속도 명령을
 /// 뒤늦게 보내는 것은 안 보내느니만 못하다.
@@ -58,7 +61,9 @@ QList<QPointF> pointsFrom(const QJsonArray &arr)
 }  // namespace
 
 BridgeClient::BridgeClient(QString host, quint16 port, QObject *parent)
-    : hmi::robot::RobotLink(parent), host_(std::move(host)), port_(port)
+    : hmi::robot::RobotLink(parent), host_(std::move(host)), port_(port),
+      estopPort_(port < std::numeric_limits<quint16>::max()
+                     ? quint16(port + kEstopPortOffset) : 0)
 {
     clock_.start();
 
@@ -67,6 +72,11 @@ BridgeClient::BridgeClient(QString host, quint16 port, QObject *parent)
     connect(socket_, &QTcpSocket::disconnected, this, &BridgeClient::onDisconnected);
     connect(socket_, &QTcpSocket::errorOccurred, this, &BridgeClient::onSocketError);
     connect(socket_, &QTcpSocket::readyRead, this, &BridgeClient::onReadyRead);
+    estopSocket_ = new QTcpSocket(this);
+    connect(estopSocket_, &QTcpSocket::connected, this, &BridgeClient::onEstopConnected);
+    connect(estopSocket_, &QTcpSocket::disconnected, this, &BridgeClient::onEstopDisconnected);
+    connect(estopSocket_, &QTcpSocket::errorOccurred, this, &BridgeClient::onEstopSocketError);
+    connect(estopSocket_, &QTcpSocket::readyRead, this, &BridgeClient::onEstopReadyRead);
     teleopSocket_ = new QUdpSocket(this);
 
     heartbeatTimer_ = new QTimer(this);
@@ -74,6 +84,11 @@ BridgeClient::BridgeClient(QString host, quint16 port, QObject *parent)
     connect(heartbeatTimer_, &QTimer::timeout, this, [this] {
         sendEnvelope(makeHeartbeat(++heartbeatSeq_));
         heartbeatSentAt_.insert(heartbeatSeq_, clock_.elapsed());
+    });
+    estopHeartbeatTimer_ = new QTimer(this);
+    estopHeartbeatTimer_->setInterval(kHeartbeatMs);
+    connect(estopHeartbeatTimer_, &QTimer::timeout, this, [this] {
+        sendEstopEnvelope(makeHeartbeat(++estopHeartbeatSeq_));
     });
 
     watchdogTimer_ = new QTimer(this);
@@ -86,6 +101,12 @@ BridgeClient::BridgeClient(QString host, quint16 port, QObject *parent)
     connect(reconnectTimer_, &QTimer::timeout, this, [this] {
         if (wantConnection_)
             socket_->connectToHost(host_, port_);
+    });
+    estopReconnectTimer_ = new QTimer(this);
+    estopReconnectTimer_->setSingleShot(true);
+    connect(estopReconnectTimer_, &QTimer::timeout, this, [this] {
+        if (wantConnection_ && estopPort_ != 0)
+            estopSocket_->connectToHost(host_, estopPort_);
     });
 
     telemetryTimer_ = new QTimer(this);
@@ -116,6 +137,8 @@ void BridgeClient::connectToBridge()
     reconnectDelayMs_ = kReconnectMinMs;
     if (socket_->state() == QAbstractSocket::UnconnectedState)
         socket_->connectToHost(host_, port_);
+    if (estopPort_ != 0 && estopSocket_->state() == QAbstractSocket::UnconnectedState)
+        estopSocket_->connectToHost(host_, estopPort_);
 }
 
 void BridgeClient::setEndpoint(const QString &host, quint16 port)
@@ -130,6 +153,8 @@ void BridgeClient::setEndpoint(const QString &host, quint16 port)
 
     host_ = host;
     port_ = port;
+    estopPort_ = port < std::numeric_limits<quint16>::max()
+        ? quint16(port + kEstopPortOffset) : 0;
     robotId_.clear();
     robotName_.clear();
     emit robotIdentity(QString(), QString());
@@ -143,7 +168,9 @@ void BridgeClient::disconnectFromBridge()
     // 의도적인 종료다. 자동으로 되살아나면 안 된다.
     wantConnection_ = false;
     reconnectTimer_->stop();
+    estopReconnectTimer_->stop();
     socket_->abort();
+    estopSocket_->abort();
 }
 
 void BridgeClient::requestMapCatalog()
@@ -214,10 +241,37 @@ void BridgeClient::onDisconnected()
     scheduleReconnect();
 }
 
+void BridgeClient::onEstopConnected()
+{
+    estopSocket_->setSocketOption(QAbstractSocket::LowDelayOption, 1);
+    estopSocket_->setSocketOption(QAbstractSocket::KeepAliveOption, 1);
+    estopDecoder_.reset();
+    estopHeartbeatTimer_->start();
+    // 안전 감시를 초기화하려면 첫 heartbeat가 바로 나가야 한다. 타이머 한
+    // 주기를 기다리면 연결 직후 200 ms 동안 불필요하게 controlled-stop이다.
+    sendEstopEnvelope(makeHeartbeat(++estopHeartbeatSeq_));
+}
+
+void BridgeClient::onEstopDisconnected()
+{
+    estopHeartbeatTimer_->stop();
+    estopDecoder_.reset();
+    if (wantConnection_ && everConnected_)
+        emit robotEvent(QStringLiteral("ESTOP_LINK_LOST"),
+                        {{"peer", QStringLiteral("%1:%2").arg(host_).arg(estopPort_)}});
+    scheduleEstopReconnect();
+}
+
 void BridgeClient::onSocketError()
 {
     if (socket_->state() != QAbstractSocket::ConnectedState)
         scheduleReconnect();
+}
+
+void BridgeClient::onEstopSocketError()
+{
+    if (estopSocket_->state() != QAbstractSocket::ConnectedState)
+        scheduleEstopReconnect();
 }
 
 void BridgeClient::resetLinkState()
@@ -244,6 +298,15 @@ void BridgeClient::scheduleReconnect()
     reconnectDelayMs_ = qMin(reconnectDelayMs_ * 2, kReconnectMaxMs);
 }
 
+void BridgeClient::scheduleEstopReconnect()
+{
+    if (!wantConnection_ || estopPort_ == 0 || estopReconnectTimer_->isActive())
+        return;
+    // E-Stop 연결은 일반 HMI reconnect backoff와 분리한다. 일반 채널이
+    // 정상이어도 전용 안전 채널은 즉시 복구를 계속 시도해야 한다.
+    estopReconnectTimer_->start(kReconnectMinMs);
+}
+
 // ================= 송신 =================
 
 void BridgeClient::sendEnvelope(const Envelope &env)
@@ -263,6 +326,17 @@ void BridgeClient::sendEnvelope(const Envelope &env)
     txBytes_ += wire.size();
 }
 
+void BridgeClient::sendEstopEnvelope(const Envelope &env)
+{
+    if (estopSocket_->state() != QAbstractSocket::ConnectedState)
+        return;
+    Envelope out = env;
+    if (out.robot.isEmpty())
+        out.robot = robotId_;
+    const QByteArray wire = encodeFrame(out.toHeader(), out.payload);
+    estopSocket_->write(wire);
+}
+
 void BridgeClient::sendRequest(const QString &channel, const QJsonObject &payload)
 {
     if (!isConnected()) {
@@ -274,6 +348,19 @@ void BridgeClient::sendRequest(const QString &channel, const QJsonObject &payloa
     const Envelope env = makeRequest(channel, payload);
     pending_.insert(env.id, {channel, clock_.elapsed()});
     sendEnvelope(env);
+}
+
+void BridgeClient::sendEstopRequest(const QString &channel, const QJsonObject &payload)
+{
+    if (estopSocket_->state() != QAbstractSocket::ConnectedState) {
+        emit robotEvent(QStringLiteral("ESTOP_LINK_LOST"),
+                        {{"reason", QStringLiteral("E-Stop 전용 연결이 준비되지 않았습니다")},
+                         {"channel", channel}});
+        return;
+    }
+    const Envelope env = makeRequest(channel, payload);
+    pending_.insert(env.id, {channel, clock_.elapsed()});
+    sendEstopEnvelope(env);
 }
 
 void BridgeClient::publish(const QString &channel, const QJsonObject &payload)
@@ -316,6 +403,24 @@ void BridgeClient::onReadyRead()
     }
 }
 
+void BridgeClient::onEstopReadyRead()
+{
+    estopDecoder_.append(estopSocket_->readAll());
+    Frame frame;
+    for (;;) {
+        const auto status = estopDecoder_.next(frame);
+        if (status == FrameDecoder::Status::NeedMore)
+            return;
+        if (status != FrameDecoder::Status::Ok) {
+            emit robotEvent(QStringLiteral("ESTOP_LINK_FRAME_CORRUPT"),
+                            {{"peer", QStringLiteral("%1:%2").arg(host_).arg(estopPort_)}});
+            estopSocket_->abort();
+            return;
+        }
+        handleEstopFrame(frame);
+    }
+}
+
 void BridgeClient::handleFrame(const Frame &frame)
 {
     QString err;
@@ -352,6 +457,33 @@ void BridgeClient::handleFrame(const Frame &frame)
         handleResponse(e);
     else if (e.t == QLatin1String(mtype::kPub) || e.t == QLatin1String(mtype::kEvt))
         handlePublish(e);
+}
+
+void BridgeClient::handleEstopFrame(const Frame &frame)
+{
+    QString error;
+    const auto env = Envelope::fromHeader(frame.header, &error);
+    if (!env) {
+        emit robotEvent(QStringLiteral("E_VERSION"), {{"detail", error}});
+        estopSocket_->abort();
+        return;
+    }
+    if (!env->robot.isEmpty()) {
+        if (robotId_.isEmpty()) {
+            robotId_ = env->robot;
+            emit robotIdentity(robotId_, robotName_);
+        } else if (robotId_ != env->robot) {
+            emit robotEvent(QStringLiteral("E_ROBOT_MISMATCH"),
+                            {{"expected", robotId_}, {"received", env->robot}});
+            estopSocket_->abort();
+            return;
+        }
+    }
+    if (env->t == QLatin1String(mtype::kRes))
+        handleResponse(*env);
+    // The dedicated server only sends heartbeat and responses. A heartbeat is
+    // not folded into general-link latency, because it has its own socket and
+    // can remain healthy while the map/telemetry socket is being repaired.
 }
 
 void BridgeClient::handleHeartbeat(const Envelope &env)
@@ -685,12 +817,12 @@ void BridgeClient::engageEstop()
 {
     // 화면 상태는 로봇이 state/safety로 확인한 값만 쓴다. 여기서 estop_를
     // 미리 바꾸면 소켓 쓰기 실패도 "발동"으로 보이게 된다.
-    sendRequest(QLatin1String(hmi::ch::kCmdEstop));
+    sendEstopRequest(QLatin1String(hmi::ch::kCmdEstop));
 }
 
 void BridgeClient::releaseEstop()
 {
-    sendRequest(QLatin1String(hmi::ch::kCmdEstopRelease), {{"confirm", true}});
+    sendEstopRequest(QLatin1String(hmi::ch::kCmdEstopRelease), {{"confirm", true}});
 }
 
 void BridgeClient::setMode(DriveMode mode)
