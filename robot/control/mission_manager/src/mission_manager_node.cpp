@@ -281,6 +281,11 @@ private:
     return true;
   }
 
+  void clear_pending_start() {
+    start_requested_ = false;
+    last_dependency_request_.reset();
+  }
+
   void on_configure(const ConfigureMission::Request::SharedPtr request,
                     ConfigureMission::Response::SharedPtr response) {
     if (request->request_id.empty()) {
@@ -309,6 +314,9 @@ private:
     } else if (!validate_plan(request->plan, code, detail)) {
       // validate_plan supplies the reason.
     } else {
+      // A START authorizes only the plan that was current when it was received.
+      // A replacement plan always requires a new explicit START.
+      clear_pending_start();
       if (state == mission_manager::core::State::Ready) {
         fsm_.dispatch(mission_manager::core::Event::StopRequested);
       } else if (state == mission_manager::core::State::Completed ||
@@ -375,7 +383,7 @@ private:
       } else {
         start_requested_ = true;
         reason_code_ = "MISSION_START_REQUESTED";
-        detail_ = "waiting for safety, authority, and localization";
+        detail_ = "waiting for safety, authority, and fresh odometry";
         accepted = true;
         request_dependencies();
         publish_state();
@@ -418,7 +426,7 @@ private:
          message->reason_code == "SAFETY_WATCHDOG_TIMEOUT" ||
          message->state == SafetyState::E_STOP_LATCHED ||
          message->state == SafetyState::FAULT)) {
-      start_requested_ = false;
+      clear_pending_start();
       reason_code_ = "MISSION_START_CANCELLED_BY_SAFETY";
       detail_ = "a new operator start is required after the safety stop";
       ++sequence_;
@@ -455,7 +463,7 @@ private:
     last_stopped_feedback_ = std::chrono::steady_clock::now();
   }
 
-  bool recovery_ready() const {
+  bool motion_dependencies_ready() const {
     const bool odometry_fresh = last_odometry_.has_value() &&
       std::chrono::steady_clock::now() - *last_odometry_ <= 1s;
     return have_safety_state_ && safety_state_ == SafetyState::NORMAL &&
@@ -489,7 +497,7 @@ private:
       has_plan_ = false;
       plan_ = MissionPlan{};
       mission_index_ = 0;
-      start_requested_ = false;
+      clear_pending_start();
     }
     RCLCPP_INFO(get_logger(), "Mission %s -> %s: %s",
       mission_manager::core::to_string(transition.from),
@@ -539,8 +547,8 @@ private:
     using Status = mission_manager::bt::Status;
     const auto state = fsm_.state();
     if (state == State::Ready && start_requested_) {
-      if (recovery_ready()) {
-        start_requested_ = false;
+      if (motion_dependencies_ready()) {
+        clear_pending_start();
         dispatch(Event::StartRequested, "MISSION_STARTED");
       } else {
         request_dependencies();
@@ -552,7 +560,7 @@ private:
       return;
     }
     if (state == State::Recovering) {
-      if (recovery_ready()) dispatch(Event::RecoveryReady, "MISSION_RECOVERY_READY");
+      if (motion_dependencies_ready()) dispatch(Event::RecoveryReady, "MISSION_RECOVERY_READY");
       else request_dependencies();
       return;
     }
