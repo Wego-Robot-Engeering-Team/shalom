@@ -1,8 +1,10 @@
 # safety_gate
 
 `safety_gate`는 motion command를 final driver topic으로 보내기 전 마지막으로
-검사한다. typed `/safety/state`의 motion permit이 만료되거나 typed
-`/motion/authority`가 맞지 않으면 base에는 0 `Twist`만 발행한다.
+검사한다. typed `/safety/state`가 `NORMAL`이고 typed `/motion/authority`가
+`BASE_ACTIVE`일 때만 base 명령을 통과시킨다. `CONTROLLED_STOP`과 `FAULT`에서는
+0 `Twist`를 발행하고, `E_STOP_LATCHED` 또는 safety 상태 timeout에서는 발행을
+차단해 B2 드라이버의 command timeout으로 정지시킨다.
 
 기본 `output_base_topic`은 단독 실행을 위한 `/motion/safe/cmd_vel`이다.
 `robot_bringup/control.launch.py`는 모든 command source를 mux에 모은 뒤 이 출력을

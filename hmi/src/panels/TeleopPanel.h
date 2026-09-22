@@ -5,7 +5,7 @@
 // Manual jog panel. Statement of work 2.2.7 [2] item 2.
 //
 // Direction buttons plus linear and angular speed sliders, publishing
-// cmd/cmd_vel at 20 Hz.
+// UDP teleop packets at 20 Hz through the active RobotLink.
 //
 // Safety design:
 //   - Publishing happens only while a button is held. These are momentary

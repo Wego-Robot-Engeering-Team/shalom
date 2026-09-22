@@ -125,7 +125,7 @@ void acceptsClientAndReportsConnection(std::uint16_t port)
 {
     TcpServer server;
     std::string err;
-    check(server.start(port, &err), "start: " + err);
+    check(server.start(port, std::uint16_t(port + 1), &err), "start: " + err);
 
     Client client;
     check(client.connect(port), "client connects");
@@ -142,11 +142,29 @@ void acceptsClientAndReportsConnection(std::uint16_t port)
     server.stop();
 }
 
+/// 목록의 생존 확인은 제어 포트 번호를 공유하지만, probe 표식으로 구분한다.
+/// 이 짧은 응답이 제어 연결·이벤트를 만들면 안 된다.
+void presenceProbeDoesNotBecomeControlClient(std::uint16_t port)
+{
+    TcpServer server;
+    std::string err;
+    check(server.start(port, std::uint16_t(port + 1), &err), "start: " + err);
+
+    Client probe;
+    check(probe.connect(port), "presence probe connects");
+    probe.write("INSPECTION-PRESENCE/1\n");
+    check(probe.readSome() == "INSPECTION-PRESENCE/1\n", "presence marker returned");
+    std::this_thread::sleep_for(20ms);
+    check(!server.isConnected(), "presence probe did not become a control client");
+    check(server.drain().empty(), "presence probe did not emit control events");
+    server.stop();
+}
+
 void receivesCompleteFrame(std::uint16_t port)
 {
     TcpServer server;
     std::string err;
-    check(server.start(port, &err), "start: " + err);
+    check(server.start(port, std::uint16_t(port + 1), &err), "start: " + err);
 
     Client client;
     check(client.connect(port), "client connects");
@@ -173,7 +191,7 @@ void reassemblesSplitFrame(std::uint16_t port)
 {
     TcpServer server;
     std::string err;
-    check(server.start(port, &err), "start: " + err);
+    check(server.start(port, std::uint16_t(port + 1), &err), "start: " + err);
 
     Client client;
     client.connect(port);
@@ -201,7 +219,7 @@ void handlesCoalescedFrames(std::uint16_t port)
 {
     TcpServer server;
     std::string err;
-    check(server.start(port, &err), "start: " + err);
+    check(server.start(port, std::uint16_t(port + 1), &err), "start: " + err);
 
     Client client;
     client.connect(port);
@@ -224,7 +242,7 @@ void rejectsCorruptedStream(std::uint16_t port)
 {
     TcpServer server;
     std::string err;
-    check(server.start(port, &err), "start: " + err);
+    check(server.start(port, std::uint16_t(port + 1), &err), "start: " + err);
 
     Client client;
     client.connect(port);
@@ -249,7 +267,7 @@ void refusesSecondClient(std::uint16_t port)
 {
     TcpServer server;
     std::string err;
-    check(server.start(port, &err), "start: " + err);
+    check(server.start(port, std::uint16_t(port + 1), &err), "start: " + err);
 
     Client first;
     first.connect(port);
@@ -277,7 +295,7 @@ void sendsFramesToClient(std::uint16_t port)
 {
     TcpServer server;
     std::string err;
-    check(server.start(port, &err), "start: " + err);
+    check(server.start(port, std::uint16_t(port + 1), &err), "start: " + err);
 
     Client client;
     client.connect(port);
@@ -300,7 +318,7 @@ void reportsDisconnect(std::uint16_t port)
 {
     TcpServer server;
     std::string err;
-    check(server.start(port, &err), "start: " + err);
+    check(server.start(port, std::uint16_t(port + 1), &err), "start: " + err);
 
     {
         Client client;
@@ -326,7 +344,7 @@ void resetsDecoderBetweenConnections(std::uint16_t port)
 {
     TcpServer server;
     std::string err;
-    check(server.start(port, &err), "start: " + err);
+    check(server.start(port, std::uint16_t(port + 1), &err), "start: " + err);
 
     {
         Client first;
@@ -363,7 +381,7 @@ void stopIsPromptAndIdempotent(std::uint16_t port)
 {
     TcpServer server;
     std::string err;
-    check(server.start(port, &err), "start: " + err);
+    check(server.start(port, std::uint16_t(port + 1), &err), "start: " + err);
 
     const auto began = std::chrono::steady_clock::now();
     server.stop();
@@ -381,6 +399,7 @@ int main()
     std::cout << "hmi_bridge transport tests\n";
 
     run("acceptsClientAndReportsConnection", acceptsClientAndReportsConnection);
+    run("presenceProbeDoesNotBecomeControlClient", presenceProbeDoesNotBecomeControlClient);
     run("receivesCompleteFrame", receivesCompleteFrame);
     run("reassemblesSplitFrame", reassemblesSplitFrame);
     run("handlesCoalescedFrames", handlesCoalescedFrames);

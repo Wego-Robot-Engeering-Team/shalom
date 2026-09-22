@@ -49,7 +49,6 @@ constexpr auto kChActiveMap = "state/active_map";
 constexpr std::chrono::seconds kGoalAcceptTimeout{2};
 constexpr auto kChLog = "evt/log";
 
-constexpr auto kCmdVel = "cmd/cmd_vel";
 constexpr auto kCmdEstop = "cmd/estop";
 constexpr auto kCmdEstopRelease = "cmd/estop_release";
 constexpr auto kCmdMode = "cmd/mode";
@@ -202,23 +201,10 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
                         mapId.c_str(), detail.c_str());
         }
     }
-    deadman_ = std::chrono::milliseconds(
-        declare_parameter("deadman_ms", int(deadman_.count())));
     heartbeatTimeout_ = std::chrono::milliseconds(
         declare_parameter("heartbeat_timeout_ms", int(heartbeatTimeout_.count())));
-    maxLinVelX_ = declare_parameter("max_lin_vel_x", maxLinVelX_);
-    maxLinVelY_ = declare_parameter("max_lin_vel_y", maxLinVelY_);
-    maxAngVelZ_ = declare_parameter("max_ang_vel_z", maxAngVelZ_);
 
     lastHeartbeat_ = now();
-    lastCmdVel_ = now();
-
-    // 수동 명령은 twist_mux 의 teleop 입력으로 나간다. 예전에는 /cmd_vel 에
-    // 바로 썼는데, 그러면 Nav2 와 같은 토픽에 각각 20 Hz 로 쓰게 되어 어느
-    // 쪽이 이길지가 발행 순서에 달린 문제가 된다. 중재는 mux 가 한다
-    // (teleop > mission > stair > dock > nav, 300 ms lease).
-    cmdVelPub_ = create_publisher<geometry_msgs::msg::Twist>(
-        declare_parameter("teleop_cmd_vel_topic", std::string("/motion/teleop/cmd_vel")), 10);
     // 안전 노드가 지켜보는 생존 신호. 이 노드가 죽으면 발행이 멈추고,
     // 안전 노드가 그것을 근거로 로봇을 정지시킨다. 정지 판단을 여기에 두면
     // 이 노드의 크래시가 곧 감시자 없는 주행이 된다.
@@ -379,7 +365,16 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
 
     // 팔은 이름으로 지시한다. 받는 쪽(시뮬레이터든 실기 드라이버든)이 자기
     // 순서를 쓰므로, 색인으로 보내면 언젠가 다른 축이 움직인다.
-    armCmdPub_ = create_publisher<sensor_msgs::msg::JointState>("fr3/joint_command", 10);
+    // HMI arm goals are merely one source. joint_mux arbitrates them before
+    // safety_gate; this node must never publish straight to an FR3 driver.
+    armCmdPub_ = create_publisher<sensor_msgs::msg::JointState>(
+        "/motion/arm/joint_command/manual_hold", 10);
+
+    // 본체의 수동 제자리. 조작자가 수동으로 넘긴 동안 20 Hz 로 0 을 내보내
+    // twist_mux 의 manual_hold(90) 자리를 잡아 둔다. 이것이 없으면 수동으로
+    // 바꿔도 mux 가 nav(20) 로 내려가 로봇이 목표를 향해 계속 간다.
+    baseHoldPub_ = create_publisher<geometry_msgs::msg::Twist>(
+        "/motion/manual_hold/cmd_vel", 10);
 
     // ---- 촬영 -------------------------------------------------------------
     captureEnabled_ = declare_parameter("capture.enabled", false);
@@ -473,8 +468,6 @@ void BridgeNode::pollLink()
     }
     if (events.clientDisconnected) {
         RCLCPP_WARN(get_logger(), "관제 연결 끊김");
-        // 조작 명령을 즉시 폐기한다. 데드맨을 기다리지 않는다.
-        haveJogCommand_ = false;
     }
 
     for (const auto &frame : events.frames)
@@ -519,8 +512,9 @@ void BridgeNode::handleFrame(const inspection::Frame &frame)
         handleHeartbeat(*env);
     else if (env->t == mtype::kReq)
         handleRequest(*env);
-    else if (env->t == mtype::kPub && env->ch == kCmdVel)
-        applyCmdVel(env->p);
+    else if (env->t == mtype::kPub && env->ch == "cmd/cmd_vel")
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                             "TCP cmd/cmd_vel은 비활성입니다. 수동 조작은 UDP teleop_bridge를 사용합니다");
     else if (env->t == mtype::kSub)
         RCLCPP_INFO(get_logger(), "구독 요청 수신");
 }
@@ -568,7 +562,6 @@ void BridgeNode::handleRequest(const Envelope &request)
     if (request.ch == kCmdEstop) {
         // 발동에는 어떤 조건도 걸지 않는다. 실제 정지는 안전 노드가 수행한다.
         softwareEstopRequested_ = true;
-        haveJogCommand_ = false;
         // 정지는 안전 노드가 시킨다. 여기서 취소하는 것은 해제 뒤에 Nav2 가
         // 아무도 다시 누르지 않은 목표로 출발하는 것을 막기 위해서다.
         // 순회 중이었으면 멈춘 자리를 기억한다. idle 로 되돌리면 해제한 뒤
@@ -601,6 +594,7 @@ void BridgeNode::handleRequest(const Envelope &request)
         manualMode_ = request.p.value("mode", std::string("auto")) == "manual";
         if (manualMode_) {
             pauseMissionForManualTakeover();
+            requestBaseAuthority();
         }
         RCLCPP_INFO(get_logger(), "주행 모드: %s", manualMode_ ? "수동" : "자율");
         respond(request, true);
@@ -908,43 +902,6 @@ void BridgeNode::handleRequest(const Envelope &request)
     // 미지원 채널은 조용히 무시하지 않고 사유를 돌려준다. 관제가 새 기능을
     // 쓰려다 아무 반응이 없으면 원인을 짚을 수 없다.
     respond(request, false, err::kUnknownChannel, "지원하지 않는 채널: " + request.ch);
-}
-
-void BridgeNode::applyCmdVel(const json &payload)
-{
-    // 자율 주행 중에도 받는다. 조작자가 잡고 있는 동안은 수동이 앞서고,
-    // 놓으면 lease 가 끊겨 mux 가 자율로 돌아간다. 예전에는 수동 모드가
-    // 아니면 버렸는데, 그러면 사람이 비켜 세우려 해도 모드부터 바꿔야 했다.
-    if (estopActive())
-        return;
-
-    const auto clamp = [](double v, double lim) { return std::max(-lim, std::min(v, lim)); };
-    const double vx = payload.value("vx", 0.0);
-    const double vy = payload.value("vy", 0.0);
-    const double wz = payload.value("wz", 0.0);
-
-    pendingTwist_.linear.x = clamp(vx, maxLinVelX_);
-    pendingTwist_.linear.y = clamp(vy, maxLinVelY_);
-    pendingTwist_.angular.z = clamp(wz, maxAngVelZ_);
-    if (pendingTwist_.linear.x != 0.0 || pendingTwist_.linear.y != 0.0
-        || pendingTwist_.angular.z != 0.0) {
-        requestSafetyResume();
-        requestBaseAuthority();
-    }
-
-    // 잘라냈다는 사실은 알려야 한다. 조용히 줄이면 관제는 자기가 보낸 대로
-    // 가고 있다고 믿고, 로봇이 왜 느린지 아무도 모른다. 조작 중에는 이 명령이
-    // 초당 수십 번 오므로 매번 찍지 않고, 잘릴 때만 1 초에 한 번 찍는다.
-    if (std::abs(vx) > maxLinVelX_ || std::abs(vy) > maxLinVelY_
-        || std::abs(wz) > maxAngVelZ_) {
-        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
-                             "조작 명령이 한도를 넘어 잘렸다: "
-                             "요청 %.2f/%.2f/%.2f, 한도 %.2f/%.2f/%.2f",
-                             vx, vy, wz, maxLinVelX_, maxLinVelY_, maxAngVelZ_);
-    }
-
-    haveJogCommand_ = true;
-    lastCmdVel_ = now();
 }
 
 namespace {
@@ -1881,27 +1838,17 @@ void BridgeNode::tickSafety()
         return (now() - since).nanoseconds() / 1000000;
     };
 
-    // 데드맨: 조작 명령이 끊기면 즉시 0 을 발행한다. 관제가 멈추거나 링크가
-    // 끊겨도 로봇이 계속 달리지 않게 하는 마지막 방어선이다.
-    if (haveJogCommand_ && elapsedMs(lastCmdVel_) > deadman_.count()) {
-        haveJogCommand_ = false;
-        pendingTwist_ = geometry_msgs::msg::Twist{};
-        cmdVelPub_->publish(pendingTwist_);
-    } else if (haveJogCommand_) {
-        cmdVelPub_->publish(pendingTwist_);
-    } else if (manualMode_ || estopActive()) {
-        // 수동 모드에서는 조작이 없어도 제자리 명령을 계속 내보낸다. 두 가지
-        // 일을 한꺼번에 한다 — 로봇을 세워 두고, teleop 이 mux 의 가장 높은
-        // 우선순위를 놓지 않게 해 자율 출력이 로봇까지 가지 못하게 한다.
-        //
-        // 관제가 아니라 여기서 내보내는 이유는 링크다. 관제가 0 을 스트림하게
-        // 하면 링크가 끊긴 순간 lease 가 만료되고, 수동 모드인데도 Nav2 가
-        // 로봇을 몰기 시작한다. 모드를 아는 것은 이 노드이므로 여기서 잡는다.
-        //
-        // E-Stop 중에도 같은 이유로 내보낸다. 발동할 때 자율주행을 취소하지만
-        // 그것은 Nav2 가 따라 주기를 기다리는 일이고, 이쪽은 기다리지 않는다.
-        cmdVelPub_->publish(geometry_msgs::msg::Twist{});
-    }
+    // 수동 모드인 동안 제자리 명령을 계속 내보낸다. 두 가지를 한꺼번에 한다 —
+    // 로봇을 세워 두고, mux 에서 자율 출력이 선택되지 못하게 한다.
+    //
+    // 관제가 아니라 여기서 내보내는 이유는 링크다. 관제가 0 을 스트림하게
+    // 하면 링크가 끊긴 순간 lease 가 만료되고, 수동 모드인데도 Nav2 가 로봇을
+    // 몰기 시작한다. 모드를 아는 것은 이 노드이므로 여기서 잡는다.
+    //
+    // E-Stop 중에도 내보낸다. 멈추는 것은 안전 게이트가 하지만, 그 사이에
+    // 자율 출력이 mux 에서 선택되어 있을 이유는 없다.
+    if (manualMode_ || estopEngaged_)
+        baseHoldPub_->publish(geometry_msgs::msg::Twist{});
 
     // 생존 신호. 관제 하트비트가 신선한 동안에만 발행한다.
     // 이 노드가 죽으면 발행 자체가 멈추고, 안전 노드가 그것을 정지 근거로 쓴다.
@@ -2064,8 +2011,15 @@ bool BridgeNode::openControlPort()
         return true;
 
     std::string err;
-    if (server_.start(std::uint16_t(port_), &err)) {
-        RCLCPP_INFO(get_logger(), "관제 연결 대기 중 — 포트 %d", port_);
+    // HMI 프로필에는 제어 포트 하나만 저장한다. 상태 확인 포트를 따로
+    // 설정하게 하면 둘이 어긋나는 순간 목록이 영원히 빨갛게 보이므로,
+    // 바로 다음 포트로 고정한다.
+    if (port_ <= 0 || port_ >= 65535) {
+        RCLCPP_ERROR(get_logger(), "관제 제어 포트가 올바르지 않습니다: %d", port_);
+        return false;
+    }
+    if (server_.start(std::uint16_t(port_), 0, &err)) {
+        RCLCPP_INFO(get_logger(), "관제 연결 대기 중 — TCP %d (제어·상태 확인)", port_);
         return true;
     }
 

@@ -35,6 +35,7 @@
 
 class QTcpSocket;
 class QTimer;
+class QUdpSocket;
 
 namespace hmi::net {
 
@@ -139,6 +140,7 @@ private:
     quint16 port_;
 
     QTcpSocket *socket_ = nullptr;
+    QUdpSocket *teleopSocket_ = nullptr;
     FrameDecoder decoder_;
 
     QTimer *heartbeatTimer_ = nullptr;   ///< outgoing, 5 Hz
@@ -167,6 +169,7 @@ private:
     double batteryDepartAt_ = 0.0;
 
     qint64 heartbeatSeq_ = 0;
+    qint64 teleopSeq_ = 0;
     QHash<qint64, qint64> heartbeatSentAt_;   ///< seq -> monotonic ms
     qint64 lastHeartbeatMs_ = 0;
     qint64 lastPoseMs_ = 0;

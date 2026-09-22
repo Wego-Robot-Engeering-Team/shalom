@@ -23,6 +23,7 @@
 // while the robot is driving itself, and showing disabled controls just spends
 // screen space.
 
+#include <QHash>
 #include <QMainWindow>
 
 #include "robot/RobotLink.h"
@@ -36,6 +37,7 @@ class QVBoxLayout;
 class QPushButton;
 class QStackedWidget;
 class QTimer;
+class QTcpSocket;
 
 namespace hmi::diag {
 class LogStore;
@@ -94,6 +96,14 @@ protected:
     void refreshRobotButton();
     void selectRobot(int index);
     void openConnectionSettings();
+
+    /// Polls the bridge's separate, read-only presence port. It must not use
+    /// the exclusive control port merely to paint a list entry.
+    void startRobotPresencePolling();
+    void pollRobotPresence();
+    void probeRobotPresence(const QString &host, int controlPort);
+    void setRobotPresence(const QString &host, int controlPort, bool reachable);
+    static QString robotProfileKey(const QString &host, int controlPort);
 
     /// Fits the map on first show. The constructor cannot do it: the viewport
     /// has no final size until the layout has run, so fitting there leaves the
@@ -208,6 +218,10 @@ private:
     QPushButton *robotButton_ = nullptr;
     QLabel *robotNameLabel_ = nullptr;
     QLabel *robotAddrLabel_ = nullptr;
+    QTimer *robotPresenceTimer_ = nullptr;
+    QHash<QString, bool> robotPresence_;
+    QHash<QString, QTcpSocket *> activePresenceProbes_;
+    bool autoConnectOnPresence_ = true;
 
     /// What the robot last called itself, and the id it stamps on every frame.
     /// Kept apart because they answer different questions.

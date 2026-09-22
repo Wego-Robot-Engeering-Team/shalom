@@ -13,7 +13,10 @@
 #include <QDir>
 #include <QFile>
 #include <QDateTime>
+#include <QIcon>
 #include <QMenu>
+#include <QPainter>
+#include <QPixmap>
 #include <QStyle>
 #include <QMessageBox>
 #include <QPushButton>
@@ -24,6 +27,7 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QTimer>
+#include <QTcpSocket>
 #include <QVBoxLayout>
 #include <QtMath>
 
@@ -66,6 +70,27 @@ using hmi::map::MapView;
 using hmi::robot::DriveMode;
 using hmi::robot::MissionState;
 using hmi::robot::Telemetry;
+
+namespace {
+
+constexpr int kPresenceProbeIntervalMs = 3000;
+constexpr int kPresenceProbeTimeoutMs = 800;
+constexpr char kPresenceReply[] = "INSPECTION-PRESENCE/1\n";
+
+QIcon presenceIcon(bool reachable)
+{
+    constexpr int size = 12;
+    QPixmap pixmap(size, size);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(QString(reachable ? colors().success : colors().danger)));
+    painter.drawEllipse(1, 1, size - 2, size - 2);
+    return QIcon(pixmap);
+}
+
+}  // namespace
 
 // ============================ MainWindow ============================
 
@@ -450,8 +475,19 @@ void MainWindow::openSettings()
             // 목록에서 현재 로봇까지 지웠다면 Config 만 비우고 TCP 연결을
             // 살려 두면, "로봇 선택" 화면이 실제로는 지운 로봇을 계속
             // 조작하는 위험한 상태가 된다. 삭제는 연결 해제까지 한 동작이다.
-            if (Config::instance().currentRobot() >= 0)
+            auto &cfg = Config::instance();
+            robotPresence_.clear();
+            autoConnectOnPresence_ = true;
+            pollRobotPresence();
+
+            if (cfg.currentRobot() >= 0) {
+                const auto list = cfg.robots();
+                const auto &entry = list.at(cfg.currentRobot());
+                if (auto *bridge = qobject_cast<net::BridgeClient *>(robot_))
+                    bridge->setEndpoint(entry.host, quint16(entry.port));
+                refreshRobotButton();
                 return;
+            }
 
             if (auto *bridge = qobject_cast<net::BridgeClient *>(robot_))
                 bridge->disconnectFromBridge();
@@ -1362,6 +1398,13 @@ void MainWindow::showRobotPicker()
             e.name.isEmpty()
                 ? QStringLiteral("%1:%2").arg(e.host).arg(e.port)
                 : QStringLiteral("%1      %2:%3").arg(e.name, e.host).arg(e.port));
+        // 현재 제어 중인 로봇은 실제 제어 연결을, 나머지는 별도 상태 확인
+        // 포트의 응답을 표시한다. 목록을 여는 행위 자체는 제어권을 얻지 않는다.
+        const bool reachable = (i == current && robot_->isConnected())
+            || robotPresence_.value(robotProfileKey(e.host, e.port), false);
+        action->setIcon(presenceIcon(reachable));
+        action->setToolTip(reachable ? QStringLiteral("브릿지 응답 가능")
+                                     : QStringLiteral("브릿지 응답 없음"));
         // 고른 것에 표시를 남긴다. 목록만 보여 주면 지금 어디에 붙어 있는지
         // 배지를 다시 읽어야 한다.
         action->setCheckable(true);
@@ -1432,6 +1475,10 @@ void MainWindow::selectRobot(int index)
     if (index < 0 || index >= list.size())
         return;
 
+    // 자동 선택은 기동 시 마지막으로 고른 한 대에만 적용한다. 여기부터는
+    // 조작자가 명시적으로 고른 대상이며 BridgeClient가 재연결을 관리한다.
+    autoConnectOnPresence_ = false;
+
     cfg.setCurrentRobot(index);
     const auto &e = list.at(index);
 
@@ -1446,6 +1493,98 @@ void MainWindow::selectRobot(int index)
     headerBattery_->setUnavailable();
     logAction(QStringLiteral("ROBOT_SELECTED"),
               {{"name", e.name}, {"host", e.host}, {"port", e.port}});
+}
+
+QString MainWindow::robotProfileKey(const QString &host, int controlPort)
+{
+    // IPv6 주소에도 ':'가 들어가므로 사람이 읽는 host:port 대신 구분자를
+    // 명시한다. 이 키는 화면 수명 동안만 쓰며 설정 파일 형식은 바꾸지 않는다.
+    return host.trimmed().toLower() + QChar(0x1f) + QString::number(controlPort);
+}
+
+void MainWindow::startRobotPresencePolling()
+{
+    if (robotPresenceTimer_)
+        return;
+    robotPresenceTimer_ = new QTimer(this);
+    robotPresenceTimer_->setInterval(kPresenceProbeIntervalMs);
+    connect(robotPresenceTimer_, &QTimer::timeout, this, &MainWindow::pollRobotPresence);
+    pollRobotPresence();
+    robotPresenceTimer_->start();
+}
+
+void MainWindow::pollRobotPresence()
+{
+    const auto list = Config::instance().robots();
+    QHash<QString, bool> currentProfiles;
+    for (const auto &entry : list) {
+        const QString key = robotProfileKey(entry.host, entry.port);
+        currentProfiles.insert(key, robotPresence_.value(key, false));
+        probeRobotPresence(entry.host, entry.port);
+    }
+    robotPresence_ = std::move(currentProfiles);
+    refreshRobotButton();
+}
+
+void MainWindow::probeRobotPresence(const QString &host, int controlPort)
+{
+    const QString key = robotProfileKey(host, controlPort);
+    if (host.trimmed().isEmpty() || controlPort <= 0 || controlPort >= 65535
+        || activePresenceProbes_.contains(key))
+        return;
+
+    auto *socket = new QTcpSocket(this);
+    activePresenceProbes_.insert(key, socket);
+
+    const auto finish = [this, key, socket](bool reachable) {
+        if (activePresenceProbes_.value(key) != socket)
+            return;
+        activePresenceProbes_.remove(key);
+        socket->abort();
+        socket->deleteLater();
+
+        const auto profiles = Config::instance().robots();
+        const auto found = std::find_if(profiles.cbegin(), profiles.cend(),
+            [&key](const hmi::RobotEntry &entry) {
+                return robotProfileKey(entry.host, entry.port) == key;
+            });
+        if (found == profiles.cend())
+            return;  // 설정에서 지운 대상의 늦은 응답이다.
+
+        setRobotPresence(found->host, found->port, reachable);
+    };
+
+    connect(socket, &QTcpSocket::connected, this, [socket] {
+        socket->write(kPresenceReply);
+    });
+    connect(socket, &QTcpSocket::readyRead, this, [socket, finish] {
+        finish(socket->readAll().startsWith(kPresenceReply));
+    });
+    connect(socket, &QTcpSocket::errorOccurred, this,
+            [finish](QAbstractSocket::SocketError) { finish(false); });
+    QTimer::singleShot(kPresenceProbeTimeoutMs, socket, [finish] { finish(false); });
+    socket->connectToHost(host, quint16(controlPort));
+}
+
+void MainWindow::setRobotPresence(const QString &host, int controlPort, bool reachable)
+{
+    const QString key = robotProfileKey(host, controlPort);
+    const bool changed = robotPresence_.value(key, false) != reachable;
+    robotPresence_.insert(key, reachable);
+    if (changed)
+        refreshRobotButton();
+
+    // 마지막으로 선택했던 로봇만 자동으로 제어 연결을 연다. 목록의 다른
+    // 초록 점은 "운용 가능" 표시일 뿐, 관제권을 임의로 옮기지 않는다.
+    const auto &cfg = Config::instance();
+    const int current = cfg.currentRobot();
+    const auto profiles = cfg.robots();
+    if (!reachable || !autoConnectOnPresence_ || current < 0 || current >= profiles.size()
+        || robotProfileKey(profiles.at(current).host, profiles.at(current).port) != key)
+        return;
+
+    autoConnectOnPresence_ = false;
+    QTimer::singleShot(0, this, [this, current] { selectRobot(current); });
 }
 
 void MainWindow::applyTheme(const QString &name)
@@ -1568,6 +1707,10 @@ void MainWindow::startSession()
     saidId_.clear();
     saidName_.clear();
     refreshRobotButton();
+
+    // 등록된 로봇은 제어 포트가 아닌 상태 확인 포트만 주기적으로 확인한다.
+    // 마지막으로 선택했던 한 대가 응답하면 그때만 실제 제어 연결을 연다.
+    startRobotPresencePolling();
 
     setMode(QStringLiteral("auto"));
     nav_->setCurrent(NavItem::Drive);

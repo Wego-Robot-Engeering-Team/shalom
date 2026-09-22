@@ -10,10 +10,13 @@
 
 ```text
 mission_manager ── action/intent ─────────────────────┐
-teleop_bridge ────────────────────────────────┐        │
-Nav2 / dock / stair ──────────────────────────┼─ twist_mux ─ safety_gate ─ driver
+HMI UDP ─ teleop_bridge ───────────────────────┐        │
+HMI TCP ─ manual_hold ─────────────────────────┤        │
+Nav2 / mission / dock / stair ─────────────────┼─ twist_mux ─ safety_gate ─ B2 driver
                                                 │                         ↑
 motion_interlock_manager ─ authority ──────────┘                  safety_manager
+
+HMI arm / FR3 BT ─ joint_mux ─ safety_gate ─ FR3 driver
 ```
 
 | Package | Owns | Does not own |
@@ -21,6 +24,7 @@ motion_interlock_manager ─ authority ──────────┘        
 | `mission_manager` | Mission FSM and BT ordering | final actuator commands |
 | `teleop_bridge` | deadman and input lease | hardware command topic |
 | `twist_mux` | fresh base command source priority | safety state |
+| `joint_mux` | fresh arm command source priority | FR3 stop/mode control |
 | `motion_interlock_manager` | base/arm operational authority and stopped feedback validation | E-stop or fault state |
 | `safety_manager` | software safety state and motion permit | physical E-stop circuit |
 | `safety_gate` | final ROS command permission | physical safe stop |
@@ -33,12 +37,21 @@ interface is integrated.
 
 ## 현재 주행 경로
 
-Nav2는 `/motion/nav/cmd_vel`, hmi_bridge는 `/motion/teleop/cmd_vel`로 내보낸다.
-표준 ROS 2 `twist_mux`가 둘을 포함한 모든 source를 중재하고, Safety Gate만
-`/cmd_vel`로 내보낸다. 덕분에
-자율 주행 중 조작자 개입이 모드 전환 없이 되고(teleop이 fresh한 300 ms 동안만
-이긴다), 수동 모드에서는 브릿지가 제자리 명령을 계속 내보내 자율 출력이
-로봇까지 가지 않는다.
+표준 ROS 2 `twist_mux`와 `safety_gate`까지가 실기 base command 경로이며,
+gate만 `/cmd_vel`을 발행한다. 각 입력의 lease는 300 ms이고 우선순위는 다음과 같다.
+
+| 우선순위 | source | topic | 누가 |
+|---|---|---|---|
+| 100 | teleop | `/motion/teleop/cmd_vel` | teleop_bridge (HMI UDP) |
+| 90 | manual_hold | `/motion/manual_hold/cmd_vel` | hmi_bridge, 수동 모드 동안 0 |
+| 80 | mission | `/motion/mission/cmd_vel` | Mission 동작 source |
+| 40 | stair | `/motion/stair/cmd_vel` | Stair BT |
+| 30 | dock | `/motion/dock/cmd_vel` | Dock BT/Nav2 docking server |
+| 20 | nav | `/motion/nav/cmd_vel` | Nav2 collision monitor |
+
+`manual_hold`는 수동 전환 직후 조작 입력이 없어도 자율 source가 로봇에 도달하지
+않게 한다. 동시에 Mission Manager에 manual takeover를 전달해 현재 BT를 안전하게
+pause한다. teleop deadman 또는 lease가 끝나면 teleop source는 만료된다.
 
 `safety_manager`·`motion_interlock_manager`·`safety_gate`·`teleop_bridge`도
 `control.launch.py`에서 함께 기동한다. Mission과 Safety 런타임은 각 패키지의
@@ -49,5 +62,18 @@ Safety, Motion Authority 경계는 `shalom_interfaces`의 typed topic/service를
 시뮬레이션 bringup은 `/b2/odom_gt`와 simulation time을, 실물 bringup은
 `/b2/odom`과 system time을 선택한다. 신선도 timeout은 steady clock으로 판정한다.
 `twist_mux`는 우선순위만 고르고 안전 판단은 하지 않는다.
-`teleop_bridge`는 조종기(UDP) 입력이 붙을 때 쓴다 — 관제 HMI는 자체 deadman을
-가지고 있어 mux의 teleop 입력으로 바로 들어간다.
+
+Software E-Stop은 UDP가 아니라 HMI TCP bridge가 typed `/safety/command`
+서비스로 전달한다. 물리 E-Stop도 Safety Manager의 별도 입력이다. 둘 중 하나라도
+활성화되면 `safety_manager`가 `E_STOP_LATCHED`로 내려가고, gate는 base
+출력 **발행 자체를 멈춘다**. 0도 명령이고 비상정지는 명령하지 않는 것이 맞다 —
+로봇은 driver의 300 ms 명령 시간초과로 선다. `controlled_stop`과 `fault`는
+0을 계속 내보내 로봇을 세워 두고, 안전 관리자가 조용해지면 gate는 차단 쪽으로
+닫힌다.
+
+## 현장 UDP 설정
+
+TCP와 UDP는 모두 기본 포트 번호 `9090`을 쓴다. 전송 계층이 달라 충돌하지 않는다.
+`teleop_allowed_peer`에는 승인된 HMI PC의 고정 IP를 지정해야 하며, 비어 있으면
+UDP 속도 명령을 fail-closed로 전부 버린다. 시뮬레이터는 `127.0.0.1`을 자동으로
+설정한다.

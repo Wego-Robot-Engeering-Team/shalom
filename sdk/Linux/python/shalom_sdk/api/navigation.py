@@ -1,4 +1,4 @@
-"""Goal navigation and manual base-velocity commands."""
+"""Goal navigation commands."""
 
 from __future__ import annotations
 
@@ -16,6 +16,6 @@ class NavigationApi(_ApiBase):
         return self._client.request("cmd/nav_cancel", timeout_s=timeout_s)
 
     def publish_velocity(self, vx: float, vy: float, wz: float) -> None:
-        """Publish one manual velocity sample; callers must send it at 20 Hz."""
+        """Rejected: manual velocity belongs to the commissioned HMI UDP path."""
         self._finite(vx, vy, wz)
-        self._client.publish("cmd/cmd_vel", {"vx": vx, "vy": vy, "wz": wz})
+        raise RuntimeError("manual velocity is not available through the customer TCP SDK")

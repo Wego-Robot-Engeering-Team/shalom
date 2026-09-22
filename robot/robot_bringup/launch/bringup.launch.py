@@ -41,6 +41,8 @@ def generate_launch_description():
             "use_sim_time": "false",
             "base_output_topic": "/cmd_vel",
             "base_odometry_topic": "/b2/odom",
+            "robot_id": LaunchConfiguration("robot_id"),
+            "teleop_allowed_peer": LaunchConfiguration("teleop_allowed_peer"),
         }.items(),
     )
     station_bridge = IncludeLaunchDescription(
@@ -66,6 +68,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("domain_id", default_value="0"),
         DeclareLaunchArgument("robot_id", default_value="R1"),
+        DeclareLaunchArgument("teleop_allowed_peer", default_value=""),
         DeclareLaunchArgument("robot_name", default_value="1호기"),
         DeclareLaunchArgument("network_interface", default_value=""),
         DeclareLaunchArgument("pointcloud_topic", default_value="/b2/points"),

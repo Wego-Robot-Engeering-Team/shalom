@@ -40,6 +40,8 @@ def generate_launch_description():
             "use_sim_time": "true",
             "base_output_topic": "/cmd_vel",
             "base_odometry_topic": "/b2/odom_gt",
+            "teleop_allowed_peer": "127.0.0.1",
+            "robot_id": LaunchConfiguration("robot_id"),
         }.items(),
     )
     station_bridge = IncludeLaunchDescription(

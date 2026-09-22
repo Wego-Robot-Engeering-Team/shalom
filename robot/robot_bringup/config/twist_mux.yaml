@@ -11,6 +11,10 @@ twist_mux:
         topic: /motion/teleop/cmd_vel
         timeout: 0.3
         priority: 100
+      manual_hold:
+        topic: /motion/manual_hold/cmd_vel
+        timeout: 0.3
+        priority: 90
       mission:
         topic: /motion/mission/cmd_vel
         timeout: 0.3

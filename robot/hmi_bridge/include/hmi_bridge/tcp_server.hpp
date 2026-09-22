@@ -60,8 +60,9 @@ public:
     TcpServer(const TcpServer &) = delete;
     TcpServer &operator=(const TcpServer &) = delete;
 
-    /// Binds and starts the accept loop. Returns false with a reason in `err`.
-    bool start(std::uint16_t port, std::string *err);
+    /// Binds the exclusive control port. A short presence probe on this same
+    /// port returns a fixed marker and never becomes a control client.
+    bool start(std::uint16_t port, std::uint16_t presencePort, std::string *err);
     void stop();
 
     bool isConnected() const { return connected_.load(); }
@@ -91,6 +92,7 @@ private:
     void closeClient(bool notify);
     void handleReadable();
     void handleWritable();
+    void drainDecoder();
 
     /// Outbound backlog beyond which lossy messages are dropped. A control
     /// station that has stopped reading must not be able to make the bridge

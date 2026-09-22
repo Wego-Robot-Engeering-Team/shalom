@@ -85,8 +85,8 @@ private:
     void respond(const Envelope &request, bool ok, const std::string &code = {},
                  const std::string &message = {});
 
-    /// Publishes the control station's liveness for the safety node, and
-    /// latches the jog command to zero when it stops arriving.
+    /// Publishes the control station's liveness for the safety node. Velocity
+    /// leases are owned by teleop_bridge's dedicated UDP ingress.
     void tickSafety();
     /// Publishes robot-side safety state even if localization is unavailable.
     void publishSafety();
@@ -142,7 +142,6 @@ private:
 
     // ---- commands --------------------------------------------------------
     bool commandsAllowed(const Envelope &request);
-    void applyCmdVel(const json &payload);
 
     // ---- autonomous navigation -------------------------------------------
     //
@@ -292,28 +291,10 @@ private:
     std::string mapFrame_ = "map";
     std::string baseFrame_ = "base_link";
 
-    /// Jog commands stop being honoured this long after the last one arrives.
-    /// Matches the value published in the protocol, and both must change
-    /// together.
-    std::chrono::milliseconds deadman_{300};
-
     /// The control station is considered present while its heartbeat is no
     /// older than this. The safety node independently enforces the same one-second contract
     /// and deliberately longer.
     std::chrono::milliseconds heartbeatTimeout_{1000};
-
-    /// Ceiling on a jog command, from the statement of work.
-    ///
-    /// The station's sliders already stop at these figures, but a limit that
-    /// exists only on the operator's screen is not a limit: a UI bug, a
-    /// hand-written client during commissioning, or a replayed frame all reach
-    /// `/cmd_vel` unchecked. Protocol section 4 puts admissibility on the robot
-    /// side, and this is the robot side. Out-of-range values are clamped, not
-    /// rejected - refusing the frame would leave the robot coasting on the last
-    /// good command, which is worse than moving slower than asked.
-    double maxLinVelX_ = 0.60;   ///< m/s,   RobotDef.h kVxMax
-    double maxLinVelY_ = 0.40;   ///< m/s,   RobotDef.h kVyMax
-    double maxAngVelZ_ = 0.80;   ///< rad/s, RobotDef.h kWzMax
 
     // ---- state -----------------------------------------------------------
     TcpServer server_;
@@ -322,9 +303,6 @@ private:
     std::string safetyState_{"unknown"};
     bool manualMode_ = false;
     rclcpp::Time lastHeartbeat_;
-    rclcpp::Time lastCmdVel_;
-    geometry_msgs::msg::Twist pendingTwist_;
-    bool haveJogCommand_ = false;
     std::int64_t seq_ = 0;
 
     // ---- navigation state ------------------------------------------------
@@ -425,9 +403,12 @@ private:
     std::vector<double> lastArmPositions_;
 
     // ---- ROS interfaces --------------------------------------------------
-    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmdVelPub_;
     rclcpp::Publisher<shalom_interfaces::msg::SafetyHeartbeat>::SharedPtr linkAlivePub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr armCmdPub_;
+    /// Manual-mode hold for the base. Zero velocity at 20 Hz, which is what
+    /// keeps twist_mux from falling through to Nav2 while the operator has
+    /// taken manual control. The arm has the same source in joint_mux.
+    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr baseHoldPub_;
 
     rclcpp_action::Client<NavigateToPose>::SharedPtr navClient_;
     rclcpp::Client<nav2_msgs::srv::LoadMap>::SharedPtr mapLoadClient_;

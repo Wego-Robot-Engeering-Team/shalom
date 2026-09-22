@@ -23,11 +23,11 @@ public:
     const auto input_arm_topic = declare_parameter<std::string>("input_arm_topic", "/motion/arm/joint_command");
     const auto output_arm_topic = declare_parameter<std::string>("output_arm_topic", "/motion/safe/arm/joint_command");
     const auto command_timeout_ms = declare_parameter<int>("command_timeout_ms", 300);
-    const auto permit_timeout_ms = declare_parameter<int>("permit_timeout_ms", 250);
+    const auto state_timeout_ms = declare_parameter<int>("safety_state_timeout_ms", 250);
     const auto output_hz = declare_parameter<double>("output_hz", 20.0);
     arm_output_enabled_ = declare_parameter<bool>("arm_output_enabled", false);
     command_timeout_ = std::chrono::milliseconds(command_timeout_ms);
-    permit_timeout_ = std::chrono::milliseconds(permit_timeout_ms);
+    state_timeout_ = std::chrono::milliseconds(state_timeout_ms);
 
     base_pub_ = create_publisher<geometry_msgs::msg::Twist>(output_base_topic, 20);
     arm_pub_ = create_publisher<sensor_msgs::msg::JointState>(output_arm_topic, 20);
@@ -61,22 +61,51 @@ private:
   }
 
   void on_safety(const shalom_interfaces::msg::SafetyState::SharedPtr message) {
-    motion_permitted_ = message->motion_permitted;
-    last_permit_ = std::chrono::steady_clock::now();
+    safety_state_ = message->state;
+    last_state_ = std::chrono::steady_clock::now();
   }
 
   void on_authority(const shalom_interfaces::msg::MotionAuthority::SharedPtr message) {
     authority_ = message->state;
   }
 
-  bool permit_valid() const {
-    return motion_permitted_ && std::chrono::steady_clock::now() - last_permit_ <= permit_timeout_;
+  /// What the safety state means for the output, per the control-plane design:
+  ///
+  ///   normal           pass the command through
+  ///   controlled_stop  publish zero -- a normal pause, the robot stays up
+  ///   fault            publish zero -- same, it is not an emergency stop
+  ///   e_stop_latched   publish nothing at all
+  ///
+  /// The last one is the important distinction. Publishing a zero is still
+  /// commanding the robot; an emergency stop must not command anything, and
+  /// the driver's own command timeout is what brings the robot down. If the
+  /// safety manager goes silent we treat it as a latched stop, because a gate
+  /// that keeps passing commands on a dead supervisor is not a gate.
+  enum class Output { kPass, kZero, kBlock };
+
+  Output decide() const {
+    if (std::chrono::steady_clock::now() - last_state_ > state_timeout_)
+      return Output::kBlock;
+    using SafetyState = shalom_interfaces::msg::SafetyState;
+    if (safety_state_ == SafetyState::NORMAL) return Output::kPass;
+    if (safety_state_ == SafetyState::E_STOP_LATCHED) return Output::kBlock;
+    if (safety_state_ == SafetyState::INITIALIZING ||
+        safety_state_ == SafetyState::CONTROLLED_STOP ||
+        safety_state_ == SafetyState::FAULT) {
+      return Output::kZero;
+    }
+    return Output::kBlock;
   }
 
   void tick() {
     const auto now = std::chrono::steady_clock::now();
+    const Output decision = decide();
+    if (decision == Output::kBlock)
+      return;
+
     geometry_msgs::msg::Twist output{};  // zero is the only fail-closed base command.
-    if (permit_valid() && authority_ == shalom_interfaces::msg::MotionAuthority::BASE_ACTIVE &&
+    if (decision == Output::kPass &&
+        authority_ == shalom_interfaces::msg::MotionAuthority::BASE_ACTIVE &&
         now - last_base_command_ <= command_timeout_) {
       output = base_command_;
     }
@@ -85,19 +114,19 @@ private:
     // A zero JointState is not a safe stop for position-controlled arms.  The
     // production FR3 integration must use its own stop/mode interface.  Until
     // that is wired, arm output remains disabled by default.
-    if (arm_output_enabled_ && permit_valid() &&
+    if (arm_output_enabled_ && decision == Output::kPass &&
         authority_ == shalom_interfaces::msg::MotionAuthority::ARM_ACTIVE &&
         now - last_arm_command_ <= command_timeout_) {
       arm_pub_->publish(arm_command_);
     }
   }
 
-  bool motion_permitted_{false};
+  uint8_t safety_state_{shalom_interfaces::msg::SafetyState::INITIALIZING};
   bool arm_output_enabled_{false};
   uint8_t authority_{shalom_interfaces::msg::MotionAuthority::NONE};
   std::chrono::milliseconds command_timeout_{300};
-  std::chrono::milliseconds permit_timeout_{250};
-  SteadyTime last_permit_{};
+  std::chrono::milliseconds state_timeout_{250};
+  SteadyTime last_state_{};
   SteadyTime last_base_command_{};
   SteadyTime last_arm_command_{};
   geometry_msgs::msg::Twist base_command_{};

@@ -195,7 +195,8 @@ ros2 topic hz /b2/points                  # Pandar 설정에 맞는 라이다 �
 ros2 run tf2_ros tf2_echo base_link pandar_xt32
 ros2 topic hz /fr3/camera_2d/image_raw    # 카메라
 ros2 run tf2_ros tf2_echo map base_link   # 위치추정
-ss -ltn | grep 9090                       # 관제 브릿지
+ss -ltn | grep 9090                       # 관제 TCP 브릿지
+ss -lun | grep 9090                       # HMI 수동 조작 UDP ingress
 ```
 
 `RMW_IMPLEMENTATION`과 `CYCLONEDDS_URI`를 주지 않으면 도구가 스택과 다른 DDS로
@@ -208,7 +209,8 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
 ### 외부 통신 차단 확인 (과업지시서 7.1)
 
-로봇의 ROS 2 통신은 루프백에 가둔다. 밖으로 나가는 것은 관제 TCP(9090)뿐이다.
+로봇의 ROS 2 통신은 루프백에 가둔다. 외부 제어망에는 관제 TCP(9090)와,
+승인된 HMI에서만 받는 수동 조작 UDP(9090)만 둔다.
 같은 망의 다른 PC에서 확인한다.
 
 ```bash

@@ -4,7 +4,12 @@
 
 ## 전송
 
-- TCP, 기본 포트 `9090`, `TCP_NODELAY` 필수
+- TCP 포트 `9090`, `TCP_NODELAY` 필수. 상태·지도·미션·E-Stop·SDK 요청은
+  이 연결만 사용한다.
+- HMI 목록의 생존 확인도 TCP `9090`에 `INSPECTION-PRESENCE/1\\n`을 보내고 같은
+  표식을 돌려받는 짧은 probe다. 제어 연결·이벤트를 만들지 않는다.
+- 수동 속도 명령은 이 프로토콜에 넣지 않는다. HMI는 같은 번호의 UDP `9090`으로
+  `teleop_bridge`에 보내며, 그 UDP 규약과 300 ms lease는 `teleop_bridge`가 소유한다.
 - 리틀 엔디언, 최대 프레임 본문 `32 MiB`
 - 프레임: `magic("SHLM") | body_len(uint32) | header_len(uint32) | header(JSON) | payload`
 - 부분 수신·복수 프레임 수신을 모두 처리한다. magic 또는 길이가 잘못되면 연결을 끊는다.
@@ -104,8 +109,8 @@
 
 ## 명령 채널
 
-모든 명령은 `req`/`res`를 쓴다. `cmd/cmd_vel`만 `pub`로 20 Hz 발행한다.
-브릿지는 300 ms 동안 `cmd/cmd_vel`을 받지 못하면 0 속도를 발행한다.
+모든 명령은 `req`/`res`를 쓴다. 수동 속도는 TCP 명령이 아니라 별도 UDP teleop
+경로이며, E-Stop은 반드시 이 TCP 요청 경로를 사용한다.
 
 | 채널 | 내용 |
 |---|---|
@@ -131,7 +136,6 @@
 | `cmd/arm/stop` | 암 정지 |
 | `cmd/base/posture` | 본체 자세 전환 (앉기·일어서기) |
 | `cmd/capture/trigger` | 촬영 |
-| `cmd/cmd_vel` | 수동 속도 (`vx`, `vy`, `wz`) |
 
 ### `cmd/base/posture` — 본체 자세
 
@@ -175,8 +179,10 @@
 ## 안전·연결
 
 ```text
-Nav2   →  /motion/nav/cmd_vel     ─┐
-브릿지  →  /motion/teleop/cmd_vel  ─┴→ twist_mux → safety_gate → /cmd_vel → 로봇
+Nav2        →  /motion/nav/cmd_vel          ─┐
+teleop(UDP) →  /motion/teleop/cmd_vel       ─┤
+브릿지(수동) →  /motion/manual_hold/cmd_vel  ─┴→ twist_mux
+                 → /motion/base/cmd_vel → safety_gate → /cmd_vel → 로봇
 ```
 
 - E-Stop, 통신 두절, 명령 중재는 로봇의 안전 노드 책임이다.
@@ -186,9 +192,11 @@ Nav2   →  /motion/nav/cmd_vel     ─┐
 
 ### 수동과 자율의 우선순위
 
-`twist_mux`가 **teleop > mission > stair > dock > nav** 순으로 고르고, 각
-입력은 **300 ms** 안에 들어온 것만 유효하다. 같은 토픽에 두 발행자를 두면
-우선순위가 발행 순서로 정해지므로 중재를 한곳에 모았다.
+`twist_mux`가 **teleop(100) > manual_hold(90) > mission(80) > stair(40) >
+dock(30) > nav(20)** 순으로 고르고, 각 입력은 **300 ms** 안에 들어온 것만 유효하다. 같은
+토픽에 두 발행자를 두면 우선순위가 발행 순서로 정해지므로 중재를 한곳에 모았다.
+고른 결과는 `safety_gate`가 `/safety/state`를 보고 통과·0 출력·차단 중 하나로
+처리한 뒤에야 로봇에 닿는다.
 
 | 상태 | 로봇으로 나가는 것 |
 |---|---|
@@ -196,11 +204,17 @@ Nav2   →  /motion/nav/cmd_vel     ─┐
 | `auto`, 조작 입력 중 | 수동. 멈추면 300 ms 뒤 Nav2 로 돌아간다 |
 | `manual`, 조작 입력 없음 | 브릿지가 만드는 제자리 명령 |
 | `manual`, 조작 입력 중 | 수동 |
-| E-Stop | 0 |
+| E-Stop | 없음 — 게이트가 발행 자체를 끊는다 |
+| 해제 직후(controlled_stop) | 0. 명시적 재개 전까지 자율은 나가지 않는다 |
 
-수동 모드의 제자리 명령은 관제가 아니라 브릿지가 만든다. 관제가 0 을
-스트림하게 하면 링크가 끊긴 순간 수동 쪽 유효 시간이 만료되고, 수동 모드인데도
-Nav2 가 로봇을 몰기 시작한다.
+수동 모드의 제자리 명령은 관제가 아니라 브릿지가 `manual_hold` 로 만든다.
+관제가 0 을 스트림하게 하면 링크가 끊긴 순간 유효 시간이 만료되고, 수동
+모드인데도 Nav2 가 로봇을 몰기 시작한다.
+
+E-Stop 과 정지의 차이는 게이트가 만든다. `controlled_stop`·`fault` 는 0 을
+계속 내보내 로봇을 세워 두고, `e_stop_latched` 는 아무것도 내보내지 않는다 —
+0 도 명령이고, 비상정지는 명령하지 않는 것이 맞다. 로봇은 드라이버의 300 ms
+명령 시간초과로 선다. 안전 관리자가 조용해지면 게이트는 차단 쪽으로 닫힌다.
 
 모드 전환은 자율주행을 취소하지 않는다. 수동인 동안 자율 출력이 막힐 뿐이고,
 `auto` 로 돌아가면 하던 주행이 이어진다. 취소는 `cmd/nav_cancel` 로만 한다.

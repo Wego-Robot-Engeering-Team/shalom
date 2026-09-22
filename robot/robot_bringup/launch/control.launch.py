@@ -25,6 +25,11 @@ def generate_launch_description():
         DeclareLaunchArgument("base_output_topic", default_value="/cmd_vel"),
         DeclareLaunchArgument("base_odometry_topic", default_value="/b2/odom"),
         DeclareLaunchArgument("require_external_heartbeat", default_value="true"),
+        DeclareLaunchArgument("teleop_udp_port", default_value="9090"),
+        # Empty is deliberately fail-closed: only the commissioned HMI address
+        # may inject UDP velocity packets on a physical robot.
+        DeclareLaunchArgument("teleop_allowed_peer", default_value=""),
+        DeclareLaunchArgument("robot_id", default_value="R1"),
         Node(
             package="mission_manager", executable="mission_manager_node",
             name="mission_manager", output="screen",
@@ -56,13 +61,25 @@ def generate_launch_description():
         Node(
             package="teleop_bridge", executable="teleop_bridge_node",
             name="teleop_bridge", output="screen",
-            parameters=[{"use_sim_time": use_sim_time}],
+            parameters=[{
+                "use_sim_time": use_sim_time,
+                "udp_port": ParameterValue(
+                    LaunchConfiguration("teleop_udp_port"), value_type=int),
+                "allowed_peer": LaunchConfiguration("teleop_allowed_peer"),
+                "robot_id": LaunchConfiguration("robot_id"),
+                "output_topic": "/motion/teleop/cmd_vel",
+            }],
         ),
         Node(
             package="twist_mux", executable="twist_mux",
             name="twist_mux", output="screen",
             parameters=[twist_mux_config, {"use_sim_time": use_sim_time}],
             remappings=[("cmd_vel_out", "/motion/base/cmd_vel")],
+        ),
+        Node(
+            package="joint_mux", executable="joint_mux_node",
+            name="joint_mux", output="screen",
+            parameters=[{"use_sim_time": use_sim_time}],
         ),
         Node(
             package="safety_gate", executable="safety_gate_node",

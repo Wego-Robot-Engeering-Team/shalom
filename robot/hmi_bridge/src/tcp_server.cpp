@@ -9,7 +9,9 @@
 #include <poll.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <cstring>
 
 namespace hmi_bridge {
@@ -21,6 +23,88 @@ bool setNonBlocking(int fd)
     return flags >= 0 && ::fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
 }
 
+enum class InitialKind { kControl, kPresence, kEmpty, kInvalid };
+
+struct InitialBytes {
+    InitialKind kind = InitialKind::kEmpty;
+    std::string bytes;
+};
+
+InitialBytes readInitialBytes(const int fd)
+{
+    static constexpr char kControlPrefix[] = "SHLM";
+    static constexpr char kPresenceProbe[] = "INSPECTION-PRESENCE/1\n";
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+    InitialBytes result;
+    char buf[16384];
+
+    while (std::chrono::steady_clock::now() < deadline) {
+        const auto got = ::recv(fd, buf, sizeof(buf), MSG_DONTWAIT);
+        if (got > 0) {
+            result.bytes.append(buf, std::size_t(got));
+            if (result.bytes.size() >= sizeof(kControlPrefix) - 1
+                && result.bytes.compare(0, sizeof(kControlPrefix) - 1, kControlPrefix) == 0) {
+                result.kind = InitialKind::kControl;
+                return result;
+            }
+            const bool possibleProbe = result.bytes.size() <= sizeof(kPresenceProbe) - 1
+                && std::equal(result.bytes.begin(), result.bytes.end(), kPresenceProbe);
+            if (!possibleProbe) {
+                result.kind = InitialKind::kInvalid;
+                return result;
+            }
+            if (result.bytes.size() == sizeof(kPresenceProbe) - 1) {
+                result.kind = InitialKind::kPresence;
+                return result;
+            }
+            continue;
+        }
+        if (got == 0) {
+            result.kind = InitialKind::kInvalid;
+            return result;
+        }
+        if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+            result.kind = InitialKind::kInvalid;
+            return result;
+        }
+
+        pollfd ready{fd, POLLIN, 0};
+        const auto remain = std::chrono::duration_cast<std::chrono::milliseconds>(
+            deadline - std::chrono::steady_clock::now()).count();
+        if (remain <= 0 || ::poll(&ready, 1, int(remain)) <= 0)
+            break;
+    }
+    return result;  // older clients that do not write immediately remain valid control clients.
+}
+
+int openListeningSocket(std::uint16_t port, std::string *err, const char *label)
+{
+    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        if (err)
+            *err = std::string(label) + " socket: " + std::strerror(errno);
+        return -1;
+    }
+
+    int one = 1;
+    ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(port);
+
+    if (::bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0
+        || ::listen(fd, 4) < 0 || !setNonBlocking(fd)) {
+        const int savedErrno = errno;
+        ::close(fd);
+        if (err)
+            *err = std::string(label) + ": " + std::strerror(savedErrno);
+        return -1;
+    }
+    return fd;
+}
+
 }  // namespace
 
 TcpServer::~TcpServer()
@@ -28,50 +112,20 @@ TcpServer::~TcpServer()
     stop();
 }
 
-bool TcpServer::start(std::uint16_t port, std::string *err)
+bool TcpServer::start(std::uint16_t port, std::uint16_t, std::string *err)
 {
-    const auto fail = [err](const std::string &m) {
-        if (err)
-            *err = m + ": " + std::strerror(errno);
-        return false;
-    };
-
-    listenFd_ = ::socket(AF_INET, SOCK_STREAM, 0);
+    listenFd_ = openListeningSocket(port, err, "control port");
     if (listenFd_ < 0)
-        return fail("socket");
-
-    // 재기동 시 TIME_WAIT 로 바인드가 막히지 않게 한다. 로봇 소프트웨어는
-    // 현장에서 자주 재시작되고, 그때마다 몇 분을 기다릴 수는 없다.
-    int one = 1;
-    ::setsockopt(listenFd_, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port = htons(port);
-
-    if (::bind(listenFd_, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
-        ::close(listenFd_);
-        listenFd_ = -1;
-        return fail("bind");
-    }
-    if (::listen(listenFd_, 4) < 0) {
-        ::close(listenFd_);
-        listenFd_ = -1;
-        return fail("listen");
-    }
-    if (!setNonBlocking(listenFd_)) {
-        ::close(listenFd_);
-        listenFd_ = -1;
-        return fail("fcntl");
-    }
+        return false;
 
     // stop() 이 poll() 을 즉시 깨울 수 있도록 자기 파이프를 둔다. 타임아웃에
     // 기대면 종료가 그만큼 늦어지고, 종료 지연은 재기동 시간에 그대로 붙는다.
     if (::pipe(wakeFd_) != 0) {
         ::close(listenFd_);
         listenFd_ = -1;
-        return fail("pipe");
+        if (err)
+            *err = std::string("wake pipe: ") + std::strerror(errno);
+        return false;
     }
     setNonBlocking(wakeFd_[0]);
 
@@ -178,22 +232,31 @@ void TcpServer::runLoop()
         if (fds[1].revents & POLLIN) {
             const int fd = ::accept(listenFd_, nullptr, nullptr);
             if (fd >= 0) {
-                if (clientFd_ >= 0) {
-                    // 이미 접속된 관제가 있다. 두 번째는 즉시 닫는다 —
-                    // 명령 중재 규칙이 없는 상태에서 두 화면을 붙이면
-                    // 어느 쪽이 권위인지 아무도 모른다.
+                setNonBlocking(fd);
+                const auto initial = readInitialBytes(fd);
+                if (initial.kind == InitialKind::kPresence) {
+                    static constexpr char kPresenceReply[] = "INSPECTION-PRESENCE/1\n";
+                    [[maybe_unused]] const auto sent =
+                        ::send(fd, kPresenceReply, sizeof(kPresenceReply) - 1, MSG_NOSIGNAL);
+                    ::close(fd);
+                } else if (initial.kind == InitialKind::kInvalid || clientFd_ >= 0) {
+                    // 이미 접속된 관제가 있다. 두 번째 제어 연결은 즉시 닫는다.
+                    // probe는 위에서 끝났으므로 one-client 규칙을 건드리지 않는다.
                     ::close(fd);
                 } else {
-                    setNonBlocking(fd);
                     // Nagle 을 끈다. 하트비트와 응답은 작고 지연에 민감하다.
                     int one = 1;
                     ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
                     ::setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof(one));
                     clientFd_ = fd;
                     decoder_.reset();
+                    decoder_.append(initial.bytes);
                     connected_.store(true);
-                    std::lock_guard<std::mutex> lock(eventMutex_);
-                    events_.clientConnected = true;
+                    {
+                        std::lock_guard<std::mutex> lock(eventMutex_);
+                        events_.clientConnected = true;
+                    }
+                    drainDecoder();
                 }
             }
         }
@@ -234,6 +297,11 @@ void TcpServer::handleReadable()
         return;
     }
 
+    drainDecoder();
+}
+
+void TcpServer::drainDecoder()
+{
     // 한 번의 읽기에 여러 프레임이 들어온다. 버퍼가 마를 때까지 꺼낸다.
     inspection::Frame frame;
     for (;;) {
