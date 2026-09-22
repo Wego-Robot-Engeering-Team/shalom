@@ -117,14 +117,14 @@ private:
     ///
     /// The station shows this list and nothing else - it has no idea what
     /// sensors exist, and protocol section 9.2 puts the judgement on this side.
-    /// So the list has to *be* the robot's sensors: LiDAR, IMU, D455 and the
+    /// So the list has to *be* the robot's sensors: LiDAR, IMU, arm camera and the
     /// two joint streams. An earlier version reported whatever this node
     /// happened to subscribe to, which put "pose" and "map" on a screen headed
     /// "센서 상태" - those are things the robot computes, not things it senses,
     /// and their absence means something completely different.
     ///
     /// Which sensors to watch comes from bridge.yaml rather than being compiled
-    /// in: the arm and D455 arrive on their own schedule, and a robot
+    /// in: the arm and its camera arrive on their own schedule, and a robot
     /// without them yet should say so rather than have the line quietly missing.
     struct Sensor {
         std::string id;        ///< stable key the station matches on
@@ -278,8 +278,7 @@ private:
 
     /// 촬영 원본을 무손실 PNG 로 만든다. rgb8·bgr8·mono8 을 받는다.
     ///
-    /// 카메라가 압축 영상을 내지 않는다. realsense2_camera 는 컬러를 원본
-    /// Image 로만 발행하고 image_transport 압축 발행자를 만들지 않으므로,
+    /// 카메라가 압축 영상을 내지 않는 경우 원본 Image를 처리한다.
     /// CompressedImage 를 기다리면 촬영이 영원히 "카메라 영상이 없습니다" 로
     /// 거절된다 — 실제로 그 상태였다.
     ///

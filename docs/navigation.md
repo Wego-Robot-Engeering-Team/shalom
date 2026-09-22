@@ -17,7 +17,7 @@ ros2 launch robot_bringup bringup.launch.py \
 ros2 launch simulation_bringup bringup.launch.py viewer:=false map:=2026-09-07
 ```
 
-실기에는 MuJoCo·D455·VLP-16이 들어가지 않는다. 시뮬레이터의 플랫폼 구현은
+실기에는 MuJoCo·VLP-16이 들어가지 않는다. 시뮬레이터의 플랫폼 구현은
 `third_party/b2_simulation/`에, 시뮬레이션 실행 조립과 지도는
 `simulation/simulation_bringup/`에 있다.
 

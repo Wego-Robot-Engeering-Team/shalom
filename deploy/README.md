@@ -86,7 +86,7 @@ robot/
 - 실행에 필요한 launch, `package.xml`, plugin XML, systemd `.service`
 - 내부 기본 설정과 버전 정보
 
-시뮬레이터, D455, VLP-16, MuJoCo, RL 학습 자산, 테스트 실행 파일 및 소스는
+시뮬레이터, VLP-16, MuJoCo, RL 학습 자산, 테스트 실행 파일 및 소스는
 납품 프리셋에서 제외한다.
 
 ### apt 오프라인 의존성

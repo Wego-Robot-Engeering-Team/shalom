@@ -33,9 +33,9 @@ cd ~/shalom_ws/src/shalom
 ./scripts/install.sh
 ```
 
-이 명령 하나가 ROS 2 Jazzy, Nav2, SLAM, RealSense 래퍼, Pandar XT32 드라이버,
-Qt6, MuJoCo의 의존성을 설치하고 `robot/third_party/` 재귀 서브모듈과 D4xx USB UDEV
-규칙을 구성한다. 이어서 ROS 워크스페이스와 HMI를 빌드한다.
+이 명령 하나가 ROS 2 Jazzy, Nav2, SLAM, Pandar XT32 드라이버, Qt6, MuJoCo의
+의존성을 설치하고 `robot/third_party/` 재귀 서브모듈을 구성한다. 이어서 ROS
+워크스페이스와 HMI를 빌드한다.
 
 주행 명령 중재에 필요한 `ros-jazzy-twist-mux`도 이 스크립트가 함께 설치한다.
 이미 수동 설치한 환경에서 이것만 빠졌다면 다음만 실행하면 된다.
@@ -57,7 +57,7 @@ source install/setup.bash
 확인:
 
 ```bash
-ros2 pkg list | grep -E 'robot_bringup|hmi_bridge|realsense_d455|pandar_xt32|hesai_ros_driver|slamtec_aurora'
+ros2 pkg list | grep -E 'robot_bringup|hmi_bridge|pandar_xt32|hesai_ros_driver|slamtec_aurora'
 ```
 
 ## 4. 전원 모드 (AGX)
@@ -81,17 +81,6 @@ Nano는 해당 없다.
 ---
 
 ## 5. 센서 연결
-
-### RealSense D455
-
-USB 3.0에 연결하고 인식을 확인한다.
-
-```bash
-lsusb | grep 8086:0b5c        # Intel RealSense Depth Camera 455
-realsense-viewer              # RGB·Depth 스트림 확인
-```
-
-권한 경고가 보이면 UDEV 규칙이 막 설치된 것이다. USB를 한 번 뺐다 꽂는다.
 
 ### VLP-16 (임시 시험용 라이다)
 

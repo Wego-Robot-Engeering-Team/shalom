@@ -16,9 +16,6 @@
 [submodule "robot/third_party/kiss_icp"]
 	path = robot/third_party/kiss_icp
 	url = https://github.com/PRBonn/kiss-icp.git
-[submodule "robot/third_party/librealsense"]
-	path = robot/third_party/librealsense
-	url = https://github.com/IntelRealSense/librealsense.git
 [submodule "robot/third_party/nav2_ground_consistency_costmap_plugin"]
 	path = robot/third_party/nav2_ground_consistency_costmap_plugin
 	url = https://github.com/dfki-ric/nav2_ground_consistency_costmap_plugin.git

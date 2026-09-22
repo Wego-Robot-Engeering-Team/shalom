@@ -13,7 +13,6 @@
     │   ├── navigation/maps/             저장 지도
     │   ├── navigation/rviz/             주행·지도화 화면 설정
     │   ├── navigation/lidar_slam/       점군 지면분리·2D SLAM
-    │   ├── sensors/realsense_d455/      D455 역할·토픽·설정
     │   ├── sensors/slamtec_aurora/      SLAMTEC Aurora S 연동
     │   ├── sensors/pandar_xt32/         Hesai Pandar XT32 연동
     │   ├── sensors/velodyne_vlp16/      임시 VLP-16 연동
@@ -31,7 +30,6 @@
         ├── kiss_icp/
         ├── aurora_ros/                 Aurora S ROS 2 드라이버
         ├── hesai_lidar_ros2/            Hesai Pandar ROS 2 드라이버
-        ├── librealsense/               RealSense SDK 소스와 USB 권한 규칙
         └── nav2_ground_consistency_costmap_plugin/
 ```
 
@@ -79,8 +77,8 @@ apt에 없어 소스로 받아 둔 것들이다. `shalom/robot/third_party/`의 
 | `nav2_ground_consistency_costmap_plugin` | local costmap 플러그인 | BSD-3 |
 | `hesai_ros_driver` | Pandar 계열 패킷을 ROS 2 점군으로 변환하는 공식 Hesai 드라이버 | BSD |
 
-지면분할이 두 개인 것은 나뉘어 배포되기 때문이다 — librealsense SDK 와
-`realsense2_camera` 래퍼가 갈려 있는 것과 같은 구조다. 둘 다 있어야 한다.
+지면분할이 두 개인 것은 알고리즘 라이브러리와 ROS 2 노드가 나뉘어 배포되기
+때문이다. 둘 다 있어야 한다.
 
 ## 빌드
 

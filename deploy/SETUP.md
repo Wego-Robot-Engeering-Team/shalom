@@ -31,8 +31,8 @@ git submodule status --recursive
 git log -1 --format='%H%n%cs%n%s'
 ```
 
-서드파티 작업 트리가 dirty면 자동 릴리스를 시작하지 않는다. Aurora·FAIRINO·
-RealSense처럼 별도 권리 검토가 필요한 submodule의 로컬 수정은 일반 Shalom
+서드파티 작업 트리가 dirty면 자동 릴리스를 시작하지 않는다. Aurora·FAIRINO처럼
+별도 권리 검토가 필요한 submodule의 로컬 수정은 일반 Shalom
 릴리스 커밋에 섞지 않는다.
 
 ## 2. 빌드 환경
@@ -187,7 +187,7 @@ Git 또는 CI secret에 넣지 않는 값:
 
 - 납품 대상 장비: Jetson Orin AGX, JetPack/Ubuntu/ROS 버전
 - 포함 센서: B2, XT32, Aurora, FR3의 실제 포함 여부
-- 제외 자산: D455, VLP-16, MuJoCo, 학습 자산, 개발 도구
+- 제외 자산: VLP-16, MuJoCo, 학습 자산, 개발 도구
 - 고객 SDK 권한: 조회 전용 / 미션 제어 허용 범위 / HMI 동시 접속 정책
 - 고객 기본 site-config와 지도 제공 여부
 - Aurora·FAIRINO 재배포 권리 확인 상태

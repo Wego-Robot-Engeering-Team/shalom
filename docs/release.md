@@ -113,7 +113,7 @@ zlib, MRPT(Univ. of Málaga) 의 고지는 납품 문서에 재수록해야 한�
 경고한다.
 
 재배포 권리가 확인된 나머지 — unitree_sdk2·unitree_ros2(BSD-3),
-DFKI 3종(BSD-3), kiss_icp(MIT), librealsense(Apache-2.0), Qt(LGPLv3) — 는
+DFKI 3종(BSD-3), kiss_icp(MIT), Qt(LGPLv3) — 는
 각 고지를 `licenses/` 에 넣는 것으로 충족된다.
 
 ## 코드에서 할 일
@@ -173,7 +173,7 @@ strip 만으로는 부족하다. 디버그 정보는 줄지만 동적 심볼과 
 
 ```
 Apache-2.0    mission_manager, lidar_slam, robot_bringup, aurora
-Proprietary   hmi_bridge, realsense_d455, velodyne_vlp16
+Proprietary   hmi_bridge, velodyne_vlp16
 ```
 
 실제 권리 방침에 맞춰 통일한다.

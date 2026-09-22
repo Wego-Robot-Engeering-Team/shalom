@@ -171,23 +171,6 @@ if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
   fi
 fi
 
-if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
-  say "RealSense USB 권한"
-  REALSENSE_RULE="$REPO_ROOT/robot/third_party/librealsense/config/99-realsense-libusb.rules"
-  if [ -f "$REALSENSE_RULE" ]; then
-    run sudo install -m 644 "$REALSENSE_RULE" /etc/udev/rules.d/99-realsense-libusb.rules
-    run sudo udevadm control --reload-rules
-    run sudo udevadm trigger
-    # The ROS binary packages already provide librealsense 2.58.1 and the
-    # viewer.  Keep the pinned SDK source for rules/reference, but do not let
-    # colcon build a second SDK into this workspace and override that runtime.
-    run install -m 644 /dev/null "$REPO_ROOT/robot/third_party/librealsense/COLCON_IGNORE"
-    note "D455를 이미 꽂아 두었다면 한 번 뺐다가 다시 연결한다."
-  else
-    note "RealSense 소스가 없어 UDEV 규칙 설치를 건너뜀"
-  fi
-fi
-
 # frcobot_ros2는 FAIRINO 전 기종을 한 저장소에 담고 있다. GTX-A는 FR3만
 # 쓰므로 설명(description), 메시지, 현재 펌웨어(v3.9.9) 하드웨어 패키지만
 # 빌드하고 나머지 기종/구버전은 colcon에서 제외한다. 서브모듈 소스를
@@ -207,7 +190,7 @@ if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 로봇 — 주행, 인식, 카메라
+# 로봇 — 주행·인식
 # ---------------------------------------------------------------------------
 if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
   say "자율주행·SLAM"
@@ -221,11 +204,6 @@ if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
   # HesaiLidar_ROS_2.0가 직접 찾는 시스템 라이브러리다. 공식 드라이버는
   # third_party의 고정 서브모듈로 제공하고, 로봇 전용 설정은 pandar_xt32가 갖는다.
   apt_install libboost-all-dev libyaml-cpp-dev
-
-  say "카메라 (RealSense D455)"
-  note "librealsense SDK 를 따로 빌드했더라도 ROS 래퍼는 있어야 토픽이 나온다."
-  apt_install \
-    "ros-$ROS-realsense2-camera" "ros-$ROS-realsense2-description"
 
 fi
 

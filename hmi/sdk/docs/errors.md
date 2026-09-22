@@ -64,7 +64,7 @@
 | `id` | 숫자 번호. 현장에서 부르고 매뉴얼과 대조한다 |
 | `severity` | `critical` · `error` · `warn` · `info` · `ok` |
 | `category` | 영역. 화면의 분류에 쓴다 |
-| `origin` | 발생처. `B2` · `FR3` · `D455` · `브릿지` · `안전 노드` 등 |
+| `origin` | 발생처. `B2` · `FR3` · `카메라` · `브릿지` · `안전 노드` 등 |
 | `channel` | 관련 채널. 없으면 `-` |
 | `clears` | `latched`(사람이 해제) / `clears_with`(짝 코드) / `momentary` |
 | `throttle_s` | 반복 억제 간격. 없으면 억제하지 않는다 |
