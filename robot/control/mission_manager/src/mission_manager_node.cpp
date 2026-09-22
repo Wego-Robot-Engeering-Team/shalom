@@ -283,7 +283,16 @@ private:
 
   void clear_pending_start() {
     start_requested_ = false;
+    start_safety_sequence_.reset();
     last_dependency_request_.reset();
+  }
+
+  void cancel_pending_start_by_safety(const std::string & detail) {
+    if (!start_requested_ || fsm_.state() != mission_manager::core::State::Ready) return;
+    clear_pending_start();
+    reason_code_ = "MISSION_START_CANCELLED_BY_SAFETY";
+    detail_ = detail;
+    publish_state();
   }
 
   void on_configure(const ConfigureMission::Request::SharedPtr request,
@@ -381,6 +390,9 @@ private:
         rejected_detail = "mission is not ready";
       } else {
         start_requested_ = true;
+        ++start_request_generation_;
+        if (have_safety_state_) start_safety_sequence_ = safety_sequence_;
+        else start_safety_sequence_.reset();
         reason_code_ = "MISSION_START_REQUESTED";
         detail_ = "waiting for safety, authority, and fresh odometry";
         accepted = true;
@@ -416,19 +428,24 @@ private:
   }
 
   void on_safety(const SafetyState::SharedPtr message) {
+    // SafetyState is published periodically; a changed sequence identifies a
+    // transition that occurred after the pending START was accepted.
+    const bool safety_transition_after_start = start_safety_sequence_.has_value() &&
+      message->sequence != *start_safety_sequence_;
     safety_state_ = message->state;
+    safety_sequence_ = message->sequence;
     have_safety_state_ = true;
     using State = mission_manager::core::State;
     const auto state = fsm_.state();
-    if (state == State::Ready && start_requested_ &&
-        (message->reason_code == "SAFETY_COMM_TIMEOUT_STOP" ||
-         message->reason_code == "SAFETY_WATCHDOG_TIMEOUT" ||
-         message->state == SafetyState::E_STOP_LATCHED ||
-         message->state == SafetyState::FAULT)) {
-      clear_pending_start();
-      reason_code_ = "MISSION_START_CANCELLED_BY_SAFETY";
-      detail_ = "a new operator start is required after the safety stop";
-      publish_state();
+    if (state == State::Ready && start_requested_) {
+      if (message->state == SafetyState::E_STOP_LATCHED ||
+          message->state == SafetyState::FAULT ||
+          (safety_transition_after_start && message->state != SafetyState::NORMAL)) {
+        cancel_pending_start_by_safety(
+          "a new operator start is required after the safety stop");
+      } else if (!start_safety_sequence_.has_value()) {
+        start_safety_sequence_ = message->sequence;
+      }
     }
     if (message->state != SafetyState::NORMAL &&
         (state == State::Running || state == State::Returning || state == State::Recovering)) {
@@ -515,11 +532,16 @@ private:
       request->request_id = "mission-safety-" + std::to_string(++dependency_sequence_);
       request->operator_id = "mission_manager";
       request->operation = SafetyCommand::Request::RESUME;
+      const auto start_request_generation = start_request_generation_;
       safety_client_->async_send_request(request,
-        [this](rclcpp::Client<SafetyCommand>::SharedFuture future) {
+        [this, start_request_generation](rclcpp::Client<SafetyCommand>::SharedFuture future) {
           const auto response = future.get();
           if (!response->accepted && response->state.state != SafetyState::NORMAL) {
             RCLCPP_WARN(get_logger(), "Safety resume rejected: %s", response->detail.c_str());
+            if (start_requested_ && start_request_generation == start_request_generation_) {
+              cancel_pending_start_by_safety(
+                "safety resume was rejected; a new operator start is required");
+            }
           }
         });
     }
@@ -671,6 +693,8 @@ private:
   std::size_t mission_index_{0};
   uint64_t sequence_{0};
   uint64_t dependency_sequence_{0};
+  uint64_t safety_sequence_{0};
+  uint64_t start_request_generation_{0};
   uint64_t goal_generation_{0};
   std::string reason_code_{"MISSION_IDLE"};
   std::string detail_{"waiting for mission configuration"};
@@ -689,6 +713,7 @@ private:
   std::optional<std::chrono::steady_clock::time_point> last_safe_command_;
   std::optional<std::chrono::steady_clock::time_point> last_stopped_feedback_;
   std::optional<std::chrono::steady_clock::time_point> last_dependency_request_;
+  std::optional<uint64_t> start_safety_sequence_;
   GoalPhase goal_phase_{GoalPhase::Idle};
   bool goal_unsendable_{false};
   std::optional<uint8_t> active_operation_;
