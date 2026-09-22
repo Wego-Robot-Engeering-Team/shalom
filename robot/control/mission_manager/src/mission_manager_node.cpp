@@ -337,7 +337,6 @@ private:
       if (transition.accepted) {
         reason_code_ = "MISSION_CONFIGURED";
         detail_ = transition.reason;
-        ++sequence_;
         publish_state();
         response->accepted = true;
       } else {
@@ -429,7 +428,6 @@ private:
       clear_pending_start();
       reason_code_ = "MISSION_START_CANCELLED_BY_SAFETY";
       detail_ = "a new operator start is required after the safety stop";
-      ++sequence_;
       publish_state();
     }
     if (message->state != SafetyState::NORMAL &&
@@ -485,7 +483,6 @@ private:
     detail_ = transition.reason;
     if (!transition.accepted) return false;
     reason_code_ = reason_code;
-    ++sequence_;
     if (transition.to == mission_manager::core::State::Pausing) {
       if (active_operation_.has_value()) {
         if (const auto * executor = operation_registry_.find(*active_operation_)) executor->halt();
@@ -596,7 +593,6 @@ private:
       return;
     }
     ++mission_index_;
-    ++sequence_;
     publish_state();
     if (mission_index_ >= plan_.waypoints.size()) {
       dispatch(Event::InspectionComplete, "MISSION_INSPECTION_COMPLETE");
@@ -659,7 +655,10 @@ private:
     goal_phase_ = GoalPhase::Idle;
   }
 
-  void publish_state() { state_pub_->publish(make_state()); }
+  void publish_state() {
+    ++sequence_;
+    state_pub_->publish(make_state());
+  }
 
   enum class GoalPhase { Idle, Active, Succeeded, Failed };
 
