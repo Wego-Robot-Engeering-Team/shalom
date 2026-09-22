@@ -2,12 +2,25 @@
 
 """Run the physical robot stack; it never starts MuJoCo or test sensors."""
 
+from pathlib import Path
+
+import yaml
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
+
+
+def _robot_id_from_metadata():
+    metadata_path = Path(__file__).resolve().parent.parent.parent / "config" / "robot_metadata.yaml"
+    with metadata_path.open(encoding="utf-8") as metadata_file:
+        metadata = yaml.safe_load(metadata_file) or {}
+    robot_id = metadata.get("robot", {}).get("id", "")
+    if not robot_id:
+        raise RuntimeError(f"robot id is missing from {metadata_path}")
+    return str(robot_id)
 
 
 def generate_launch_description():
@@ -67,7 +80,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("domain_id", default_value="0"),
-        DeclareLaunchArgument("robot_id", default_value="R1"),
+        DeclareLaunchArgument("robot_id", default_value=_robot_id_from_metadata()),
         DeclareLaunchArgument("teleop_allowed_peer", default_value=""),
         DeclareLaunchArgument("robot_name", default_value="1호기"),
         DeclareLaunchArgument("network_interface", default_value=""),

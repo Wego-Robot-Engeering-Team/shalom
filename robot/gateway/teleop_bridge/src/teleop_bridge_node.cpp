@@ -39,7 +39,7 @@ public:
     const auto command_timeout_ms = declare_parameter<int>("command_timeout_ms", 300);
     const auto output_hz = declare_parameter<double>("output_hz", 20.0);
     udp_port_ = declare_parameter<int>("udp_port", 9090);
-    robot_id_ = declare_parameter<std::string>("robot_id", "R1");
+    robot_id_ = declare_parameter<std::string>("robot_id", "");
     allowed_peer_ = declare_parameter<std::string>("allowed_peer", "");
     max_linear_x_ = declare_parameter<double>("max_linear_x", 0.60);
     max_linear_y_ = declare_parameter<double>("max_linear_y", 0.40);
@@ -184,7 +184,7 @@ private:
 
   int udp_fd_ = -1;
   int udp_port_ = 9090;
-  std::string robot_id_{"R1"};
+  std::string robot_id_;
   std::string allowed_peer_;
   double max_linear_x_ = 0.60;
   double max_linear_y_ = 0.40;
