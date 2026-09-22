@@ -4,3 +4,6 @@ mission_manager:
     # operation is accepted only when its executor is registered as well.
     available_capabilities:
       - navigation
+    # Motion authority snapshots arrive at 5 Hz. Missing more than two periods
+    # pauses active motion and blocks START/recovery.
+    authority_timeout_ms: 500
