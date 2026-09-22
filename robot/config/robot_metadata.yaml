@@ -1,0 +1,48 @@
+robot:
+  id: "SE-0001"
+  date: "2024-06-01" # 납품 일자
+  ip_address: "" # local IP address of the robot.
+  developer: "WeGo Robotics"
+  
+  quadruped:
+    name: "B2"
+    type: "quadruped"
+    manufacturer: "Unitree Robotics"
+    description: "A quadruped robot designed for navigation and exploration."
+    purpose: "Navigation and exploration in various environments."
+
+  robot_arm:
+    name: "fr3c"
+    type: "6-DOF robotic arm"
+    manufacturer: "Franka Emika"
+    description: "A robotic arm with 6 degrees of freedom, suitable for manipulation tasks."
+    purpose: "Manipulation and interaction with objects in the environment."
+
+  controller:
+    name: "Jetson AGX Orin"
+    type: "System on Chip"
+    manufacturer: "NVIDIA"
+    description: "A high-performance computing platform for AI and robotics applications."
+    purpose: "Processing sensor data, running algorithms, and controlling the robot."
+
+  imu:
+    name: "VN-100"
+    type: "Inertial Measurement Unit"
+    manufacturer: "VectorNav"
+    description: "An IMU providing orientation and acceleration data."
+    purpose: "Orientation and motion sensing for navigation and control."
+
+  depth_camera_1:
+    name: "Aurora-S"
+    type: "Depth Camera"
+    manufacturer: "Slamtec"
+    description: "A depth camera used for 3D mapping and navigation."
+    purpose: "odometry and environment perception for navigation and mapping."
+
+  depth_camera_2:
+    name: "LC-DJC-70"
+    type: "Depth Camera"
+    manufacturer: ""
+    description: ""
+    purpose: ""
+  
