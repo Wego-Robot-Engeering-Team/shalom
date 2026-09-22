@@ -6,9 +6,9 @@ namespace mission_manager::bt {
 
 const char * to_string(Status status) {
   switch (status) {
-    case Status::kRunning: return "running";
-    case Status::kSuccess: return "success";
-    case Status::kFailure: return "failure";
+    case Status::Running: return "running";
+    case Status::Success: return "success";
+    case Status::Failure: return "failure";
   }
   return "unknown";
 }

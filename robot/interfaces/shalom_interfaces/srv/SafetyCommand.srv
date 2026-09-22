@@ -1,0 +1,14 @@
+uint8 ENGAGE_SOFTWARE_ESTOP=1
+uint8 RELEASE_SOFTWARE_ESTOP=2
+uint8 RESUME=3
+uint8 CLEAR_FAULT=4
+
+# request_id is mandatory and makes retries idempotent.
+string request_id
+string operator_id
+uint8 operation
+---
+bool accepted
+shalom_interfaces/SafetyState state
+string reason_code
+string detail

@@ -29,10 +29,14 @@ enum class DriveMode { Auto, Manual };
 /// forced look the same on screen otherwise.
 enum class MissionState {
     Idle,
+    Ready,
     Running,
+    Pausing,
     Paused,
+    Recovering,
     Returning,
     Completed,
+    Failed,
     Fault,
     EmergencyStopped,
 };

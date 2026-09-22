@@ -1,15 +1,14 @@
 # mission_manager
 
-과업지시서의 기본 흐름을 담은 C++ 미션 코어 예제다. `MissionFsm`이 상위 상태를
-소유하고, 실제 행동은 아래의 독립 BT가 맡는다.
+과업지시서의 기본 흐름을 담은 C++ 미션 코어다. 목표 아키텍처용
+`mission_manager::core::StateMachine`이 상위 상태를 소유하고, 실제 행동은 아래의
+독립 BT가 맡는다.
 
 ```text
-대기 ─시작→ 작업 중 ─모든 지점 완료/저전력→ 복귀 → 완료
-              │ 이동 → 정지 확인 → 촬영 → 다음 지점
-              ├ 통신 단절·수동 전환·일시정지 → 일시정지
-              └ 실패 → Fault
-
-어느 상태에서나 E-stop → EmergencyStopped → (해제) → 일시정지
+IDLE ─구성→ READY ─시작→ RUNNING ─점검 완료→ RETURNING(선택) → COMPLETED
+                          │
+                          └ 정지 요청 → PAUSING ─정지 확인→ PAUSED/IDLE/FAILED
+                                                     └ 명시적 재개→ RECOVERING
 ```
 
 | BT | 책임 | 실제 어댑터 |
@@ -18,35 +17,38 @@
 | `CaptureBt` | AprilTag 보정 → MoveIt2 자세 → 정지 확인 → 촬영·저장 | Tag, MoveIt2, 카메라/NAS |
 | `StairBt` | 계단 경로 안전 확인 → 전용 보행 모드 → 통과 → 출구 확인 | B2 계단 보행 controller |
 
-모든 비동기 작업은 완료될 때까지 `kRunning`을 반환한다. FSM이 `Paused`, `Fault`,
-`EmergencyStopped`이면 어떤 BT도 tick하지 말고, 실행 중인 BT에는 `halt()`를 호출해
-Nav2·팔·계단 보행을 취소한다.
+모든 비동기 작업은 완료될 때까지 `Status::Running`을 반환한다. FSM이
+`PAUSING`, `PAUSED`, `FAILED`이면 어떤 BT도 tick하지 않고, 실행 중인 BT에는
+`halt()`를 호출해 Nav2·팔·계단 보행을 취소한다.
 
 ## 범위
 
-- FSM: 수동 우선, 링크 단절, 저전력 복귀, E-stop 해제 후 명시적 재개를 모델링한다.
+- 목표 FSM: `IDLE`, `READY`, `RUNNING`, `PAUSING`, `PAUSED`, `RECOVERING`,
+  `RETURNING`, `COMPLETED`, `FAILED`와 명시적 재개를 모델링한다.
 - BT: 지점 작업과 복귀 순서를 모델링한다.
-- ROS adapter는 현재 `hmi_bridge`가 이 라이브러리를 링크해 `Nav2Runtime`을
-  구현한다. 어댑터가 IO를 갖고 이 패키지가 순서를 갖는 구조이므로, 같은 개념이
-  두 곳에 있지 않다.
+- `mission_manager_node`가 이 단일 `StateMachine`, immutable plan과 Nav2 adapter를
+  소유한다. `hmi_bridge`는 typed service를 호출하고 상태를 HMI TCP로 변환할 뿐이다.
 - 실제 E-stop, watchdog, `/cmd_vel` 최종 차단은 별도 `safety_manager`,
   `safety_gate`, 드라이버 레벨 timeout이 맡는다. 이 FSM만으로 안전 기능이 구현되지는 않는다.
 
 ## 지금까지 연결된 것
 
-- `MissionFsm`이 미션 상태를 소유한다. `hmi_bridge`의 3단계 상태기계는 없앴다.
+- `mission_manager::core::StateMachine`과 전이 테스트가 구현됐다. 이 코어는
+  `PAUSING`에서 BT halt, gate zero, B2 정지가 모두 확인된 뒤에만 다음 상태로 간다.
 - `Nav2Bt`가 점검포인트 순회와 도크 복귀를 모두 맡는다. `hmi_bridge`가
   `Nav2Runtime`을 구현해 Nav2 목표를 보내고 결과를 되돌려 준다.
-- 상태는 `state/mission`으로 관제에 그대로 나간다(`returning`·`completed`·
-  `fault`·`emergency_stopped` 포함).
+- 상태는 `state/mission`으로 관제에 그대로 나간다.
 
 ## 아직 연결되지 않은 것
 
 - `CaptureBt` — 순회 중 자동 촬영. AprilTag 보정과 MoveIt2 자세가 아직 없어서
   붙이지 않았다. 지금 촬영은 조작자가 누르는 수동 경로만 있다.
 - `StairBt` — B2 계단 보행 모드가 없다.
-- `safety_manager`와 `safety_gate` — control-plane 골격은 구현됐지만, 기존 Nav2/HMI
-  command source를 gate 경로로 remap하는 실기 통합은 아직 하지 않았다.
+- B2 시뮬레이션에서 HMI 연결 두절, pause/manual takeover, 명시적 resume를 함께
+  검증하는 system test.
+
+Nav2/HMI command source에서 `twist_mux → safety_gate → /cmd_vel`로 이어지는 경로와
+별도 `safety_manager` 프로세스는 `robot_bringup/control.launch.py`에 연결돼 있다.
 
 ## 확인
 
@@ -55,5 +57,4 @@ ROS 환경에서는 다음으로 코어와 테스트를 빌드할 수 있다.
 ```bash
 colcon build --packages-select mission_manager
 colcon test --packages-select mission_manager
-ros2 run mission_manager mission_manager_demo
 ```

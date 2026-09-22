@@ -72,7 +72,7 @@ control-plane은 driver 명령 경로와의 통합 검증 전 단계이므로, �
 ```text
 mission / nav2 / dock / stair / teleop
                  ↓
-            motion_mux
+            twist_mux
                  ↓
             safety_gate
                  ↓

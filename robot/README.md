@@ -9,6 +9,7 @@ robot/
 ├── robot_bringup/       # 실기 B2·XT32·Aurora 실행과 공통 navigation 조립
 ├── navigation/          # Nav2·AMCL·SLAM·KISS-ICP 설정과 RViz profile
 ├── hmi_bridge/          # HMI TCP ↔ ROS 2, 지도 카탈로그와 지도별 상태 소유
+├── interfaces/          # Mission·Safety·Motion Authority ROS 2 계약
 ├── control/             # mission·safety·motion authority control plane
 ├── sensors/             # 센서 어댑터 소스 (납품 여부는 runtime package에서 결정)
 └── tools/               # 운영·개발 보조 스크립트
@@ -68,6 +69,6 @@ ros2 launch simulation_bringup bringup.launch.py
 cd ~/shalom_ws
 source /opt/ros/jazzy/setup.bash
 colcon build --base-paths src/shalom --symlink-install \
-  --packages-select robot_bringup simulation_bringup hmi_bridge
+  --packages-select shalom_interfaces robot_bringup simulation_bringup hmi_bridge
 source install/setup.bash
 ```

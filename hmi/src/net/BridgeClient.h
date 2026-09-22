@@ -19,7 +19,7 @@
 //
 // WHAT IT IS NOT RESPONSIBLE FOR
 // ------------------------------
-// Safety. The one-second emergency stop and the three-second
+// Safety. The one-second emergency stop and the one-second
 // communication-loss stop are enforced by the robot's safety node, which acts
 // on its own when this client goes quiet. Nothing here should be written as
 // though the robot depends on it to stop.

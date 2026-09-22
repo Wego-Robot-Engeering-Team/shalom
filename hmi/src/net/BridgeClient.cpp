@@ -23,7 +23,7 @@ namespace {
 constexpr int kHeartbeatMs = 200;
 
 /// 이 시간 동안 상대 하트비트가 없으면 링크가 죽은 것으로 표시한다.
-/// 로봇을 정지시키는 3초 기준과는 별개다 — 그쪽은 로봇측 safety 노드가
+/// 로봇을 정지시키는 1초 계약의 최종 판정은 로봇측 safety 노드가
 /// 스스로 판단하며, 이 값은 화면 표시용이다.
 constexpr qint64 kLinkSilentMs = 1500;
 

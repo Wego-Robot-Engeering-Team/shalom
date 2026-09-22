@@ -7,11 +7,17 @@ import os
 from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, SetLaunchConfiguration
+from launch.actions import (
+    DeclareLaunchArgument,
+    GroupAction,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+    SetLaunchConfiguration,
+)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
-from launch_ros.actions import Node
+from launch_ros.actions import Node, SetRemap
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -92,18 +98,33 @@ def generate_launch_description():
         }.items(),
     )
 
-    nav2 = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(PathJoinSubstitution([nav2_bringup, "launch", "bringup_launch.py"])),
-        launch_arguments={
-            "use_sim_time": use_sim_time,
-            "slam": "False",
-            "use_localization": "False",
-            "autostart": "True",
-            "use_composition": "False",
-            "use_respawn": "False",
-            "params_file": PathJoinSubstitution([config, "nav2.yaml"]),
-        }.items(),
-        condition=IfCondition(LaunchConfiguration("nav2")),
+    nav2 = GroupAction(
+        actions=[
+            # opennav_docking publishes on its fixed relative `cmd_vel` topic.
+            # Keep it inside the sole actuator path instead of allowing it to
+            # bypass twist_mux and safety_gate.  The node-qualified rule is
+            # inherited by Nav2's included launch but applies only to the
+            # docking_server process.
+            SetRemap(
+                src="docking_server:cmd_vel",
+                dst="/motion/dock/cmd_vel",
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    PathJoinSubstitution([nav2_bringup, "launch", "bringup_launch.py"])
+                ),
+                launch_arguments={
+                    "use_sim_time": use_sim_time,
+                    "slam": "False",
+                    "use_localization": "False",
+                    "autostart": "True",
+                    "use_composition": "False",
+                    "use_respawn": "False",
+                    "params_file": PathJoinSubstitution([config, "nav2.yaml"]),
+                }.items(),
+                condition=IfCondition(LaunchConfiguration("nav2")),
+            ),
+        ],
     )
 
     map_server = Node(

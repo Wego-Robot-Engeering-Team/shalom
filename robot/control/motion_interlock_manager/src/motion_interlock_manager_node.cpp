@@ -1,69 +1,196 @@
 // Copyright (c) 2026 WeGo Robotics. All rights reserved.
 
+#include <chrono>
+#include <deque>
 #include <functional>
+#include <optional>
 #include <string>
+#include <unordered_map>
 
 #include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/bool.hpp"
-#include "std_msgs/msg/string.hpp"
+#include "shalom_interfaces/msg/motion_authority.hpp"
+#include "shalom_interfaces/msg/motion_stopped.hpp"
+#include "shalom_interfaces/msg/safety_event.hpp"
+#include "shalom_interfaces/srv/authority_request.hpp"
 
 #include "motion_interlock_manager/motion_interlock.hpp"
 
 namespace {
 
+using namespace std::chrono_literals;
+using AuthorityRequest = shalom_interfaces::srv::AuthorityRequest;
+using MotionAuthorityMsg = shalom_interfaces::msg::MotionAuthority;
+using MotionStopped = shalom_interfaces::msg::MotionStopped;
+using SafetyEvent = shalom_interfaces::msg::SafetyEvent;
+using CoreAuthority = motion_interlock_manager::MotionAuthority;
+
+uint8_t wire_authority(CoreAuthority state) {
+  switch (state) {
+    case CoreAuthority::None: return MotionAuthorityMsg::NONE;
+    case CoreAuthority::BaseActive: return MotionAuthorityMsg::BASE_ACTIVE;
+    case CoreAuthority::BaseStopping: return MotionAuthorityMsg::BASE_STOPPING;
+    case CoreAuthority::ArmActive: return MotionAuthorityMsg::ARM_ACTIVE;
+    case CoreAuthority::ArmStopping: return MotionAuthorityMsg::ARM_STOPPING;
+  }
+  return MotionAuthorityMsg::NONE;
+}
+
 class MotionInterlockManagerNode final : public rclcpp::Node {
 public:
   MotionInterlockManagerNode() : Node("motion_interlock_manager") {
-    authority_pub_ = create_publisher<std_msgs::msg::String>(
-      "/motion/authority", rclcpp::QoS(1).transient_local());
-    request_sub_ = create_subscription<std_msgs::msg::String>(
-      "/motion/request_authority", 20,
-      std::bind(&MotionInterlockManagerNode::on_request, this, std::placeholders::_1));
-    base_stopped_sub_ = create_subscription<std_msgs::msg::Bool>(
-      "/motion/base/stopped", 20,
-      std::bind(&MotionInterlockManagerNode::on_base_stopped, this, std::placeholders::_1));
-    arm_stopped_sub_ = create_subscription<std_msgs::msg::Bool>(
-      "/motion/arm/stopped", 20,
-      std::bind(&MotionInterlockManagerNode::on_arm_stopped, this, std::placeholders::_1));
+    transition_timeout_ = std::chrono::milliseconds(
+      declare_parameter<int>("transition_timeout_ms", 1000));
+    stopped_feedback_timeout_ = std::chrono::milliseconds(
+      declare_parameter<int>("stopped_feedback_timeout_ms", 500));
+    authority_pub_ = create_publisher<MotionAuthorityMsg>(
+      "/motion/authority", rclcpp::QoS(1).reliable().transient_local());
+    safety_event_pub_ = create_publisher<SafetyEvent>("/safety/event", 10);
+    request_service_ = create_service<AuthorityRequest>(
+      "/motion/authority/request",
+      std::bind(&MotionInterlockManagerNode::on_request, this,
+        std::placeholders::_1, std::placeholders::_2));
+    stopped_sub_ = create_subscription<MotionStopped>(
+      "/motion/stopped", 20,
+      std::bind(&MotionInterlockManagerNode::on_stopped, this, std::placeholders::_1));
+    timer_ = create_wall_timer(50ms, std::bind(&MotionInterlockManagerNode::tick, this));
     publish();
   }
 
 private:
-  void on_request(const std_msgs::msg::String::SharedPtr message) {
-    using motion_interlock_manager::Request;
-    if (message->data == "base") dispatch(interlock_.request(Request::kBase));
-    else if (message->data == "arm") dispatch(interlock_.request(Request::kArm));
-    else if (message->data == "release") dispatch(interlock_.request(Request::kRelease));
-    else RCLCPP_WARN(get_logger(), "Ignored unknown motion authority request: %s", message->data.c_str());
+  MotionAuthorityMsg make_state() const {
+    MotionAuthorityMsg message;
+    message.stamp = now();
+    message.sequence = sequence_;
+    message.state = wire_authority(interlock_.state());
+    message.pending = wire_authority(interlock_.pending());
+    message.owner = owner_;
+    message.reason_code = reason_code_;
+    message.detail = detail_;
+    return message;
   }
 
-  void on_base_stopped(const std_msgs::msg::Bool::SharedPtr message) {
-    if (message->data) dispatch(interlock_.base_stopped());
+  void remember(const std::string & id, const AuthorityRequest::Response & response) {
+    request_cache_[id] = response;
+    request_order_.push_back(id);
+    if (request_order_.size() > 128) {
+      request_cache_.erase(request_order_.front());
+      request_order_.pop_front();
+    }
   }
 
-  void on_arm_stopped(const std_msgs::msg::Bool::SharedPtr message) {
-    if (message->data) dispatch(interlock_.arm_stopped());
+  void on_request(const AuthorityRequest::Request::SharedPtr request,
+                  AuthorityRequest::Response::SharedPtr response) {
+    if (request->request_id.empty()) {
+      response->accepted = false;
+      response->reason_code = "MOTION_REQUEST_ID_REQUIRED";
+      response->detail = "request_id is required";
+      response->authority = make_state();
+      return;
+    }
+    if (const auto it = request_cache_.find(request->request_id);
+        it != request_cache_.end()) {
+      *response = it->second;
+      return;
+    }
+
+    using Request = motion_interlock_manager::Request;
+    motion_interlock_manager::Transition transition{
+      interlock_.state(), interlock_.state(), false, "unknown authority operation"};
+    if (request->operation == AuthorityRequest::Request::REQUEST_BASE) {
+      transition = interlock_.request(Request::Base);
+    } else if (request->operation == AuthorityRequest::Request::REQUEST_ARM) {
+      transition = interlock_.request(Request::Arm);
+    } else if (request->operation == AuthorityRequest::Request::RELEASE) {
+      transition = interlock_.request(Request::Release);
+    }
+
+    if (transition.accepted) {
+      if (request->operation != AuthorityRequest::Request::RELEASE) {
+        owner_ = request->requester;
+      }
+      accept_transition(transition, "MOTION_AUTHORITY_CHANGED");
+    }
+    response->accepted = transition.accepted;
+    response->authority = make_state();
+    response->reason_code = transition.accepted ? reason_code_ : "MOTION_AUTHORITY_REJECTED";
+    response->detail = transition.reason;
+    remember(request->request_id, *response);
   }
 
-  void dispatch(const motion_interlock_manager::Transition & transition) {
+  void on_stopped(const MotionStopped::SharedPtr message) {
+    if (!message->stopped) return;
+    const auto age = now() - rclcpp::Time(message->stamp);
+    const auto timeout_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+      stopped_feedback_timeout_).count();
+    if (age.nanoseconds() < 0 || age.nanoseconds() > timeout_ns) {
+      RCLCPP_WARN(get_logger(), "Rejected stale or future motion-stopped feedback");
+      return;
+    }
+    motion_interlock_manager::Transition transition{
+      interlock_.state(), interlock_.state(), false, "unsupported resource"};
+    if (message->resource == MotionStopped::BASE) {
+      transition = interlock_.base_stopped();
+    } else if (message->resource == MotionStopped::ARM) {
+      transition = interlock_.arm_stopped();
+    }
+    if (transition.accepted) accept_transition(transition, "MOTION_STOP_CONFIRMED");
+  }
+
+  void tick() {
+    if (!transition_started_) return;
+    if (std::chrono::steady_clock::now() - *transition_started_ <= transition_timeout_) return;
+    const auto transition = interlock_.transition_timeout();
+    transition_started_.reset();
     if (!transition.accepted) return;
+    owner_.clear();
+    accept_transition(transition, "MOTION_AUTHORITY_TIMEOUT");
+
+    SafetyEvent event;
+    event.stamp = now();
+    event.sequence = ++safety_event_sequence_;
+    event.event = SafetyEvent::HEALTH_FAULT;
+    event.source = "motion_interlock_manager";
+    event.reason_code = "SAFETY_MOTION_STOP_TIMEOUT";
+    event.detail = "motion authority transition timed out";
+    safety_event_pub_->publish(event);
+  }
+
+  void accept_transition(const motion_interlock_manager::Transition & transition,
+                         const std::string & reason_code) {
+    reason_code_ = reason_code;
+    detail_ = transition.reason;
+    ++sequence_;
+    const auto state = interlock_.state();
+    if (state == CoreAuthority::BaseStopping || state == CoreAuthority::ArmStopping) {
+      transition_started_ = std::chrono::steady_clock::now();
+    } else {
+      transition_started_.reset();
+      if (state == CoreAuthority::None) owner_.clear();
+    }
     RCLCPP_INFO(get_logger(), "Motion authority %s -> %s: %s",
       motion_interlock_manager::to_string(transition.from),
       motion_interlock_manager::to_string(transition.to), transition.reason);
     publish();
   }
 
-  void publish() {
-    std_msgs::msg::String state;
-    state.data = motion_interlock_manager::to_string(interlock_.state());
-    authority_pub_->publish(state);
-  }
+  void publish() { authority_pub_->publish(make_state()); }
 
   motion_interlock_manager::MotionInterlock interlock_;
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr authority_pub_;
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr request_sub_;
-  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr base_stopped_sub_;
-  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr arm_stopped_sub_;
+  uint64_t sequence_{0};
+  uint64_t safety_event_sequence_{0};
+  std::string owner_;
+  std::string reason_code_{"MOTION_AUTHORITY_INITIALIZED"};
+  std::string detail_{"no authority holder"};
+  std::chrono::milliseconds transition_timeout_{1000};
+  std::chrono::milliseconds stopped_feedback_timeout_{500};
+  std::optional<std::chrono::steady_clock::time_point> transition_started_;
+  std::unordered_map<std::string, AuthorityRequest::Response> request_cache_;
+  std::deque<std::string> request_order_;
+  rclcpp::Publisher<MotionAuthorityMsg>::SharedPtr authority_pub_;
+  rclcpp::Publisher<SafetyEvent>::SharedPtr safety_event_pub_;
+  rclcpp::Service<AuthorityRequest>::SharedPtr request_service_;
+  rclcpp::Subscription<MotionStopped>::SharedPtr stopped_sub_;
+  rclcpp::TimerBase::SharedPtr timer_;
 };
 
 }  // namespace

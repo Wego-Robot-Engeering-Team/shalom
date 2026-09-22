@@ -7,8 +7,10 @@
   <license>Proprietary</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
   <depend>rclcpp</depend>
-  <depend>std_msgs</depend>
+  <depend>shalom_interfaces</depend>
 
   <export><build_type>ament_cmake</build_type></export>
 </package>

@@ -9,7 +9,7 @@
 
 ```bash
 cmake --preset default
-cmake --build --preset default
+cmake --build --preset default --parallel 4
 ./build/inspection_hmi
 ```
 

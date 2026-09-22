@@ -23,8 +23,8 @@ public:
   void halt(CaptureRuntime & runtime);
 
 private:
-  enum class Step { kCorrectPose, kPositionArm, kConfirmStop, kCapture };
-  Step next_step_{Step::kCorrectPose};
+  enum class Step { CorrectPose, PositionArm, ConfirmStop, Capture };
+  Step next_step_{Step::CorrectPose};
 };
 
 }  // namespace mission_manager::bt

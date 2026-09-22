@@ -339,7 +339,7 @@ QWidget *MainWindow::buildDriveContext()
 /// 직접 모는 곳이 따로 있는데 본체만 주행 화면 구석에 숨어 있을 이유가 없다.
 ///
 /// 주행 모드와 묶지 않는다. 자율 주행 중에도 조작자가 잡으면 그 동안은
-/// 수동이 앞서고(로봇의 motion_mux 가 중재한다), 손을 놓으면 자율로 돌아간다.
+/// 수동이 앞서고(로봇의 twist_mux 가 중재한다), 손을 놓으면 자율로 돌아간다.
 /// 무엇이 안전한지는 로봇이 정하므로 화면은 명령을 보내기만 한다.
 QWidget *MainWindow::buildBaseContext()
 {
@@ -1030,7 +1030,10 @@ void MainWindow::driveTo(const QVariantMap &pose, const QString &label)
 void MainWindow::onMissionStateChanged(MissionState state)
 {
     // 복귀 중도 일이 진행 중인 상태다. 완료·오류·비상정지는 멈춘 것이다.
-    const bool running = state == MissionState::Running
+    const bool running = state == MissionState::Ready
+                         || state == MissionState::Running
+                         || state == MissionState::Pausing
+                         || state == MissionState::Recovering
                          || state == MissionState::Returning
                          || state == MissionState::Paused;
     // 여기서 재개 버튼이 뜬다. 비상정지에서 해제하면 로봇이 Paused 로
@@ -1268,7 +1271,7 @@ void MainWindow::setMode(const QString &mode)
 
     // 조작 가능 여부는 연결에만 달렸다. 주행 모드로 잠그지 않는다 —
     // 자율 주행 중에도 조작자가 잡으면 그 동안은 수동이 앞서야 하고, 그
-    // 중재는 로봇의 motion_mux 가 한다(수동 모드에서는 브릿지가 제자리
+    // 중재는 로봇의 twist_mux 가 한다(수동 모드에서는 브릿지가 제자리
     // 명령을 계속 내보내 자율 출력이 나가지 못하게 잡아 둔다).
     const bool controlsAvailable = robot_->isConnected();
     teleop_->setJogEnabled(controlsAvailable);
@@ -1285,7 +1288,7 @@ void MainWindow::setMode(const QString &mode)
         // 수동 전환은 자율주행을 취소하지 않는다. 지시서 2.2.5 가 요구하는
         // 것은 수동이 우선한다는 것이지 자율을 버리라는 것이 아니고,
         // 취소해 버리면 잠깐 비켜 세우려던 조작자가 목표까지 잃는다.
-        // 수동 모드인 동안 자율 출력은 로봇의 motion_mux 에서 막힌다.
+        // 수동 모드인 동안 자율 출력은 로봇의 twist_mux 에서 막힌다.
         log_->log(QStringLiteral("SAFETY_MODE_MANUAL"));
         // 수동으로 바꿨다는 것은 지금 직접 몰겠다는 뜻이다. 조작계가 있는
         // 화면으로 데려간다.
