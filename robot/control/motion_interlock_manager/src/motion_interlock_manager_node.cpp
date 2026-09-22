@@ -40,6 +40,8 @@ public:
   MotionInterlockManagerNode() : Node("motion_interlock_manager") {
     transition_timeout_ = std::chrono::milliseconds(
       declare_parameter<int>("transition_timeout_ms", 1000));
+    stopped_feedback_timeout_ = std::chrono::milliseconds(
+      declare_parameter<int>("stopped_feedback_timeout_ms", 500));
     authority_pub_ = create_publisher<MotionAuthorityMsg>(
       "/motion/authority", rclcpp::QoS(1).reliable().transient_local());
     safety_event_pub_ = create_publisher<SafetyEvent>("/safety/event", 10);
@@ -117,6 +119,13 @@ private:
 
   void on_stopped(const MotionStopped::SharedPtr message) {
     if (!message->stopped) return;
+    const auto age = now() - rclcpp::Time(message->stamp);
+    const auto timeout_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+      stopped_feedback_timeout_).count();
+    if (age.nanoseconds() < 0 || age.nanoseconds() > timeout_ns) {
+      RCLCPP_WARN(get_logger(), "Rejected stale or future motion-stopped feedback");
+      return;
+    }
     motion_interlock_manager::Transition transition{
       interlock_.state(), interlock_.state(), false, "unsupported resource"};
     if (message->resource == MotionStopped::BASE) {
@@ -173,6 +182,7 @@ private:
   std::string reason_code_{"MOTION_AUTHORITY_INITIALIZED"};
   std::string detail_{"no authority holder"};
   std::chrono::milliseconds transition_timeout_{1000};
+  std::chrono::milliseconds stopped_feedback_timeout_{500};
   std::optional<std::chrono::steady_clock::time_point> transition_started_;
   std::unordered_map<std::string, AuthorityRequest::Response> request_cache_;
   std::deque<std::string> request_order_;

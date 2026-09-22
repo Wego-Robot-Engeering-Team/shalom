@@ -20,6 +20,7 @@
 #include "shalom_interfaces/msg/mission_plan.hpp"
 #include "shalom_interfaces/msg/mission_state.hpp"
 #include "shalom_interfaces/msg/motion_authority.hpp"
+#include "shalom_interfaces/msg/motion_stopped.hpp"
 #include "shalom_interfaces/msg/safety_state.hpp"
 #include "shalom_interfaces/srv/authority_request.hpp"
 #include "shalom_interfaces/srv/configure_mission.hpp"
@@ -38,6 +39,7 @@ using MissionPlan = shalom_interfaces::msg::MissionPlan;
 using MissionState = shalom_interfaces::msg::MissionState;
 using MissionWaypoint = shalom_interfaces::msg::MissionWaypoint;
 using MotionAuthority = shalom_interfaces::msg::MotionAuthority;
+using MotionStopped = shalom_interfaces::msg::MotionStopped;
 using SafetyState = shalom_interfaces::msg::SafetyState;
 using AuthorityRequest = shalom_interfaces::srv::AuthorityRequest;
 using SafetyCommand = shalom_interfaces::srv::SafetyCommand;
@@ -87,8 +89,8 @@ public:
     map_frame_ = declare_parameter<std::string>("map_frame", "map");
     odometry_topic_ = declare_parameter<std::string>("odometry_topic", "kiss/odometry");
     safe_command_topic_ = declare_parameter<std::string>("safe_command_topic", "/cmd_vel");
-    stopped_linear_threshold_ = declare_parameter<double>("stopped_linear_threshold", 0.03);
-    stopped_angular_threshold_ = declare_parameter<double>("stopped_angular_threshold", 0.05);
+    stopped_feedback_timeout_ = std::chrono::milliseconds(
+      declare_parameter<int>("stopped_feedback_timeout_ms", 500));
     for (const auto & capability : declare_parameter<std::vector<std::string>>(
            "available_capabilities", std::vector<std::string>{"navigation"})) {
       available_capabilities_.insert(capability);
@@ -117,6 +119,9 @@ public:
     safe_command_sub_ = create_subscription<geometry_msgs::msg::Twist>(
       safe_command_topic_, 20,
       std::bind(&MissionManagerNode::on_safe_command, this, std::placeholders::_1));
+    stopped_sub_ = create_subscription<MotionStopped>(
+      "/motion/stopped", 20,
+      std::bind(&MissionManagerNode::on_motion_stopped, this, std::placeholders::_1));
 
     safety_client_ = create_client<SafetyCommand>("/safety/command");
     authority_client_ = create_client<AuthorityRequest>("/motion/authority/request");
@@ -358,8 +363,7 @@ private:
   }
 
   void on_odometry(const nav_msgs::msg::Odometry::SharedPtr message) {
-    linear_speed_ = std::hypot(message->twist.twist.linear.x, message->twist.twist.linear.y);
-    angular_speed_ = std::abs(message->twist.twist.angular.z);
+    (void)message;
     last_odometry_ = std::chrono::steady_clock::now();
   }
 
@@ -370,6 +374,12 @@ private:
       std::abs(message->angular.x) <= epsilon && std::abs(message->angular.y) <= epsilon &&
       std::abs(message->angular.z) <= epsilon;
     last_safe_command_ = std::chrono::steady_clock::now();
+  }
+
+  void on_motion_stopped(const MotionStopped::SharedPtr message) {
+    if (message->resource != MotionStopped::BASE) return;
+    base_stopped_ = message->stopped;
+    last_stopped_feedback_ = std::chrono::steady_clock::now();
   }
 
   bool recovery_ready() const {
@@ -383,11 +393,10 @@ private:
     const auto now_steady = std::chrono::steady_clock::now();
     const bool command_fresh = last_safe_command_.has_value() &&
       now_steady - *last_safe_command_ <= 250ms;
-    const bool odometry_fresh = last_odometry_.has_value() && now_steady - *last_odometry_ <= 1s;
-    const bool stopped = odometry_fresh && linear_speed_ <= stopped_linear_threshold_ &&
-      angular_speed_ <= stopped_angular_threshold_;
+    const bool stopped_feedback_fresh = last_stopped_feedback_.has_value() &&
+      now_steady - *last_stopped_feedback_ <= stopped_feedback_timeout_;
     return goal_phase_ != GoalPhase::Active && !nav_goal_ && command_fresh &&
-      safe_command_zero_ && stopped;
+      safe_command_zero_ && stopped_feedback_fresh && base_stopped_;
   }
 
   bool dispatch(mission_manager::core::Event event, const std::string & reason_code) {
@@ -572,17 +581,16 @@ private:
   std::string odometry_topic_;
   std::string safe_command_topic_;
   std::unordered_set<std::string> available_capabilities_;
-  double stopped_linear_threshold_{0.03};
-  double stopped_angular_threshold_{0.05};
+  std::chrono::milliseconds stopped_feedback_timeout_{500};
   bool have_safety_state_{false};
   bool have_authority_{false};
   uint8_t safety_state_{SafetyState::INITIALIZING};
   uint8_t authority_state_{MotionAuthority::NONE};
-  double linear_speed_{0.0};
-  double angular_speed_{0.0};
+  bool base_stopped_{false};
   bool safe_command_zero_{true};
   std::optional<std::chrono::steady_clock::time_point> last_odometry_;
   std::optional<std::chrono::steady_clock::time_point> last_safe_command_;
+  std::optional<std::chrono::steady_clock::time_point> last_stopped_feedback_;
   std::optional<std::chrono::steady_clock::time_point> last_dependency_request_;
   GoalPhase goal_phase_{GoalPhase::Idle};
   bool goal_unsendable_{false};
@@ -600,6 +608,7 @@ private:
   rclcpp::Subscription<MotionAuthority>::SharedPtr authority_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odometry_sub_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr safe_command_sub_;
+  rclcpp::Subscription<MotionStopped>::SharedPtr stopped_sub_;
   rclcpp::Client<SafetyCommand>::SharedPtr safety_client_;
   rclcpp::Client<AuthorityRequest>::SharedPtr authority_client_;
   rclcpp_action::Client<NavigateToPose>::SharedPtr nav_client_;

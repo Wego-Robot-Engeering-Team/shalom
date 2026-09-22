@@ -225,6 +225,12 @@ FSM을 직접 동시에 호출하지 않는다.
 - Safety Gate가 zero output 상태임
 - B2 정지 피드백이 신선하고 정지 기준을 만족함
 
+`base_motion_monitor`가 Safety Gate의 최종 base 명령과 B2 odometry를 함께 관측해
+`/motion/stopped`를 발행한다. 시뮬레이션은 `/b2/odom_gt`, 실물은 B2 드라이버의
+`/b2/odom`을 사용한다. 명령 또는 odometry가 timeout되면 정지로 간주하지 않는다.
+`use_sim_time`은 메시지 timestamp와 ROS 구성요소의 공통 시간축을 맞추는 데 사용하고,
+명령/피드백 timeout 판정은 시뮬레이션 일시정지의 영향을 받지 않는 steady clock을 쓴다.
+
 Resume은 마지막으로 완료한 waypoint 다음이 아니라 **중단됐던 현재 waypoint를
 처음부터 다시 요청**한다. 완료된 waypoint checkpoint는 유지한다.
 

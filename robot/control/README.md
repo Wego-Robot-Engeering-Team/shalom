@@ -21,7 +21,7 @@ motion_interlock_manager ─ authority ──────────┘        
 | `mission_manager` | Mission FSM and BT ordering | final actuator commands |
 | `teleop_bridge` | deadman and input lease | hardware command topic |
 | `twist_mux` | fresh base command source priority | safety state |
-| `motion_interlock_manager` | base/arm operational authority | E-stop or fault state |
+| `motion_interlock_manager` | base/arm operational authority and stopped feedback validation | E-stop or fault state |
 | `safety_manager` | software safety state and motion permit | physical E-stop circuit |
 | `safety_gate` | final ROS command permission | physical safe stop |
 
@@ -44,7 +44,10 @@ Nav2는 `/motion/nav/cmd_vel`, hmi_bridge는 `/motion/teleop/cmd_vel`로 내보�
 `control.launch.py`에서 함께 기동한다. Mission과 Safety 런타임은 각 패키지의
 단일 목표 FSM을 사용한다. Mission Manager는 독립 프로세스로 실행되며 Mission,
 Safety, Motion Authority 경계는 `shalom_interfaces`의 typed topic/service를 사용한다.
-B2 통합 시나리오 검증은 아직 남아 있다. `twist_mux`는 우선순위만 고르고 안전
-판단은 하지 않는다.
+`base_motion_monitor`는 최종 명령과 B2 odometry를 결합해 `/motion/stopped`를
+발행하며, Mission pause 완료와 base/arm authority 전환은 이 피드백을 사용한다.
+시뮬레이션 bringup은 `/b2/odom_gt`와 simulation time을, 실물 bringup은
+`/b2/odom`과 system time을 선택한다. 신선도 timeout은 steady clock으로 판정한다.
+`twist_mux`는 우선순위만 고르고 안전 판단은 하지 않는다.
 `teleop_bridge`는 조종기(UDP) 입력이 붙을 때 쓴다 — 관제 HMI는 자체 deadman을
 가지고 있어 mux의 teleop 입력으로 바로 들어간다.

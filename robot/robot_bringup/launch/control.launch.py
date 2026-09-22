@@ -18,18 +18,23 @@ def generate_launch_description():
     twist_mux_config = PathJoinSubstitution([
         FindPackageShare("robot_bringup"), "config", "twist_mux.yaml"
     ])
+    use_sim_time = ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool)
 
     return LaunchDescription([
+        DeclareLaunchArgument("use_sim_time", default_value="false"),
         DeclareLaunchArgument("base_output_topic", default_value="/cmd_vel"),
+        DeclareLaunchArgument("base_odometry_topic", default_value="/b2/odom"),
         DeclareLaunchArgument("require_external_heartbeat", default_value="true"),
         Node(
             package="mission_manager", executable="mission_manager_node",
             name="mission_manager", output="screen",
+            parameters=[{"use_sim_time": use_sim_time}],
         ),
         Node(
             package="safety_manager", executable="safety_manager_node",
             name="safety_manager", output="screen",
             parameters=[{
+                "use_sim_time": use_sim_time,
                 "require_external_heartbeat": ParameterValue(
                     LaunchConfiguration("require_external_heartbeat"), value_type=bool),
             }],
@@ -37,20 +42,34 @@ def generate_launch_description():
         Node(
             package="motion_interlock_manager", executable="motion_interlock_manager_node",
             name="motion_interlock_manager", output="screen",
+            parameters=[{"use_sim_time": use_sim_time}],
+        ),
+        Node(
+            package="motion_interlock_manager", executable="base_motion_monitor_node",
+            name="base_motion_monitor", output="screen",
+            parameters=[{
+                "use_sim_time": use_sim_time,
+                "command_topic": LaunchConfiguration("base_output_topic"),
+                "odometry_topic": LaunchConfiguration("base_odometry_topic"),
+            }],
         ),
         Node(
             package="teleop_bridge", executable="teleop_bridge_node",
             name="teleop_bridge", output="screen",
+            parameters=[{"use_sim_time": use_sim_time}],
         ),
         Node(
             package="twist_mux", executable="twist_mux",
             name="twist_mux", output="screen",
-            parameters=[twist_mux_config],
+            parameters=[twist_mux_config, {"use_sim_time": use_sim_time}],
             remappings=[("cmd_vel_out", "/motion/base/cmd_vel")],
         ),
         Node(
             package="safety_gate", executable="safety_gate_node",
             name="safety_gate", output="screen",
-            parameters=[{"output_base_topic": LaunchConfiguration("base_output_topic")}],
+            parameters=[{
+                "use_sim_time": use_sim_time,
+                "output_base_topic": LaunchConfiguration("base_output_topic"),
+            }],
         ),
     ])

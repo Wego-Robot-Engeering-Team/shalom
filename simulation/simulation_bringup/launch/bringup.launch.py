@@ -36,7 +36,11 @@ def generate_launch_description():
     )
     control = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([robot, "launch", "control.launch.py"])),
-        launch_arguments={"base_output_topic": "/cmd_vel"}.items(),
+        launch_arguments={
+            "use_sim_time": "true",
+            "base_output_topic": "/cmd_vel",
+            "base_odometry_topic": "/b2/odom_gt",
+        }.items(),
     )
     station_bridge = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([bridge, "launch", "bridge.launch.py"])),
