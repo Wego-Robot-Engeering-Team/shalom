@@ -1,0 +1,9 @@
+# request_id is mandatory and makes retries idempotent.
+string request_id
+string operator_id
+shalom_interfaces/MissionPlan plan
+---
+bool accepted
+shalom_interfaces/MissionState state
+string reason_code
+string detail

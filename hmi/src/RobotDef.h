@@ -144,7 +144,7 @@ inline constexpr double kVxCaution = 0.30;  ///< m/s, the mandated reduced speed
 /// screen so that the number on screen and the number in the specification
 /// cannot drift apart unnoticed; test_docs checks both against the document.
 inline constexpr int kEstopResponseSec = 1;    ///< engage to full stop
-inline constexpr int kLinkLossStopSec = 3;     ///< heartbeat loss to stop in place
+inline constexpr int kLinkLossStopSec = 1;     ///< heartbeat loss to stop in place
 inline constexpr int kDeadmanMs = 300;         ///< jog command timeout
 
 /// Manipulability thresholds, normalised. Re-tune after on-site trials.

@@ -179,21 +179,21 @@
 ## 안전·연결
 
 ```text
-Nav2        →  /motion/base/cmd_vel/nav          ─┐
-teleop(UDP) →  /motion/base/cmd_vel/teleop       ─┤
-브릿지(수동) →  /motion/base/cmd_vel/manual_hold  ─┴→ motion_mux
-                    → /motion/base/cmd_vel → safety_gate → /cmd_vel → 로봇
+Nav2        →  /motion/nav/cmd_vel          ─┐
+teleop(UDP) →  /motion/teleop/cmd_vel       ─┤
+브릿지(수동) →  /motion/manual_hold/cmd_vel  ─┴→ twist_mux
+                 → /motion/base/cmd_vel → safety_gate → /cmd_vel → 로봇
 ```
 
 - E-Stop, 통신 두절, 명령 중재는 로봇의 안전 노드 책임이다.
 - 관제와 브릿지는 5 Hz 하트비트를 교환한다.
-- 안전 노드는 통신 두절 **3초** 후 정지한다.
+- 안전 노드는 HMI 하트비트가 **1초** 이상 없으면 정지한다.
 - 재연결 후 자율주행은 자동 재개하지 않는다.
 
 ### 수동과 자율의 우선순위
 
-`motion_mux`가 **teleop(100) > manual_hold(90) > stair(40) > dock(30) >
-nav(20)** 순으로 고르고, 각 입력은 **300 ms** 안에 들어온 것만 유효하다. 같은
+`twist_mux`가 **teleop(100) > manual_hold(90) > mission(80) > stair(40) >
+dock(30) > nav(20)** 순으로 고르고, 각 입력은 **300 ms** 안에 들어온 것만 유효하다. 같은
 토픽에 두 발행자를 두면 우선순위가 발행 순서로 정해지므로 중재를 한곳에 모았다.
 고른 결과는 `safety_gate`가 `/safety/state`를 보고 통과·0 출력·차단 중 하나로
 처리한 뒤에야 로봇에 닿는다.

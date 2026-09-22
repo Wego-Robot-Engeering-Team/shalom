@@ -46,9 +46,9 @@ colcon test-result --verbose
 
 ## 안전에 관한 책임 분담
 
-안전 정책은 `control/safety_manager`로 분리할 예정이다. 현재 해당 노드는
-구현되지 않았으므로 이 구조만으로 비상정지·통신 두절 시 정지가 보장되지는 않는다.
-브릿지는 생존 신호(`~/link_alive`, 즉 `/hmi_bridge/link_alive`)를 발행한다.
+안전 정책은 별도 프로세스인 `control/safety_manager`가 소유한다. 브릿지는 HMI
+하트비트 유효 여부를 `/safety/heartbeat`로 발행하고, Safety Manager가 통신 두절과
+E-Stop을 판정해 `safety_gate`의 motion permit을 제어한다.
 
 분리한 이유는 **이 노드가 죽어도 로봇이 서야 하기 때문**이다. 정지 판단이
 여기 있으면 세그폴트 한 번이 곧 감시자 없는 주행이 된다. 생존 신호를 발행하고
@@ -64,10 +64,9 @@ colcon test-result --verbose
 
 ## 미완성 부분
 
-`bridge_node.cpp` 의 `TODO(integration)` 표시 지점:
-
-- Nav2 `NavigateToPose` 액션 클라이언트 연결
-- MoveIt2 로봇팔 명령 전달
+남은 실제 장치 연동은 MoveIt2 로봇팔 명령과 조작성 지수 계산이다. 독립
+`mission_manager`가 Nav2 `NavigateToPose` 액션과 Mission FSM을 소유하며,
+브릿지는 `shalom_interfaces` typed API로만 미션을 요청한다.
 - OccupancyGrid → PNG 인코딩 (행 순서 반전 필요, 프로토콜 §2.2)
 - 야코비안 기반 조작성 지수 계산
 - 센서별 실측 주기 측정과 끊김 판정

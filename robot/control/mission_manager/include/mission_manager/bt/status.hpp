@@ -4,7 +4,7 @@
 
 namespace mission_manager::bt {
 
-enum class Status { kRunning, kSuccess, kFailure };
+enum class Status { Running, Success, Failure };
 
 const char * to_string(Status status);
 

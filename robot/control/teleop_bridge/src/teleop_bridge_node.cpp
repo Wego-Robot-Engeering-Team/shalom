@@ -35,7 +35,7 @@ public:
   TeleopBridgeNode() : Node("teleop_bridge")
   {
     const auto output_topic = declare_parameter<std::string>(
-      "output_topic", "/motion/base/cmd_vel/teleop");
+      "output_topic", "/motion/teleop/cmd_vel");
     const auto command_timeout_ms = declare_parameter<int>("command_timeout_ms", 300);
     const auto output_hz = declare_parameter<double>("output_hz", 20.0);
     udp_port_ = declare_parameter<int>("udp_port", 9090);

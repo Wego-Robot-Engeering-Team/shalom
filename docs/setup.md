@@ -8,6 +8,7 @@
     ├── robot/
     │   ├── robot_bringup/              platform·navigation·inspection 실행 조립
     │   ├── control/                    미션·안전·motion authority control plane
+    │   ├── interfaces/                 Mission·Safety·Motion Authority ROS 2 계약
     │   ├── navigation/config/          B2 주행·위치추정·SLAM 설정
     │   ├── navigation/maps/             저장 지도
     │   ├── navigation/rviz/             주행·지도화 화면 설정
@@ -88,7 +89,7 @@ cd ~/shalom_ws
 source /opt/ros/jazzy/setup.bash
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp    # B2 실기·시뮬레이터 모두 Cyclone DDS
 
-colcon build --base-paths src/shalom --symlink-install
+MAKEFLAGS=-j2 colcon build --executor parallel --parallel-workers 2 --base-paths src/shalom --symlink-install
 source install/setup.bash
 ```
 
@@ -96,7 +97,7 @@ source install/setup.bash
 잡은 것이다. 시스템 Python을 지정한다.
 
 ```bash
-PATH="/usr/bin:/bin:$PATH" colcon build --base-paths src/shalom --symlink-install \
+PATH="/usr/bin:/bin:$PATH" MAKEFLAGS=-j2 colcon build --executor parallel --parallel-workers 2 --base-paths src/shalom --symlink-install \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3.12
 ```
 
@@ -106,18 +107,18 @@ PATH="/usr/bin:/bin:$PATH" colcon build --base-paths src/shalom --symlink-instal
 아니라 CMake 로 짓는다.
 
 ```bash
-sudo apt install -y qt6-base-dev qt6-base-dev-tools qt6-svg-dev
+sudo apt install -y qt6-base-dev qt6-base-dev-tools qt6-svg-dev ninja-build
 
 cd ~/shalom_ws/src/shalom/hmi
-cmake --preset dev && cmake --build --preset dev
+cmake --preset default && cmake --build --preset default --parallel 4
 ctest --test-dir build            # 개발 구성
 ```
 
 실행하면 로그인 창이 먼저 뜬다. 지금은 자리표시 자격증명(`admin` / `admin`)이고,
 입력한 이름이 조작 이력에 남는다.
 
-납품 구성은 `--preset release` 다. 내장 모형(testbed)이 빠지고 실행 파일
-하나로 나온다. 코어는 정적으로 묶는다 — 공유 라이브러리로 내면 내부 클래스와
+납품할 때도 `default` 프리셋으로 만든 실행 파일만 배포한다. 테스트 실행 파일은
+포함하지 않는다. 코어는 정적으로 묶는다 — 공유 라이브러리로 내면 내부 클래스와
 메서드가 전부 동적 심볼로 드러난다.
 
 실행:

@@ -13,7 +13,6 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
-find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -23,7 +22,7 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(nlohmann_json REQUIRED)
-find_package(mission_manager REQUIRED)
+find_package(shalom_interfaces REQUIRED)
 # 점유격자를 PNG 로 눌러 보낸다 (map/occupancy).
 find_package(ZLIB REQUIRED)
 
@@ -44,8 +43,7 @@ target_include_directories(bridge_node PRIVATE
 )
 
 ament_target_dependencies(bridge_node
-  mission_manager
-    rclcpp rclcpp_action std_msgs std_srvs sensor_msgs geometry_msgs nav_msgs nav2_msgs
+    rclcpp rclcpp_action shalom_interfaces std_srvs sensor_msgs geometry_msgs nav_msgs nav2_msgs
     tf2 tf2_ros tf2_geometry_msgs
 )
 target_link_libraries(bridge_node nlohmann_json::nlohmann_json)

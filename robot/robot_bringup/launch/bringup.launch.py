@@ -38,7 +38,9 @@ def generate_launch_description():
     control = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([pkg, "launch", "control.launch.py"])),
         launch_arguments={
+            "use_sim_time": "false",
             "base_output_topic": "/cmd_vel",
+            "base_odometry_topic": "/b2/odom",
             "robot_id": LaunchConfiguration("robot_id"),
             "teleop_allowed_peer": LaunchConfiguration("teleop_allowed_peer"),
         }.items(),

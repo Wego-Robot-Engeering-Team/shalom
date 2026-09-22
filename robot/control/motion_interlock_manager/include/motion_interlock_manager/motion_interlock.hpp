@@ -5,14 +5,14 @@
 namespace motion_interlock_manager {
 
 enum class MotionAuthority {
-  kNone,
-  kBaseActive,
-  kBaseStopping,
-  kArmActive,
-  kArmStopping,
+  None,
+  BaseActive,
+  BaseStopping,
+  ArmActive,
+  ArmStopping,
 };
 
-enum class Request { kBase, kArm, kRelease };
+enum class Request { Base, Arm, Release };
 
 struct Transition {
   MotionAuthority from;
@@ -26,13 +26,15 @@ struct Transition {
 class MotionInterlock {
 public:
   [[nodiscard]] MotionAuthority state() const;
+  [[nodiscard]] MotionAuthority pending() const;
   Transition request(Request request);
   Transition base_stopped();
   Transition arm_stopped();
+  Transition transition_timeout();
 
 private:
-  MotionAuthority state_{MotionAuthority::kNone};
-  MotionAuthority pending_{MotionAuthority::kNone};
+  MotionAuthority state_{MotionAuthority::None};
+  MotionAuthority pending_{MotionAuthority::None};
 };
 
 const char * to_string(MotionAuthority state);

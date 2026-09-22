@@ -22,7 +22,7 @@
 
 - [ ] systemd 시작, 종료, 비정상 종료 재시작을 확인했다.
 - [ ] HMI 연결, B2/FR3, LiDAR, 카메라, Aurora의 정상·연결 손실 동작을 확인했다.
-- [ ] 실제 명령이 `motion_mux → safety_gate → driver`만 통과함을 검증했다.
+- [ ] 실제 명령이 `twist_mux → safety_gate → driver`만 통과함을 검증했다.
 - [ ] update 후 health check 및 이전 release rollback을 확인했다.
 - [ ] 인터넷, Git, compiler가 없는 장비에서 설치와 재부팅 시험을 통과했다.
 
