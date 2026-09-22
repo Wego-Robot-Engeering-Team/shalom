@@ -64,8 +64,8 @@ def generate_launch_description():
         "maps_dir", default_value="/var/lib/shalom/maps",
         description="지도 번들과 지도별 상태가 있는 로봇 로컬 디렉터리")
     initial_map_arg = DeclareLaunchArgument(
-        "initial_map", default_value="latest",
-        description="시작 지도 ID 또는 latest. map_server와 같은 지도를 사용해야 한다.")
+        "initial_map", default_value="",
+        description="시작 지도 map.yaml 절대 경로 또는 빈 값. map_server와 같은 지도를 사용해야 한다.")
 
     # 로봇이 실제로 내보내는 이름에 붙인다. 노드 안에서는 상대 이름을 쓰므로
     # 다른 스택에 얹을 때는 여기만 고치면 된다.

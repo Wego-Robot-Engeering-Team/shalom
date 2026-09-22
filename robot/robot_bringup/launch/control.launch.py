@@ -9,6 +9,7 @@ to the B2 driver's `/cmd_vel`. E-Stop therefore blocks teleop and Nav2 alike.
 from pathlib import Path
 
 import yaml
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -28,6 +29,11 @@ def _robot_id_from_metadata():
 
 
 def generate_launch_description():
+    # This must be resolved while the launch description is assembled.  If the
+    # system dependency is absent, failing later while actions are visited can
+    # leave an already-started platform process behind after a partial launch.
+    get_package_share_directory("twist_mux")
+
     twist_mux_config = PathJoinSubstitution([
         FindPackageShare("robot_bringup"), "config", "twist_mux.yaml"
     ])

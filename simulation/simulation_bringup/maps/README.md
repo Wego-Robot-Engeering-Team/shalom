@@ -12,14 +12,17 @@
 └── markers.json      # 이 지도 전용 AprilTag 측량값
 ```
 
-지도 ID는 생성 날짜(`YYYY-MM-DD`)다. 실행할 때는 `map:=2026-09-07`처럼 ID 로
-지정하고, HMI에서 바꾸는 표시 이름은 로봇의 `metadata.json`에 저장된다. 표시 이름을
-바꿔도 ID 는 그대로이므로 폴더와 참조가 흔들리지 않는다.
+지도 ID는 생성 날짜(`YYYY-MM-DD`)다. 실행할 때는 반드시 `map.yaml`의 절대 경로로
+지정한다. 예를 들면 다음과 같다.
 
-`map:=latest`는 ID 를 이름순으로 정렬해 마지막을 고른다. 날짜 ID 에서는 그것이 곧
-최신이다. 다만 시험용 지도를 섞어 두면 그쪽이 뒤로 정렬돼 잡히므로, 기본값은
-`bringup.launch.py`에서 실제 지도 ID 로 명시한다. 기존의 `<이름>.yaml` 평면 지도도
-호환을 위해 계속 읽는다.
+```bash
+ros2 launch simulation_bringup bringup.launch.py \
+  map:=/home/juno/shalom_ws/install/simulation_bringup/share/simulation_bringup/maps/2026-09-07/map.yaml
+```
+
+HMI에서 바꾸는 표시 이름은 로봇의 `metadata.json`에 저장된다. 표시 이름을 바꿔도
+ID는 그대로이므로 폴더와 참조가 흔들리지 않는다. 지도 없이 실시간 SLAM으로
+시작하려면 `map` 인자를 생략하거나 빈 값으로 지정한다.
 
 `simulation_bringup`은 이 디렉터리를 `map_server`와 HMI 브릿지에 같은 값으로
 전달한다. HMI의 지도 메뉴에서 선택하면 `map/occupancy`, 웨이포인트, 고정 위치,

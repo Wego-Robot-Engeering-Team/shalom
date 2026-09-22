@@ -22,7 +22,7 @@
     ├── hmi/                            관제 GUI와 HMI 전용 testbed
     ├── common/                         HMI·로봇 공통 통신 계약
     ├── docs/                           운용·통신 문서
-    └── third_party/                    독립 저장소를 고정한 Git submodule
+    └── robot/third_party/              독립 저장소를 고정한 Git submodule
         ├── b2_driver/                  B2 실기 드라이버
         ├── b2_simulation/              B2 시뮬레이터와 RL 학습
         ├── frcobot_ros2/               FAIRINO FR3 ROS 2 드라이버
@@ -68,7 +68,7 @@ GPL 조건에 걸린다. 실측에서도 소프트웨어 인코딩이 도는 동
 
 ## 제3자 ROS 패키지
 
-apt에 없어 소스로 받아 둔 것들이다. `shalom/third_party/`의 서브모듈로 고정되어
+apt에 없어 소스로 받아 둔 것들이다. `shalom/robot/third_party/`의 서브모듈로 고정되어
 있으므로 `--recurse-submodules`로 클론하면 따로 받을 필요가 없다.
 
 | 패키지 | 역할 | 라이선스 |
@@ -146,7 +146,7 @@ SDK 도구를 직접 쓸 때만 아래를 받으면 된다. ROS, 워크스페이
 한 번에 잡는다.
 
 ```bash
-source ~/shalom_ws/src/shalom/third_party/b2_simulation/mujoco/b2_mujoco/b2_env.sh
+source ~/shalom_ws/src/shalom/robot/third_party/b2_simulation/mujoco/b2_mujoco/b2_env.sh
 ```
 `CYCLONEDDS_URI`가 셸에 남아 있으면
 지워 준다 — 그 설정은 DDS 참가자 인덱스를 고정해서 다중 노드 launch를 깨뜨린다.
