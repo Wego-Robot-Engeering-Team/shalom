@@ -162,35 +162,21 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     baseFrame_ = declare_parameter("base_frame", baseFrame_);
     mapsDir_ = declare_parameter("maps_dir", mapsDir_);
     const auto initialMap = declare_parameter("initial_map", std::string{});
-    if (!initialMap.empty() && initialMap != "none" && initialMap != "slam") {
-        std::string mapId = initialMap;
-        // navigation.launch.py는 map ID를 map_server가 쓸 절대 map.yaml 경로로
-        // 바꾼다. 같은 LaunchConfiguration을 bridge에 넘겨도 지도별 상태를
-        // 놓치지 않도록, 우리 maps_dir 안의 bundle 경로는 다시 ID로 바꾼다.
+    if (!initialMap.empty()) {
         const std::filesystem::path requested(initialMap);
-        if (requested.is_absolute()) {
+        std::string mapId;
+        if (!requested.is_absolute() || requested.filename() != "map.yaml") {
+            RCLCPP_WARN(get_logger(),
+                        "initial_map은 절대 경로의 map.yaml이어야 합니다: %s",
+                        initialMap.c_str());
+        } else {
             std::error_code ec;
             const auto relative = std::filesystem::relative(
                 requested, std::filesystem::path(mapsDir_), ec);
-            if (!ec && relative.filename() == "map.yaml")
-                mapId = relative.parent_path().filename().string();
-            else
-                mapId.clear();  // 외부의 평면 지도에는 bundle 상태가 없다.
-        }
-        if (mapId == "latest") {
-            std::vector<std::string> ids;
-            std::error_code ec;
-            for (const auto &entry : std::filesystem::directory_iterator(mapsDir_, ec)) {
-                if (!entry.is_directory()
-                    || !std::filesystem::is_regular_file(entry.path() / "map.yaml"))
-                    continue;
-                ids.push_back(entry.path().filename().string());
+            if (!ec && relative.filename() == "map.yaml"
+                && relative.parent_path().filename() == relative.parent_path()) {
+                mapId = relative.parent_path().string();
             }
-            std::sort(ids.begin(), ids.end());
-            if (!ids.empty())
-                mapId = ids.back();
-            else
-                mapId.clear();
         }
         std::string detail;
         if (!mapId.empty() && !loadMapBundle(mapId, &detail)) {

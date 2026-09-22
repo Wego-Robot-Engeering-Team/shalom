@@ -28,10 +28,10 @@ source ~/shalom_ws/install/setup.bash
 ros2 launch robot_bringup bringup.launch.py \
   network_interface:=<B2-NIC> \
   maps_dir:=/var/lib/shalom/maps \
-  map:=latest
+  map:=/var/lib/shalom/maps/2026-09-07/map.yaml
 ```
 
-`map:=none`이면 실시간 SLAM으로 시작한다. 저장 지도 하나를 명시하려면 `map:=<map_id>`를 사용한다. 지도 번들은 로봇의 `/var/lib/shalom/maps/`에 둔다.
+`map`을 생략하거나 비워 두면 저장 지도 없이 실시간 SLAM으로 시작한다. 저장 지도를 사용할 때는 반드시 절대 경로의 `map.yaml`을 지정한다. 지도 번들은 로봇의 `/var/lib/shalom/maps/`에 둔다.
 
 ```text
 /var/lib/shalom/maps/
@@ -51,7 +51,7 @@ ros2 launch robot_bringup bringup.launch.py \
 | `lidar` | `xt32` | `xt32` 또는 `none` |
 | `aurora` | `false` | Aurora S 드라이버 실행 여부 |
 | `aurora_ip` | `192.168.11.1` | Aurora S 주소 |
-| `map` | `latest` | `latest`, 지도 ID, 절대 YAML 경로, `none` |
+| `map` | 빈 값 | 절대 경로의 `map.yaml` 또는 빈 값 |
 | `maps_dir` | `/var/lib/shalom/maps` | 로봇 소유 지도 번들 경로 |
 | `rviz` | `false` | RViz 실행 여부 |
 

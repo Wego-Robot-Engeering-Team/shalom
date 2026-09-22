@@ -134,7 +134,7 @@ apt_install \
   ros-dev-tools python3-dev
 
 # shalom이 최상위 저장소이며, 독립 이력을 가진 모든 소스 의존성은
-# third_party/ 아래의 고정 커밋 서브모듈이다. b2_driver 안의 Unitree SDK와
+# robot/third_party/ 아래의 고정 커밋 서브모듈이다. b2_driver 안의 Unitree SDK와
 # 메시지도 서브모듈이므로 반드시 recursive로 초기화한다.
 if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
   say "Git 서브모듈"
@@ -147,11 +147,11 @@ if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
 
   if [ "$DRY_RUN" = 0 ]; then
     for required_source in \
-      third_party/b2_driver/README.md \
-      third_party/b2_simulation/README.md \
-      third_party/frcobot_ros2/README.md \
-      third_party/aurora_ros/README.md \
-      third_party/hesai_lidar_ros2/README.md; do
+      robot/third_party/b2_driver/README.md \
+      robot/third_party/b2_simulation/README.md \
+      robot/third_party/frcobot_ros2/README.md \
+      robot/third_party/aurora_ros/README.md \
+      robot/third_party/hesai_lidar_ros2/README.md; do
       if [ ! -f "$REPO_ROOT/$required_source" ]; then
         echo "서브모듈 소스가 없음: $required_source" >&2
         echo "git submodule update --init --recursive 를 실행해야 한다." >&2
@@ -164,7 +164,7 @@ fi
 # Aurora 공식 ROS2 드라이버는 Jazzy에서 cv_bridge 헤더 확장자가 바뀐 전
 # 배포본이다. 이전 설치 시 반복 치환된 .hpppp 경로도 함께 복구한다.
 if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
-  AURORA_SRC="$REPO_ROOT/third_party/aurora_ros/src/slamware_ros_sdk/src/server"
+  AURORA_SRC="$REPO_ROOT/robot/third_party/aurora_ros/src/slamware_ros_sdk/src/server"
   if [ -f "$AURORA_SRC/server_workers.cpp" ]; then
     run sed -i 's|<cv_bridge/cv_bridge\.hp*>|<cv_bridge/cv_bridge.hpp>|g' \
       "$AURORA_SRC/server_workers.cpp" "$AURORA_SRC/slamware_ros_sdk_server.cpp"
@@ -173,7 +173,7 @@ fi
 
 if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
   say "RealSense USB 권한"
-  REALSENSE_RULE="$REPO_ROOT/third_party/librealsense/config/99-realsense-libusb.rules"
+  REALSENSE_RULE="$REPO_ROOT/robot/third_party/librealsense/config/99-realsense-libusb.rules"
   if [ -f "$REALSENSE_RULE" ]; then
     run sudo install -m 644 "$REALSENSE_RULE" /etc/udev/rules.d/99-realsense-libusb.rules
     run sudo udevadm control --reload-rules
@@ -181,7 +181,7 @@ if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
     # The ROS binary packages already provide librealsense 2.58.1 and the
     # viewer.  Keep the pinned SDK source for rules/reference, but do not let
     # colcon build a second SDK into this workspace and override that runtime.
-    run install -m 644 /dev/null "$REPO_ROOT/third_party/librealsense/COLCON_IGNORE"
+    run install -m 644 /dev/null "$REPO_ROOT/robot/third_party/librealsense/COLCON_IGNORE"
     note "D455를 이미 꽂아 두었다면 한 번 뺐다가 다시 연결한다."
   else
     note "RealSense 소스가 없어 UDEV 규칙 설치를 건너뜀"
@@ -193,7 +193,7 @@ fi
 # 빌드하고 나머지 기종/구버전은 colcon에서 제외한다. 서브모듈 소스를
 # 지우지 않고 COLCON_IGNORE로만 처리하므로 업스트림은 깨끗하게 유지된다.
 if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
-  FRCOBOT_ROOT="$REPO_ROOT/third_party/frcobot_ros2"
+  FRCOBOT_ROOT="$REPO_ROOT/robot/third_party/frcobot_ros2"
   if [ -d "$FRCOBOT_ROOT" ]; then
     say "FAIRINO 빌드 범위"
     for pkg_dir in "$FRCOBOT_ROOT"/*/; do
@@ -313,4 +313,4 @@ fi
 say "완료"
 note "현재 셸에서 실행 환경을 불러온 뒤 로봇을 기동한다:"
 note "  source /opt/ros/$ROS/setup.bash && source $WORKSPACE_ROOT/install/setup.bash"
-note "  ros2 launch robot_bringup bringup.launch.py network_interface:=<B2-NIC> maps_dir:=/var/lib/shalom/maps map:=latest"
+note "  ros2 launch robot_bringup bringup.launch.py network_interface:=<B2-NIC> maps_dir:=/var/lib/shalom/maps"

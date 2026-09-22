@@ -34,8 +34,15 @@ cd ~/shalom_ws/src/shalom
 ```
 
 이 명령 하나가 ROS 2 Jazzy, Nav2, SLAM, RealSense 래퍼, Pandar XT32 드라이버,
-Qt6, MuJoCo의 의존성을 설치하고 `third_party/` 재귀 서브모듈과 D4xx USB UDEV
+Qt6, MuJoCo의 의존성을 설치하고 `robot/third_party/` 재귀 서브모듈과 D4xx USB UDEV
 규칙을 구성한다. 이어서 ROS 워크스페이스와 HMI를 빌드한다.
+
+주행 명령 중재에 필요한 `ros-jazzy-twist-mux`도 이 스크립트가 함께 설치한다.
+이미 수동 설치한 환경에서 이것만 빠졌다면 다음만 실행하면 된다.
+
+```bash
+sudo apt install ros-jazzy-twist-mux
+```
 
 무엇을 할지 먼저 보려면 `--dry-run`을 붙인다.
 
@@ -118,7 +125,7 @@ IP가 없는 상태는 증상이 같다.
 
 ### Pandar XT32 (실기 외장 라이다)
 
-프로젝트에는 공식 Hesai ROS 2 드라이버를 `third_party/hesai_lidar_ros2`에
+프로젝트에는 공식 Hesai ROS 2 드라이버를 `robot/third_party/hesai_lidar_ros2`에
 고정해 두었다. 설치 스크립트가 그 드라이버가 요구하는 `libboost-all-dev`와
 `libyaml-cpp-dev`를 설치하므로, 별도로 Git clone하거나 Hesai의 예제 launch를
 실행하지 않는다.

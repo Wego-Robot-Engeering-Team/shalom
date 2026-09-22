@@ -3,10 +3,9 @@
 """Bring up the navigation stack for either a physical robot or a simulator."""
 
 from launch import LaunchDescription
-import os
+from launch.logging import get_logger
 from pathlib import Path
 
-from ament_index_python.packages import get_package_share_directory
 from launch.actions import (
     DeclareLaunchArgument,
     GroupAction,
@@ -25,28 +24,25 @@ BASE_FRAME = "base_link"
 
 
 def _resolve_map(context, *_args, **_kwargs):
-    """Resolve latest, a map name, or an absolute map path before nodes start."""
+    """Validate an explicitly selected map path before nodes start."""
     raw = LaunchConfiguration("map").perform(context).strip()
-    if raw in ("", "none", "slam"):
+    if not raw:
+        get_logger("robot_bringup.navigation").warning(
+            "저장된 지도 경로가 없습니다. 지도 없이 SLAM으로 시작합니다.")
         return [SetLaunchConfiguration("map", "")]
 
-    maps_dir = Path(LaunchConfiguration("maps_dir").perform(context)).expanduser()
-    if raw == "latest":
-        found = sorted(p for p in maps_dir.glob("*/map.yaml") if p.is_file())
-        if not found:
-            found = sorted(p for p in maps_dir.glob("*.yaml") if p.is_file())
-        if not found:
-            raise RuntimeError(f"{maps_dir} 에 지도가 없다. map:=none 으로 SLAM을 사용하십시오.")
-        resolved = found[-1]
-    elif os.path.isabs(raw):
-        resolved = Path(raw)
-    else:
-        flat = maps_dir / (raw if raw.endswith(".yaml") else raw + ".yaml")
-        packaged = maps_dir / raw / "map.yaml"
-        resolved = flat if flat.is_file() else packaged
+    resolved = Path(raw).expanduser()
+    if not resolved.is_absolute():
+        raise RuntimeError(
+            "map에는 절대 경로의 map.yaml을 지정해야 합니다. "
+            "예: map:=/var/lib/shalom/maps/2026-09-07/map.yaml "
+            "(지도 없이 시작하려면 map 인자를 생략)"
+        )
 
     if not resolved.is_file():
         raise RuntimeError(f"그런 지도가 없다: {resolved}")
+    if resolved.name != "map.yaml":
+        raise RuntimeError(f"지도 경로는 map.yaml이어야 합니다: {resolved}")
     return [SetLaunchConfiguration("map", str(resolved))]
 
 
@@ -146,10 +142,8 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("use_sim_time", default_value="false"),
         DeclareLaunchArgument("pointcloud_topic", default_value="/b2/points"),
-        DeclareLaunchArgument("maps_dir", default_value="/var/lib/shalom/maps",
-                              description="지도 번들과 지도별 상태가 있는 디렉터리"),
-        DeclareLaunchArgument("map", default_value="latest",
-                              description="latest | <name> | <absolute yaml> | none"),
+        DeclareLaunchArgument("map", default_value="",
+                              description="절대 경로의 map.yaml 또는 빈 값"),
         DeclareLaunchArgument("slam", default_value="true"),
         DeclareLaunchArgument("nav2", default_value="true"),
         OpaqueFunction(function=_resolve_map),

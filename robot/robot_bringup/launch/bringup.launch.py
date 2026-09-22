@@ -42,7 +42,6 @@ def generate_launch_description():
         launch_arguments={
             "use_sim_time": "false",
             "pointcloud_topic": LaunchConfiguration("pointcloud_topic"),
-            "maps_dir": LaunchConfiguration("maps_dir"),
             "map": LaunchConfiguration("map"),
             "slam": LaunchConfiguration("slam"),
             "nav2": LaunchConfiguration("nav2"),
@@ -99,8 +98,8 @@ def generate_launch_description():
         DeclareLaunchArgument("aurora_ip", default_value="192.168.11.1"),
         DeclareLaunchArgument("maps_dir", default_value="/var/lib/shalom/maps",
                               description="로봇이 소유하는 지도 번들 디렉터리"),
-        DeclareLaunchArgument("map", default_value="latest",
-                              description="latest | <map_id> | <absolute yaml> | none"),
+        DeclareLaunchArgument("map", default_value="",
+                              description="절대 경로의 map.yaml 또는 빈 값"),
         DeclareLaunchArgument("slam", default_value="true"),
         DeclareLaunchArgument("nav2", default_value="true"),
         DeclareLaunchArgument("bridge", default_value="true"),
