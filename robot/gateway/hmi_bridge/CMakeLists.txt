@@ -13,6 +13,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -22,33 +23,31 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(nlohmann_json REQUIRED)
+find_package(gateway_transport REQUIRED)
 find_package(shalom_interfaces REQUIRED)
 # 점유격자를 PNG 로 눌러 보낸다 (map/occupancy).
 find_package(ZLIB REQUIRED)
 
-add_executable(bridge_node
+add_executable(hmi_bridge_node
     src/main.cpp
     src/bridge_node.cpp
-    src/envelope.cpp
-    src/tcp_server.cpp
 )
 
 # 프레이밍은 관제와 공유하는 헤더 하나에서 나온다. 같은 바이트 배치를 두 번
 # 구현하면 언젠가 어긋나고, 그 어긋남은 빌드가 아니라 현장에서 드러난다.
-target_link_libraries(bridge_node ZLIB::ZLIB)
+target_link_libraries(hmi_bridge_node ZLIB::ZLIB gateway_transport::gateway_transport)
 
-target_include_directories(bridge_node PRIVATE
+target_include_directories(hmi_bridge_node PRIVATE
     include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../common/protocol/include
 )
 
-ament_target_dependencies(bridge_node
-    rclcpp rclcpp_action shalom_interfaces std_srvs sensor_msgs geometry_msgs nav_msgs nav2_msgs
+ament_target_dependencies(hmi_bridge_node
+    rclcpp rclcpp_action std_msgs shalom_interfaces std_srvs sensor_msgs geometry_msgs nav_msgs nav2_msgs
     tf2 tf2_ros tf2_geometry_msgs
 )
-target_link_libraries(bridge_node nlohmann_json::nlohmann_json)
+target_link_libraries(hmi_bridge_node nlohmann_json::nlohmann_json)
 
-install(TARGETS bridge_node DESTINATION lib/${PROJECT_NAME})
+install(TARGETS hmi_bridge_node DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 
 # ---------------------------------------------------------------------------
@@ -63,11 +62,10 @@ install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 if(BUILD_TESTING)
     find_package(Threads REQUIRED)
     add_executable(test_tcp_server
-        test/test_tcp_server.cpp
-        src/tcp_server.cpp)
-    target_include_directories(test_tcp_server PRIVATE include
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../common/protocol/include)
-    target_link_libraries(test_tcp_server PRIVATE Threads::Threads)
+        test/test_tcp_server.cpp)
+    target_include_directories(test_tcp_server PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../gateway_transport/include)
+    target_link_libraries(test_tcp_server PRIVATE Threads::Threads gateway_transport::gateway_transport)
     add_test(NAME tcp_server COMMAND test_tcp_server)
 endif()
 

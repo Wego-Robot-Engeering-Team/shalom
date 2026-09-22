@@ -13,6 +13,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.actions import Node
 
 
@@ -25,6 +26,10 @@ def generate_launch_description():
         "config",
         default_value=default_config,
         description="브릿지 파라미터 파일 경로",
+    )
+    estop_port_arg = DeclareLaunchArgument(
+        "estop_port", default_value="9091",
+        description="E-Stop 전용 TCP 포트. 일반 HMI 포트와 분리한다.",
     )
 
     # 시뮬레이터와 함께 돌 때는 /clock 을 따라야 한다. 브릿지가 벽시계를
@@ -63,7 +68,7 @@ def generate_launch_description():
 
     bridge = Node(
         package="hmi_bridge",
-        executable="bridge_node",
+        executable="hmi_bridge_node",
         name="hmi_bridge",
         output="screen",
         remappings=remaps,
@@ -79,6 +84,21 @@ def generate_launch_description():
         respawn_delay=2.0,
     )
 
+    estop_bridge = Node(
+        package="estop_bridge",
+        executable="estop_bridge_node",
+        name="estop_bridge",
+        output="screen",
+        parameters=[{
+            "port": ParameterValue(LaunchConfiguration("estop_port"), value_type=int),
+            "robot_id": LaunchConfiguration("robot_id"),
+            "heartbeat_timeout_ms": 1000,
+            "use_sim_time": LaunchConfiguration("use_sim_time"),
+        }],
+        respawn=True,
+        respawn_delay=2.0,
+    )
+
     return LaunchDescription(
-        [config_arg, sim_time_arg, robot_id_arg, robot_name_arg,
-         maps_dir_arg, initial_map_arg, bridge])
+        [config_arg, estop_port_arg, sim_time_arg, robot_id_arg, robot_name_arg,
+         maps_dir_arg, initial_map_arg, estop_bridge, bridge])

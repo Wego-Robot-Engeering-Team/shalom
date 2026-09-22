@@ -1,6 +1,6 @@
 // Copyright (c) 2026 WeGo Robotics. All rights reserved.
 
-#include "hmi_bridge/tcp_server.hpp"
+#include "gateway_transport/tcp_server.hpp"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -14,7 +14,7 @@
 #include <chrono>
 #include <cstring>
 
-namespace hmi_bridge {
+namespace gateway_transport {
 namespace {
 
 bool setNonBlocking(int fd)
@@ -344,4 +344,4 @@ void TcpServer::handleWritable()
     }
 }
 
-}  // namespace hmi_bridge
+}  // namespace gateway_transport

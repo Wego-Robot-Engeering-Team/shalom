@@ -22,9 +22,9 @@
 #include <thread>
 
 #include "inspection/framing.hpp"
-#include "hmi_bridge/tcp_server.hpp"
+#include "gateway_transport/tcp_server.hpp"
 
-using namespace hmi_bridge;
+using namespace gateway_transport;
 using namespace std::chrono_literals;
 
 namespace {

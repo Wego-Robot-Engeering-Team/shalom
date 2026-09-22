@@ -10,15 +10,9 @@
 //
 // SAFETY IS NOT THIS NODE'S JOB
 // -----------------------------
-// The one-second communication-loss stop and the one-second emergency stop
-// are enforced by a separate safety node. This one only reports liveness: it
-// publishes a heartbeat topic while the control station's heartbeat is fresh,
-// and stops publishing otherwise.
-//
-// The separation matters because *this node crashing must also stop the
-// robot*. If the stop decision lived here, a segfault would leave the robot
-// driving with nobody watching. Publishing liveness and letting another
-// process act on its absence makes the failure safe by construction.
+// The one-second communication-loss stop and the emergency-stop ingress are
+// owned by estop_bridge and safety_manager. A healthy telemetry/map connection
+// must never be able to mask a failed E-Stop connection.
 //
 // THREADING
 // ---------
@@ -46,7 +40,6 @@
 #include <shalom_interfaces/msg/mission_plan.hpp>
 #include <shalom_interfaces/msg/mission_state.hpp>
 #include <shalom_interfaces/msg/motion_authority.hpp>
-#include <shalom_interfaces/msg/safety_heartbeat.hpp>
 #include <shalom_interfaces/msg/safety_state.hpp>
 #include <shalom_interfaces/srv/authority_request.hpp>
 #include <shalom_interfaces/srv/configure_mission.hpp>
@@ -61,10 +54,21 @@
 #include <string>
 #include <vector>
 
-#include "hmi_bridge/envelope.hpp"
-#include "hmi_bridge/tcp_server.hpp"
+#include "gateway_transport/envelope.hpp"
+#include "gateway_transport/tcp_server.hpp"
 
 namespace hmi_bridge {
+
+using gateway_transport::Envelope;
+using gateway_transport::LinkEvents;
+using gateway_transport::TcpServer;
+using gateway_transport::json;
+using gateway_transport::makeEvent;
+using gateway_transport::makeHeartbeat;
+using gateway_transport::makePublish;
+using gateway_transport::makeResponse;
+namespace err = gateway_transport::err;
+namespace mtype = gateway_transport::mtype;
 
 /// TCP/HMI adapter. Mission, safety, and authority decisions belong to their
 /// independent ROS processes and cross this boundary only through typed APIs.
@@ -85,14 +89,13 @@ private:
     void respond(const Envelope &request, bool ok, const std::string &code = {},
                  const std::string &message = {});
 
-    /// Publishes the control station's liveness for the safety node. Velocity
-    /// leases are owned by teleop_bridge's dedicated UDP ingress.
+    /// Keeps a manual-mode zero-velocity hold active. Velocity leases are
+    /// owned by teleop_bridge; safety-link liveness is estop_bridge's job.
     void tickSafety();
     /// Publishes robot-side safety state even if localization is unavailable.
     void publishSafety();
     void requestBaseAuthority();
     void requestSafetyResume();
-    void sendSafetyCommand(const Envelope &request, uint8_t operation);
     [[nodiscard]] bool estopActive() const;
 
     // ---- telemetry -------------------------------------------------------
@@ -291,18 +294,11 @@ private:
     std::string mapFrame_ = "map";
     std::string baseFrame_ = "base_link";
 
-    /// The control station is considered present while its heartbeat is no
-    /// older than this. The safety node independently enforces the same one-second contract
-    /// and deliberately longer.
-    std::chrono::milliseconds heartbeatTimeout_{1000};
-
     // ---- state -----------------------------------------------------------
     TcpServer server_;
     bool estopEngaged_ = false;
-    bool softwareEstopRequested_ = false;
     std::string safetyState_{"unknown"};
     bool manualMode_ = false;
-    rclcpp::Time lastHeartbeat_;
     std::int64_t seq_ = 0;
 
     // ---- navigation state ------------------------------------------------
@@ -403,7 +399,6 @@ private:
     std::vector<double> lastArmPositions_;
 
     // ---- ROS interfaces --------------------------------------------------
-    rclcpp::Publisher<shalom_interfaces::msg::SafetyHeartbeat>::SharedPtr linkAlivePub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr armCmdPub_;
     /// Manual-mode hold for the base. Zero velocity at 20 Hz, which is what
     /// keeps twist_mux from falling through to Nav2 while the operator has

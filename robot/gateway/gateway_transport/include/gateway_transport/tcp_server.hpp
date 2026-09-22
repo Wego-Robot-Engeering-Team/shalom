@@ -28,7 +28,7 @@
 
 #include "inspection/framing.hpp"
 
-namespace hmi_bridge {
+namespace gateway_transport {
 
 /// What the server observed since the last drain.
 struct LinkEvents {
@@ -119,4 +119,4 @@ private:
     std::atomic<std::uint64_t> txBytes_{0};
 };
 
-}  // namespace hmi_bridge
+}  // namespace gateway_transport

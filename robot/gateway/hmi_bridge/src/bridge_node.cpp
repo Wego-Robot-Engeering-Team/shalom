@@ -201,15 +201,6 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
                         mapId.c_str(), detail.c_str());
         }
     }
-    heartbeatTimeout_ = std::chrono::milliseconds(
-        declare_parameter("heartbeat_timeout_ms", int(heartbeatTimeout_.count())));
-
-    lastHeartbeat_ = now();
-    // 안전 노드가 지켜보는 생존 신호. 이 노드가 죽으면 발행이 멈추고,
-    // 안전 노드가 그것을 근거로 로봇을 정지시킨다. 정지 판단을 여기에 두면
-    // 이 노드의 크래시가 곧 감시자 없는 주행이 된다.
-    linkAlivePub_ = create_publisher<shalom_interfaces::msg::SafetyHeartbeat>(
-        "/safety/heartbeat", 10);
     safetyCommandClient_ = create_client<shalom_interfaces::srv::SafetyCommand>(
         "/safety/command");
     authorityRequestClient_ = create_client<shalom_interfaces::srv::AuthorityRequest>(
@@ -333,17 +324,6 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
             const bool changed = safetyState_ != next || estopEngaged_ != estop_active;
             safetyState_ = next;
             estopEngaged_ = estop_active;
-            if (msg->software_estop_active)
-                softwareEstopRequested_ = true;
-            if (msg->state == shalom_interfaces::msg::SafetyState::INITIALIZING &&
-                softwareEstopRequested_ && safetyCommandClient_->service_is_ready()) {
-                auto request = std::make_shared<shalom_interfaces::srv::SafetyCommand::Request>();
-                request->request_id = "hmi-estop-restore-" + std::to_string(++rosRequestSequence_);
-                request->operator_id = "hmi_bridge";
-                request->operation =
-                    shalom_interfaces::srv::SafetyCommand::Request::ENGAGE_SOFTWARE_ESTOP;
-                safetyCommandClient_->async_send_request(request);
-            }
             if (!changed)
                 return;
             publishSafety();
@@ -453,7 +433,6 @@ void BridgeNode::pollLink()
 
     if (events.clientConnected) {
         RCLCPP_INFO(get_logger(), "관제 연결됨");
-        lastHeartbeat_ = now();
     }
     if (events.protocolError) {
         // 프레이밍이 어긋났다는 것은 링크나 양쪽 구현 중 하나에 문제가
@@ -521,7 +500,6 @@ void BridgeNode::handleFrame(const inspection::Frame &frame)
 
 void BridgeNode::handleHeartbeat(const Envelope &heartbeat)
 {
-    lastHeartbeat_ = now();
     // 같은 seq 를 돌려보내 관제가 왕복 지연을 잴 수 있게 한다.
     sendEnvelope(makeHeartbeat(heartbeat.p.value("seq", std::int64_t{0})));
 }
@@ -547,7 +525,7 @@ void BridgeNode::respond(const Envelope &request, bool ok, const std::string &co
 
 bool BridgeNode::commandsAllowed(const Envelope &request)
 {
-    if (estopActive() && request.ch != kCmdEstopRelease && request.ch != kCmdEstop) {
+    if (estopActive()) {
         respond(request, false, err::kEstopEngaged, "E-Stop 발동 상태입니다");
         return false;
     }
@@ -556,39 +534,16 @@ bool BridgeNode::commandsAllowed(const Envelope &request)
 
 void BridgeNode::handleRequest(const Envelope &request)
 {
+    // E-Stop은 일반 API 연결이 아니라 estop_bridge의 전용 TCP 포트만 쓴다.
+    // 여기서 받아 버리면 일반 링크가 살아 있는 동안 독립 감시 채널이 죽어도
+    // 정지하지 않는, 분리의 목적과 반대되는 구성이 된다.
+    if (request.ch == kCmdEstop || request.ch == kCmdEstopRelease) {
+        respond(request, false, err::kUnreachable,
+                "E-Stop은 estop_bridge 전용 TCP 포트로 보내야 합니다");
+        return;
+    }
     if (!commandsAllowed(request))
         return;
-
-    if (request.ch == kCmdEstop) {
-        // 발동에는 어떤 조건도 걸지 않는다. 실제 정지는 안전 노드가 수행한다.
-        softwareEstopRequested_ = true;
-        // 정지는 안전 노드가 시킨다. 여기서 취소하는 것은 해제 뒤에 Nav2 가
-        // 아무도 다시 누르지 않은 목표로 출발하는 것을 막기 위해서다.
-        // 순회 중이었으면 멈춘 자리를 기억한다. idle 로 되돌리면 해제한 뒤
-        // 처음부터 다시 돌아야 하고, 화면에는 재개 버튼이 뜨지 않는다.
-        // 어느 상태에서든 받는다. 순회 중이었다면 멈춘 자리를 기억한 채
-        // EmergencyStopped 로 가고, 해제하면 일시정지로 내려온다 — 처음부터
-        // 다시 돌지 않고, 화면에도 재개 버튼이 남는다.
-        cancelNavigation("E-Stop 발동");
-        publishSafety();
-        sendSafetyCommand(
-            request, shalom_interfaces::srv::SafetyCommand::Request::ENGAGE_SOFTWARE_ESTOP);
-        RCLCPP_WARN(get_logger(), "E-Stop 발동 (관제 요청)");
-        return;
-    }
-
-    if (request.ch == kCmdEstopRelease) {
-        // 해제 권한 확인은 관제가 수행한다. 여기서는 상태만 되돌린다.
-        softwareEstopRequested_ = false;
-        // 해제는 재가동이 아니다. 이후 실제 주행/미션 재개 요청이 별도로
-        // safety_manager의 resume 사건을 보내야 한다.
-        manualMode_ = true;
-        publishSafety();
-        sendSafetyCommand(
-            request, shalom_interfaces::srv::SafetyCommand::Request::RELEASE_SOFTWARE_ESTOP);
-        RCLCPP_WARN(get_logger(), "E-Stop 해제 (관제 요청)");
-        return;
-    }
 
     if (request.ch == kCmdMode) {
         manualMode_ = request.p.value("mode", std::string("auto")) == "manual";
@@ -1834,10 +1789,6 @@ void BridgeNode::publishNav()
 
 void BridgeNode::tickSafety()
 {
-    const auto elapsedMs = [this](const rclcpp::Time &since) {
-        return (now() - since).nanoseconds() / 1000000;
-    };
-
     // 수동 모드인 동안 제자리 명령을 계속 내보낸다. 두 가지를 한꺼번에 한다 —
     // 로봇을 세워 두고, mux 에서 자율 출력이 선택되지 못하게 한다.
     //
@@ -1849,17 +1800,6 @@ void BridgeNode::tickSafety()
     // 자율 출력이 mux 에서 선택되어 있을 이유는 없다.
     if (manualMode_ || estopEngaged_)
         baseHoldPub_->publish(geometry_msgs::msg::Twist{});
-
-    // 생존 신호. 관제 하트비트가 신선한 동안에만 발행한다.
-    // 이 노드가 죽으면 발행 자체가 멈추고, 안전 노드가 그것을 정지 근거로 쓴다.
-    const bool alive = server_.isConnected()
-                       && elapsedMs(lastHeartbeat_) <= heartbeatTimeout_.count();
-    shalom_interfaces::msg::SafetyHeartbeat msg;
-    msg.stamp = now();
-    msg.sequence = ++rosRequestSequence_;
-    msg.source = "hmi_bridge";
-    msg.alive = alive;
-    linkAlivePub_->publish(msg);
 }
 
 bool BridgeNode::estopActive() const
@@ -1887,26 +1827,6 @@ void BridgeNode::requestSafetyResume()
     request->operator_id = "hmi";
     request->operation = shalom_interfaces::srv::SafetyCommand::Request::RESUME;
     safetyCommandClient_->async_send_request(request);
-}
-
-void BridgeNode::sendSafetyCommand(const Envelope &request, uint8_t operation)
-{
-    if (!safetyCommandClient_->service_is_ready()) {
-        respond(request, false, err::kUnreachable, "Safety Manager가 준비되지 않았습니다");
-        return;
-    }
-    auto command = std::make_shared<shalom_interfaces::srv::SafetyCommand::Request>();
-    command->request_id = (request.id.empty()
-        ? "hmi-" + std::to_string(++rosRequestSequence_) : request.id) + ":safety";
-    command->operator_id = "hmi";
-    command->operation = operation;
-    safetyCommandClient_->async_send_request(
-        command,
-        [this, request](rclcpp::Client<shalom_interfaces::srv::SafetyCommand>::SharedFuture future) {
-            const auto result = future.get();
-            respond(request, result->accepted,
-                    result->accepted ? std::string() : err::kMode, result->detail);
-        });
 }
 
 void BridgeNode::publishSafety()

@@ -3,24 +3,29 @@
 관제 시스템과 로봇측 ROS 2 스택 사이의 경계 노드.
 
 관제 PC 에는 ROS 2 를 설치하지 않는다. DDS 영역은 이 노드에서 끝나고,
-관제와는 raw TCP 단일 연결로만 통신한다. 통신 규약은
-[`bridge_protocol.md`](../../docs/bridge_protocol.md)를 따른다.
+일반 관제와는 raw TCP로 통신하며, E-Stop은 별도 TCP 연결을 쓴다. 통신 규약은
+[`bridge_protocol.md`](../../../docs/bridge_protocol.md)를 따른다.
 
 ## 구성
 
 ```
-hmi_bridge/          ROS 2 패키지 (ament_cmake)
+hmi_bridge/          HMI gateway ROS 2 패키지 (ament_cmake)
   include/hmi_bridge/
     tcp_server.hpp        관제 연결 수락, 프레이밍 — ROS 2 비의존
     envelope.hpp          JSON 봉투
-    bridge_node.hpp       ROS 2 노드
+    bridge_node.hpp       TCP bridge ROS 2 노드
   src/
+    hmi_bridge_node       HMI TCP protocol, telemetry, mission/map adapter (9090)
   config/bridge.yaml      파라미터
   launch/bridge.launch.py
 
 ```
 
-프레이밍 구현은 `../../common/protocol/include/inspection/framing.hpp` 하나뿐이며 관제와
+UDP 수동 조작은 같은 gateway 그룹의 sibling 패키지
+`robot/gateway/teleop_bridge/`가 맡는다. ROS/colcon은 패키지 내부 하위 패키지를
+탐색하지 않으므로 물리적으로는 별도 디렉터리다.
+
+프레이밍 구현은 `../../../common/protocol/include/inspection/framing.hpp` 하나뿐이며 관제와
 공유한다. 같은 바이트 배치를 두 번 구현하면 언젠가 어긋나고, 그 어긋남은
 빌드가 아니라 현장에서 드러난다.
 
@@ -46,15 +51,17 @@ colcon test-result --verbose
 
 ## 안전에 관한 책임 분담
 
-안전 정책은 별도 프로세스인 `control/safety_manager`가 소유한다. 브릿지는 HMI
-하트비트 유효 여부를 `/safety/heartbeat`로 발행하고, Safety Manager가 통신 두절과
-E-Stop을 판정해 `safety_gate`의 motion permit을 제어한다.
+안전 정책은 별도 프로세스인 `control/safety_manager`가 소유한다. 일반
+`hmi_bridge`(기본 TCP 9090)는 지도·상태·미션 API만 담당한다. sibling 패키지
+`robot/gateway/estop_bridge`는 기본 TCP 9091에서 E-Stop 요청과 전용 heartbeat만 받아 typed `/safety/command`와
+`/safety/heartbeat`로 변환한다. 따라서 일반 HMI 연결이 살아 있어도 E-Stop 연결이
+끊기면 Safety Manager가 통신 두절을 판정해 `safety_gate`의 motion permit을 닫는다.
 
 분리한 이유는 **이 노드가 죽어도 로봇이 서야 하기 때문**이다. 정지 판단이
 여기 있으면 세그폴트 한 번이 곧 감시자 없는 주행이 된다. 생존 신호를 발행하고
 그 부재를 다른 프로세스가 근거로 삼게 하면, 실패가 구조적으로 안전해진다.
 
-같은 이유로 launch 파일에서 안전 노드를 함께 띄우지 않는다.
+같은 이유로 launch 파일에서 safety manager를 함께 띄우지 않는다.
 
 ## 관제는 하나만 붙는다
 

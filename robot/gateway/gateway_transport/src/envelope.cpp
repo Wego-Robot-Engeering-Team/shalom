@@ -1,10 +1,10 @@
 // Copyright (c) 2026 WeGo Robotics. All rights reserved.
 
-#include "hmi_bridge/envelope.hpp"
+#include "gateway_transport/envelope.hpp"
 
 #include <chrono>
 
-namespace hmi_bridge {
+namespace gateway_transport {
 
 double nowSeconds()
 {
@@ -122,4 +122,4 @@ Envelope makeHeartbeat(std::int64_t seq)
     return e;
 }
 
-}  // namespace hmi_bridge
+}  // namespace gateway_transport

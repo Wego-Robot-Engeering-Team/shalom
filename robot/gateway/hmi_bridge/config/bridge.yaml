@@ -15,10 +15,6 @@
     # 읽지 않고 브릿지의 지도 목록 API만 사용한다.
     maps_dir: "/var/lib/shalom/maps"
 
-    # 관제 하트비트가 이 시간 이상 없으면 생존 신호 발행을 멈춘다.
-    # 실제 정지는 같은 1초 계약에 따라 안전 노드가 최종 판단한다.
-    heartbeat_timeout_ms: 1000
-
     # D455 프레임은 촬영 요청을 처리하는 데만 쓴다. HMI로 연속 영상을 보내지 않는다.
     # 토픽명은 realsense_d455/d455_capture.launch.py의 remap 계약과 같아야 한다.
     capture.enabled: true

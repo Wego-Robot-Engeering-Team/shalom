@@ -20,7 +20,7 @@
 #include <optional>
 #include <string>
 
-namespace hmi_bridge {
+namespace gateway_transport {
 
 using json = nlohmann::json;
 
@@ -91,4 +91,4 @@ Envelope makePublish(const std::string &channel, json payload,
 Envelope makeEvent(const std::string &channel, json payload);
 Envelope makeHeartbeat(std::int64_t seq);
 
-}  // namespace hmi_bridge
+}  // namespace gateway_transport
