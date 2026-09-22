@@ -41,8 +41,7 @@ public:
         heartbeatTimeout_ = std::chrono::milliseconds(declare_parameter(
             "heartbeat_timeout_ms", int(heartbeatTimeout_.count())));
         if (robotId_.empty()) {
-            robotId_ = "R1";
-            RCLCPP_ERROR(get_logger(), "robot_id가 비어 있어 R1로 설정합니다");
+            throw std::invalid_argument("robot_id must be configured from robot metadata");
         }
         if (port_ <= 0 || port_ >= 65535)
             throw std::invalid_argument("estop_bridge port must be 1..65534");
@@ -98,8 +97,6 @@ private:
             return;
 
         if (events.clientConnected) {
-            // 소켓 연결만으로 생존을 인정하지 않는다. 실제 HMI protocol
-            // heartbeat를 받은 뒤부터만 safety_manager에 alive=true를 보낸다.
             receivedHeartbeat_ = false;
             RCLCPP_INFO(get_logger(), "E-Stop 제어기 연결됨");
         }
@@ -208,7 +205,7 @@ private:
     }
 
     int port_ = 9091;
-    std::string robotId_ = "R1";
+    std::string robotId_;
     std::chrono::milliseconds heartbeatTimeout_{1000};
     std::chrono::steady_clock::time_point lastHeartbeat_{};
     bool receivedHeartbeat_ = false;

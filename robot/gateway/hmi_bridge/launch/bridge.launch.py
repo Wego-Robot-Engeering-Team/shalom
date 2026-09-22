@@ -9,12 +9,23 @@
 
 from pathlib import Path
 
+import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.actions import Node
+
+
+def _robot_id_from_metadata():
+    metadata_path = Path(get_package_share_directory("hmi_bridge")) / "config" / "robot_metadata.yaml"
+    with metadata_path.open(encoding="utf-8") as metadata_file:
+        metadata = yaml.safe_load(metadata_file) or {}
+    robot_id = metadata.get("robot", {}).get("id", "")
+    if not robot_id:
+        raise RuntimeError(f"robot id is missing from {metadata_path}")
+    return str(robot_id)
 
 
 def generate_launch_description():
@@ -44,7 +55,7 @@ def generate_launch_description():
     # 로봇 식별자. 지금은 한 대뿐이라 화면에 이름을 띄우는 데만 쓰지만,
     # 여러 대가 되면 관제가 값을 가르는 근거가 된다.
     robot_id_arg = DeclareLaunchArgument(
-        "robot_id", default_value="R1",
+        "robot_id", default_value=_robot_id_from_metadata(),
         description="로봇 식별자. 여러 대가 되면 관제가 이것으로 구분한다.")
     robot_name_arg = DeclareLaunchArgument(
         "robot_name", default_value="1호기",

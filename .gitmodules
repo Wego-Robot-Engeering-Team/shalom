@@ -1,31 +1,31 @@
-[submodule "third_party/b2_driver"]
-	path = third_party/b2_driver
+[submodule "robot/third_party/b2_driver"]
+	path = robot/third_party/b2_driver
 	url = https://github.com/juno-wego/b2_driver.git
-[submodule "third_party/b2_simulation"]
-	path = third_party/b2_simulation
+[submodule "robot/third_party/b2_simulation"]
+	path = robot/third_party/b2_simulation
 	url = https://github.com/juno-wego/b2_simulation.git
-[submodule "third_party/frcobot_ros2"]
-	path = third_party/frcobot_ros2
+[submodule "robot/third_party/frcobot_ros2"]
+	path = robot/third_party/frcobot_ros2
 	url = https://github.com/FAIR-INNOVATION/frcobot_ros2.git
-[submodule "third_party/ground_segmentation"]
-	path = third_party/ground_segmentation
+[submodule "robot/third_party/ground_segmentation"]
+	path = robot/third_party/ground_segmentation
 	url = https://github.com/dfki-ric/ground_segmentation.git
-[submodule "third_party/ground_segmentation_ros2"]
-	path = third_party/ground_segmentation_ros2
+[submodule "robot/third_party/ground_segmentation_ros2"]
+	path = robot/third_party/ground_segmentation_ros2
 	url = https://github.com/dfki-ric/ground_segmentation_ros2.git
-[submodule "third_party/kiss_icp"]
-	path = third_party/kiss_icp
+[submodule "robot/third_party/kiss_icp"]
+	path = robot/third_party/kiss_icp
 	url = https://github.com/PRBonn/kiss-icp.git
-[submodule "third_party/librealsense"]
-	path = third_party/librealsense
+[submodule "robot/third_party/librealsense"]
+	path = robot/third_party/librealsense
 	url = https://github.com/IntelRealSense/librealsense.git
-[submodule "third_party/nav2_ground_consistency_costmap_plugin"]
-	path = third_party/nav2_ground_consistency_costmap_plugin
+[submodule "robot/third_party/nav2_ground_consistency_costmap_plugin"]
+	path = robot/third_party/nav2_ground_consistency_costmap_plugin
 	url = https://github.com/dfki-ric/nav2_ground_consistency_costmap_plugin.git
-[submodule "third_party/aurora_ros"]
-	path = third_party/aurora_ros
+[submodule "robot/third_party/aurora_ros"]
+	path = robot/third_party/aurora_ros
 	url = https://github.com/Slamtec/aurora_ros.git
-[submodule "third_party/hesai_lidar_ros2"]
-	path = third_party/hesai_lidar_ros2
+[submodule "robot/third_party/hesai_lidar_ros2"]
+	path = robot/third_party/hesai_lidar_ros2
 	url = https://github.com/HesaiTechnology/HesaiLidar_ROS_2.0.git
 	branch = master

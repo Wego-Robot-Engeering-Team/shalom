@@ -154,10 +154,7 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     // 들어오는 명령의 수신자를 확인한다. 비워 두면 그 확인이 통째로 꺼지므로
     // 조용히 빈 값을 받아들이지 않는다.
     if (robotId_.empty()) {
-        robotId_ = "R1";
-        RCLCPP_ERROR(get_logger(),
-                     "robot_id 가 비어 있어 R1 로 둔다. 로봇이 둘 이상이면 "
-                     "반드시 서로 다르게 지정해야 한다");
+        throw std::invalid_argument("robot_id must be configured from robot metadata");
     }
     RCLCPP_INFO(get_logger(), "로봇 식별자 %s (%s)", robotId_.c_str(),
                 robotName_.c_str());

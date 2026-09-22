@@ -29,6 +29,7 @@
   <depend>nlohmann-json-dev</depend>
   <depend>gateway_transport</depend>
   <depend>shalom_interfaces</depend>
+  <exec_depend>python3-yaml</exec_depend>
 
   <test_depend>ament_cmake_gtest</test_depend>
 

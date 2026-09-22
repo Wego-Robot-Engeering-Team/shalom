@@ -49,6 +49,8 @@ target_link_libraries(hmi_bridge_node nlohmann_json::nlohmann_json)
 
 install(TARGETS hmi_bridge_node DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../../config/robot_metadata.yaml
+    DESTINATION share/${PROJECT_NAME}/config)
 
 # ---------------------------------------------------------------------------
 # 시험
