@@ -53,7 +53,7 @@ THIN = Side(style="thin", color="BFBFBF")
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 
 COLUMNS = [
-    ("번호", 8), ("코드", 30), ("등급", 10), ("해제", 8), ("영역", 12),
+    ("번호", 8), ("코드", 30), ("등급", 10), ("표시 종료", 11), ("영역", 12),
     ("발생처", 12), ("메시지", 34), ("원인", 58), ("조치", 62), ("채널", 22),
     ("억제(초)", 9),
 ]
@@ -77,13 +77,13 @@ def rows_from(catalog):
         if prefix == "LINK_":           # ROBOT_SELECTED 는 전송에 둔다
             group += buckets.get("ROBOT_", [])
         for c in sorted(group, key=lambda x: (ORDER[x["severity"]], x["id"])):
-            clears = {"latched": "유지", "clears_with": "짝 해제"}.get(
-                c.get("clears"), "1회")
+            clears = {"latched": "수동 확인", "clears_with": "복구 시"}.get(
+                c.get("clears"), "일회 기록")
             out.append({
                 "번호": c["id"],
                 "코드": c["code"],
                 "등급": SEVERITY[c["severity"]],
-                "해제": clears,
+                "표시 종료": clears,
                 "영역": name,
                 "발생처": c["origin"],
                 "메시지": c["title"],
@@ -114,7 +114,7 @@ def write_codes(ws, rows):
             cell.alignment = Alignment(
                 vertical="top",
                 wrap_text=title in ("메시지", "원인", "조치"),
-                horizontal="center" if title in ("번호", "등급", "해제", "억제(초)")
+                horizontal="center" if title in ("번호", "등급", "표시 종료", "억제(초)")
                 else "left")
     ws.auto_filter.ref = f"A1:{get_column_letter(len(COLUMNS))}{len(rows) + 1}"
 
@@ -145,10 +145,10 @@ def write_guide(ws, rows, catalog):
         ("코드 성격", "E_는 명령 응답의 err 코드이고, 나머지는 evt/log 진단·운용 이벤트다.", ""),
         ("", "모든 오류가 알람은 아니며, 모든 이벤트가 조치를 요구하지는 않는다.", ""),
         ("", "", ""),
-        ("해제", "뜻", ""),
-        ("유지", "원인이 사라져도 화면에 남는다. 사람이 확인하고 해제해야 한다", ""),
-        ("짝 해제", "짝이 되는 코드가 오면 사라진다", ""),
-        ("1회", "한 번 알리고 끝난다", ""),
+        ("표시 종료", "뜻", ""),
+        ("수동 확인", "원인이 해소된 뒤에도 화면에 남는다. 운용자가 확인해야 한다", ""),
+        ("복구 시", "정상 또는 복구 이벤트를 받으면 화면 표시가 끝난다", ""),
+        ("일회 기록", "이력에 한 번 기록하고 화면 표시를 유지하지 않는다", ""),
         ("", "", ""),
         ("번호 대역", "영역", ""),
         ("1000", "명령 거절 · 전송 · 시스템 · 좌표계 · 지도 · 배포", ""),

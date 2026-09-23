@@ -80,8 +80,8 @@ python3 tools/gen_diagnostic_reference_xlsx.py --check
 
 
 def clear_label(entry):
-    return {"latched": "유지", "clears_with": "짝 해제"}.get(
-        entry.get("clears"), "1회")
+    return {"latched": "수동 확인", "clears_with": "복구 시"}.get(
+        entry.get("clears"), "일회 기록")
 
 
 def band_of(code):
