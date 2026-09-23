@@ -1,0 +1,79 @@
+name: Build robot release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the v prefix (for example 0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  robot-release:
+    name: Jetson arm64 offline release
+    runs-on: [self-hosted, linux, arm64, jetson]
+    timeout-minutes: 90
+    steps:
+      - name: Check out fixed source and submodules
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="${{ inputs.version }}"
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9]+)*$ ]]
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check release runner prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(dpkg --print-architecture)" = arm64
+          test -r /opt/ros/jazzy/setup.bash
+          command -v colcon
+          command -v jq
+          command -v zstd
+          sudo -n /usr/bin/apt-get --version >/dev/null
+          sudo -n /usr/bin/chown --version >/dev/null
+
+      - name: Build offline robot release
+        shell: bash
+        run: ./deploy/scripts/build_robot_release.sh --version "${{ steps.version.outputs.value }}"
+
+      - name: Verify archive checksum manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.value }}"
+          archive="dist/shalom-release-$version-arm64.tar.zst"
+          test -f "$archive"
+          verify_dir="$(mktemp -d)"
+          trap 'rm -rf "$verify_dir"' EXIT
+          tar --zstd -xf "$archive" -C "$verify_dir"
+          cd "$verify_dir/shalom-release-$version"
+          sha256sum -c checksums.txt
+          jq -e '.release_version == "'"$version"'"' manifest.json >/dev/null
+          dpkg-deb -I "robot/packages/shalom-runtime_${version}_arm64.deb" >/dev/null
+
+      - name: Upload release artifact for approval
+        uses: actions/upload-artifact@v4
+        with:
+          name: shalom-release-${{ steps.version.outputs.value }}-arm64
+          path: dist/shalom-release-${{ steps.version.outputs.value }}-arm64.tar.zst
+          if-no-files-found: error
+          retention-days: 30

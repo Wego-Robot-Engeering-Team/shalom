@@ -1,0 +1,8 @@
+Shalom Robot SDK 0.2.0
+Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
+This SDK distribution contains Wego Robotics headers, documentation and sample
+source only. It does not bundle third-party runtime libraries.
+
+The robot runtime is delivered separately and carries its own third-party
+license notices in the robot release LICENSES directory.

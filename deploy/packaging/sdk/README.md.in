@@ -1,0 +1,22 @@
+# Shalom Robot SDK @VERSION@
+
+이 SDK는 Shalom 로봇의 공개 TCP API를 사용하는 고객 프로그램용 배포본입니다.
+HMI 실행 번들과는 별도이며, ROS 2를 링크하지 않습니다.
+
+## C++ sample
+
+```bash
+cmake -S samples/cpp -B build/samples -DCMAKE_PREFIX_PATH="$PWD"
+cmake --build build/samples
+./build/samples/monitor <robot-host>
+```
+
+## Python sample
+
+```bash
+python3 -m pip install ./python
+python3 samples/python/monitor.py <robot-host>
+```
+
+로봇 runtime의 protocol version과 이 `VERSION`이 호환되는지 `docs/CHANGELOG.md`에서
+확인하십시오. TCP API는 전용 제어망에서만 사용해야 합니다.

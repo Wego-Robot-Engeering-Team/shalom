@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+VERSION='@VERSION@'
+RELEASES=/opt/shalom/releases
+
+if ! getent passwd shalom >/dev/null; then
+    adduser --system --group --no-create-home --home /nonexistent shalom
+fi
+
+# A versioned install stays available for rollback.  Only the current pointer
+# changes during an upgrade; site data under /etc and /var/lib is not touched.
+ln -sfn "$VERSION" "$RELEASES/current"
+
+systemctl daemon-reload
+systemctl enable shalom-robot.service >/dev/null || true
+# On an upgrade, switch a running service to the new versioned release tree.
+# On first install this is a no-op; commissioning must supply site config
+# before an operator explicitly starts the service.
+systemctl try-restart shalom-robot.service >/dev/null || true
+
+exit 0

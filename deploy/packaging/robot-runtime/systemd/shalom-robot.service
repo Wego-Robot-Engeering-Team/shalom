@@ -1,0 +1,17 @@
+[Unit]
+Description=Shalom robot runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=shalom
+Group=shalom
+EnvironmentFile=-/etc/shalom/robot.env
+ExecStart=/opt/shalom/releases/current/bin/shalom-robot
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

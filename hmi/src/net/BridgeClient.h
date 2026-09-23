@@ -1,0 +1,218 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
+#pragma once
+
+// The real connection to the robot, over raw TCP.
+//
+// Implements docs/bridge_protocol.md. Everything the control station sends and
+// receives passes through here; it is the only place that knows the wire
+// format exists.
+//
+// WHAT THIS CLASS IS RESPONSIBLE FOR
+// ----------------------------------
+//   - framing, via FrameDecoder (protocol section 1.1)
+//   - the general HMI heartbeat and a separate E-Stop heartbeat (section 5)
+//   - reconnecting with backoff, and *not* resuming anything afterwards
+//   - assembling per-channel messages into whole telemetry snapshots
+//   - the link counters the diagnostics panel shows
+//
+// WHAT IT IS NOT RESPONSIBLE FOR
+// ------------------------------
+// Safety. The one-second emergency stop and the one-second
+// communication-loss stop are enforced by the robot's safety node, which acts
+// on its own when this client goes quiet. Nothing here should be written as
+// though the robot depends on it to stop.
+
+#include <QDateTime>
+#include <QElapsedTimer>
+#include <QHash>
+#include <QString>
+
+#include "net/Envelope.h"
+#include "net/Framing.h"
+#include "robot/RobotLink.h"
+
+class QTcpSocket;
+class QTimer;
+class QUdpSocket;
+
+namespace hmi::net {
+
+class BridgeClient : public hmi::robot::RobotLink {
+    Q_OBJECT
+public:
+    BridgeClient(QString host, quint16 port, QObject *parent = nullptr);
+    ~BridgeClient() override;
+
+    void connectToBridge();
+
+    /// Points the link at a different robot and reconnects.
+    ///
+    /// Everything learned from the previous robot is dropped - identity,
+    /// telemetry, the pinned id. Carrying it over would leave the screen
+    /// showing one robot's numbers under another robot's name for as long as
+    /// it takes the new one to answer.
+    void setEndpoint(const QString &host, quint16 port);
+
+    /// Closes the connection and stops reconnecting. Used when the operator
+    /// deliberately disconnects, so that it does not silently come back.
+    void disconnectFromBridge();
+
+    void requestMapCatalog();
+    void selectMap(const QString &mapId);
+    void renameMap(const QString &mapId, const QString &name);
+
+    // ---- RobotLink ------------------------------------------------------
+    void setCmdVel(double vx, double vy, double wz) override;
+    void requestGoal(double x, double y, double theta) override;
+    void cancelNav() override;
+
+    void setWaypoints(const QList<QVariantMap> &waypoints) override;
+    void setLocations(const QList<QVariantMap> &locations) override;
+    void setMarkers(const QList<QVariantMap> &markers) override;
+    void triggerCapture(const QVariantMap &metadata) override;
+    QList<QVariantMap> markers() const override { return markers_; }
+    void setBatteryPolicy(double returnAt, double departAt) override;
+    QList<QVariantMap> waypoints() const override { return waypoints_; }
+    QVariantMap dockPose() const override { return dock_; }
+    QVariantMap homePose() const override { return home_; }
+
+    void missionStart() override;
+    void missionPause() override;
+    void missionResume() override;
+    void missionStop() override;
+    hmi::robot::MissionState missionState() const override { return mission_; }
+
+    void engageEstop() override;
+    void releaseEstop() override;
+    bool estopEngaged() const override { return estop_; }
+
+    void setMode(hmi::robot::DriveMode mode) override;
+    hmi::robot::DriveMode mode() const override { return mode_; }
+
+    void setBasePosture(const QString &posture, bool confirm = false) override;
+    QString basePosture() const override { return basePosture_; }
+    QString motionAuthority() const override { return motionAuthority_; }
+
+    void setArmJointGoal(const QList<double> &q) override;
+    void setArmPreset(const QString &name) override;
+    void stopArm() override;
+
+    bool isConnected() const override;
+    QString describe() const override;
+
+signals:
+    /// A map arrived. Separate from telemetry because it is large and rare.
+    void mapReceived(const QByteArray &pngBytes, const QJsonObject &meta);
+    /// A photograph was taken: the JPEG bytes and its sidecar metadata.
+    void previewReceived(const QByteArray &jpegBytes, const QJsonObject &meta);
+    void mapsReceived(const QList<QVariantMap> &maps);
+    void activeMapReceived(const QVariantMap &map);
+
+private:
+    void onConnected();
+    void onDisconnected();
+    void onSocketError();
+    void onReadyRead();
+    void onEstopConnected();
+    void onEstopDisconnected();
+    void onEstopSocketError();
+    void onEstopReadyRead();
+
+    void sendEnvelope(const Envelope &env);
+    void sendEstopEnvelope(const Envelope &env);
+
+    /// Sends a command and remembers it so a missing response can be reported
+    /// rather than silently swallowed.
+    void sendRequest(const QString &channel, const QJsonObject &payload = {});
+    void sendEstopRequest(const QString &channel, const QJsonObject &payload = {});
+
+    /// Publishes a loss-tolerant message. Dropped when the socket is backed up,
+    /// because queueing stale velocity commands is worse than skipping them.
+    void publish(const QString &channel, const QJsonObject &payload);
+
+    void handleFrame(const Frame &frame);
+    void handleResponse(const Envelope &env);
+    void handlePublish(const Envelope &env);
+    void handleHeartbeat(const Envelope &env);
+    void handleEstopFrame(const Frame &frame);
+
+    void scheduleReconnect();
+    void scheduleEstopReconnect();
+    void resetLinkState();
+    void checkTimeouts();
+    void emitTelemetry();
+
+    QString host_;
+    quint16 port_;
+    quint16 estopPort_;
+
+    QTcpSocket *socket_ = nullptr;
+    QTcpSocket *estopSocket_ = nullptr;
+    QUdpSocket *teleopSocket_ = nullptr;
+    FrameDecoder decoder_;
+    FrameDecoder estopDecoder_;
+
+    QTimer *heartbeatTimer_ = nullptr;   ///< outgoing, 5 Hz
+    QTimer *estopHeartbeatTimer_ = nullptr; ///< outgoing, dedicated E-Stop link
+    QTimer *watchdogTimer_ = nullptr;    ///< checks for silence and timeouts
+    QTimer *reconnectTimer_ = nullptr;
+    QTimer *estopReconnectTimer_ = nullptr;
+    QTimer *telemetryTimer_ = nullptr;   ///< emits assembled snapshots
+
+    /// Backoff grows to a ceiling rather than retrying tightly: a bridge that
+    /// is down stays down for minutes, and hammering it fills the log.
+    int reconnectDelayMs_ = 500;
+    bool wantConnection_ = false;
+
+    /// Distinguishes the first connection from a reconnection, so the log does
+    /// not report "link restored" for a link that was never up.
+    bool everConnected_ = false;
+
+    /// Robot id pinned from the first envelope that carried one. Cleared on
+    /// disconnect: whatever answers next is not guaranteed to be the same
+    /// machine.
+    QString robotId_;
+    QString robotName_;
+
+    /// Last battery policy given, resent on every (re)connect. Zero means the
+    /// station has not been told one yet.
+    double batteryReturnAt_ = 0.0;
+    double batteryDepartAt_ = 0.0;
+
+    qint64 heartbeatSeq_ = 0;
+    qint64 estopHeartbeatSeq_ = 0;
+    qint64 teleopSeq_ = 0;
+    QHash<qint64, qint64> heartbeatSentAt_;   ///< seq -> monotonic ms
+    qint64 lastHeartbeatMs_ = 0;
+    qint64 lastPoseMs_ = 0;
+    QElapsedTimer clock_;
+
+    struct Pending {
+        QString channel;
+        qint64 sentAtMs;
+    };
+    QHash<QString, Pending> pending_;
+
+    QHash<QString, qint64> lastSeq_;   ///< channel -> last seen sequence
+
+    hmi::robot::Telemetry telemetry_;
+    QList<QVariantMap> waypoints_;
+    QVariantMap dock_;
+    QList<QVariantMap> markers_;
+    QVariantMap home_;
+    hmi::robot::MissionState mission_ = hmi::robot::MissionState::Idle;
+    hmi::robot::DriveMode mode_ = hmi::robot::DriveMode::Auto;
+
+    /// Posture and motion authority as reported by the robot. The UI does
+    /// not guess either of them.
+    QString basePosture_;
+    QString motionAuthority_;
+    bool estop_ = false;
+
+    qint64 rxBytes_ = 0;
+    qint64 txBytes_ = 0;
+    qint64 lastThroughputMs_ = 0;
+};
+
+}  // namespace hmi::net

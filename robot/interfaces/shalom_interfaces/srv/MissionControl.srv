@@ -1,0 +1,16 @@
+uint8 START=1
+uint8 PAUSE=2
+uint8 RESUME=3
+uint8 STOP=4
+uint8 RESET=5
+
+# request_id is mandatory and makes retries idempotent.
+string request_id
+string operator_id
+string mission_id
+uint8 operation
+---
+bool accepted
+shalom_interfaces/MissionState state
+string reason_code
+string detail

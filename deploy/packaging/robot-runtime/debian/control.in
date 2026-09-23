@@ -1,0 +1,9 @@
+Package: shalom-runtime
+Version: @VERSION@
+Section: robotics
+Priority: optional
+Architecture: arm64
+Maintainer: Junoyoo <junoyoo@wego-robotics.com>
+Depends: bash (>= 5), ros-jazzy-ros-base, ros-jazzy-rmw-cyclonedds-cpp, ros-jazzy-cyclonedds, ros-jazzy-navigation2, ros-jazzy-nav2-bringup, ros-jazzy-slam-toolbox, ros-jazzy-pointcloud-to-laserscan, ros-jazzy-cv-bridge, ros-jazzy-twist-mux
+Description: Shalom robot runtime
+ Wego robot control, navigation, sensing and HMI gateway runtime for Jetson arm64.

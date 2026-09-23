@@ -1,0 +1,13 @@
+uint8 REQUEST_BASE=1
+uint8 REQUEST_ARM=2
+uint8 RELEASE=3
+
+# request_id is mandatory and makes retries idempotent.
+string request_id
+string requester
+uint8 operation
+---
+bool accepted
+shalom_interfaces/MotionAuthority authority
+string reason_code
+string detail

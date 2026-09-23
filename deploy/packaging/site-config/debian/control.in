@@ -1,0 +1,9 @@
+Package: shalom-site-config
+Version: @VERSION@
+Section: robotics
+Priority: optional
+Architecture: all
+Maintainer: Junoyoo <junoyoo@wego-robotics.com>
+Depends: shalom-runtime (= @VERSION@)
+Description: Shalom site configuration templates
+ Initial root-owned configuration for a commissioned Shalom robot.

@@ -1,0 +1,23 @@
+# The simulator uses the real HMI protocol. Hardware absent from the simulator
+# is not monitored, so the HMI does not report fictional failures.
+/hmi_bridge:
+  ros__parameters:
+    port: 9090
+    capture.enabled: false
+    sensors: ["lidar", "imu", "joints_b2"]
+    sensor:
+      lidar:
+        name: "LiDAR"
+        topic: "/b2/points"
+        type: "sensor_msgs/msg/PointCloud2"
+        expected_hz: 10.0
+      imu:
+        name: "IMU"
+        topic: "/b2/imu"
+        type: "sensor_msgs/msg/Imu"
+        expected_hz: 200.0
+      joints_b2:
+        name: "B2 joints"
+        topic: "/b2/joint_states"
+        type: "sensor_msgs/msg/JointState"
+        expected_hz: 200.0

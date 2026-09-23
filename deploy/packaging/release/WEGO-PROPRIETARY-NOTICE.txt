@@ -1,0 +1,11 @@
+Copyright (c) 2026 WEGO Robotics. All rights reserved.
+
+The Shalom runtime, HMI, SDK implementation, and associated documentation are
+proprietary to WEGO Robotics unless a file in this release expressly states a
+different license. Delivery of this release does not transfer ownership of its
+source code or grant a right to reverse engineer, redistribute, or sublicense
+the proprietary components.
+
+Third-party components are governed by their own notices under LICENSES/.
+
+This notice is not a substitute for the executed customer supply agreement.

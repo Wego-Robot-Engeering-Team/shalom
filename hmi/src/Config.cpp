@@ -1,0 +1,265 @@
+// Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
+#include "Config.h"
+
+#include <QSettings>
+#include <QStandardPaths>
+
+namespace hmi {
+namespace {
+
+// 최초 실행에는 로봇 프로필을 만들지 않는다. 실기와 시뮬레이터는 모두
+// 명시적으로 등록·선택한 브릿지여야 하며, 127.0.0.1로 몰래 연결을 시도하면
+// 빈 HMI인지 연결 실패인지 구별할 수 없다.
+constexpr int kDefaultPort = 9090;
+
+constexpr auto kDefaultTheme = "light";
+constexpr double kDefaultScale = 1.0;
+constexpr double kDefaultLinear = 0.30;
+constexpr double kDefaultAngular = 0.50;
+constexpr int kDefaultRetention = 90;
+
+/// 복귀 임계와 출발 최소값의 기본값.
+///
+/// 복귀 25 %: 검수고 끝에서 충전 스테이션까지 74 m 를 돌아오고도 남는
+/// 여유다. 출발 60 %: 편성 하나를 다 돌기에 부족한 잔량으로 나갔다가
+/// 차량 아래에서 서 버리면, 꺼내려고 열차를 움직여야 한다.
+constexpr double kDefaultReturnPct = 25.0;
+constexpr double kDefaultDepartPct = 60.0;
+/// 촬영 저장 장치의 기본 경로. 현장에서 설정 화면으로 바꾸는 값이지만,
+/// 기본값이 그 OS 에서 쓸 수 없는 형태면 처음 켰을 때 "찾을 수 없습니다"
+/// 부터 보게 된다. 윈도우에서는 UNC 경로가 자연스럽다.
+#ifdef Q_OS_WIN
+constexpr auto kDefaultNas = "\\\\nas\\inspection";
+#else
+constexpr auto kDefaultNas = "/mnt/nas/inspection";
+#endif
+
+/// UI 배율 허용 범위. 0.8 미만은 한글 가독성이 무너지고,
+/// 1.6 초과는 패널이 잘려 스크롤 없이는 조작이 안 된다.
+constexpr double kMinScale = 0.8;
+constexpr double kMaxScale = 1.6;
+
+QSettings &store()
+{
+    static QSettings s(QSettings::IniFormat, QSettings::UserScope,
+                       QStringLiteral("WEGO Robotics"), QStringLiteral("Inspection HMI"));
+    return s;
+}
+
+}  // namespace
+
+Config &Config::instance()
+{
+    static Config c;
+    return c;
+}
+
+Config::Config() = default;
+
+QList<RobotEntry> Config::robots() const
+{
+    QList<RobotEntry> out;
+    auto &s = store();
+    const int n = s.beginReadArray(QStringLiteral("connection/robots"));
+    for (int i = 0; i < n; ++i) {
+        s.setArrayIndex(i);
+        RobotEntry e;
+        e.name = s.value(QStringLiteral("name")).toString();
+        e.host = s.value(QStringLiteral("host")).toString();
+        e.port = s.value(QStringLiteral("port"), kDefaultPort).toInt();
+        if (!e.host.isEmpty())
+            out.append(e);
+    }
+    s.endArray();
+
+    // 구버전 단일 주소는 프로필로 보존하되 자동 연결의 근거로 쓰지 않는다.
+    if (out.isEmpty() && s.contains(QStringLiteral("connection/host"))) {
+        const QString host = s.value(QStringLiteral("connection/host")).toString();
+        if (!host.isEmpty())
+            out.append({QString(), host,
+                        s.value(QStringLiteral("connection/port"), kDefaultPort).toInt()});
+    }
+
+    return out;
+}
+
+void Config::setRobots(const QList<RobotEntry> &robots)
+{
+    auto &s = store();
+    // 배열은 비우고 다시 쓴다. 덮어쓰기만 하면 줄어든 뒤에 옛 항목이 남는다.
+    s.remove(QStringLiteral("connection/robots"));
+    s.beginWriteArray(QStringLiteral("connection/robots"), int(robots.size()));
+    for (int i = 0; i < robots.size(); ++i) {
+        s.setArrayIndex(i);
+        s.setValue(QStringLiteral("name"), robots.at(i).name);
+        s.setValue(QStringLiteral("host"), robots.at(i).host);
+        s.setValue(QStringLiteral("port"), robots.at(i).port);
+    }
+    s.endArray();
+    // 지워진 자리를 가리키고 있을 수 있으므로 다시 재운다.
+    setCurrentRobot(currentRobot());
+}
+
+int Config::currentRobot() const
+{
+    const int n = int(robots().size());
+    if (n == 0)
+        return -1;
+    const int i = store().value(QStringLiteral("connection/current"), -1).toInt();
+    return i < 0 ? -1 : qBound(0, i, n - 1);
+}
+
+void Config::setCurrentRobot(int index)
+{
+    const int n = int(robots().size());
+    store().setValue(QStringLiteral("connection/current"),
+                     index < 0 ? -1 : (n == 0 ? -1 : qBound(0, index, n - 1)));
+}
+
+QString Config::bridgeHost() const
+{
+    const auto list = robots();
+    const int current = currentRobot();
+    return current < 0 || current >= list.size() ? QString() : list.at(current).host;
+}
+
+void Config::setBridgeHost(const QString &host)
+{
+    auto list = robots();
+    if (list.isEmpty())
+        return;
+    list[currentRobot()].host = host;
+    setRobots(list);
+}
+
+int Config::bridgePort() const
+{
+    const auto list = robots();
+    const int current = currentRobot();
+    return current < 0 || current >= list.size() ? kDefaultPort : list.at(current).port;
+}
+
+void Config::setBridgePort(int port)
+{
+    auto list = robots();
+    if (list.isEmpty())
+        return;
+    list[currentRobot()].port = port;
+    setRobots(list);
+}
+
+double Config::batteryReturnPercent() const
+{
+    return store().value(QStringLiteral("power/return_pct"), kDefaultReturnPct).toDouble();
+}
+
+void Config::setBatteryReturnPercent(double pct)
+{
+    store().setValue(QStringLiteral("power/return_pct"), qBound(5.0, pct, 90.0));
+}
+
+double Config::batteryDeparturePercent() const
+{
+    return store().value(QStringLiteral("power/depart_pct"), kDefaultDepartPct).toDouble();
+}
+
+void Config::setBatteryDeparturePercent(double pct)
+{
+    store().setValue(QStringLiteral("power/depart_pct"), qBound(10.0, pct, 100.0));
+}
+
+QString Config::theme() const
+{
+    return store().value(QStringLiteral("appearance/theme"),
+                         QLatin1String(kDefaultTheme)).toString();
+}
+
+void Config::setTheme(const QString &name)
+{
+    store().setValue(QStringLiteral("appearance/theme"), name);
+    emit appearanceChanged();
+}
+
+double Config::uiScale() const
+{
+    const double v = store().value(QStringLiteral("appearance/ui_scale"),
+                                   kDefaultScale).toDouble();
+    return qBound(kMinScale, v, kMaxScale);
+}
+
+void Config::setUiScale(double scale)
+{
+    store().setValue(QStringLiteral("appearance/ui_scale"),
+                     qBound(kMinScale, scale, kMaxScale));
+    emit appearanceChanged();
+}
+
+double Config::defaultLinearSpeed() const
+{
+    return store().value(QStringLiteral("operation/linear_speed"), kDefaultLinear).toDouble();
+}
+
+void Config::setDefaultLinearSpeed(double v)
+{
+    store().setValue(QStringLiteral("operation/linear_speed"), v);
+}
+
+double Config::defaultAngularSpeed() const
+{
+    return store().value(QStringLiteral("operation/angular_speed"), kDefaultAngular).toDouble();
+}
+
+void Config::setDefaultAngularSpeed(double v)
+{
+    store().setValue(QStringLiteral("operation/angular_speed"), v);
+}
+
+QString Config::logDirectory() const
+{
+    const QString fallback =
+        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+        + QStringLiteral("/logs");
+    return store().value(QStringLiteral("logging/directory"), fallback).toString();
+}
+
+void Config::setLogDirectory(const QString &dir)
+{
+    store().setValue(QStringLiteral("logging/directory"), dir);
+}
+
+int Config::logRetentionDays() const
+{
+    return store().value(QStringLiteral("logging/retention_days"), kDefaultRetention).toInt();
+}
+
+void Config::setLogRetentionDays(int days)
+{
+    store().setValue(QStringLiteral("logging/retention_days"), days);
+}
+
+QString Config::nasMountPath() const
+{
+    return store().value(QStringLiteral("storage/nas_path"),
+                         QLatin1String(kDefaultNas)).toString();
+}
+
+void Config::setNasMountPath(const QString &path)
+{
+    store().setValue(QStringLiteral("storage/nas_path"), path);
+}
+
+void Config::resetToDefaults()
+{
+    // 자격증명은 건드리지 않는다. 설정을 되돌렸다고 관리자 비밀번호가
+    // 사라지면 잠금이 풀려버린다.
+    auto &s = store();
+    s.remove(QStringLiteral("connection"));
+    s.remove(QStringLiteral("appearance"));
+    s.remove(QStringLiteral("operation"));
+    s.remove(QStringLiteral("logging"));
+    s.remove(QStringLiteral("storage"));
+    emit appearanceChanged();
+}
+
+}  // namespace hmi

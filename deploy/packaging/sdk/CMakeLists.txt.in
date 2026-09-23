@@ -1,0 +1,10 @@
+cmake_minimum_required(VERSION 3.16)
+project(shalom_sdk_samples LANGUAGES CXX)
+
+find_package(ShalomSdk CONFIG REQUIRED)
+
+add_executable(monitor monitor.cpp)
+target_link_libraries(monitor PRIVATE shalom::sdk)
+
+add_executable(api_example api_example.cpp)
+target_link_libraries(api_example PRIVATE shalom::sdk)

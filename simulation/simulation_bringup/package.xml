@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>simulation_bringup</name>
+  <version>0.1.0</version>
+  <description>Wego-owned orchestration for the B2 simulator and the inspection stack.</description>
+  <maintainer email="junoyoo@wego-robotics.com">juno</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>b2_mujoco</exec_depend>
+  <exec_depend>robot_bringup</exec_depend>
+  <exec_depend>hmi_bridge</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

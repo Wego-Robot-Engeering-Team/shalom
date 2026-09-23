@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Shalom 연동 SDK — macOS 빌드
+set -euo pipefail
+cd "$(dirname "$0")"
+cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+echo
+echo "완료: $(pwd)/build/shalom_monitor"
+echo "사용: ./build/shalom_monitor <로봇주소> [포트]"

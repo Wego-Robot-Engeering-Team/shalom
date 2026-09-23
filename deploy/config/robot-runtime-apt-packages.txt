@@ -1,0 +1,16 @@
+# ROS 2 Jazzy robot runtime의 직접 apt 의존성이다.
+#
+# build_robot_runtime.sh가 만든 shalom-runtime .deb의 Depends와 함께 관리한다.
+# 오프라인 번들 생성 시 apt resolver가 이 목록의 전이 의존 .deb도 함께 수집해야
+# 한다. 개발 도구, VLP-16, MuJoCo는 넣지 않는다.
+ros-jazzy-ros-base
+ros-jazzy-rmw-cyclonedds-cpp
+ros-jazzy-cyclonedds
+ros-jazzy-navigation2
+ros-jazzy-nav2-bringup
+ros-jazzy-slam-toolbox
+ros-jazzy-pointcloud-to-laserscan
+ros-jazzy-cv-bridge
+ros-jazzy-twist-mux
+libboost-all-dev
+libyaml-cpp-dev
