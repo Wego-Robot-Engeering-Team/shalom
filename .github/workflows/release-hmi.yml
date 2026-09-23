@@ -35,7 +35,17 @@ jobs:
       - name: Set up MSVC
         if: matrix.os == 'windows-2022'
         uses: ilammy/msvc-dev-cmd@v1
-      - uses: jurplel/install-qt-action@v4
+      # Build the Linux bundle against Ubuntu 24.04's Qt. The downloadable Qt
+      # 6.4 binary is linked to an obsolete ICU ABI that the runner cannot
+      # bundle or validate for the target PC.
+      - name: Install Qt on Linux
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qt6-base-dev qt6-svg-dev
+      - name: Install Qt on Windows
+        if: matrix.os == 'windows-2022'
+        uses: jurplel/install-qt-action@v4
         with:
           version: '6.4.2'
           # Keep downloaded Qt outside GITHUB_WORKSPACE: the release scripts
