@@ -94,6 +94,16 @@ systemd unit을 runtime 패키지에 포함하는 것과 개발 PC에서 서비�
 설치·enable한다. 개발 PC에서는 같은 ROS graph를 수동 launch하며, 자동 시작 서비스가
 개발 중인 노드와 중복 실행되지 않도록 systemd 등록을 하지 않는다.
 
+제어기의 프로세스 감독은 중앙 ROS Watchdog 노드가 아니라 systemd를 기준으로
+한다. 비정상 종료는 `Restart=` 정책으로 복구하고, 내부 event loop hang까지
+감지해야 하는 서비스는 제어기 도입 시 `WatchdogSec=`와 `sd_notify()` IPC
+heartbeat를 적용한다. 빠른 로봇 정지는 이 재시작 경로가 아니라 Safety Gate와
+Driver의 로컬 timeout이 담당한다.
+
+Jetson의 hardware watchdog은 `/dev/watchdog` 지원과 재부팅 동작을 실물 검증한
+뒤 systemd `RuntimeWatchdogSec=`로 활성화한다. 동일 장치를 별도 `watchdog`
+daemon과 systemd가 동시에 소유하지 않도록 배포 정책을 하나로 고정한다.
+
 ### apt 오프라인 의존성
 
 `packages/`에는 apt가 제공하는 실제 runtime `.deb`를 함께 넣고 `install.sh`가

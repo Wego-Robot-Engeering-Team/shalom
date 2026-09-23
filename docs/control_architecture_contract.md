@@ -32,7 +32,7 @@ HMI ─TCP→ hmi_bridge ─request→ mission_manager ─intent→ Nav2 / motio
                          │
                          └─ heartbeat/software E-Stop
                                       ↓
-Watchdog / Health ─────────────→ safety_manager ─ motion_permitted ─┐
+                                safety_manager ─ motion_permitted ─┐
                                                                     │
 mission_manager ─request→ motion_interlock_manager ─ authority ─────┼→ safety_gate → B2
                                                                     │
@@ -361,43 +361,44 @@ interface 구현 전 별도 표로 고정한다.
 Mission checkpoint에는 Mission ID, map ID, 마지막 완료 waypoint, 시작 시각과 종료
 사유만 저장한다. 진행 중이던 action handle을 복원하지 않는다.
 
-## Watchdog와 외부 프로세스 감독 계약
+## 프로세스 감독과 Watchdog 도입 계획
 
-Watchdog는 `comm check`, `health check`, `process check`를 취합하지만 최종 actuator
-명령을 직접 발행하지 않는다. 노드 heartbeat나 필수 topic deadline이 만료되면 typed
-`SafetyEvent`를 Safety Manager에 전달하고, Safety Manager가 `CONTROLLED_STOP` 또는
-`FAULT` 정책을 결정한다. 진단 결과는 별도 health/diagnostics 상태로 HMI Bridge에
-전달하며, HMI Bridge는 기존 TCP `state/health` 채널로 변환한다.
+중앙 ROS Watchdog 노드를 안전 필수 경로에 두지 않는다. 해당 노드도 ROS/DDS에
+의존하고 Watchdog 자체의 생존 여부를 다시 감시해야 하기 때문이다. HMI 표시용
+상태는 HMI Bridge가 필요한 상태 topic을 직접 구독하고 수신 시간을 확인해
+기존 TCP `state/health` 채널로 전달한다.
 
-빠른 최종 방어를 중앙 Watchdog 하나에만 의존하지 않는다. Safety Gate는 자신이 직접
-사용하는 Safety State, Motion Authority, command의 freshness를 계속 검사한다.
+로봇의 빠른 정지는 외부 supervisor의 판단을 기다리지 않는다. Safety Gate와
+Driver가 자신이 직접 사용하는 Safety State, Motion Authority, command의
+freshness를 steady clock으로 판단해 fail-closed한다.
 
-| 계층 | 장애 반응 |
+| 계층 | 감지 대상 | 장애 반응 |
+|---|---|---|
+| Safety Gate | Safety State, Motion Authority, command deadline | 즉시 zero 또는 block |
+| Driver/하드웨어 | 최종 command deadline, 물리 E-Stop/STO | 구동 정지 |
+| systemd service supervisor | 프로세스 종료 또는 IPC heartbeat 만료 | 프로세스/제어 스택 재시작 |
+| systemd hardware watchdog | OS 또는 PID 1 hang | 제어기 재부팅 |
+| HMI Bridge | 표시 대상 topic freshness | HMI에 `lost` 표시; 안전 판단은 하지 않음 |
+
+`WatchdogSec=`는 systemd service가 보내야 하는 watchdog keep-alive 간격의
+상한이다. 단순 PID 존재 확인과 달리, 각 서비스는 정상 event loop에서
+`NOTIFY_SOCKET`을 통해 `sd_notify("WATCHDOG=1")`를 전송한다. 설정된 deadline
+동안 알림이 없으면 systemd는 hang으로 판단하고, `Restart=` 정책에 따라
+해당 서비스 또는 전체 제어 스택을 재시작한다.
+
+재시작은 안전 상태를 자동 정상화하지 않는다. Safety Manager는
+`INITIALIZING`, Motion Authority는 `NONE`으로 시작하고, 원인 해소와 운영자의
+명시적 resume가 확인될 때까지 운전을 재개하지 않는다.
+
+| 단계 | 수행 내용 |
 |---|---|
-| Safety Gate 직접 timeout | 즉시 zero 또는 block으로 fail-closed |
-| Watchdog | 장애 원인을 취합해 `SafetyEvent` 발행, 진단 상태 기록 |
-| Safety Manager | 정지 상태와 fault latch, 명시적 복구 정책 소유 |
-| 외부 supervisor | 종료된 프로세스 재시작; Safety 상태를 자동 정상화하지 않음 |
-| Driver/하드웨어 | ROS 출력 중단 시 command timeout, 물리 E-Stop/STO 수행 |
+| 현재 개발 PC | ROS Watchdog을 실행·등록하지 않고 Safety Gate/Driver timeout을 시뮬레이션으로 검증 |
+| 제어기 도입 | systemd unit, `Restart=` 정책, IPC heartbeat 범위, 프로세스별/전체 스택 재시작 정책 확정 |
+| 실물 검증 | crash, hang, DDS 단절, 재부팅 후 fail-closed와 자동 재개 금지 확인 |
+| 하드웨어 Watchdog | Jetson의 `/dev/watchdog` 지원과 timeout을 확인한 뒤 systemd `RuntimeWatchdogSec=`로 활성화 |
 
-직접 timeout과 Watchdog 사건이 동시에 발생해도 충돌하지 않도록 다음 규칙을 지킨다.
-
-- Safety Gate만 최종 B2 command topic을 발행한다. Watchdog는 `cmd_vel`을 발행하지 않는다.
-- Watchdog는 동일 장애를 매 tick마다 보내지 않고 정상→장애 edge에서 한 번 발행한다.
-- Safety 우선순위는 `E_STOP_LATCHED` > `FAULT` > `CONTROLLED_STOP`이며 낮은 단계의
-  사건이 높은 단계의 원인을 덮어쓰지 않는다.
-- 직접 timeout으로 이미 zero가 출력된 뒤 Watchdog 사건이 도착해도 출력은 zero를
-  유지한다. 반대 순서에서도 결과는 같다.
-- heartbeat가 복구돼도 Safety FSM은 자동으로 `NORMAL`이 되지 않는다. 원인 해소와
-  운영자의 명시적 resume를 모두 확인해야 한다.
-- Watchdog 자체의 heartbeat도 Safety Manager가 감시한다. Watchdog 장애를 정상으로
-  간주하지 않는다.
-
-외부 프로세스 supervisor의 기준 구현은 대상 로봇 제어기의 systemd이다. 다만 현재
-개발 PC에는 `shalom-robot.service`를 설치하거나 enable하지 않는다. 개발 PC에서는
-ROS launch를 수동 실행하고 시뮬레이션으로 기능을 검증한다. systemd unit은 저장소에서
-템플릿과 배포 산출물로만 관리하며, 실제 Jetson 제어기 또는 격리된 대상 환경에서
-site-config, command timeout, 재부팅 후 fail-closed 동작까지 확인한 뒤 활성화한다.
+systemd와 별도 `watchdog` daemon이 동일한 `/dev/watchdog`을 동시에 소유하지
+않도록 한다. 최종 소유자는 제어기 환경 검증 후 하나로 확정한다.
 
 ## B2 시뮬레이션 검증 기준
 
