@@ -31,7 +31,9 @@ if [[ "$version" != "$hmi_version" ]]; then
   echo "HMI project version($hmi_version)과 요청 버전($version)이 다릅니다." >&2
   exit 1
 fi
-if [[ $allow_dirty -eq 0 ]] && [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=all)" ]]; then
+git_status="$(git -C "$repo_root" status --porcelain --untracked-files=all)"
+if [[ $allow_dirty -eq 0 ]] && [[ -n "$git_status" ]]; then
+  printf '%s\n' "$git_status" >&2
   echo "Git 작업 트리가 깨끗하지 않습니다. 릴리스에는 --allow-dirty를 사용하지 마십시오." >&2
   exit 1
 fi

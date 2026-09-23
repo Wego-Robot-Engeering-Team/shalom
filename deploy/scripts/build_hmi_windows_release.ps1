@@ -19,7 +19,9 @@ $HmiVersion = ([regex]::Match($CmakeText, 'project\(inspection_hmi VERSION ([^ ]
 if ($Version -ne $HmiVersion) {
     throw "HMI project version($HmiVersion)과 요청 버전($Version)이 다릅니다."
 }
-if (-not $AllowDirty -and (git -C $RepoRoot status --porcelain --untracked-files=all)) {
+$GitStatus = git -C $RepoRoot status --porcelain --untracked-files=all
+if (-not $AllowDirty -and $GitStatus) {
+    Write-Error ($GitStatus -join [Environment]::NewLine)
     throw 'Git 작업 트리가 깨끗하지 않습니다. 릴리스에는 -AllowDirty를 사용하지 마십시오.'
 }
 
