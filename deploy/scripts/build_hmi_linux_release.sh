@@ -91,6 +91,35 @@ done
 for plugin in libqxcb-egl-integration.so libqxcb-glx-integration.so; do
   [[ -f "$qt_plugin_dir/xcbglintegrations/$plugin" ]] && install -m 0755 "$qt_plugin_dir/xcbglintegrations/$plugin" "$app_root/plugins/xcbglintegrations/"
 done
+
+# The Qt 6.4 binary distribution links against the ICU ABI it was built with.
+# Ubuntu 24.04 does not guarantee that legacy ABI is installed on the customer
+# PC, so ship the exact resolved ICU closure alongside Qt instead of relying on
+# the system package version.
+mapfile -t icu_libraries < <(
+  for library in "$app_root/bin"/libQt6*.so* "$app_root/plugins"/*/*.so; do
+    [[ -f "$library" ]] || continue
+    LD_LIBRARY_PATH="$app_root/bin" ldd "$library" 2>/dev/null |
+      awk '/libicu[^ ]* => \/[^ ]+/ {print $3}'
+  done | sort -u
+)
+if [[ ${#icu_libraries[@]} -eq 0 ]]; then
+  echo "Qt ICU 런타임 의존성을 찾지 못했습니다." >&2
+  exit 1
+fi
+mkdir -p "$app_root/licenses"
+install -m 0644 "$hmi_root/licenses"/*.txt "$hmi_root/licenses/README.md" "$app_root/licenses/"
+for library in "${icu_libraries[@]}"; do
+  library_dir="$(dirname "$library")"
+  library_stem="$(basename "$library" | sed -E 's/(\.so).*/\1/')"
+  cp -a "$library_dir/$library_stem"* "$app_root/bin/"
+
+  # Debian package copyright files identify the ICU copyright holders and its
+  # Unicode licence. Include them when that metadata is available.
+  owner="$(dpkg-query -S "$(readlink -f "$library")" 2>/dev/null | head -n1 | cut -d: -f1 || true)"
+  [[ -n "$owner" && -f "/usr/share/doc/$owner/copyright" ]] &&
+    install -m 0644 "/usr/share/doc/$owner/copyright" "$app_root/licenses/$owner.copyright"
+done
 cat > "$app_root/bin/qt.conf" <<'EOF'
 [Paths]
 Plugins = ../plugins
@@ -99,9 +128,9 @@ install -m 0755 "$repo_root/deploy/packaging/hmi/run.sh.in" "$app_root/run.sh"
 
 for target in "$app_root/bin/inspection_hmi" "$app_root/plugins/platforms/libqxcb.so"; do
   [[ -f "$target" ]] || { echo "필수 HMI runtime 파일이 없습니다: $target" >&2; exit 1; }
-  if ldd "$target" | grep -q 'not found'; then
+  if LD_LIBRARY_PATH="$app_root/bin" ldd "$target" | grep -q 'not found'; then
     echo "런타임 의존성이 누락되었습니다: $target" >&2
-    ldd "$target" >&2
+    LD_LIBRARY_PATH="$app_root/bin" ldd "$target" >&2
     exit 1
   fi
 done
