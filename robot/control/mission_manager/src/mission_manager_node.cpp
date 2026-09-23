@@ -466,7 +466,7 @@ private:
     using State = mission_manager::core::State;
     const auto state = fsm_.state();
     if (message->state != MotionAuthority::BASE_ACTIVE &&
-        (state == State::Running || state == State::Returning || state == State::Recovering)) {
+        (state == State::Running || state == State::Returning)) {
       dispatch(mission_manager::core::Event::AuthorityLost, "MISSION_AUTHORITY_LOST");
     }
   }
@@ -584,7 +584,7 @@ private:
     using State = mission_manager::core::State;
     using Status = mission_manager::bt::Status;
     const auto state = fsm_.state();
-    if ((state == State::Running || state == State::Returning || state == State::Recovering) &&
+    if ((state == State::Running || state == State::Returning) &&
         !base_authority_ready()) {
       dispatch(Event::AuthorityLost, "MISSION_AUTHORITY_LOST");
       return;

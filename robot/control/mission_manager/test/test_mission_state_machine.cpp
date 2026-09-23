@@ -113,7 +113,7 @@ void test_safety_hold_cancels_recovery() {
   expect(fsm.state() == State::Paused, "safety hold must cancel recovery");
 }
 
-void test_authority_loss_halts_active_motion_and_cancels_recovery() {
+void test_authority_loss_halts_active_motion_but_recovery_can_wait() {
   StateMachine fsm;
   configure_and_start(fsm);
   fsm.dispatch(Event::AuthorityLost);
@@ -123,8 +123,9 @@ void test_authority_loss_halts_active_motion_and_cancels_recovery() {
 
   fsm.dispatch(Event::ResumeRequested);
   expect(fsm.state() == State::Recovering, "resume must begin recovery checks");
-  fsm.dispatch(Event::AuthorityLost);
-  expect(fsm.state() == State::Paused, "authority loss must cancel recovery");
+  const auto waiting = fsm.dispatch(Event::AuthorityLost);
+  expect(!waiting.accepted, "RECOVERING must wait instead of handling authority loss");
+  expect(fsm.state() == State::Recovering, "authority acquisition must remain in RECOVERING");
 }
 
 void test_completion_respects_return_policy() {
@@ -210,7 +211,6 @@ bool expected_acceptance(State state, Event event) {
              event == Event::StopRequested || event == Event::ResumeRequested;
     case State::Recovering:
       return event == Event::LinkLost || event == Event::SafetyStop ||
-             event == Event::AuthorityLost ||
              event == Event::StopRequested || event == Event::RecoveryReady;
     case State::Returning:
       return event == Event::PauseRequested || event == Event::ManualTakeover ||
@@ -260,7 +260,7 @@ int main() {
   test_stop_and_failure_share_the_quiescence_barrier();
   test_stop_priority_is_preserved_while_pausing();
   test_safety_hold_cancels_recovery();
-  test_authority_loss_halts_active_motion_and_cancels_recovery();
+  test_authority_loss_halts_active_motion_but_recovery_can_wait();
   test_completion_respects_return_policy();
   test_invalid_events_do_not_change_state();
   test_complete_state_event_acceptance_matrix();

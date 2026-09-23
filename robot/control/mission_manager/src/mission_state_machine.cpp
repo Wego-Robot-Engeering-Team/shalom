@@ -134,8 +134,7 @@ Transition StateMachine::dispatch(Event event) {
       if (event == Event::RecoveryReady) {
         return accept(from, resume_target_, "interrupted phase restarted");
       }
-      if (event == Event::SafetyStop || event == Event::LinkLost ||
-          event == Event::AuthorityLost) {
+      if (event == Event::SafetyStop || event == Event::LinkLost) {
         return accept(from, State::Paused, "recovery cancelled by motion inhibit");
       }
       if (event == Event::StopRequested) {

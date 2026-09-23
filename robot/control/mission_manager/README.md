@@ -46,7 +46,8 @@ IDLE ─구성→ READY ─시작→ RUNNING ─점검 완료→ RETURNING(선�
 - 현재 배포 설정은 `navigation` capability와 `NAVIGATE_ONLY` executor만 활성화한다.
   연결되지 않은 작업은 plan 구성 단계에서 fail-closed로 거절한다.
 - Base authority snapshot이 500 ms 이상 갱신되지 않거나 `BASE_ACTIVE`를 벗어나면
-  실행 중인 Mission을 `PAUSING`으로, 복구 중인 Mission을 `PAUSED`로 전환한다.
+  실행 중인 Mission을 `PAUSING`으로 전환한다. `RECOVERING`은 움직이지 않는 상태로
+  유지하면서 fresh `BASE_ACTIVE`를 다시 획득할 때까지 기다린다.
 - 상태는 `/mission/state`로 관제에 그대로 나간다.
 
 ## 아직 연결되지 않은 것
