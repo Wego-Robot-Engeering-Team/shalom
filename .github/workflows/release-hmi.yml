@@ -27,7 +27,7 @@ jobs:
             name: win64
             script: .\deploy\scripts\build_hmi_windows_release.ps1
             artifact: inspection-hmi-*-win64.zip
-          - os: macos-13
+          - os: macos-15-intel
             name: macos-x86_64
             script: ./deploy/scripts/build_hmi_macos_release.sh
             artifact: inspection-hmi-*-macos-x86_64.tar.zst
