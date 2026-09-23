@@ -3,7 +3,7 @@
   <name>gateway_transport</name>
   <version>0.1.0</version>
   <description>Shared framed TCP transport for robot gateway packages.</description>
-  <maintainer email="hw.jo@wego-robotics.com">WEGO Robotics</maintainer>
+  <maintainer email="junoyoo@wego-robotics.com">WEGO Robotics</maintainer>
   <license>Proprietary</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>nlohmann-json-dev</depend>

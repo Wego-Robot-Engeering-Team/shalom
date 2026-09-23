@@ -9,7 +9,7 @@
     MuJoCo and test-only sensors belong to simulation_bringup and are never
     dependencies of this package.
   </description>
-  <maintainer email="hw.jo@wego-robotics.com">juno</maintainer>
+  <maintainer email="junoyoo@wego-robotics.com">juno</maintainer>
   <license>Proprietary</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

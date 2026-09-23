@@ -232,8 +232,49 @@ hidden visibility를 기본으로 하고 공개 API만 export한다.
 - LICENSES/SBOM/manifest/checksum 미생성
 - Qt LGPL 고지, 해당 Qt 소스 제공 방식, 수정 라이브러리 설치 안내 미포함
 
-## 구현 예정
+## 현재 구현 범위
 
-현재 이 저장소에는 위 구조를 실제로 생성하는 로봇 `.deb` 패키징, 오프라인 apt
-번들 생성, HMI OS별 deploy, SDK OS별 release, LICENSES/SBOM 생성 CI가 아직 없다.
-이 문서는 그 작업의 입력 기준이며, 생성 스크립트와 CI는 `deploy/` 아래에 추가한다.
+로봇 runtime과 site-config의 첫 기반은 추가되어 있다.
+`scripts/build_robot_runtime.sh`는 Jetson arm64에서 별도 Release install tree를 만들고
+`shalom-runtime_<version>_arm64.deb`를 생성한다.
+`scripts/build_site_config.sh`는 업데이트가 현장 설정을 덮어쓰지 않는 conffile 기반
+`shalom-site-config_<version>_all.deb`를 생성한다.
+
+`scripts/build_robot_release.sh`는 위 두 패키지와 apt runtime 의존 `.deb`를 수집해
+다음 파일을 만든다.
+
+```text
+dist/shalom-release-<version>-arm64.tar.zst
+└── shalom-release-<version>/
+    ├── robot/install.sh
+    ├── robot/packages/*.deb
+    ├── robot/site-config/robot.env.example
+    ├── LICENSES/
+    ├── manifest.json
+    ├── checksums.txt
+    └── RELEASE.md
+```
+
+`collect_licenses.sh`는 선언한 서브모듈 LICENSE/NOTICE와 실제 apt `.deb` 안의
+Debian copyright를 수집한다. 하나라도 선언된 고지가 없으면 번들 생성을 실패시킨다.
+`build_sdk_linux_release.sh`는 Linux x86_64에서 공개 C++ `.so`·헤더·CMake package,
+Python client, C++/Python sample, API 문서, LICENSE를 묶은
+`shalom-sdk-<version>-linux-x86_64.tar.zst`를 만든다. 이 스크립트는 압축 파일 안의
+C++ sample을 다시 빌드해 고객 SDK 단독 사용을 확인한다. Windows HMI/SDK release,
+SBOM 생성은 아직 구현 전이다.
+
+`build_hmi_linux_release.sh`는 Linux x86_64에서 HMI 실행 파일, 필요한 Qt6 `.so`,
+X11 platform·image·TLS plugin, 진단 자료, 라이선스를
+`inspection-hmi-<version>-linux-x86_64.tar.zst`로 묶는다. HMI 번들에는 SDK 헤더나
+라이브러리를 포함하지 않는다.
+
+로봇 패키지 생성 예시는 다음과 같다.
+
+```bash
+./deploy/scripts/build_robot_release.sh --version 0.1.0
+./deploy/scripts/build_sdk_linux_release.sh --version 0.2.0
+./deploy/scripts/build_hmi_linux_release.sh --version 0.1.0
+```
+
+이 명령은 arm64 Jetson release runner와 sudo apt 권한이 필요하다. 고객 로봇이 아닌
+별도 빌드 Jetson에서만 실행한다. SDK 명령은 Linux x86_64 runner에서 실행한다.

@@ -4,7 +4,7 @@
   <name>mission_manager</name>
   <version>0.1.0</version>
   <description>Inspection mission FSM and behavior-tree core.</description>
-  <maintainer email="hw.jo@wego-robotics.com">juno</maintainer>
+  <maintainer email="junoyoo@wego-robotics.com">juno</maintainer>
   <license>Proprietary</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

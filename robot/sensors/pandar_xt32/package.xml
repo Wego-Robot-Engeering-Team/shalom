@@ -5,7 +5,7 @@
   <description>
     Integrates a Hesai Pandar XT32 into the robot-standard point-cloud topic and TF tree.
   </description>
-  <maintainer email="hw.jo@wego-robotics.com">Wego Robotics</maintainer>
+  <maintainer email="junoyoo@wego-robotics.com">Wego Robotics</maintainer>
   <license>Proprietary</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

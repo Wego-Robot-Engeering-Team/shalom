@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+release_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+package_dir="$release_root/robot/packages"
+
+if [[ "${EUID}" -ne 0 ]]; then
+  echo "root 권한으로 실행하십시오: sudo ./robot/install.sh" >&2
+  exit 1
+fi
+if [[ "$(dpkg --print-architecture)" != "arm64" ]]; then
+  echo "이 로봇 릴리스는 arm64 Jetson 전용입니다." >&2
+  exit 1
+fi
+if [[ ! -d "$package_dir" ]]; then
+  echo "packages 디렉터리가 없습니다: $package_dir" >&2
+  exit 1
+fi
+
+cd "$release_root"
+sha256sum -c checksums.txt
+
+shopt -s nullglob
+packages=("$package_dir"/*.deb)
+if [[ ${#packages[@]} -eq 0 ]]; then
+  echo "설치할 .deb 파일이 없습니다." >&2
+  exit 1
+fi
+
+# 모든 .deb를 먼저 풀고, 같은 번들 안의 의존성을 포함해 한 번에 configure한다.
+# 인터넷을 사용하지 않으며, 누락된 의존성은 명확한 오류로 중단된다.
+dpkg --unpack "${packages[@]}"
+dpkg --configure -a
+
+echo "Shalom @VERSION@ 설치가 완료되었습니다."
+echo "설정: /etc/shalom/robot.env"
+echo "서비스: systemctl status shalom-robot"

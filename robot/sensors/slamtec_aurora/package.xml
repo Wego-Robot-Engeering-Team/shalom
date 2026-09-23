@@ -3,7 +3,7 @@
   <name>slamtec_aurora</name>
   <version>0.1.0</version>
   <description>Robot-specific SLAMTEC Aurora S integration and configuration.</description>
-  <maintainer email="hw.jo@wego-robotics.com">juno</maintainer>
+  <maintainer email="junoyoo@wego-robotics.com">juno</maintainer>
   <license>Proprietary</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

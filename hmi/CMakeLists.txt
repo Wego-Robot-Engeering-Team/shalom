@@ -125,10 +125,17 @@ if(WIN32)
     list(APPEND HMI_PLATFORM_SOURCES resources/brand/app.rc)
 endif()
 
-add_executable(inspection_hmi
-    src/main.cpp
-    ${HMI_PLATFORM_SOURCES}
-)
+if(APPLE)
+    add_executable(inspection_hmi MACOSX_BUNDLE
+        src/main.cpp
+        ${HMI_PLATFORM_SOURCES}
+    )
+else()
+    add_executable(inspection_hmi
+        src/main.cpp
+        ${HMI_PLATFORM_SOURCES}
+    )
+endif()
 target_link_libraries(inspection_hmi PRIVATE hmi_core)
 # ---------------------------------------------------------------------------
 # 테스트
@@ -234,8 +241,11 @@ set_target_properties(inspection_hmi PROPERTIES
 # hmi_core 는 설치하지 않는다. 정적 라이브러리는 오브젝트 파일 전체와 심볼
 # 테이블을 담고 있어, 공유 라이브러리로 내보내는 것보다 오히려 더 드러난다.
 # 고객이 링크할 대상은 없고, 연동 계약은 공개 헤더와 통신 규약이 전부다.
-install(TARGETS inspection_hmi
-    RUNTIME DESTINATION bin)
+if(APPLE)
+    install(TARGETS inspection_hmi BUNDLE DESTINATION .)
+else()
+    install(TARGETS inspection_hmi RUNTIME DESTINATION bin)
+endif()
 
 # ---- 공개 헤더 ----
 #

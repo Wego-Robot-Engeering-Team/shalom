@@ -81,6 +81,16 @@ ros2 --version
 ROS·Qt·컴파일러가 바뀌면 같은 Shalom source commit이라도 산출물이 달라질 수
 있다. 릴리스 도중 자동 apt upgrade를 수행하지 않는다.
 
+`Build robot release` workflow를 쓰려면 Jetson runner에 다음 label을 정확히 붙인다.
+
+```text
+self-hosted, linux, arm64, jetson
+```
+
+`v<version>` 태그 push 또는 Actions의 수동 실행이 arm64 release를 시작한다. workflow는
+자동 공개하지 않고 검증된 `.tar.zst`를 30일간 artifact로 보관한다. 검수 승인 뒤에만
+담당자가 GitHub Release 또는 고객 전달 매체로 옮긴다.
+
 ## 3. GitHub Actions runner 등록
 
 현재 원격 저장소는 GitHub `origin`을 사용한다. `.github/workflows/`를 추가하기

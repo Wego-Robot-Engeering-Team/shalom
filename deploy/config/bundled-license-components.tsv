@@ -1,0 +1,10 @@
+# name<TAB>source directory relative to repository<TAB>license file relative to source<TAB>notice file relative to source or -
+kiss_icp	robot/third_party/kiss_icp	LICENSE	-
+ground_segmentation	robot/third_party/ground_segmentation	LICENSE.txt	-
+ground_segmentation_ros2	robot/third_party/ground_segmentation_ros2	LICENSE.txt	-
+nav2_ground_consistency_costmap_plugin	robot/third_party/nav2_ground_consistency_costmap_plugin	LICENSE	-
+hesai_lidar_ros2	robot/third_party/hesai_lidar_ros2	LICENSE	-
+b2_driver	robot/third_party/b2_driver	LICENSE	THIRD_PARTY_NOTICES.md
+unitree_sdk2	robot/third_party/b2_driver/b2_base/upstream/unitree_sdk2	LICENSE	-
+unitree_ros2	robot/third_party/b2_driver/b2_interface/upstream/unitree_ros2	LICENSE	-
+slamware_ros_sdk	robot/third_party/aurora_ros/src/slamware_ros_sdk	LICENSE	-

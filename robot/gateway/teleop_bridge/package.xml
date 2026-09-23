@@ -3,7 +3,7 @@
   <name>teleop_bridge</name>
   <version>0.1.0</version>
   <description>Deadman- and lease-enforced teleoperation command ingress.</description>
-  <maintainer email="hw.jo@wego-robotics.com">Wego Robotics</maintainer>
+  <maintainer email="junoyoo@wego-robotics.com">Wego Robotics</maintainer>
   <license>Proprietary</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

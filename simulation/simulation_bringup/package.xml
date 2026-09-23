@@ -4,7 +4,7 @@
   <name>simulation_bringup</name>
   <version>0.1.0</version>
   <description>Wego-owned orchestration for the B2 simulator and the inspection stack.</description>
-  <maintainer email="hw.jo@wego-robotics.com">juno</maintainer>
+  <maintainer email="junoyoo@wego-robotics.com">juno</maintainer>
   <license>Proprietary</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

@@ -11,7 +11,7 @@
     docs/bridge_protocol.md for the wire protocol and the reasoning.
   </description>
 
-  <maintainer email="hw.jo@wego-robotics.com">WEGO Robotics</maintainer>
+  <maintainer email="junoyoo@wego-robotics.com">WEGO Robotics</maintainer>
   <license>Proprietary</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

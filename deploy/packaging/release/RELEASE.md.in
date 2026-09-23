@@ -1,0 +1,10 @@
+# Shalom release @VERSION@
+
+- 대상: Jetson Orin AGX, Ubuntu 24.04, ROS 2 Jazzy, arm64
+- 설치: `sudo ./robot/install.sh`
+- 런타임: `shalom-runtime_@VERSION@_arm64.deb`
+- 현장 설정: `shalom-site-config_@VERSION@_all.deb`
+
+설치 전 `LICENSES/INDEX.md`, `manifest.json`, `checksums.txt`를 확인하십시오.
+현장 값은 `/etc/shalom/robot.env`에서 설정하며, 런타임 업데이트가 기존 설정을
+덮어쓰지 않습니다.
