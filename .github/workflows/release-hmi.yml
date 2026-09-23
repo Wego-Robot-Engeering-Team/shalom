@@ -39,6 +39,9 @@ jobs:
       - uses: jurplel/install-qt-action@v4
         with:
           version: '6.4.2'
+          # Keep downloaded Qt outside GITHUB_WORKSPACE: the release scripts
+          # deliberately reject untracked files before packaging.
+          dir: ${{ runner.temp }}/qt
       - name: Resolve version
         id: version
         shell: bash
