@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Wego-Proprietary
+
 """Persistent map, power-policy and site-configuration commands."""
 
 from __future__ import annotations

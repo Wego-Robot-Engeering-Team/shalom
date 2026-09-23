@@ -1,4 +1,5 @@
 # Copyright (c) 2026 WeGo Robotics. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
 """3D LiDAR ground segmentation -> ground-relative obstacle filter -> 2D SLAM.
 

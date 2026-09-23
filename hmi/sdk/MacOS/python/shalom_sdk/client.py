@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Wego-Proprietary
+
 """Synchronous customer API for the Shalom robot TCP bridge."""
 
 from __future__ import annotations

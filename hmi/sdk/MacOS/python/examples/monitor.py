@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Wego-Proprietary
+
 """Read-only protocol monitor. It intentionally never sends cmd/* messages."""
 
 from __future__ import annotations

@@ -1,4 +1,5 @@
 // Copyright (c) 2026 WeGo Robotics. All rights reserved.
+// SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 //
 // Public-header API example for an authorised customer application.
 //

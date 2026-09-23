@@ -1,4 +1,5 @@
 // Copyright (c) 2026 WeGo Robotics. All rights reserved.
+// SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
 // 지도 오버레이. 조작자가 지도에서 무엇을 짚을 수 있는지가 여기 걸려 있다.
 

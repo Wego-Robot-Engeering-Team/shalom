@@ -1,0 +1,52 @@
+Wego Proprietary Software License
+
+Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
+1. Scope
+
+This license applies to the Wego-authored source code, build and deployment
+files, documentation, and other materials in this repository that identify
+themselves with the SPDX identifier "LicenseRef-Wego-Proprietary" or are not
+subject to a separate license. "Wego" means WeGo Robotics.
+
+2. Reservation of rights
+
+All rights not expressly granted in a written agreement signed by Wego are
+reserved. No copyright, patent, trade-secret, trademark, or other intellectual
+property right is granted by possession of, access to, or use of these
+materials.
+
+3. Permitted use
+
+An authorised customer may use the unmodified binary deliverables supplied by
+Wego solely to operate the Shalom robot system identified in its agreement
+with Wego. Any broader right to access, copy, modify, build, integrate,
+distribute, or disclose source code must be expressly stated in that written
+agreement.
+
+4. Restrictions
+
+Except where mandatory law or a written agreement signed by Wego permits it,
+the recipient must not copy, publish, distribute, sublicense, transfer,
+modify, create derivative works from, reverse engineer, decompile, or
+disassemble these materials or any binary deliverable. The recipient must not
+remove or alter copyright, licence, or proprietary notices.
+
+5. Third-party materials and separate terms
+
+Materials under robot/third_party/ and other files carrying their own licence
+notice are excluded from this license and remain subject to their applicable
+terms. The customer SDK in hmi/sdk/ is additionally governed by its supplied
+Wego Proprietary SDK License. A signed customer agreement prevails over this
+file where the two conflict.
+
+6. No warranty
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THESE MATERIALS AND ANY
+DELIVERABLE ARE PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND. WEGO DISCLAIMS
+ALL IMPLIED WARRANTIES, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE, TITLE, AND NON-INFRINGEMENT.
+
+7. Contact
+
+Licensing questions: junoyoo@wego-robotics.com

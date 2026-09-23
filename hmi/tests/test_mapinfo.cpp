@@ -1,4 +1,5 @@
 // Copyright (c) 2026 WeGo Robotics. All rights reserved.
+// SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
 // 좌표 변환 테스트.
 //

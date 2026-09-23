@@ -1,4 +1,5 @@
 # Copyright (c) 2026 WeGo Robotics. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
 """Run the B2 simulation as a robot-shaped HMI endpoint."""
 

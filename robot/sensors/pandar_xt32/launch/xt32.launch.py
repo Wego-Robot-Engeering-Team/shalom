@@ -1,4 +1,5 @@
 # Copyright (c) 2026 WeGo Robotics. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
 """Expose a Pandar XT32 through the robot's standard LiDAR interface.
 

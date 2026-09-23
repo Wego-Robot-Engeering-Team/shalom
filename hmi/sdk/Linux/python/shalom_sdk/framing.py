@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Wego-Proprietary
+
 """Wire framing for the Shalom bridge protocol v1."""
 
 from __future__ import annotations

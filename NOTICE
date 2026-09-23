@@ -4,8 +4,8 @@ Copyright (c) 2026 WeGo Robotics. All rights reserved.
 이 저장소의 소스 코드와 문서는 위고로보틱스의 자산이며, 권리를 유보한다.
 저작권자의 서면 허락 없이 복제·배포·수정·역설계할 수 없다.
 
-`third_party/` 아래의 구성 요소는 이 고지의 적용을 받지 않는다. 각 구성
-요소는 해당 저장소의 라이선스를 따르며, 목록과 조건은 third_party/README.md
+`robot/third_party/` 아래의 구성 요소는 이 고지의 적용을 받지 않는다. 각 구성
+요소는 해당 저장소의 라이선스를 따르며, 목록과 조건은 robot/third_party/README.md
 에 있다. 납품물에는 각 구성 요소의 고지와 라이선스 전문을 함께 넣는다.
 
 관제 프로그램이 동적 링크로 사용하는 Qt 는 LGPL v3 를 따른다. 조건과 준수

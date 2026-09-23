@@ -1,4 +1,5 @@
 // Copyright (c) 2026 WeGo Robotics. All rights reserved.
+// SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
 #include "safety_manager/safety_state_machine.hpp"
 

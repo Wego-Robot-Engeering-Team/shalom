@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Wego-Proprietary
+
 """Capture and commissioning-only arm commands."""
 
 from __future__ import annotations

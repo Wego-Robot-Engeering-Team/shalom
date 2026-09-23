@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Wego-Proprietary
+
 """MuJoCo implementation of the B2 base-posture service contract.
 
 The HMI bridge always calls the platform services `/stand_up`, `/stand_down`,

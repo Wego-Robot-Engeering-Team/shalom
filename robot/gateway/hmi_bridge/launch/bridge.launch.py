@@ -1,4 +1,5 @@
 # Copyright (c) 2026 WeGo Robotics. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
 """브릿지 노드 기동.
 

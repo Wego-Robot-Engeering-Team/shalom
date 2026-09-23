@@ -1,4 +1,5 @@
 # Copyright (c) 2026 WeGo Robotics. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
 """SLAMTEC Aurora S의 원시 6DoF odometry를 안전하게 올린다.
 

@@ -1,4 +1,5 @@
 # Copyright (c) 2026 WeGo Robotics. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
 """임시 시험용 VLP-16 을 B2 내장 라이다 자리에 끼운다.
 

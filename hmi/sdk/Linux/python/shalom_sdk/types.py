@@ -1,3 +1,6 @@
+# Copyright (c) 2026 WeGo Robotics. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Wego-Proprietary
+
 """Public values returned by the low-level protocol client."""
 
 from __future__ import annotations

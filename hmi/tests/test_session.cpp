@@ -1,4 +1,5 @@
 // Copyright (c) 2026 WeGo Robotics. All rights reserved.
+// SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
 // 로그인은 조작 이력에 이름을 남기기 위한 것이다. 막는 장치가 아니므로
 // 검사할 것도 많지 않다 — 맞는 자격증명을 받아들이고, 틀린 것을 거절하며,
