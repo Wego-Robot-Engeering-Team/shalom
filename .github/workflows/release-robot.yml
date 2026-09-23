@@ -48,7 +48,8 @@ jobs:
           command -v colcon
           command -v jq
           command -v zstd
-          sudo -n true
+          sudo -n /usr/bin/apt-get --version >/dev/null
+          sudo -n /usr/bin/chown --version >/dev/null
 
       - name: Build offline robot release
         shell: bash
