@@ -70,7 +70,8 @@ Transition StateMachine::dispatch(Event event) {
     case State::Running:
     case State::Returning:
       if (event == Event::PauseRequested || event == Event::ManualTakeover ||
-          event == Event::LinkLost || event == Event::SafetyStop) {
+          event == Event::LinkLost || event == Event::SafetyStop ||
+          event == Event::AuthorityLost) {
         return begin_pausing(from, State::Paused,
                              "active work must halt before pausing");
       }
@@ -109,7 +110,8 @@ Transition StateMachine::dispatch(Event event) {
         return accept(from, State::Pausing, "failure recorded while halting");
       }
       if (event == Event::PauseRequested || event == Event::ManualTakeover ||
-          event == Event::LinkLost || event == Event::SafetyStop) {
+          event == Event::LinkLost || event == Event::SafetyStop ||
+          event == Event::AuthorityLost) {
         return accept(from, State::Pausing, "pause is already in progress");
       }
       return reject("event is invalid while pausing");
@@ -122,7 +124,8 @@ Transition StateMachine::dispatch(Event event) {
         return accept(from, State::Idle, "paused mission cleared");
       }
       if (event == Event::PauseRequested || event == Event::ManualTakeover ||
-          event == Event::LinkLost || event == Event::SafetyStop) {
+          event == Event::LinkLost || event == Event::SafetyStop ||
+          event == Event::AuthorityLost) {
         return accept(from, State::Paused, "mission is already paused");
       }
       return reject("event is invalid while paused");
@@ -132,7 +135,7 @@ Transition StateMachine::dispatch(Event event) {
         return accept(from, resume_target_, "interrupted phase restarted");
       }
       if (event == Event::SafetyStop || event == Event::LinkLost) {
-        return accept(from, State::Paused, "recovery cancelled by safety hold");
+        return accept(from, State::Paused, "recovery cancelled by motion inhibit");
       }
       if (event == Event::StopRequested) {
         return accept(from, State::Idle, "recovering mission cleared");
@@ -173,6 +176,7 @@ const char * to_string(Event event) {
     case Event::ManualTakeover: return "manual_takeover";
     case Event::LinkLost: return "link_lost";
     case Event::SafetyStop: return "safety_stop";
+    case Event::AuthorityLost: return "authority_lost";
     case Event::StopRequested: return "stop_requested";
     case Event::FatalStepFailure: return "fatal_step_failure";
     case Event::MotionQuiesced: return "motion_quiesced";

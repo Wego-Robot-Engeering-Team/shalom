@@ -73,7 +73,10 @@ def generate_launch_description():
         Node(
             package="motion_interlock_manager", executable="motion_interlock_manager_node",
             name="motion_interlock_manager", output="screen",
-            parameters=[{"use_sim_time": use_sim_time}],
+            parameters=[{
+                "use_sim_time": use_sim_time,
+                "state_publish_period_ms": 200,
+            }],
         ),
         Node(
             package="motion_interlock_manager", executable="base_motion_monitor_node",
@@ -113,6 +116,7 @@ def generate_launch_description():
             parameters=[{
                 "use_sim_time": use_sim_time,
                 "output_base_topic": LaunchConfiguration("base_output_topic"),
+                "authority_timeout_ms": 500,
             }],
         ),
     ])

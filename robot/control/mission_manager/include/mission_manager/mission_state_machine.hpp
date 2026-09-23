@@ -27,6 +27,7 @@ enum class Event {
   ManualTakeover,
   LinkLost,
   SafetyStop,
+  AuthorityLost,
   StopRequested,
   FatalStepFailure,
   MotionQuiesced,

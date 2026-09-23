@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <functional>
+#include <stdexcept>
 #include <string>
 
 #include "geometry_msgs/msg/twist.hpp"
@@ -24,10 +25,15 @@ public:
     const auto output_arm_topic = declare_parameter<std::string>("output_arm_topic", "/motion/safe/arm/joint_command");
     const auto command_timeout_ms = declare_parameter<int>("command_timeout_ms", 300);
     const auto state_timeout_ms = declare_parameter<int>("safety_state_timeout_ms", 250);
+    const auto authority_timeout_ms = declare_parameter<int>("authority_timeout_ms", 500);
     const auto output_hz = declare_parameter<double>("output_hz", 20.0);
+    if (authority_timeout_ms <= 0) {
+      throw std::invalid_argument("authority_timeout_ms must be positive");
+    }
     arm_output_enabled_ = declare_parameter<bool>("arm_output_enabled", false);
     command_timeout_ = std::chrono::milliseconds(command_timeout_ms);
     state_timeout_ = std::chrono::milliseconds(state_timeout_ms);
+    authority_timeout_ = std::chrono::milliseconds(authority_timeout_ms);
 
     base_pub_ = create_publisher<geometry_msgs::msg::Twist>(output_base_topic, 20);
     arm_pub_ = create_publisher<sensor_msgs::msg::JointState>(output_arm_topic, 20);
@@ -67,6 +73,7 @@ private:
 
   void on_authority(const shalom_interfaces::msg::MotionAuthority::SharedPtr message) {
     authority_ = message->state;
+    last_authority_ = std::chrono::steady_clock::now();
   }
 
   /// What the safety state means for the output, per the control-plane design:
@@ -103,8 +110,10 @@ private:
     if (decision == Output::kBlock)
       return;
 
+    const bool authority_fresh = now - last_authority_ <= authority_timeout_;
     geometry_msgs::msg::Twist output{};  // zero is the only fail-closed base command.
     if (decision == Output::kPass &&
+        authority_fresh &&
         authority_ == shalom_interfaces::msg::MotionAuthority::BASE_ACTIVE &&
         now - last_base_command_ <= command_timeout_) {
       output = base_command_;
@@ -114,7 +123,7 @@ private:
     // A zero JointState is not a safe stop for position-controlled arms.  The
     // production FR3 integration must use its own stop/mode interface.  Until
     // that is wired, arm output remains disabled by default.
-    if (arm_output_enabled_ && decision == Output::kPass &&
+    if (arm_output_enabled_ && decision == Output::kPass && authority_fresh &&
         authority_ == shalom_interfaces::msg::MotionAuthority::ARM_ACTIVE &&
         now - last_arm_command_ <= command_timeout_) {
       arm_pub_->publish(arm_command_);
@@ -126,7 +135,9 @@ private:
   uint8_t authority_{shalom_interfaces::msg::MotionAuthority::NONE};
   std::chrono::milliseconds command_timeout_{300};
   std::chrono::milliseconds state_timeout_{250};
+  std::chrono::milliseconds authority_timeout_{500};
   SteadyTime last_state_{};
+  SteadyTime last_authority_{};
   SteadyTime last_base_command_{};
   SteadyTime last_arm_command_{};
   geometry_msgs::msg::Twist base_command_{};

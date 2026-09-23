@@ -56,7 +56,7 @@ Safety Gate는 다음 조건이 모두 참일 때만 base command를 통과시�
 
 ```text
 fresh(motion_permitted == true)
-AND authority == BASE_ACTIVE
+AND fresh(authority == BASE_ACTIVE)
 AND fresh(selected_command)
 AND driver_ready
 ```

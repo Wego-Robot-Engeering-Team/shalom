@@ -93,6 +93,11 @@ public:
     safe_command_topic_ = declare_parameter<std::string>("safe_command_topic", "/cmd_vel");
     stopped_feedback_timeout_ = std::chrono::milliseconds(
       declare_parameter<int>("stopped_feedback_timeout_ms", 500));
+    const auto authority_timeout_ms = declare_parameter<int>("authority_timeout_ms", 500);
+    if (authority_timeout_ms <= 0) {
+      throw std::invalid_argument("authority_timeout_ms must be positive");
+    }
+    authority_timeout_ = std::chrono::milliseconds(authority_timeout_ms);
     for (const auto & capability : declare_parameter<std::vector<std::string>>(
            "available_capabilities", std::vector<std::string>{})) {
       available_capabilities_.insert(capability);
@@ -456,6 +461,14 @@ private:
   void on_authority(const MotionAuthority::SharedPtr message) {
     authority_state_ = message->state;
     have_authority_ = true;
+    last_authority_ = std::chrono::steady_clock::now();
+
+    using State = mission_manager::core::State;
+    const auto state = fsm_.state();
+    if (message->state != MotionAuthority::BASE_ACTIVE &&
+        (state == State::Running || state == State::Returning)) {
+      dispatch(mission_manager::core::Event::AuthorityLost, "MISSION_AUTHORITY_LOST");
+    }
   }
 
   void on_odometry(const nav_msgs::msg::Odometry::SharedPtr message) {
@@ -478,11 +491,17 @@ private:
     last_stopped_feedback_ = std::chrono::steady_clock::now();
   }
 
+  bool base_authority_ready() const {
+    const bool authority_fresh = last_authority_.has_value() &&
+      std::chrono::steady_clock::now() - *last_authority_ <= authority_timeout_;
+    return have_authority_ && authority_state_ == MotionAuthority::BASE_ACTIVE && authority_fresh;
+  }
+
   bool motion_dependencies_ready() const {
     const bool odometry_fresh = last_odometry_.has_value() &&
       std::chrono::steady_clock::now() - *last_odometry_ <= 1s;
     return have_safety_state_ && safety_state_ == SafetyState::NORMAL &&
-      have_authority_ && authority_state_ == MotionAuthority::BASE_ACTIVE && odometry_fresh;
+      base_authority_ready() && odometry_fresh;
   }
 
   bool motion_quiesced() const {
@@ -565,6 +584,11 @@ private:
     using State = mission_manager::core::State;
     using Status = mission_manager::bt::Status;
     const auto state = fsm_.state();
+    if ((state == State::Running || state == State::Returning) &&
+        !base_authority_ready()) {
+      dispatch(Event::AuthorityLost, "MISSION_AUTHORITY_LOST");
+      return;
+    }
     if (state == State::Ready && start_requested_) {
       if (motion_dependencies_ready()) {
         clear_pending_start();
@@ -703,6 +727,7 @@ private:
   std::string safe_command_topic_;
   std::unordered_set<std::string> available_capabilities_;
   std::chrono::milliseconds stopped_feedback_timeout_{500};
+  std::chrono::milliseconds authority_timeout_{500};
   bool have_safety_state_{false};
   bool have_authority_{false};
   uint8_t safety_state_{SafetyState::INITIALIZING};
@@ -712,6 +737,7 @@ private:
   std::optional<std::chrono::steady_clock::time_point> last_odometry_;
   std::optional<std::chrono::steady_clock::time_point> last_safe_command_;
   std::optional<std::chrono::steady_clock::time_point> last_stopped_feedback_;
+  std::optional<std::chrono::steady_clock::time_point> last_authority_;
   std::optional<std::chrono::steady_clock::time_point> last_dependency_request_;
   std::optional<uint64_t> start_safety_sequence_;
   GoalPhase goal_phase_{GoalPhase::Idle};

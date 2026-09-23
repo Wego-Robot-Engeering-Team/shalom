@@ -9,7 +9,9 @@ feedback을 받은 뒤에만 완료된다. 안전 상태를 소유하지 않으�
 | `/motion/authority/request` | `shalom_interfaces/AuthorityRequest` service |
 | `/motion/stopped` | `shalom_interfaces/MotionStopped` topic |
 
-`/motion/authority`는 typed `shalom_interfaces/MotionAuthority`를 발행한다.
+`/motion/authority`는 typed `shalom_interfaces/MotionAuthority`를 상태 전이 즉시 발행하고,
+기본 200 ms 주기로도 반복 발행한다. 반복 snapshot은 `sequence`를 증가시키지 않고
+새 `stamp`만 사용한다. 소비자는 수신 시각을 기준으로 authority 신선도를 검사한다.
 
 `base_motion_monitor_node`는 Safety Gate의 최종 base 명령과 B2 odometry를 함께
 확인해 `/motion/stopped`의 `BASE` 상태를 발행한다. 명령과 odometry가 모두

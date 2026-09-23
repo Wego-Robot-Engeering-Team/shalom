@@ -4,6 +4,7 @@
 #include <deque>
 #include <functional>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 
@@ -42,6 +43,10 @@ public:
       declare_parameter<int>("transition_timeout_ms", 1000));
     stopped_feedback_timeout_ = std::chrono::milliseconds(
       declare_parameter<int>("stopped_feedback_timeout_ms", 500));
+    const auto state_publish_period_ms = declare_parameter<int>("state_publish_period_ms", 200);
+    if (state_publish_period_ms <= 0) {
+      throw std::invalid_argument("state_publish_period_ms must be positive");
+    }
     authority_pub_ = create_publisher<MotionAuthorityMsg>(
       "/motion/authority", rclcpp::QoS(1).reliable().transient_local());
     safety_event_pub_ = create_publisher<SafetyEvent>("/safety/event", 10);
@@ -53,6 +58,9 @@ public:
       "/motion/stopped", 20,
       std::bind(&MotionInterlockManagerNode::on_stopped, this, std::placeholders::_1));
     timer_ = create_wall_timer(50ms, std::bind(&MotionInterlockManagerNode::tick, this));
+    state_publish_timer_ = create_wall_timer(
+      std::chrono::milliseconds(state_publish_period_ms),
+      std::bind(&MotionInterlockManagerNode::publish, this));
     publish();
   }
 
@@ -191,6 +199,7 @@ private:
   rclcpp::Service<AuthorityRequest>::SharedPtr request_service_;
   rclcpp::Subscription<MotionStopped>::SharedPtr stopped_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::TimerBase::SharedPtr state_publish_timer_;
 };
 
 }  // namespace
