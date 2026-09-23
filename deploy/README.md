@@ -89,6 +89,11 @@ robot/
 시뮬레이터, VLP-16, MuJoCo, RL 학습 자산, 테스트 실행 파일 및 소스는
 납품 프리셋에서 제외한다.
 
+systemd unit을 runtime 패키지에 포함하는 것과 개발 PC에서 서비스를 등록하는 것은
+별개다. `shalom-robot.service`는 실제 Jetson 제어기 또는 격리된 대상 검증 환경에서만
+설치·enable한다. 개발 PC에서는 같은 ROS graph를 수동 launch하며, 자동 시작 서비스가
+개발 중인 노드와 중복 실행되지 않도록 systemd 등록을 하지 않는다.
+
 ### apt 오프라인 의존성
 
 `packages/`에는 apt가 제공하는 실제 runtime `.deb`를 함께 넣고 `install.sh`가
