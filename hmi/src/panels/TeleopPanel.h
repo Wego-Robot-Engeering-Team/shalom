@@ -43,6 +43,8 @@ public:
 
     /// Enables the jog controls. The stop button stays live either way.
     void setJogEnabled(bool on);
+    /// Stops an active keyboard or button jog when its view is hidden.
+    void cancelJog() { release(); }
 
     /// Shows the posture the robot reported. The UI does not guess: pressing
     /// a button changes nothing until state/base comes back.

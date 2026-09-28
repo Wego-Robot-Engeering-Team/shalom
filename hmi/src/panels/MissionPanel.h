@@ -3,22 +3,12 @@
 
 #pragma once
 
-// Inspection progress summary for the drive view. Statement of work 2.2.7 [3].
+// Mission run monitoring and controls, beside the saved mission editor.
 //
-// Starting and stopping a run belongs here, not on the locations view. The two
-// screens do different jobs: locations is where the point list is decided, drive is
-// where a run is carried out and watched. Putting "start autonomous driving" in
-// the editing screen meant leaving the map to begin, and leaving it again to
-// watch - and start sat next to delete, which is not a neighbour it should have.
-//
-// It shows where the run is, not the whole list. The full list belongs to the
-// locations view, which is where points are added, reordered and deleted;
-// repeating all 64 rows here said nothing extra and pushed the run controls
-// off the bottom. During a run the operator is watching the map and wants one
-// answer: which point now, and which next.
+// It shows progress reported by the robot's active mission plan. Waypoints
+// are reusable locations; their catalog order is not a mission order.
 
-#include <QVariantMap>
-#include <QList>
+#include <QStringList>
 #include <QWidget>
 
 class QLabel;
@@ -35,13 +25,10 @@ class MissionPanel : public QWidget {
 public:
     explicit MissionPanel(QWidget *parent = nullptr);
 
-    /// Waypoints in visit order. Each entry carries "name" and "status",
-    /// where status is one of: todo, current, done, error - the same
-    /// vocabulary WaypointPanel uses, so both views agree.
-    void setWaypoints(const QList<QVariantMap> &points);
+    void setProgress(const QString &missionName, int index, int total,
+                     const QStringList &stepLabels);
 
-    /// "idle" | "running" | "paused". Drives the header badge and what the run
-    /// button says.
+    /// Robot-owned lifecycle, with distinct failure and safety-stop states.
     void setMissionState(const QString &state);
 
     /// Whether the charging station has a known pose. Without one there is
@@ -50,16 +37,13 @@ public:
     void setDockKnown(bool known);
 
 signals:
-    void missionStart();
+    void missionSelectionRequested();
 
-    /// Pause keeps the run. The robot stops where it is, the point list keeps
-    /// its statuses, and resume carries on from the same point.
+    /// Pause keeps the robot's active plan and resume continues its step index.
     void missionPause();
     void missionResume();
 
-    /// Stop ends the run. Progress is discarded, so a later start begins at the
-    /// first point again. On screen the two look like siblings and the
-    /// difference only shows up afterwards, so the panel asks first.
+    /// Stop ends the run and discards progress; selecting a mission starts anew.
     void missionStop();
 
     /// Send the robot back to the charging station. Always available: getting
@@ -71,7 +55,7 @@ signals:
 private:
     void refresh();
 
-    /// The run button acts on whatever state the panel is in.
+    /// The run button opens mission selection while idle, then pauses/resumes.
     void onRunClicked();
 
     /// Cancelling is not undoable and a run can be an hour of driving. Asked
@@ -97,7 +81,10 @@ private:
     QPushButton *stop_ = nullptr;
     QPushButton *dock_ = nullptr;
 
-    QList<QVariantMap> points_;
+    QString missionName_;
+    QStringList stepLabels_;
+    int index_ = -1;
+    int total_ = 0;
     QString missionState_ = QStringLiteral("idle");
     bool dockKnown_ = false;
 };

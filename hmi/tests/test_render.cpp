@@ -18,11 +18,18 @@
 
 #include <QLabel>
 #include <QImage>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <QStackedWidget>
 
 #include "Config.h"
 #include "RobotDef.h"
 #include "MainWindow.h"
 #include "panels/ArmPanel.h"
+#include "panels/MissionPanel.h"
+#include "panels/StatusPanel.h"
 #include "robot/Kinematics.h"
 #include "TestRobot.h"
 #include "theme/Style.h"
@@ -50,8 +57,8 @@ void paintEveryView(const QString &theme)
     window.show();
 
     static const ui::NavItem kAll[] = {
-        ui::NavItem::Drive,       ui::NavItem::Locations, ui::NavItem::Base,
-        ui::NavItem::Arm,         ui::NavItem::Capture,   ui::NavItem::Diagnostics,
+        ui::NavItem::Drive,       ui::NavItem::Mission,    ui::NavItem::Arm,
+        ui::NavItem::Capture,     ui::NavItem::Diagnostics,
         ui::NavItem::Data,        ui::NavItem::Events,
     };
 
@@ -63,11 +70,10 @@ void paintEveryView(const QString &theme)
                                 .arg(int(item))));
     }
 
-    // 수동 모드로 바꾼 뒤의 본체 화면도 한 번 그린다. 조작 패널은 주행
-    // 모드와 무관하게 이 화면에 있지만, 모드 전환이 화면을 건드리는 경로가
-    // 남아 있으므로 그 뒤에도 그려지는지 본다.
+    // 수동 모드로 바꾼 뒤 주행 화면도 다시 그린다. 본체 조작이 주행에
+    // 통합된 뒤에도 모드 전환이 화면을 깨뜨리지 않는지 본다.
     window.setDriveMode(QStringLiteral("manual"));
-    window.showView(ui::NavItem::Base);
+    window.showView(ui::NavItem::Drive);
     QVERIFY(!window.grab().isNull());
 }
 
@@ -105,6 +111,19 @@ private slots:
     void everyView_paints_light() { paintEveryView(QStringLiteral("light")); }
     void everyView_paints_dark() { paintEveryView(QStringLiteral("dark")); }
 
+    void missionControlsAndDriveStateAreInTheirOwnTabs()
+    {
+        auto *robot = new test::TestRobot;
+        ui::MainWindow window(robot);
+        auto *stack = window.findChild<QStackedWidget *>();
+        QVERIFY(stack);
+        QVERIFY(stack->widget(0)->findChild<ui::StatusPanel *>());
+        QVERIFY(!stack->widget(0)->findChild<ui::MissionPanel *>());
+        QVERIFY(stack->widget(1)->findChild<ui::MissionPanel *>());
+        QVERIFY(!stack->widget(1)->findChild<ui::StatusPanel *>());
+        QVERIFY(!window.findChild<QPushButton *>(QStringLiteral("MissionSummary")));
+    }
+
     /// 첫 arm telemetry 전에도 조작자가 관절 또는 끝단 목표를 바꾸면
     /// 즉시 3D 미리보기가 따라야 한다. 예전에는 diverged()가 기준값 없음을
     /// false로 취급해 preview를 비워 버려, 값만 바뀌고 팔은 멈춰 보였다.
@@ -131,6 +150,39 @@ private slots:
                  "텔레메트리 전 관절 편집이 3D 미리보기에 반영되지 않았다");
     }
 
+    void armDraftSurvivesFirstTelemetryAndViewStaysVisible()
+    {
+        ui::ArmPanel arm;
+        arm.resize(430, 700);
+        arm.show();
+        auto *view = arm.findChild<ui::Robot3DView *>();
+        auto *joint = arm.findChild<ui::ValueSlider *>(QStringLiteral("Joint2"));
+        auto *scroll = arm.findChild<QScrollArea *>();
+        QVERIFY(view && joint && scroll);
+        joint->setCommand(-1.2);
+        const double draft = joint->command();
+        arm.setArmState({robot::kArmHome.begin(), robot::kArmHome.end()}, 0.09, 0.06);
+        QVERIFY(qAbs(joint->command() - draft) < 1e-6);
+        QVERIFY(view->isVisible());
+        scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
+        QVERIFY(view->isVisible());
+        auto *status = arm.findChild<QLabel *>(QStringLiteral("ArmPreviewStatus"));
+        QVERIFY(status);
+        QVERIFY(status->text().contains(QStringLiteral("미리보기")));
+    }
+
+    void armCommandRejectionIsVisible()
+    {
+        ui::ArmPanel arm;
+        arm.setCommandResult(QStringLiteral("cmd/arm/joint_goal"), false,
+                             QStringLiteral("E_UNREACHABLE"),
+                             QStringLiteral("로봇팔 실행기가 연결되지 않았습니다"));
+        auto *status = arm.findChild<QLabel *>(QStringLiteral("ArmCommandStatus"));
+        QVERIFY(status);
+        QVERIFY(!status->isHidden());
+        QVERIFY(status->text().contains(QStringLiteral("실행기가 연결되지 않았습니다")));
+    }
+
     /// 대화상자는 창 계층 밖이라 위 순회에 걸리지 않는다.
     void dialogs_paint()
     {
@@ -139,6 +191,15 @@ private slots:
 
         ui::WelcomeDialog welcome;
         QVERIFY(!welcome.grab().isNull());
+        auto *id = welcome.findChild<QLineEdit *>(QStringLiteral("LoginId"));
+        QVERIFY(id);
+        QVERIFY(id->placeholderText().isEmpty());
+        QString welcomeText;
+        for (const auto *label : welcome.findChildren<QLabel *>())
+            welcomeText += label->text();
+        QVERIFY(welcomeText.contains(QStringLiteral("로봇 연결 상태")));
+        QVERIFY(!welcomeText.contains(QStringLiteral("통신 규격")));
+        QVERIFY(!welcomeText.contains(QStringLiteral("하드웨어 정지 버튼")));
 
         ui::SettingsDialog settings;
         // 탭 수를 손으로 적어 두었더니 여섯 번째(안전)가 추가된 뒤로도

@@ -29,6 +29,7 @@ public:
 
     hmi::map::MapView *view() const { return view_; }
     QPushButton *goalButton() const { return goal_; }
+    QPushButton *poseEstimateButton() const { return poseEstimate_; }
     QPushButton *mapButton() const { return mapButton_; }
     MapLegend *legend() const { return legend_; }
 
@@ -57,6 +58,7 @@ private:
     QWidget *toolbar_ = nullptr;
     QWidget *toolbarRow_ = nullptr;
     QPushButton *goal_ = nullptr;
+    QPushButton *poseEstimate_ = nullptr;
     QPushButton *mapButton_ = nullptr;
     QLabel *mapLabel_ = nullptr;
     QLabel *readout_ = nullptr;

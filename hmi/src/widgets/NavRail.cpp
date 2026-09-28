@@ -57,28 +57,21 @@ void drawIcon(QPainter &p, NavItem item, const QRectF &r, const QColor &c)
         p.drawPath(needle);
         break;
     }
-    case NavItem::Locations: {
-        // 지도 핀
-        QPainterPath pin;
-        pin.moveTo(x + s * 0.50, y + s * 0.92);
-        pin.cubicTo(x + s * 0.50, y + s * 0.58, x + s * 0.84, y + s * 0.52,
-                    x + s * 0.84, y + s * 0.37);
-        pin.cubicTo(x + s * 0.84, y + s * 0.15, x + s * 0.16, y + s * 0.15,
-                    x + s * 0.16, y + s * 0.37);
-        pin.cubicTo(x + s * 0.16, y + s * 0.52, x + s * 0.50, y + s * 0.58,
-                    x + s * 0.50, y + s * 0.92);
-        p.drawPath(pin);
-        p.setBrush(c);
-        p.drawEllipse(QPointF(x + s * 0.50, y + s * 0.37), s * 0.10, s * 0.10);
-        break;
-    }
-    case NavItem::Base: {
-        // 네발 로봇을 옆에서 본 모양 — 몸통과 다리 넷.
-        p.drawRoundedRect(QRectF(x + s * 0.16, y + s * 0.30, s * 0.68, s * 0.26), 3, 3);
-        for (const double dx : {0.26, 0.42, 0.58, 0.74})
-            p.drawLine(QPointF(x + s * dx, y + s * 0.56), QPointF(x + s * dx, y + s * 0.84));
-        // 머리. 앞쪽이 어디인지 없으면 몸통이 그냥 상자로 읽힌다.
-        p.drawLine(QPointF(x + s * 0.84, y + s * 0.36), QPointF(x + s * 0.92, y + s * 0.22));
+    case NavItem::Mission: {
+        // 미션은 순서가 있는 체크리스트, 로그는 시간순 줄 목록으로 구분한다.
+        const QRectF sheet(x + s * 0.18, y + s * 0.14, s * 0.64, s * 0.76);
+        p.drawRoundedRect(sheet, 2, 2);
+        p.drawRoundedRect(QRectF(x + s * 0.37, y + s * 0.08,
+                                 s * 0.26, s * 0.16), 2, 2);
+        for (int i = 0; i < 3; ++i) {
+            const double cy = y + s * (0.40 + i * 0.20);
+            QPainterPath check;
+            check.moveTo(x + s * 0.29, cy);
+            check.lineTo(x + s * 0.34, cy + s * 0.05);
+            check.lineTo(x + s * 0.42, cy - s * 0.055);
+            p.drawPath(check);
+            p.drawLine(QPointF(x + s * 0.50, cy), QPointF(x + s * 0.72, cy));
+        }
         break;
     }
     case NavItem::Arm: {
@@ -144,8 +137,7 @@ struct ItemSpec {
 
 const ItemSpec kItems[] = {
     {NavItem::Drive, "주행"},
-    {NavItem::Locations, "위치"},
-    {NavItem::Base, "로봇개"},
+    {NavItem::Mission, "미션"},
     {NavItem::Arm, "로봇팔"},
     {NavItem::Capture, "카메라"},
     {NavItem::Diagnostics, "진단"},

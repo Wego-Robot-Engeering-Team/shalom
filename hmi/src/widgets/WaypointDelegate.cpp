@@ -71,10 +71,7 @@ void WaypointDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
     p->setFont(ft);
     p->setPen(filled ? QColor(C.text) : QColor(C.textDim));
     p->drawText(r.adjusted(26, 3, -62, 0), Qt::AlignLeft | Qt::AlignTop,
-                QStringLiteral("%1.  %2")
-                    .arg(idx.row() + 1)
-                    .arg(d.value(QStringLiteral("name"),
-                                 d.value(QStringLiteral("id"))).toString()));
+                d.value(QStringLiteral("name"), d.value(QStringLiteral("id"))).toString());
 
     QFont fm = monoFont(9);
     p->setFont(fm);

@@ -3,14 +3,7 @@
 
 #pragma once
 
-// Inspection waypoint sequence panel. Statement of work 2.2.7 [2] item 1.
-//
-// Add, delete, reorder, and run the autonomous sequence. Array order is the
-// visit order; reordering is done by dragging a row.
-//
-// Resume is deliberately a separate action from start: the statement of work
-// prohibits automatic resumption after a stop, so the panel never issues one
-// on the operator's behalf (2.2.5).
+// Saved waypoint catalog. Visit order belongs to a mission's step list.
 
 #include <QVariantMap>
 #include <QWidget>
@@ -32,12 +25,10 @@ public:
     QList<QVariantMap> waypoints() const;
     void setStatus(const QString &id, const QString &status);
 
-    /// Drives which of the run controls are available.
-
 signals:
     void addRequested();
     void deleteRequested(const QString &id);
-    void orderChanged(const QStringList &ids);
+    void gotoRequested(const QString &id);
     void waypointSelected(const QString &id);
 
     /// Emitted whenever the list or any point's status changes, so that
@@ -45,9 +36,6 @@ signals:
     void waypointsChanged(const QList<QVariantMap> &points);
 
 private:
-    void move(int delta);
-    void emitOrder();
-
     Card *card_ = nullptr;
     Badge *count_ = nullptr;
     QListWidget *list_ = nullptr;

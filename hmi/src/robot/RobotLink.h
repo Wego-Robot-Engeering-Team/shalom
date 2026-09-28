@@ -45,6 +45,8 @@ public:
     virtual void setCmdVel(double vx, double vy, double wz) = 0;
 
     virtual void requestGoal(double x, double y, double theta) = 0;
+    virtual void setInitialPose(double x, double y, double theta)
+    { Q_UNUSED(x); Q_UNUSED(y); Q_UNUSED(theta); }
     virtual void cancelNav() = 0;
 
     // ---- mission --------------------------------------------------------
@@ -90,6 +92,14 @@ public:
     virtual void missionStop() = 0;
     virtual MissionState missionState() const = 0;
 
+    /// The robot owns mission definitions; the HMI requests and edits a view.
+    virtual void requestMissions() {}
+    virtual void saveMission(const QVariantMap &mission, quint64 expectedRevision)
+    { Q_UNUSED(mission); Q_UNUSED(expectedRevision); }
+    virtual void archiveMission(const QString &id, quint64 expectedRevision)
+    { Q_UNUSED(id); Q_UNUSED(expectedRevision); }
+    virtual void startMission(const QString &id) { Q_UNUSED(id); }
+
     // ---- safety ---------------------------------------------------------
 
     /// Engaging is never gated on anything: it must work on the first click.
@@ -122,8 +132,11 @@ public:
     virtual QString motionAuthority() const { return {}; }
 
     virtual void setArmJointGoal(const QList<double> &q) = 0;
+    virtual void setArmEeGoal(const QVariantMap &pose) { Q_UNUSED(pose); }
     virtual void setArmPreset(const QString &name) = 0;
     virtual void stopArm() = 0;
+    virtual void requestArmPosePresets() {}
+    virtual void saveArmPosePreset(const QVariantMap &preset) { Q_UNUSED(preset); }
 
     // ---- link -----------------------------------------------------------
     virtual bool isConnected() const = 0;
@@ -167,6 +180,12 @@ signals:
     /// The mission state is owned by the robot side. The UI follows it rather
     /// than tracking its own copy, so the buttons cannot disagree with reality.
     void missionStateChanged(hmi::robot::MissionState state);
+    /// Progress belongs to the robot's active plan, not to the waypoint catalog.
+    void missionProgressChanged(const QString &missionId, int index, int total);
+    void missionsChanged(const QList<QVariantMap> &missions);
+    void armPosePresetsChanged(const QList<QVariantMap> &presets);
+    void commandResult(const QString &channel, bool ok, const QString &code,
+                       const QString &message);
 
     /// The base posture or the motion authority changed.
     void baseStateChanged(const QString &posture, const QString &authority);

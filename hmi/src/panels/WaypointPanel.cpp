@@ -33,21 +33,19 @@ WaypointPanel::WaypointPanel(QWidget *parent) : QWidget(parent)
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
 
-    card_ = new Card(QStringLiteral("점검포인트 순서"));
+    card_ = new Card(QStringLiteral("Waypoints"));
     count_ = new Badge(QStringLiteral("0"), QStringLiteral("neutral"));
     card_->addHeaderWidget(count_);
     outer->addWidget(card_);
 
     list_ = new QListWidget;
     list_->setItemDelegate(new WaypointDelegate(list_));
-    list_->setDragDropMode(QAbstractItemView::InternalMove);
+    list_->setDragDropMode(QAbstractItemView::NoDragDrop);
     list_->setSelectionMode(QAbstractItemView::SingleSelection);
     list_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     list_->setMouseTracking(true);
     card_->body()->addWidget(list_, 1);
 
-    connect(list_->model(), &QAbstractItemModel::rowsMoved, this,
-            [this] { emitOrder(); });
     connect(list_, &QListWidget::currentItemChanged, this,
             [this](QListWidgetItem *cur) {
                 if (cur)
@@ -60,14 +58,12 @@ WaypointPanel::WaypointPanel(QWidget *parent) : QWidget(parent)
     edit->setSpacing(metrics::s2);
     auto *add = makeButton(QStringLiteral("지도에서 추가"));
     auto *del = makeButton(QStringLiteral("삭제"));
-    auto *up = makeButton(QStringLiteral("↑"), 36);
-    auto *down = makeButton(QStringLiteral("↓"), 36);
-    for (auto *b : {add, del, up, down})
+    auto *go = makeButton(QStringLiteral("선택 위치로 이동"));
+    for (auto *b : {add, del, go})
         b->setProperty("size", "sm");
     edit->addWidget(add, 1);
     edit->addWidget(del);
-    edit->addWidget(up);
-    edit->addWidget(down);
+    edit->addWidget(go);
     card_->body()->addLayout(edit);
 
     connect(add, &QPushButton::clicked, this, &WaypointPanel::addRequested);
@@ -76,8 +72,11 @@ WaypointPanel::WaypointPanel(QWidget *parent) : QWidget(parent)
             emit deleteRequested(it->data(kWaypointRole).toMap()
                                      .value(QStringLiteral("id")).toString());
     });
-    connect(up, &QPushButton::clicked, this, [this] { move(-1); });
-    connect(down, &QPushButton::clicked, this, [this] { move(1); });
+    connect(go, &QPushButton::clicked, this, [this] {
+        if (const auto *it = list_->currentItem())
+            emit gotoRequested(it->data(kWaypointRole).toMap()
+                                   .value(QStringLiteral("id")).toString());
+    });
 
 }
 
@@ -120,25 +119,5 @@ void WaypointPanel::setStatus(const QString &id, const QString &status)
     }
 }
 
-
-void WaypointPanel::move(int delta)
-{
-    const int row = list_->currentRow();
-    const int target = row + delta;
-    if (row < 0 || target < 0 || target >= list_->count())
-        return;
-    auto *it = list_->takeItem(row);
-    list_->insertItem(target, it);
-    list_->setCurrentRow(target);
-    emitOrder();
-}
-
-void WaypointPanel::emitOrder()
-{
-    QStringList ids;
-    for (const auto &w : waypoints())
-        ids << w.value(QStringLiteral("id")).toString();
-    emit orderChanged(ids);
-}
 
 }  // namespace hmi::ui

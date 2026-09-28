@@ -10,9 +10,7 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 
-#include "Config.h"
 #include "auth/Session.h"
-#include "net/Envelope.h"
 #include "theme/Tokens.h"
 #include "widgets/BrandMark.h"
 #include "widgets/Primitives.h"
@@ -53,10 +51,11 @@ WelcomeDialog::WelcomeDialog(QWidget *parent) : QDialog(parent)
     form->setSpacing(metrics::s2);
 
     id_ = new QLineEdit;
-    id_->setPlaceholderText(QStringLiteral("admin"));
+    id_->setObjectName(QStringLiteral("LoginId"));
     form->addRow(QStringLiteral("아이디"), id_);
 
     password_ = new QLineEdit;
+    password_->setObjectName(QStringLiteral("LoginPassword"));
     password_->setEchoMode(QLineEdit::Password);
     form->addRow(QStringLiteral("비밀번호"), password_);
     lay->addLayout(form);
@@ -72,29 +71,19 @@ WelcomeDialog::WelcomeDialog(QWidget *parent) : QDialog(parent)
     error_->hide();
     lay->addWidget(error_);
 
-    submit_ = new QPushButton(QStringLiteral("시작"));
+    submit_ = new QPushButton(QStringLiteral("로그인"));
     submit_->setProperty("variant", "primary");
     submit_->setDefault(true);
     lay->addWidget(submit_);
     connect(submit_, &QPushButton::clicked, this, &WelcomeDialog::submit);
 
-    // ---- 꼬리말: 시스템 정보와 안전 고지 ----
+    // 연결 정보는 로그인 화면이 아니라 실제 로봇을 고르는 관제 화면에 둔다.
     lay->addSpacing(metrics::s3);
     lay->addWidget(new HLine);
     lay->addSpacing(metrics::s2);
 
-    auto &cfg = Config::instance();
-    auto *info = new QLabel(
-        QStringLiteral("로봇  %1:%2      통신 규격 v%3")
-            .arg(cfg.bridgeHost())
-            .arg(cfg.bridgePort())
-            .arg(hmi::net::kProtocolVersion));
-    info->setObjectName(QStringLiteral("Mono"));
-    lay->addWidget(info);
-
     auto *notice = new QLabel(QStringLiteral(
-        "비상정지의 최종 권한은 하드웨어 정지 버튼과 로봇 자체 안전장치에 있습니다. "
-        "관제 화면의 정지 버튼은 보조 수단입니다."));
+        "로그인 후 관제 화면에서 로봇 연결 상태를 확인하고 작업을 시작하세요."));
     notice->setObjectName(QStringLiteral("Hint"));
     notice->setWordWrap(true);
     lay->addWidget(notice);

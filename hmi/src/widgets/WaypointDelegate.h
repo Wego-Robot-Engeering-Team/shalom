@@ -5,9 +5,8 @@
 
 // Shared rendering for an inspection-point list.
 //
-// The drive view watches the run and the locations view edits it. They must
-// show the same rows the same way - a point that reads "done" on one screen
-// and "pending" on the other is worse than showing it once.
+// Used by the waypoint catalog in the drive view. Visit order and progress
+// belong to a mission, not to the waypoint list.
 
 #include <QStyledItemDelegate>
 

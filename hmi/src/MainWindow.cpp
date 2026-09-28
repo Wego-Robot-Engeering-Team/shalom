@@ -27,8 +27,10 @@
 #include <QShowEvent>
 #include <QSplitter>
 #include <QStackedWidget>
+#include <QTabWidget>
 #include <QTimer>
 #include <QTcpSocket>
+#include <QUuid>
 #include <QVBoxLayout>
 #include <QtMath>
 
@@ -40,6 +42,7 @@
 #include "diag/LogStore.h"
 #include "mapview/MapRender.h"
 #include "net/BridgeClient.h"
+#include "net/Channels.h"
 #include "mapview/MapView.h"
 #include "panels/ArmPanel.h"
 #include "panels/CapturePanel.h"
@@ -48,6 +51,7 @@
 #include "panels/DiagnosticsPanel.h"
 #include "panels/EventLogPanel.h"
 #include "panels/MissionPanel.h"
+#include "panels/MissionLibraryPanel.h"
 #include "panels/StatusPanel.h"
 #include "panels/TeleopPanel.h"
 #include "panels/WaypointPanel.h"
@@ -290,8 +294,7 @@ QWidget *MainWindow::buildContextColumn()
 
     // NavItem 순서와 페이지 인덱스가 일치해야 한다.
     stack->addWidget(buildDriveContext());
-    stack->addWidget(buildLocationsContext());
-    stack->addWidget(buildBaseContext());
+    stack->addWidget(buildMissionContext());
     stack->addWidget(buildArmContext());
     stack->addWidget(buildCaptureContext());
     stack->addWidget(buildDiagnosticsContext());
@@ -311,6 +314,9 @@ QWidget *MainWindow::buildEventsContext()
 
 QWidget *MainWindow::buildDriveContext()
 {
+    driveTabs_ = new QTabWidget;
+    driveTabs_->setObjectName(QStringLiteral("DriveTabs"));
+
     auto *inner = new QWidget;
     auto *lay = new QVBoxLayout(inner);
     lay->setContentsMargins(0, 0, 0, 0);
@@ -319,39 +325,48 @@ QWidget *MainWindow::buildDriveContext()
     status_ = new StatusPanel;
     lay->addWidget(status_);
 
-    // 점검 목록과 시작·정지는 위치 화면에 있다. 하지만 운용 중에는
-    // 지도를 띄운 이 화면에 머무르므로, 진행 상황만이라도 여기서 읽히게 한다.
-    // 카드는 내용만큼만 차지한다. 남는 세로는 아래 여백으로 흘린다.
-    mission_ = new MissionPanel;
-    lay->addWidget(mission_);
+    // 본체의 수동 이동과 자세는 주행의 한 방식이다. 여러 장치를 쓰는
+    // 미션의 진행·제어는 미션 탭에서 맡는다.
+    teleop_ = new TeleopPanel;
+    lay->addWidget(teleop_);
     lay->addStretch(1);
 
     // 스크롤로 감싸지 않으면 이 열의 최소 높이가 카드 높이의 합이 된다.
     // 나머지 화면과 같은 방식이다.
-    auto *scroll = new QScrollArea;
-    scroll->setWidget(inner);
-    scroll->setWidgetResizable(true);
-    scroll->setFrameShape(QFrame::NoFrame);
-    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    return scroll;
+    auto *operationScroll = new QScrollArea;
+    operationScroll->setWidget(inner);
+    operationScroll->setWidgetResizable(true);
+    operationScroll->setFrameShape(QFrame::NoFrame);
+    operationScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    driveTabs_->addTab(operationScroll, QStringLiteral("운용"));
+    driveTabs_->addTab(buildLocationsContext(), QStringLiteral("위치 관리"));
+    connect(driveTabs_, &QTabWidget::currentChanged, this, [this](int index) {
+        const bool operation = index == 0;
+        map_->goalButton()->setEnabled(operation);
+        if (!operation)
+            teleop_->cancelJog();
+        // 위치를 지도에 찍는 도중 운용 화면으로 돌아오면 다음 지도 클릭이
+        // 의도치 않게 위치를 추가하지 않도록 편집 상태를 끝낸다.
+        pendingPlacementKind_.clear();
+        map_->goalButton()->setChecked(false);
+        map_->poseEstimateButton()->setChecked(false);
+        map_->view()->setMode(MapMode::View);
+        map_->setPlacementHint({});
+    });
+    return driveTabs_;
 }
 
-/// 본체(B2) 화면. 로봇팔과 같은 자리에 같은 방식으로 둔다 — 조작자가 팔을
-/// 직접 모는 곳이 따로 있는데 본체만 주행 화면 구석에 숨어 있을 이유가 없다.
-///
-/// 주행 모드와 묶지 않는다. 자율 주행 중에도 조작자가 잡으면 그 동안은
-/// 수동이 앞서고(로봇의 twist_mux 가 중재한다), 손을 놓으면 자율로 돌아간다.
-/// 무엇이 안전한지는 로봇이 정하므로 화면은 명령을 보내기만 한다.
-QWidget *MainWindow::buildBaseContext()
+QWidget *MainWindow::buildMissionContext()
 {
     auto *inner = new QWidget;
     auto *lay = new QVBoxLayout(inner);
     lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(metrics::s3);
 
-    teleop_ = new TeleopPanel;
-    lay->addWidget(teleop_);
-    lay->addStretch(1);
+    mission_ = new MissionPanel;
+    lay->addWidget(mission_);
+    missionLibrary_ = new MissionLibraryPanel;
+    lay->addWidget(missionLibrary_);
 
     auto *scroll = new QScrollArea;
     scroll->setWidget(inner);
@@ -384,20 +399,8 @@ QWidget *MainWindow::buildLocationsContext()
 
 QWidget *MainWindow::buildArmContext()
 {
-    auto *inner = new QWidget;
-    auto *lay = new QVBoxLayout(inner);
-    lay->setContentsMargins(0, 0, 0, 0);
-    lay->setSpacing(metrics::s3);
-
     arm_ = new ArmPanel;
-    lay->addWidget(arm_);
-
-    auto *scroll = new QScrollArea;
-    scroll->setWidget(inner);
-    scroll->setWidgetResizable(true);
-    scroll->setFrameShape(QFrame::NoFrame);
-    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    return scroll;
+    return arm_;
 }
 
 QWidget *MainWindow::buildCaptureContext()
@@ -497,10 +500,10 @@ void MainWindow::openSettings()
             maps_.clear();
             map_->mapButton()->setEnabled(false);
             map_->setMapLabel(QStringLiteral("지도 없음 — 로봇을 연결하십시오"), QString());
-            status_->setConnected(false);
             setLinkTone(QStringLiteral("danger"));
             headerBattery_->setUnavailable();
             arm_->setControlsEnabled(false);
+            arm_->clearReportedState();
             teleop_->setJogEnabled(false);
             refreshRobotButton();
         });
@@ -598,9 +601,13 @@ void MainWindow::wireRobotSignals()
                     maps_ = maps;
                     map_->mapButton()->setEnabled(!maps_.isEmpty());
                 });
-        connect(bridge, &net::BridgeClient::activeMapReceived, this,
+                connect(bridge, &net::BridgeClient::activeMapReceived, this,
                 [this](const QVariantMap &map) {
+                    missionLibrary_->setMapId(map.value(QStringLiteral("id")).toString());
+                    const QString mapId = map.value(QStringLiteral("id")).toString();
                     const QString name = map.value(QStringLiteral("name")).toString();
+                    map_->poseEstimateButton()->setEnabled(
+                        robot_->isConnected() && !mapId.isEmpty() && mapId != QLatin1String("live"));
                     if (!name.isEmpty())
                         map_->setMapLabel(name, QStringLiteral("불러오는 중"));
                     map_->mapButton()->setEnabled(!maps_.isEmpty());
@@ -608,7 +615,6 @@ void MainWindow::wireRobotSignals()
     }
 
     connect(robot_, &robot::RobotLink::connectionChanged, this, [this](bool ok) {
-        status_->setConnected(ok);
         setLinkTone(ok ? QStringLiteral("ok") : QStringLiteral("danger"));
         // 끊기면 로봇이 말하던 값을 놓는다. 화면에는 저장해 둔 이름이 남는다 —
         // 한 번 붙어 본 로봇이라면 그 이름이 그 주소의 로봇 이름이다.
@@ -618,11 +624,24 @@ void MainWindow::wireRobotSignals()
             saidId_.clear();
             saidName_.clear();
             maps_.clear();
+            missionDefinitions_.clear();
+            activeMissionId_.clear();
+            activeMissionIndex_ = -1;
+            activeMissionTotal_ = 0;
+            missionLibrary_->setMissions({});
+            missionLibrary_->setMapId({});
+            refreshMissionProgress();
+            mission_->setMissionState(QStringLiteral("disconnected"));
+            waypoints_->setWaypoints({});
+            map_->view()->setWaypoints({});
             map_->mapButton()->setEnabled(false);
+            map_->poseEstimateButton()->setChecked(false);
+            map_->poseEstimateButton()->setEnabled(false);
             headerBattery_->setUnavailable();
             nav_->setDiagnosticsAlerts(0);
             teleop_->setJogEnabled(false);
             arm_->setControlsEnabled(false);
+            arm_->clearReportedState();
             refreshRobotButton();
         } else if (!estop_->isEngaged()) {
             // 연결 자체는 제어 권한이 아니다. 다만 기존의 빈 화면에서처럼
@@ -673,6 +692,28 @@ void MainWindow::wireRobotSignals()
     // 미션 상태와 로봇 이벤트의 진실 원천은 로봇쪽이다. UI 는 따라간다.
     connect(robot_, &robot::RobotLink::missionStateChanged,
             this, &MainWindow::onMissionStateChanged);
+    connect(robot_, &robot::RobotLink::missionsChanged, this,
+            [this](const QList<QVariantMap> &missions) {
+                missionDefinitions_ = missions;
+                missionLibrary_->setMissions(missions);
+                refreshMissionProgress();
+            });
+    connect(robot_, &robot::RobotLink::missionProgressChanged, this,
+            [this](const QString &id, int index, int total) {
+                activeMissionId_ = id;
+                activeMissionIndex_ = index;
+                activeMissionTotal_ = total;
+                refreshMissionProgress();
+            });
+    connect(robot_, &robot::RobotLink::armPosePresetsChanged,
+            arm_, &ArmPanel::setPosePresets);
+    connect(robot_, &robot::RobotLink::commandResult, missionLibrary_,
+            &MissionLibraryPanel::handleCommandResult);
+    connect(robot_, &robot::RobotLink::commandResult, this,
+            [this](const QString &channel, bool ok, const QString &, const QString &) {
+                if (ok && channel == QLatin1String(hmi::ch::kCmdMissionStart))
+                    showView(NavItem::Mission);
+            });
     connect(robot_, &robot::RobotLink::robotEvent, this,
             [this](const QString &code, const QVariantMap &detail) {
                 log_->log(code, QJsonObject::fromVariantMap(detail));
@@ -716,11 +757,27 @@ void MainWindow::wireMapSignals()
     connect(map_->mapButton(), &QPushButton::clicked, this, &MainWindow::showMapPicker);
 
     connect(map_->goalButton(), &QPushButton::toggled, this, [this, view](bool on) {
+        if (on)
+            map_->poseEstimateButton()->setChecked(false);
         pendingPlacementKind_.clear();
         view->setMode(on ? MapMode::SetGoal : MapMode::View);
         map_->setPlacementHint(on ? QStringLiteral("지도를 클릭해 목표를 지정하고, "
                                                    "드래그해 방향을 정하십시오")
                                   : QString());
+    });
+
+    connect(map_->poseEstimateButton(), &QPushButton::toggled, this,
+            [this, view](bool on) {
+        if (on) {
+            map_->goalButton()->setChecked(false);
+            pendingPlacementKind_.clear();
+            view->setMode(MapMode::EstimatePose);
+            map_->setPlacementHint(
+                QStringLiteral("지도를 클릭하고 드래그해 로봇의 초기 위치와 방향을 지정하십시오"));
+        } else if (view->mode() == MapMode::EstimatePose) {
+            view->setMode(MapMode::View);
+            map_->setPlacementHint({});
+        }
     });
 
     connect(view, &MapView::goalRequested, this, [this](double x, double y, double th) {
@@ -730,6 +787,16 @@ void MainWindow::wireMapSignals()
         log_->note(diag::Severity::Info, QStringLiteral("목표 지정"),
                    QJsonObject{{"x", x}, {"y", y}, {"theta_deg", qRadiansToDegrees(th)},
                                {"channel", QStringLiteral("cmd/goto")}});
+    });
+
+    connect(view, &MapView::poseEstimateRequested, this,
+            [this](double x, double y, double theta) {
+        map_->poseEstimateButton()->setChecked(false);
+        map_->setPlacementHint({});
+        robot_->setInitialPose(x, y, theta);
+        log_->note(diag::Severity::Info, QStringLiteral("초기 위치 추정 요청"),
+                   QJsonObject{{"x", x}, {"y", y}, {"theta", theta},
+                               {"channel", QStringLiteral("cmd/localization/initial_pose")}});
     });
 
     connect(view, &MapView::waypointPlaced, this, [this](double x, double y, double th) {
@@ -752,12 +819,13 @@ void MainWindow::wireMapSignals()
 
         auto wps = waypoints_->waypoints();
         const int n = wps.size() + 1;
-        loc[QStringLiteral("id")] = QStringLiteral("NEW-%1").arg(n, 2, 10, QLatin1Char('0'));
+        loc[QStringLiteral("id")] = QUuid::createUuid().toString(QUuid::WithoutBraces);
         loc[QStringLiteral("name")] = QStringLiteral("신규 포인트 %1").arg(n);
         loc[QStringLiteral("status")] = QStringLiteral("todo");
         wps << loc;
         waypoints_->setWaypoints(wps);
         map_->view()->setWaypoints(wps);
+        robot_->setWaypoints(wps);
         log_->log(QStringLiteral("SETUP_LOC_CAPTURED"), QJsonObject::fromVariantMap(loc));
     });
 
@@ -768,7 +836,7 @@ void MainWindow::wireMapSignals()
                 if (item == MapLegend::Item::Waypoint
                     || item == MapLegend::Item::Dock
                     || item == MapLegend::Item::Home)
-                    showView(NavItem::Locations);
+                    showLocationAssets();
             });
 
     connect(view, &MapView::waypointClicked, this, [this](const QString &id) {
@@ -782,6 +850,7 @@ void MainWindow::wireLocationSignals()
     connect(locations_, &LocationPanel::captureFromMap, this, [this](const QString &kind) {
         pendingPlacementKind_ = kind;
         map_->goalButton()->setChecked(false);
+        map_->poseEstimateButton()->setChecked(false);
         map_->view()->setMode(MapMode::AddWaypoint);
         map_->setPlacementHint(
             QStringLiteral("지도를 클릭해 위치를 지정하고, 드래그해 방향을 정하십시오"));
@@ -869,8 +938,8 @@ void MainWindow::wirePanelSignals()
 
     connect(arm_, &ArmPanel::presetRequested, this, [this](const QString &name) {
         arm_->applyPresetToSliders(name);
-        robot_->setArmPreset(name);
-        log_->log(QStringLiteral("ARM_PRESET"), QJsonObject{{"preset", name}});
+        log_->note(diag::Severity::Info, QStringLiteral("팔 자세 목표를 불러왔습니다"),
+                   QJsonObject{{"preset", name}, {"sent", false}});
     });
     connect(arm_, &ArmPanel::jointGoal, this, [this](const QList<double> &q) {
         robot_->setArmJointGoal(q);
@@ -878,6 +947,7 @@ void MainWindow::wirePanelSignals()
                    QJsonObject{{"channel", QStringLiteral("cmd/arm/joint_goal")}});
     });
     connect(arm_, &ArmPanel::eeGoal, this, [this](const QVariantMap &g) {
+        robot_->setArmEeGoal(g);
         log_->note(diag::Severity::Info,
                    QStringLiteral("EE 목표 X%1 Y%2 Z%3")
                        .arg(g.value("x").toDouble(), 0, 'f', 2)
@@ -889,6 +959,20 @@ void MainWindow::wirePanelSignals()
         robot_->stopArm();
         log_->note(diag::Severity::Warn, QStringLiteral("로봇팔 정지 요청"),
                    QJsonObject{{"channel", QStringLiteral("cmd/arm/stop")}});
+    });
+    connect(arm_, &ArmPanel::savePosePresetRequested, this,
+            [this](const QString &name, const QList<double> &positions) {
+        QVariantList values;
+        for (double value : positions)
+            values << value;
+        robot_->saveArmPosePreset({
+            {QStringLiteral("id"), QUuid::createUuid().toString(QUuid::WithoutBraces)
+                                        .remove(QLatin1Char('-'))},
+            {QStringLiteral("name"), name},
+            {QStringLiteral("positions"), values},
+        });
+    connect(robot_, &robot::RobotLink::commandResult, arm_,
+            &ArmPanel::setCommandResult);
     });
 
     connect(data_, &DataPanel::notice, this,
@@ -921,6 +1005,23 @@ void MainWindow::wirePanelSignals()
 
 void MainWindow::wireMissionSignals()
 {
+    connect(missionLibrary_, &MissionLibraryPanel::missionsRequested,
+            robot_, &robot::RobotLink::requestMissions);
+    connect(missionLibrary_, &MissionLibraryPanel::saveRequested,
+            robot_, &robot::RobotLink::saveMission);
+    connect(missionLibrary_, &MissionLibraryPanel::archiveRequested,
+            robot_, &robot::RobotLink::archiveMission);
+    connect(missionLibrary_, &MissionLibraryPanel::runRequested, this,
+            [this](const QString &id) {
+                const double departAt = Config::instance().batteryDeparturePercent();
+                if (lastSoc_ < departAt) {
+                    QMessageBox::warning(this, QStringLiteral("미션을 시작할 수 없습니다"),
+                        QStringLiteral("배터리가 %1%% 입니다. 출발 최소 기준 %2%% 이상 충전하십시오.")
+                            .arg(lastSoc_, 0, 'f', 0).arg(departAt, 0, 'f', 0));
+                    return;
+                }
+                robot_->startMission(id);
+            });
     connect(waypoints_, &WaypointPanel::addRequested, this, [this] {
         pendingPlacementKind_ = QStringLiteral("inspection");
         map_->view()->setMode(MapMode::AddWaypoint);
@@ -948,34 +1049,16 @@ void MainWindow::wireMissionSignals()
         map_->view()->setSelectedWaypoint(id);
         map_->view()->focusWaypoint(id);
     });
-
-    connect(waypoints_, &WaypointPanel::orderChanged, this, [this](const QStringList &ids) {
-        robot_->setWaypoints(waypoints_->waypoints());
-        log_->note(diag::Severity::Info,
-                   QStringLiteral("점검 순서 변경 (%1개)").arg(ids.size()),
-                   QJsonObject{{"channel", QStringLiteral("cmd/waypoints/set")}});
+    connect(waypoints_, &WaypointPanel::gotoRequested, this, [this](const QString &id) {
+        const auto points = waypoints_->waypoints();
+        const auto it = std::find_if(points.cbegin(), points.cend(), [&id](const QVariantMap &point) {
+            return point.value(QStringLiteral("id")).toString() == id;
+        });
+        if (it != points.cend())
+            driveTo(*it, it->value(QStringLiteral("name"), id).toString());
     });
-    connect(mission_, &MissionPanel::missionStart, this, [this] {
-        // 로봇도 같은 값으로 거부하지만, 여기서 먼저 막아야 조작자가 이유를
-        // 안다. 로봇만 거부하면 화면에서는 "눌렀는데 아무 일도 안 났다" 가 된다.
-        const double departAt = Config::instance().batteryDeparturePercent();
-        if (lastSoc_ < departAt) {
-            QMessageBox::warning(
-                this, QStringLiteral("점검을 시작할 수 없습니다"),
-                QStringLiteral("배터리가 %1%% 입니다. 출발 최소 기준 %2%% 이상 "
-                               "충전한 뒤에 시작하십시오.\n\n"
-                               "기준은 설정 · 전원에서 바꿀 수 있습니다.")
-                    .arg(lastSoc_, 0, 'f', 0)
-                    .arg(departAt, 0, 'f', 0));
-            return;
-        }
-        robot_->setWaypoints(waypoints_->waypoints());
-        robot_->missionStart();
-        log_->log(QStringLiteral("MISSION_START"));
-    });
-    // 목록을 다시 보내는 것은 시작할 때뿐이다. 일시정지·재개·중단에서도
-    // 보내면 진행 중인 점검 도중에 목록을 갈아 끼우는 셈이고, 로봇은 그때
-    // 어디까지 했는지를 잃는다 — 재개가 "이어서" 가 아니게 된다.
+    connect(mission_, &MissionPanel::missionSelectionRequested, this,
+            [this] { showView(NavItem::Mission); });
     connect(mission_, &MissionPanel::missionPause, this, [this] {
         robot_->missionPause();
         log_->log(QStringLiteral("MISSION_PAUSE"));
@@ -984,8 +1067,8 @@ void MainWindow::wireMissionSignals()
         robot_->missionResume();
         log_->log(QStringLiteral("MISSION_RESUME"));
     });
-    connect(waypoints_, &WaypointPanel::waypointsChanged, mission_,
-            &MissionPanel::setWaypoints);
+    connect(waypoints_, &WaypointPanel::waypointsChanged, this,
+            [this] { refreshMissionProgress(); });
 
     connect(mission_, &MissionPanel::missionStop, this, [this] {
         robot_->missionStop();
@@ -1041,13 +1124,57 @@ void MainWindow::onMissionStateChanged(MissionState state)
     // 내려오므로 그때 다시 보인다.
     const bool paused = state == MissionState::Paused;
 
-    mission_->setMissionState(paused   ? QStringLiteral("paused")
+    mission_->setMissionState(paused ? QStringLiteral("paused")
+                              : state == MissionState::Completed ? QStringLiteral("completed")
+                              : state == MissionState::Failed ? QStringLiteral("failed")
+                              : state == MissionState::Returning ? QStringLiteral("returning")
+                              : state == MissionState::Fault ||
+                                state == MissionState::EmergencyStopped
+                                    ? QStringLiteral("blocked")
                               : running ? QStringLiteral("running")
                                         : QStringLiteral("idle"));
+    missionLibrary_->setMissionState(state);
+}
 
-    // 상단 바의 미션 배지는 점검 진행 카드와 중복이라 뺐다. 그 배지를
-    // 갱신하던 코드가 남아 널 포인터를 건드렸고, 자율주행을 시작하는 순간
-    // 프로그램이 죽었다.
+void MainWindow::refreshMissionProgress()
+{
+    QString name;
+    QStringList labels;
+    const auto found = std::find_if(missionDefinitions_.cbegin(), missionDefinitions_.cend(),
+        [this](const QVariantMap &mission) {
+            return mission.value(QStringLiteral("id")).toString() == activeMissionId_;
+        });
+    if (found != missionDefinitions_.cend()) {
+        name = found->value(QStringLiteral("name")).toString();
+        const auto points = waypoints_->waypoints();
+        for (const auto &value : found->value(QStringLiteral("steps")).toList()) {
+            const QVariantMap step = value.toMap();
+            const QString type = step.value(QStringLiteral("type")).toString();
+            if (type == QLatin1String("navigate")) {
+                const QString locationId = step.value(QStringLiteral("location_id")).toString();
+                const auto point = std::find_if(points.cbegin(), points.cend(),
+                    [&locationId](const QVariantMap &candidate) {
+                        return candidate.value(QStringLiteral("id")).toString() == locationId;
+                    });
+                const QString location = point != points.cend()
+                    ? point->value(QStringLiteral("name"), locationId).toString() : locationId;
+                labels << QStringLiteral("이동 · %1").arg(location);
+            } else if (type == QLatin1String("capture")) {
+                labels << QStringLiteral("촬영 · %1").arg(step.value(QStringLiteral("preset")).toString());
+            } else if (type == QLatin1String("arm_move")) {
+                labels << QStringLiteral("팔 자세 · %1").arg(step.value(QStringLiteral("pose")).toString());
+            } else if (type == QLatin1String("dock")) {
+                labels << QStringLiteral("충전소 복귀");
+            } else {
+                labels << step.value(QStringLiteral("id"), QStringLiteral("알 수 없는 단계")).toString();
+            }
+        }
+    } else if (!activeMissionId_.isEmpty()) {
+        // An external client may start a legacy plan. Never present the
+        // waypoint catalog order as that plan's execution order.
+        name = QStringLiteral("실행 중인 경로");
+    }
+    mission_->setProgress(name, activeMissionIndex_, activeMissionTotal_, labels);
 }
 
 void MainWindow::onLogAppended(const diag::LogEntry &entry)
@@ -1123,7 +1250,27 @@ void MainWindow::showWaypointInfo(const QString &id, const QPoint &globalPos)
 
 void MainWindow::navigate(NavItem item)
 {
+    if (item != NavItem::Drive) {
+        // 지도는 탭 전환 뒤에도 계속 보인다. 편집 모드를 남기면 사용자가
+        // 다른 화면을 보는 사이 지도 클릭이 숨은 편집 명령이 된다.
+        pendingPlacementKind_.clear();
+        map_->goalButton()->setChecked(false);
+        map_->poseEstimateButton()->setChecked(false);
+        map_->view()->setMode(MapMode::View);
+        map_->setPlacementHint({});
+        map_->goalButton()->setEnabled(false);
+        teleop_->cancelJog();
+    } else {
+        map_->goalButton()->setEnabled(!driveTabs_ || driveTabs_->currentIndex() == 0);
+    }
     context_->setCurrentIndex(int(item));
+}
+
+void MainWindow::showLocationAssets()
+{
+    showView(NavItem::Drive);
+    if (driveTabs_)
+        driveTabs_->setCurrentIndex(1);
 }
 
 void MainWindow::setInspectionDirectory(const QString &path)
@@ -1167,12 +1314,13 @@ void MainWindow::captureLocation(const QString &kind)
     } else {
         auto wps = waypoints_->waypoints();
         const int n = wps.size() + 1;
-        loc[QStringLiteral("id")] = QStringLiteral("TP-%1").arg(n, 2, 10, QLatin1Char('0'));
+        loc[QStringLiteral("id")] = QUuid::createUuid().toString(QUuid::WithoutBraces);
         loc[QStringLiteral("name")] = QStringLiteral("점검 위치 %1").arg(n);
         loc[QStringLiteral("status")] = QStringLiteral("todo");
         wps << loc;
         waypoints_->setWaypoints(wps);
         map_->view()->setWaypoints(wps);
+        robot_->setWaypoints(wps);
     }
 
     // 신뢰도가 낮은 채로 저장된 위치는 별도 코드로 남긴다.
@@ -1292,9 +1440,10 @@ void MainWindow::setMode(const QString &mode)
         // 수동 모드인 동안 자율 출력은 로봇의 twist_mux 에서 막힌다.
         log_->log(QStringLiteral("SAFETY_MODE_MANUAL"));
         // 수동으로 바꿨다는 것은 지금 직접 몰겠다는 뜻이다. 조작계가 있는
-        // 화면으로 데려간다.
-        nav_->setCurrent(NavItem::Base);
-        navigate(NavItem::Base);
+        // 주행 화면으로 데려간다.
+        nav_->setCurrent(NavItem::Drive);
+        navigate(NavItem::Drive);
+        driveTabs_->setCurrentIndex(0);
     }
 }
 
@@ -1702,7 +1851,6 @@ void MainWindow::startSession()
     // 이력은 저장 장치의 공유 폴더를 직접 읽는다. 로봇을 거치지 않는다.
     data_->setDirectory(Config::instance().nasMountPath());
 
-    status_->setConnected(robot_->isConnected());
     setLinkTone(robot_->isConnected() ? QStringLiteral("ok")
                                       : QStringLiteral("danger"));
     saidId_.clear();
@@ -1766,8 +1914,6 @@ void MainWindow::onTelemetry(const Telemetry &tm)
     // 여기서 또 그리면 한 화면에 같은 숫자가 두 번 뜬다.
     status_->setMotion(tm.speed);
     status_->setPose(tm.x, tm.y, qRadiansToDegrees(tm.theta));
-    status_->setArmState(tm.armState);
-    status_->setTagsSeen(int(tm.seenTags.size()));
     arm_->setArmState(tm.joints, tm.manipulability, tm.sigmaMin, tm.armState);
 
     lastSoc_ = tm.soc;

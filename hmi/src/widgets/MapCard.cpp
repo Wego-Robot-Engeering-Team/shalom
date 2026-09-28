@@ -50,6 +50,14 @@ MapCard::MapCard(QWidget *parent) : QWidget(parent)
     goal_->setToolTip(QStringLiteral("켠 뒤 지도를 클릭해 목표를 지정합니다"));
     tb->addWidget(goal_);
 
+    poseEstimate_ = new QPushButton(QStringLiteral("초기 위치"));
+    poseEstimate_->setProperty("size", "sm");
+    poseEstimate_->setCheckable(true);
+    poseEstimate_->setEnabled(false);
+    poseEstimate_->setToolTip(QStringLiteral(
+        "저장된 지도에서 로봇의 초기 위치와 방향을 지정합니다"));
+    tb->addWidget(poseEstimate_);
+
     mapButton_ = new QPushButton(QStringLiteral("지도 선택"));
     mapButton_->setProperty("size", "sm");
     mapButton_->setEnabled(false);
