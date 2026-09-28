@@ -37,6 +37,7 @@ class QLabel;
 class QVBoxLayout;
 class QPushButton;
 class QStackedWidget;
+class QTabWidget;
 class QTimer;
 class QTcpSocket;
 
@@ -65,6 +66,7 @@ class EventLogPanel;
 class SettingsDialog;
 class MapCard;
 class MissionPanel;
+class MissionLibraryPanel;
 class StatusPanel;
 class TeleopPanel;
 class WaypointPanel;
@@ -115,8 +117,8 @@ private:
     QWidget *buildTopBar();
     QWidget *buildContextColumn();
     QWidget *buildDriveContext();
+    QWidget *buildMissionContext();
     QWidget *buildLocationsContext();
-    QWidget *buildBaseContext();
     QWidget *buildArmContext();
     QWidget *buildCaptureContext();
     QWidget *buildDiagnosticsContext();
@@ -156,6 +158,7 @@ private:
     /// what carries it there, so this switches the mode rather than failing on
     /// it - the operator asked for the destination, not for a mode.
     void driveTo(const QVariantMap &pose, const QString &label);
+    void showLocationAssets();
 
     void navigate(NavItem item);
     void openSettings();
@@ -164,6 +167,7 @@ private:
     /// works as the audit trail the warranty period relies on.
     void logAction(const QString &code, QVariantMap detail = {});
     void onMissionStateChanged(hmi::robot::MissionState state);
+    void refreshMissionProgress();
     void onTelemetry(const hmi::robot::Telemetry &tm);
 
     /// Raises a non-modal alert for entries the operator must not miss.
@@ -196,12 +200,14 @@ private:
 
     NavRail *nav_ = nullptr;
     QStackedWidget *context_ = nullptr;
+    QTabWidget *driveTabs_ = nullptr;
     MapCard *map_ = nullptr;
 
     BatteryPill *headerBattery_ = nullptr;
     NotificationBell *bell_ = nullptr;
     StatusPanel *status_ = nullptr;
     MissionPanel *mission_ = nullptr;
+    MissionLibraryPanel *missionLibrary_ = nullptr;
     TeleopPanel *teleop_ = nullptr;
     EventLogPanel *events_ = nullptr;
     WaypointPanel *waypoints_ = nullptr;
@@ -251,6 +257,10 @@ private:
     hmi::robot::RobotLink *robot_ = nullptr;
     hmi::robot::MapData mapData_;
     QList<QVariantMap> maps_;
+    QList<QVariantMap> missionDefinitions_;
+    QString activeMissionId_;
+    int activeMissionIndex_ = -1;
+    int activeMissionTotal_ = 0;
 };
 
 }  // namespace hmi::ui

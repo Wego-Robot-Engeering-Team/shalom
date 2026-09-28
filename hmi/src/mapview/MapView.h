@@ -35,7 +35,7 @@ class WaypointMarker;
 
 /// Interaction mode for the left mouse button. Panning is always available on
 /// the middle and right buttons regardless of mode.
-enum class MapMode { View, SetGoal, AddWaypoint, AddTag };
+enum class MapMode { View, SetGoal, EstimatePose, AddWaypoint, AddTag };
 
 class MapView : public QGraphicsView {
     Q_OBJECT
@@ -93,6 +93,7 @@ signals:
     void fitRequested();
 
     void goalRequested(double x, double y, double theta);
+    void poseEstimateRequested(double x, double y, double theta);
     void waypointPlaced(double x, double y, double theta);
     void waypointClicked(const QString &id);
     /// A tag was placed by clicking the map in AddTag mode.

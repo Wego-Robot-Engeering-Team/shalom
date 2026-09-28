@@ -78,6 +78,7 @@ add_library(hmi_core STATIC
     src/robot/Kinematics.cpp
     src/panels/StatusPanel.cpp
     src/panels/MissionPanel.cpp
+    src/panels/MissionLibraryPanel.cpp
     src/widgets/WaypointDelegate.cpp
     src/widgets/NotificationCenter.cpp
     src/widgets/IconButton.cpp
@@ -186,6 +187,10 @@ if(HMI_BUILD_TESTS)
 
     hmi_add_test(test_robotview)
     set_tests_properties(test_robotview PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    hmi_add_test(test_mission)
+    set_tests_properties(test_mission PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     hmi_add_test(test_capture)

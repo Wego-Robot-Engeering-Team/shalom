@@ -390,6 +390,8 @@ void MapView::mouseReleaseEvent(QMouseEvent *ev)
     if (mode_ == MapMode::SetGoal) {
         setGoal(wx, wy, theta);
         emit goalRequested(wx, wy, theta);
+    } else if (mode_ == MapMode::EstimatePose) {
+        emit poseEstimateRequested(wx, wy, theta);
     } else if (mode_ == MapMode::AddWaypoint) {
         emit waypointPlaced(wx, wy, theta);
     } else if (mode_ == MapMode::AddTag) {
@@ -422,7 +424,8 @@ void MapView::drawForeground(QPainter *p, const QRectF &)
     if (dragging_) {
         const QPointF o = mapFromScene(dragOrigin_);
         const QPointF c = mapFromScene(dragCurrent_);
-        const QColor col(colors().accent);
+        const QColor col(mode_ == MapMode::EstimatePose ? colors().success
+                                                         : colors().accent);
         const double d = std::hypot(c.x() - o.x(), c.y() - o.y());
 
         // 화살표 길이는 고정한다. 끌수록 길어지게 두면 지도를 가로지르는

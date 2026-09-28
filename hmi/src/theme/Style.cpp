@@ -157,6 +157,9 @@ QMenu::indicator { width: 14px; height: 14px; left: 7px; }
 #CardTitle { font-size: @fsMd; font-weight: 600; color: @text; }
 #SectionLabel { font-size: @fsSm; color: @textMute; }
 #Hint { color: @textMute; font-size: @fsSm; }
+#ArmPreviewStatus { color: @textMute; font-size: @fsSm; }
+#ArmCommandStatus { color: @accent; font-size: @fsSm; }
+#ArmCommandStatus[tone="danger"] { color: @danger; }
 #HLine { background: @border; border: none; }
 
 /* 보내기 전 자세 경고. 문장이 아니라 아이콘 하나 — 마우스를 올리면

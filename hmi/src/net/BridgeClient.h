@@ -66,6 +66,7 @@ public:
     // ---- RobotLink ------------------------------------------------------
     void setCmdVel(double vx, double vy, double wz) override;
     void requestGoal(double x, double y, double theta) override;
+    void setInitialPose(double x, double y, double theta) override;
     void cancelNav() override;
 
     void setWaypoints(const QList<QVariantMap> &waypoints) override;
@@ -83,6 +84,10 @@ public:
     void missionResume() override;
     void missionStop() override;
     hmi::robot::MissionState missionState() const override { return mission_; }
+    void requestMissions() override;
+    void saveMission(const QVariantMap &mission, quint64 expectedRevision) override;
+    void archiveMission(const QString &id, quint64 expectedRevision) override;
+    void startMission(const QString &id) override;
 
     void engageEstop() override;
     void releaseEstop() override;
@@ -96,8 +101,11 @@ public:
     QString motionAuthority() const override { return motionAuthority_; }
 
     void setArmJointGoal(const QList<double> &q) override;
+    void setArmEeGoal(const QVariantMap &pose) override;
     void setArmPreset(const QString &name) override;
     void stopArm() override;
+    void requestArmPosePresets() override;
+    void saveArmPosePreset(const QVariantMap &preset) override;
 
     bool isConnected() const override;
     QString describe() const override;

@@ -38,6 +38,8 @@
 class QLabel;
 class QPushButton;
 class QTabWidget;
+class QComboBox;
+class QVBoxLayout;
 
 namespace hmi::ui {
 
@@ -54,11 +56,15 @@ public:
     void setArmState(const QList<double> &positions, double manipulability,
                      double sigmaMin, const QString &moveitState = QStringLiteral("idle"));
     void setControlsEnabled(bool on);
+    void clearReportedState();
+    void setCommandResult(const QString &channel, bool ok, const QString &code,
+                          const QString &message);
 
     /// Moves the sliders to a named posture without commanding the arm; the
     /// operator still has to press send. Loading and sending in one step would
     /// make a mis-click move the arm.
     void applyPresetToSliders(const QString &name);
+    void setPosePresets(const QList<QVariantMap> &presets);
 
 
 signals:
@@ -66,6 +72,7 @@ signals:
     void eeGoal(const QVariantMap &pose);
     void presetRequested(const QString &name);
     void stopRequested();
+    void savePosePresetRequested(const QString &name, const QList<double> &positions);
 
 private:
     void build3DSection();
@@ -107,11 +114,19 @@ private:
     QTabWidget *tabs_ = nullptr;
     QLabel *advice_ = nullptr;
     QLabel *poseWarning_ = nullptr;
+    QLabel *previewStatus_ = nullptr;
+    QLabel *commandStatus_ = nullptr;
+    QVBoxLayout *controlsLayout_ = nullptr;
+    QComboBox *savedPresets_ = nullptr;
+    QPushButton *loadSavedPreset_ = nullptr;
+    QPushButton *jointSend_ = nullptr;
+    QPushButton *eeSend_ = nullptr;
 
     QList<ValueSlider *> sliders_;
     QHash<QString, ValueSlider *> ee_;
     QList<QPushButton *> commandButtons_;
     QList<double> actual_;
+    QList<QVariantMap> posePresets_;
 
     /// Whether the robot has ever reported a pose. The command sliders snap to
     /// the first report: until then they sit on defaults, and showing that as
@@ -126,6 +141,9 @@ private:
     bool syncing_ = false;
     /// False while the pose fields name a place the arm cannot reach.
     bool eeReachable_ = true;
+    bool hasPendingGoal_ = false;
+    bool controlsEnabled_ = false;
+    void refreshCommandControls();
     robot::PoseWarning lastWarning_;
 };
 

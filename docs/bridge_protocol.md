@@ -68,10 +68,12 @@
 | `state/plan` | 계획 경로 |
 | `state/trail` | 주행 궤적 |
 | `state/arm` | 관절·끝단 자세 |
+| `state/arm_pose_presets` | 로봇에 저장된 사용자 팔 자세 프리셋 |
 | `state/base` | 본체 자세·동작 권한 |
 | `state/apriltag` | 마커 검출 |
 | `state/mission` | 점검 시나리오 상태 |
 | `state/waypoints` | 점검 지점 |
+| `state/missions` | 선택된 지도에 로봇이 저장한 미션 목록과 revision |
 | `state/locations` | home·dock 위치 |
 | `state/markers` | 측량된 AprilTag 자리 |
 | `state/maps` | 로봇이 보유한 지도 목록 |
@@ -86,11 +88,46 @@
 `p`에 넣고 PNG를 payload로 보낸다. `capture/preview`도 metadata를 `p`에 넣고
 이미지를 payload로 보낸다.
 
+`state/mission`은 `state`, `mission_id`, `index`(0부터 시작, 활성 단계가 없으면 -1),
+`total`, `reason_code`를 보낸다. 진행 인덱스와 총 단계 수는 로봇의 실행 계획 기준이며
+저장된 Waypoint 목록의 순서나 크기와 같다고 가정하지 않는다.
+
 `state/maps`의 각 항목은 `id`, `name`, `created_at`, `active`, `waypoint_count`를
 가진다. `id`는 지도 디렉터리의 변경하지 않는 식별자이고, `name`은 로봇의
 `metadata.json`에 저장된 표시 이름이다. HMI는 로봇 파일 시스템을 직접 읽지 않고 이
 목록만 표시한다. 지도 전환이 성공하면 브릿지는 `state/active_map`과 선택된 지도 기준의 `map/occupancy`,
-`state/waypoints`, `state/locations`, `state/markers`를 다시 보낸다.
+`state/waypoints`, `state/locations`, `state/markers`, `state/missions`를 다시 보낸다.
+
+### 2D 초기 위치 추정
+
+HMI의 `초기 위치` 도구는 지도에서 클릭한 점과 드래그 방향을
+`cmd/localization/initial_pose` (`x`, `y`, `theta`, map 좌표계)로 보낸다. 브릿지는 저장된
+지도가 활성화되어 있고 좌표가 유한한 값인지 확인한 뒤 ROS `PoseWithCovarianceStamped`를
+`/initialpose`에 발행한다. 로봇 정지 여부는 확인하지 않으며, 이 명령은 본체를 이동시키지 않고
+위치 추정만 갱신한다. 주행 중 위치 추정을 바꾸면 진행 중인 경로 추종에 영향을 줄 수 있으므로
+조작자는 지도와 로봇의 실제 위치를 확인해야 한다. 성공 응답은 `/initialpose` 발행을 뜻하며,
+AMCL 수렴 여부까지 보장하지는 않는다.
+
+### 로봇 소유 미션 라이브러리
+
+`state/missions` 페이로드는 `{ "map_id": "…", "missions": [...] }`이며 각 미션은
+`id`, `name`, `map_id`, `revision`, `archived`, `steps`를 가진다. 미션 정의는 지도별
+`missions.json`으로 로봇에 저장된다. 저장/보관 요청은 `expected_revision`을 비교하므로
+다른 HMI가 먼저 수정한 경우 오래된 편집본을 덮어쓰지 않고 거절한다. `0`은 새 미션 생성에만 쓴다.
+
+단계는 `navigate` (`location_id`), `capture` (`preset`), `arm_move` (`pose`), `dock` 유형을
+사용한다. 현재 실행기는 등록 위치로의 `navigate` 및 마지막 `dock`만 연결되어 있다.
+`capture`와 `arm_move` 단계는 라이브러리에 작성·저장할 수 있지만, 실행 요청 시 해당
+executor가 연결되어 있지 않으면 미션 전체를 시작 전에 거절한다. 부분 실행은 하지 않는다.
+
+### 로봇 소유 팔 자세 프리셋
+
+`state/arm_pose_presets`는 `{ "presets": [...] }`를 보내며 각 항목은 `id`, `name`,
+`positions`(FR3 6축 라디안), `archived`를 가진다. 로봇의 `mapsDir` 아래
+`arm_pose_presets.json`에 저장하며 지도와 무관하다. `cmd/arm/pose_presets/list`로
+목록을 요청하고 `cmd/arm/pose_presets/save`에 `{ "preset": { … } }`를 보내 추가한다.
+저장은 관절 수와 FR3 관절 한계를 로봇에서 다시 검사한다. HMI에서 프리셋을 불러오면
+목표값과 3D 미리보기만 바뀌며, 실제 동작은 별도의 관절 목표 전송으로 요청한다.
 
 ### `state/mission` 의 상태 값
 
@@ -122,8 +159,12 @@
 | `cmd/estop_release` | E-Stop 수동 해제 |
 | `cmd/mode` | `auto` 또는 `manual` |
 | `cmd/goto` | 목표 자세 |
+| `cmd/localization/initial_pose` | 저장된 지도에서 초기 위치 추정값 설정 (`x`, `y`, `theta`) |
 | `cmd/nav_cancel` | 주행 취소 |
 | `cmd/waypoints/set` | 점검 지점 전체 설정 |
+| `cmd/missions/list` | 선택된 지도의 미션 목록 요청 |
+| `cmd/missions/save` | 미션 생성/수정 (`mission`, `expected_revision`) |
+| `cmd/missions/archive` | 미션 보관 (`id`, `expected_revision`) |
 | `cmd/locations/set` | home·dock 전체 설정 |
 | `cmd/markers/set` | 마커 전체 설정 |
 | `cmd/maps/list` | 로봇 지도 목록 요청 |
@@ -135,9 +176,11 @@
 | `cmd/mission/resume` | 점검 재개 |
 | `cmd/mission/stop` | 점검 종료 |
 | `cmd/arm/preset` | 암 프리셋 |
-| `cmd/arm/joint_goal` | 암 관절 목표 |
-| `cmd/arm/ee_goal` | 암 끝단 목표 |
+| `cmd/arm/joint_goal` | 암 관절 목표. 실행기·안전 게이트·팔 제어 권한이 준비되지 않으면 거절한다. 응답 성공은 목표 접수이지 도달 확인이 아니다. |
+| `cmd/arm/ee_goal` | 암 끝단 목표. 현재 브리지는 MoveIt2 실행기가 연결되지 않아 거절한다. |
 | `cmd/arm/stop` | 암 정지 |
+| `cmd/arm/pose_presets/list` | 로봇 팔 자세 프리셋 목록 요청 |
+| `cmd/arm/pose_presets/save` | 사용자 팔 자세 프리셋 추가 |
 | `cmd/base/posture` | 본체 자세 전환 (앉기·일어서기) |
 | `cmd/capture/trigger` | 촬영 |
 

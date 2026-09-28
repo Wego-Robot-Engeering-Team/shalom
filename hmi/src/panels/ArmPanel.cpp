@@ -4,14 +4,21 @@
 #include "panels/ArmPanel.h"
 
 #include <QGridLayout>
+#include <QComboBox>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QSlider>
+#include <QScrollArea>
 #include <QTabWidget>
 #include <QVBoxLayout>
 #include <QVariantMap>
 #include <QtMath>
+
+#include <algorithm>
 
 #include "RobotDef.h"
 #include "robot/Kinematics.h"
@@ -66,13 +73,36 @@ ArmPanel::ArmPanel(QWidget *parent) : QWidget(parent)
     advice_->hide();
     card_->body()->addWidget(advice_);
 
-    // 3D 뷰가 남는 세로 공간을 전부 가져간다. 자세를 눈으로 보는 것이
-    // 이 화면의 주된 용도다.
+    // 3D 뷰는 고정하고 아래 조작부만 스크롤한다. 슬라이더를 움직일 때
+    // 모델이 화면 밖에 있으면 미리보기 기능이 없는 것처럼 보인다.
     build3DSection();
+    previewStatus_ = new QLabel(QStringLiteral("관절값 대기 · 3D는 아직 실제 자세가 아닙니다."));
+    previewStatus_->setObjectName(QStringLiteral("ArmPreviewStatus"));
+    previewStatus_->setWordWrap(true);
+    card_->body()->addWidget(previewStatus_);
+
     card_->body()->addWidget(new HLine);
+    auto *controls = new QWidget;
+    controlsLayout_ = new QVBoxLayout(controls);
+    controlsLayout_->setContentsMargins(0, 0, 0, 0);
+    controlsLayout_->setSpacing(metrics::s2);
     buildPresetSection();
-    card_->body()->addWidget(new HLine);
+    controlsLayout_->addWidget(new HLine);
     buildCommandTabs();
+    controlsLayout_->addStretch(1);
+    auto *controlsScroll = new QScrollArea;
+    controlsScroll->setWidget(controls);
+    controlsScroll->setWidgetResizable(true);
+    controlsScroll->setFrameShape(QFrame::NoFrame);
+    controlsScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    controlsScroll->setMinimumHeight(210);
+    card_->body()->addWidget(controlsScroll, 1);
+
+    commandStatus_ = new QLabel;
+    commandStatus_->setObjectName(QStringLiteral("ArmCommandStatus"));
+    commandStatus_->setWordWrap(true);
+    commandStatus_->hide();
+    card_->body()->addWidget(commandStatus_);
 
     // 정지는 프리셋이 아니다. 자세를 고르는 버튼들과 같은 줄에 두면 네 번째
     // 자세처럼 보인다. 위의 모든 조작을 되돌리는 것이므로 맨 아래에 둔다.
@@ -84,12 +114,13 @@ ArmPanel::ArmPanel(QWidget *parent) : QWidget(parent)
     connect(stop, &QPushButton::clicked, this, &ArmPanel::stopRequested);
     card_->body()->addSpacing(metrics::s2);
     card_->body()->addWidget(stop);
+    refreshCommandControls();
 }
 
 void ArmPanel::build3DSection()
 {
     auto *head = new QHBoxLayout;
-    head->addWidget(sectionLabel(QStringLiteral("현재 자세")));
+    head->addWidget(sectionLabel(QStringLiteral("로봇팔 3D")));
 
     // 문제가 있을 때만 나타나는 표시. 문장을 늘 띄워 두면 자리를 차지하고,
     // 정작 문제가 생겼을 때 다른 문장과 구분되지 않는다. 마우스를 올리면
@@ -109,7 +140,8 @@ void ArmPanel::build3DSection()
     card_->body()->addLayout(head);
 
     view3d_ = new Robot3DView;
-    view3d_->setMinimumHeight(320);
+    view3d_->setMinimumHeight(260);
+    view3d_->setStale(true);
     card_->body()->addWidget(view3d_, 1);
     connect(reset, &QPushButton::clicked, view3d_, &Robot3DView::resetCamera);
 }
@@ -122,7 +154,7 @@ void ArmPanel::buildCommandTabs()
     tabs_->setDocumentMode(true);
     tabs_->addTab(buildJointTab(), QStringLiteral("관절"));
     tabs_->addTab(buildEeTab(), QStringLiteral("끝단 위치"));
-    card_->body()->addWidget(tabs_);
+    controlsLayout_->addWidget(tabs_);
 
     // 두 탭은 같은 목표를 다르게 적은 것이다. 한쪽을 만지면 다른 쪽도 따라
     // 바뀌므로, 예전처럼 탭을 떠날 때 값을 되돌릴 필요가 없다 — 보이지 않는
@@ -154,10 +186,11 @@ QWidget *ArmPanel::buildJointTab()
     lay->addSpacing(metrics::s1);
     auto *row = new QHBoxLayout;
     row->setSpacing(metrics::s2);
-    auto *send = new QPushButton(QStringLiteral("보내기"));
+    auto *send = new QPushButton(QStringLiteral("관절 목표 보내기"));
+    jointSend_ = send;
     send->setProperty("variant", "primary");
     send->setProperty("size", "sm");
-    auto *sync = new QPushButton(QStringLiteral("되돌리기"));
+    auto *sync = new QPushButton(QStringLiteral("실제 자세로 되돌리기"));
     sync->setToolTip(QStringLiteral("슬라이더를 로봇의 지금 각도로 되돌립니다"));
     sync->setProperty("size", "sm");
     row->addWidget(send, 1);
@@ -215,7 +248,8 @@ QWidget *ArmPanel::buildEeTab()
     auto *row = new QHBoxLayout;
     row->setSpacing(metrics::s2);
 
-    auto *send = new QPushButton(QStringLiteral("보내기"));
+    auto *send = new QPushButton(QStringLiteral("끝단 목표 보내기"));
+    eeSend_ = send;
     send->setProperty("variant", "primary");
     send->setProperty("size", "sm");
 
@@ -223,16 +257,15 @@ QWidget *ArmPanel::buildEeTab()
     // 있으면, 잘못 만졌을 때 무엇을 눌러야 하는지가 탭마다 달라진다.
     auto *revert = new QPushButton(QStringLiteral("되돌리기"));
     revert->setProperty("size", "sm");
-    revert->setToolTip(QStringLiteral("마지막으로 보낸 값으로 되돌립니다"));
+    revert->setToolTip(QStringLiteral("로봇이 보고한 실제 자세로 되돌립니다"));
     connect(revert, &QPushButton::clicked, this, [this] {
-        for (auto *e : std::as_const(ee_))
-            e->setCommand(e->actual());
+        syncSlidersToActual();
     });
 
     row->addWidget(send, 1);
     row->addWidget(revert, 1);
     lay->addLayout(row);
-    commandButtons_ << send;
+    commandButtons_ << send << revert;
 
     connect(send, &QPushButton::clicked, this, [this] {
         emit eeGoal(QVariantMap{
@@ -254,7 +287,7 @@ QWidget *ArmPanel::buildEeTab()
 
 void ArmPanel::buildPresetSection()
 {
-    card_->body()->addWidget(sectionLabel(QStringLiteral("프리셋")));
+    controlsLayout_->addWidget(sectionLabel(QStringLiteral("프리셋")));
 
     auto *row = new QHBoxLayout;
     row->setSpacing(metrics::s2);
@@ -269,35 +302,98 @@ void ArmPanel::buildPresetSection()
         connect(b, &QPushButton::clicked, this, [this, key] { emit presetRequested(key); });
         row->addWidget(b, 1);
     }
-    card_->body()->addLayout(row);
+    controlsLayout_->addLayout(row);
+
+    auto *savedRow = new QHBoxLayout;
+    savedPresets_ = new QComboBox;
+    savedPresets_->setObjectName(QStringLiteral("SavedArmPosePresets"));
+    savedPresets_->addItem(QStringLiteral("저장된 자세 없음"), QString());
+    loadSavedPreset_ = new QPushButton(QStringLiteral("불러오기"));
+    auto *save = new QPushButton(QStringLiteral("목표 자세 저장"));
+    save->setProperty("size", "sm");
+    loadSavedPreset_->setProperty("size", "sm");
+    savedRow->addWidget(savedPresets_, 1);
+    savedRow->addWidget(loadSavedPreset_);
+    savedRow->addWidget(save);
+    controlsLayout_->addLayout(savedRow);
+
+    connect(save, &QPushButton::clicked, this, [this] {
+        bool ok = false;
+        const QString name = QInputDialog::getText(
+            this, QStringLiteral("팔 자세 저장"), QStringLiteral("프리셋 이름"),
+            QLineEdit::Normal, {}, &ok).trimmed();
+        if (!ok || name.isEmpty())
+            return;
+        QList<double> q;
+        for (auto *slider : std::as_const(sliders_))
+            q << slider->command();
+        emit savePosePresetRequested(name, q);
+    });
+    connect(loadSavedPreset_, &QPushButton::clicked, this, [this] {
+        const QString id = savedPresets_->currentData().toString();
+        const auto it = std::find_if(posePresets_.cbegin(), posePresets_.cend(),
+            [&id](const QVariantMap &preset) {
+                return preset.value(QStringLiteral("id")).toString() == id;
+            });
+        if (it == posePresets_.cend())
+            return;
+        const QVariantList values = it->value(QStringLiteral("positions")).toList();
+        if (values.size() < robot::kArmJointCount)
+            return;
+        syncing_ = true;
+        for (int i = 0; i < sliders_.size(); ++i)
+            sliders_[i]->setCommand(values.at(i).toDouble());
+        syncing_ = false;
+        onSliderMoved(); // 로봇에는 보내지 않고 목표·3D 프리뷰만 갱신한다.
+    });
+    connect(savedPresets_, &QComboBox::currentIndexChanged, this,
+            [this](int index) { loadSavedPreset_->setEnabled(index > 0); });
+}
+
+void ArmPanel::setPosePresets(const QList<QVariantMap> &presets)
+{
+    posePresets_ = presets;
+    const QSignalBlocker blocker(savedPresets_);
+    savedPresets_->clear();
+    savedPresets_->addItem(QStringLiteral("저장된 자세 선택"), QString());
+    for (const auto &preset : posePresets_)
+        savedPresets_->addItem(preset.value(QStringLiteral("name")).toString(),
+                               preset.value(QStringLiteral("id")).toString());
+    loadSavedPreset_->setEnabled(false);
 }
 
 void ArmPanel::setArmState(const QList<double> &positions, double manipulability,
                            double sigmaMin, const QString &moveitState)
 {
-    // 생성자가 actual_ 을 0 으로 채워 두므로 비어 있는지로는 첫 보고를
-    // 가릴 수 없다. 받았는지 여부를 따로 들고 있는다.
-    const bool first = !hadArmState_;
-    hadArmState_ = true;
-    actual_ = positions;
-    for (int i = 0; i < sliders_.size() && i < positions.size(); ++i)
-        sliders_[i]->setActual(positions.at(i));
+    // BridgeClient 는 상태가 오기 전에도 빈 텔레메트리 스냅샷을 주기적으로
+    // 보낸다. 그것을 첫 관절 보고로 취급하면 hadArmState_ 가 너무 일찍 켜져
+    // 편집 중인 목표를 실제값과 비교할 수 없고, 미리보기가 지워진다.
+    // FR3 는 6축이므로 전체 관절값이 도착한 경우에만 기준 자세를 갱신한다.
+    if (positions.size() >= kArmJointCount) {
+        const bool first = !hadArmState_;
+        hadArmState_ = true;
+        actual_ = positions;
+        for (int i = 0; i < sliders_.size() && i < positions.size(); ++i)
+            sliders_[i]->setActual(positions.at(i));
 
-    // 아직 아무것도 지시하지 않았는데 슬라이더가 기본값에 서 있으면, 화면이
-    // 열리자마자 "보내지 않은 편집" 이 있다고 말하게 된다. 첫 보고를 받은
-    // 순간의 명령값은 지금 자세다.
-    if (first)
-        syncSlidersToActual();
+        // 첫 보고 전에 목표를 편집했을 수도 있다. 그 경우 실제값만 갱신하고
+        // 초안을 보존한다. 이전에는 첫 상태 패킷이 입력값을 조용히 지웠다.
+        if (first && !commandEdited_)
+            syncSlidersToActual();
 
-    syncEeActualFromJoints(positions);
-    view3d_->setArmJoints(positions);
-    refreshPreview();
+        syncEeActualFromJoints(positions);
+        view3d_->setArmJoints(positions);
+        view3d_->setStale(false);
+        refreshPreview();
+    }
 
     const double norm = qBound(0.0, manipulability / kManipNominal, 1.0);
 
     // 여유가 있을 때는 아무 말도 하지 않는다. "정상입니다" 를 늘 띄워두면
     // 정말 문제가 생겼을 때의 한 줄이 똑같이 생긴 한 줄로 보인다.
-    if (norm <= kManipDanger) {
+    if (!hadArmState_) {
+        advice_->hide();
+    } else if (norm <= kManipDanger) {
         advice_->setText(QStringLiteral(
             "팔이 거의 다 펴졌거나 접혔습니다. 이 자세에서는 어떤 방향으로는 "
             "아예 움직이지 못합니다. 팔을 조금 되돌리거나 로봇을 옮기십시오."));
@@ -306,11 +402,11 @@ void ArmPanel::setArmState(const QList<double> &positions, double manipulability
             "움직일 수 있는 여유가 줄었습니다. 더 뻗으면 멈출 수 있으니 "
             "로봇을 조금 옮겨 자세를 바꾸는 편이 낫습니다."));
     }
-    advice_->setVisible(norm <= kManipWarn);
+    advice_->setVisible(hadArmState_ && norm <= kManipWarn);
     advice_->setToolTip(QStringLiteral("조작성 지수 %1 · 최소 특이값 %2")
                             .arg(manipulability, 0, 'f', 4)
                             .arg(sigmaMin, 0, 'f', 4));
-    view3d_->setSingularWarning(norm <= kManipWarn);
+    view3d_->setSingularWarning(hadArmState_ && norm <= kManipWarn);
 
     if (moveitState == QLatin1String("planning"))
         state_->set(QStringLiteral("계획 중"), QStringLiteral("info"));
@@ -324,10 +420,54 @@ void ArmPanel::setArmState(const QList<double> &positions, double manipulability
 
 void ArmPanel::setControlsEnabled(bool on)
 {
+    controlsEnabled_ = on;
     for (auto *s : std::as_const(sliders_))
         s->setEnabled(on);
+    for (auto *s : std::as_const(ee_))
+        s->setEnabled(on);
+    refreshCommandControls();
+}
+
+void ArmPanel::clearReportedState()
+{
+    hadArmState_ = false;
+    commandEdited_ = false;
+    hasPendingGoal_ = false;
+    eeReachable_ = true;
+    for (auto *s : std::as_const(sliders_))
+        s->clearActual();
+    for (auto *s : std::as_const(ee_))
+        s->clearActual();
+    view3d_->setPreviewJoints({});
+    view3d_->setStale(true);
+    previewStatus_->setText(QStringLiteral("관절값 대기 · 3D는 아직 실제 자세가 아닙니다."));
+    commandStatus_->hide();
+    advice_->hide();
+    showPoseWarning({});
+    refreshCommandControls();
+}
+
+void ArmPanel::setCommandResult(const QString &channel, bool ok, const QString &code,
+                                const QString &message)
+{
+    if (channel != QLatin1String("cmd/arm/joint_goal") &&
+        channel != QLatin1String("cmd/arm/ee_goal"))
+        return;
+    commandStatus_->setText(ok ? QStringLiteral("요청 접수 · 실제 움직임은 관절 상태로 확인하세요.")
+                               : QStringLiteral("전송 실패 · %1 %2").arg(code, message));
+    commandStatus_->setProperty("tone", ok ? "info" : "danger");
+    theme::repolish(commandStatus_);
+    commandStatus_->setVisible(true);
+}
+
+void ArmPanel::refreshCommandControls()
+{
     for (auto *b : std::as_const(commandButtons_))
-        b->setEnabled(on);
+        b->setEnabled(controlsEnabled_ && hadArmState_);
+    if (jointSend_)
+        jointSend_->setEnabled(controlsEnabled_ && hadArmState_ && hasPendingGoal_);
+    if (eeSend_)
+        eeSend_->setEnabled(controlsEnabled_ && hadArmState_ && hasPendingGoal_ && eeReachable_);
 }
 
 void ArmPanel::onSliderMoved()
@@ -335,6 +475,7 @@ void ArmPanel::onSliderMoved()
     if (syncing_)
         return;
     commandEdited_ = true;
+    commandStatus_->hide();
     for (auto *s : std::as_const(sliders_))
         s->update();
     syncEeFromJoints();
@@ -392,6 +533,7 @@ void ArmPanel::syncJointsFromEe()
     if (syncing_ || sliders_.isEmpty())
         return;
     commandEdited_ = true;
+    commandStatus_->hide();
 
     robot::EePose target;
     target.x = ee_[QStringLiteral("x")]->command();
@@ -448,7 +590,17 @@ void ArmPanel::refreshPreview()
     // 두 눈금 이상 차이 날 때만 띄우지만, 3D 미리보기는 한 눈금 변화도
     // 보여야 한다. 특히 첫 텔레메트리 전에는 기준값이 없더라도 입력을
     // 버리면 안 된다.
-    view3d_->setPreviewJoints(commandEdited_ && differsFromActual ? q : QList<double>{});
+    hasPendingGoal_ = commandEdited_ && differsFromActual;
+    view3d_->setPreviewJoints(hasPendingGoal_ ? q : QList<double>{});
+    if (!hadArmState_)
+        previewStatus_->setText(QStringLiteral("목표 자세 미리보기 · 실제 관절값을 기다리는 중입니다."));
+    else if (!eeReachable_)
+        previewStatus_->setText(QStringLiteral("끝단 목표에 닿을 수 없습니다 · 값을 되돌리거나 조정하세요."));
+    else if (hasPendingGoal_)
+        previewStatus_->setText(QStringLiteral("목표 자세 미리보기 · 로봇에는 아직 보내지 않았습니다."));
+    else
+        previewStatus_->setText(QStringLiteral("실제 자세 · 로봇이 보고한 관절값입니다."));
+    refreshCommandControls();
 
     // 보내기 전에 조용히 알린다. 로봇이 최종 판정을 하지만, 눌러 본 뒤에야
     // 거부 코드로 알게 되는 것보다 낫다. 요란하게 막지는 않는다 — 조작자가
@@ -483,6 +635,8 @@ void ArmPanel::showPoseWarning(const robot::PoseWarning &warning)
 
 void ArmPanel::syncSlidersToActual()
 {
+    if (!hadArmState_)
+        return;
     syncing_ = true;
     for (int i = 0; i < sliders_.size() && i < actual_.size(); ++i)
         sliders_[i]->setCommand(actual_.at(i));

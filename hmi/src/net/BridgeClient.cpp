@@ -206,6 +206,7 @@ void BridgeClient::onConnected()
                            hmi::ch::kSafety, hmi::ch::kNav, hmi::ch::kPlan,
                            hmi::ch::kTrail, hmi::ch::kArm, hmi::ch::kApriltag,
                            hmi::ch::kMission, hmi::ch::kWaypoints, hmi::ch::kLocations,
+                           hmi::ch::kMissions, hmi::ch::kArmPosePresets,
                            hmi::ch::kBase,
                            hmi::ch::kMap, hmi::ch::kMaps, hmi::ch::kActiveMap,
                            hmi::ch::kPreview, hmi::ch::kCaptureSpool,
@@ -223,6 +224,8 @@ void BridgeClient::onConnected()
 
     emit connectionChanged(true);
     requestMapCatalog();
+    requestMissions();
+    requestArmPosePresets();
     // 첫 연결과 재연결을 구분한다. 처음 붙는 것을 "재연결됨" 이라고 하면
     // 조작자가 직전에 무슨 문제가 있었나 하고 로그를 뒤진다.
     emit robotEvent(everConnected_ ? QStringLiteral("LINK_RESTORED")
@@ -502,16 +505,22 @@ void BridgeClient::handleHeartbeat(const Envelope &env)
 void BridgeClient::handleResponse(const Envelope &env)
 {
     pending_.remove(env.id);
-    if (env.p.value(QStringLiteral("ok")).toBool())
+    const bool ok = env.p.value(QStringLiteral("ok")).toBool();
+    if (ok) {
+        emit commandResult(env.ch, true, {}, {});
         return;
+    }
 
     // 거부된 명령은 반드시 로그에 남는다. "왜 로봇이 안 움직이지" 의 답이
     // 대부분 여기 있다.
     const QJsonObject err = env.p.value(QStringLiteral("err")).toObject();
     const QString code = err.value(QStringLiteral("code")).toString();
+    const QString message = err.value(QStringLiteral("msg")).toString();
+    emit commandResult(env.ch, false,
+                       code.isEmpty() ? QStringLiteral("E_BAD_PAYLOAD") : code, message);
     emit robotEvent(code.isEmpty() ? QStringLiteral("E_BAD_PAYLOAD") : code,
                     {{"channel", env.ch},
-                     {"msg", err.value(QStringLiteral("msg")).toString()}});
+                     {"msg", message}});
 }
 
 void BridgeClient::handlePublish(const Envelope &env)
@@ -590,6 +599,11 @@ void BridgeClient::handlePublish(const Envelope &env)
         telemetry_.sigmaMin = p.value(QStringLiteral("sigma_min")).toDouble();
         const QString state = p.value(QStringLiteral("moveit_state")).toString();
         telemetry_.armState = state.isEmpty() ? QStringLiteral("idle") : state;
+    } else if (ch == QLatin1String(hmi::ch::kArmPosePresets)) {
+        QList<QVariantMap> presets;
+        for (const auto &value : p.value(QStringLiteral("presets")).toArray())
+            presets << value.toObject().toVariantMap();
+        emit armPosePresetsChanged(presets);
     } else if (ch == QLatin1String(hmi::ch::kApriltag)) {
         QSet<int> seen;
         for (const auto &v : p.value(QStringLiteral("tags")).toArray())
@@ -598,6 +612,9 @@ void BridgeClient::handlePublish(const Envelope &env)
     } else if (ch == QLatin1String(hmi::ch::kMission)) {
         const QString state = p.value(QStringLiteral("state")).toString();
         const MissionState next = hmi::robot::missionStateFromWire(state);
+        emit missionProgressChanged(p.value(QStringLiteral("mission_id")).toString(),
+                                    p.value(QStringLiteral("index")).toInt(-1),
+                                    p.value(QStringLiteral("total")).toInt());
         if (next != mission_) {
             mission_ = next;
             emit missionStateChanged(mission_);
@@ -607,6 +624,14 @@ void BridgeClient::handlePublish(const Envelope &env)
         for (const auto &v : p.value(QStringLiteral("points")).toArray())
             wps << v.toObject().toVariantMap();
         waypoints_ = wps;
+    } else if (ch == QLatin1String(hmi::ch::kMissions)) {
+        QList<QVariantMap> missions;
+        const auto array = p.value(QStringLiteral("missions")).toArray();
+        missions.reserve(array.size());
+        for (const auto &v : array)
+            if (v.isObject())
+                missions << v.toObject().toVariantMap();
+        emit missionsChanged(missions);
     } else if (ch == QLatin1String(hmi::ch::kLocations)) {
         // 충전소와 시작점은 순회 목록에 들어가지 않는다. 로봇이 스스로
         // 복귀할 때 쓰는 자리라 로봇이 말해 주는 것이 원본이다.
@@ -734,6 +759,12 @@ void BridgeClient::requestGoal(double x, double y, double theta)
     sendRequest(QLatin1String(hmi::ch::kCmdGoto), {{"x", x}, {"y", y}, {"theta", theta}});
 }
 
+void BridgeClient::setInitialPose(double x, double y, double theta)
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdInitialPose),
+                {{"x", x}, {"y", y}, {"theta", theta}});
+}
+
 void BridgeClient::cancelNav()
 {
     sendRequest(QLatin1String(hmi::ch::kCmdNavCancel));
@@ -799,6 +830,29 @@ void BridgeClient::missionStart()
     sendRequest(QLatin1String(hmi::ch::kCmdMissionStart), {{"from_index", 0}});
 }
 
+void BridgeClient::requestMissions()
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdMissionsList));
+}
+
+void BridgeClient::saveMission(const QVariantMap &mission, quint64 expectedRevision)
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdMissionsSave),
+                {{"mission", QJsonObject::fromVariantMap(mission)},
+                 {"expected_revision", double(expectedRevision)}});
+}
+
+void BridgeClient::archiveMission(const QString &id, quint64 expectedRevision)
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdMissionsArchive),
+                {{"id", id}, {"expected_revision", double(expectedRevision)}});
+}
+
+void BridgeClient::startMission(const QString &id)
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdMissionStart), {{"mission_id", id}});
+}
+
 void BridgeClient::missionPause()
 {
     sendRequest(QLatin1String(hmi::ch::kCmdMissionPause));
@@ -852,6 +906,12 @@ void BridgeClient::setArmJointGoal(const QList<double> &q)
     sendRequest(QLatin1String(hmi::ch::kCmdArmJointGoal), {{"positions", arr}});
 }
 
+void BridgeClient::setArmEeGoal(const QVariantMap &pose)
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdArmEeGoal),
+                QJsonObject::fromVariantMap(pose));
+}
+
 void BridgeClient::setArmPreset(const QString &name)
 {
     sendRequest(QLatin1String(hmi::ch::kCmdArmPreset), {{"name", name}});
@@ -860,6 +920,17 @@ void BridgeClient::setArmPreset(const QString &name)
 void BridgeClient::stopArm()
 {
     sendRequest(QLatin1String(hmi::ch::kCmdArmStop));
+}
+
+void BridgeClient::requestArmPosePresets()
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdArmPosePresetsList));
+}
+
+void BridgeClient::saveArmPosePreset(const QVariantMap &preset)
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdArmPosePresetsSave),
+                {{"preset", QJsonObject::fromVariantMap(preset)}});
 }
 
 }  // namespace hmi::net

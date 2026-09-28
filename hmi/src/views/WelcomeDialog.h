@@ -8,8 +8,8 @@
 // It exists so that the audit trail has a name in it. The credential is a
 // placeholder (see auth/Session.h) and this screen is not a security control.
 //
-// The footer repeats where the authority for stopping the robot actually lies,
-// because this is the one screen every operator reads at the start of a shift.
+// Connection details and safety controls belong to the control screen, not
+// the sign-in form.
 
 #include <QDialog>
 

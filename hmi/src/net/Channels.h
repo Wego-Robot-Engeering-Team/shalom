@@ -20,9 +20,11 @@ inline constexpr auto kNav = "state/nav";             ///< 5 Hz
 inline constexpr auto kPlan = "state/plan";           ///< on change
 inline constexpr auto kTrail = "state/trail";         ///< 2 Hz
 inline constexpr auto kArm = "state/arm";             ///< 10 Hz
+inline constexpr auto kArmPosePresets = "state/arm_pose_presets"; ///< named FR3 poses
 inline constexpr auto kApriltag = "state/apriltag";   ///< on detection
 inline constexpr auto kMission = "state/mission";     ///< on change
 inline constexpr auto kWaypoints = "state/waypoints"; ///< on change
+inline constexpr auto kMissions = "state/missions";   ///< robot-owned mission catalogue
 inline constexpr auto kLog = "evt/log";               ///< event
 inline constexpr auto kMap = "map/occupancy";         ///< binary, on change
 inline constexpr auto kPreview = "capture/preview";   ///< binary, on capture
@@ -49,8 +51,12 @@ inline constexpr auto kCmdEstop = "cmd/estop";                  ///< engage only
 inline constexpr auto kCmdEstopRelease = "cmd/estop_release";   ///< manual release only
 inline constexpr auto kCmdMode = "cmd/mode";
 inline constexpr auto kCmdGoto = "cmd/goto";
+inline constexpr auto kCmdInitialPose = "cmd/localization/initial_pose";
 inline constexpr auto kCmdNavCancel = "cmd/nav_cancel";
 inline constexpr auto kCmdWaypointsSet = "cmd/waypoints/set";   ///< replaces the whole list
+inline constexpr auto kCmdMissionsList = "cmd/missions/list";
+inline constexpr auto kCmdMissionsSave = "cmd/missions/save";
+inline constexpr auto kCmdMissionsArchive = "cmd/missions/archive";
 inline constexpr auto kCmdLocationsSet = "cmd/locations/set";   ///< dock and home, whole list
 inline constexpr auto kCmdMarkersSet = "cmd/markers/set";       ///< replaces the whole list
 inline constexpr auto kCmdMapsList = "cmd/maps/list";
@@ -72,6 +78,8 @@ inline constexpr auto kCmdArmPreset = "cmd/arm/preset";
 inline constexpr auto kCmdArmJointGoal = "cmd/arm/joint_goal";
 inline constexpr auto kCmdArmEeGoal = "cmd/arm/ee_goal";
 inline constexpr auto kCmdArmStop = "cmd/arm/stop";
+inline constexpr auto kCmdArmPosePresetsList = "cmd/arm/pose_presets/list";
+inline constexpr auto kCmdArmPosePresetsSave = "cmd/arm/pose_presets/save";
 
 /// Base posture. stand_up | stand_down | balance_stand | recovery_stand | damp.
 /// damp releases the joints, so the robot drops where it stands: the bridge

@@ -22,6 +22,7 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(PathJoinSubstitution([mujoco, "launch", "b2_sim.launch.py"])),
         launch_arguments={
             "viewer": LaunchConfiguration("viewer"),
+            "scene_file": LaunchConfiguration("scene_file"),
             "ground_truth_tf": "false",
         }.items(),
     )
@@ -84,6 +85,11 @@ def generate_launch_description():
             ["file://", PathJoinSubstitution([robot, "config", "cyclonedds.xml"])]),
         DeclareLaunchArgument("robot_id", default_value="SIM-B2-1"),
         DeclareLaunchArgument("robot_name", default_value="B2 simulator"),
+        DeclareLaunchArgument(
+            "scene_file",
+            default_value=PathJoinSubstitution([mujoco, "models", "b2_nav_scene.xml"]),
+            description="MuJoCo scene containing the B2 and its test environment.",
+        ),
         DeclareLaunchArgument("pointcloud_topic", default_value="/b2/points"),
         DeclareLaunchArgument("maps_dir",
                               default_value=PathJoinSubstitution([sim, "maps"]),

@@ -22,6 +22,7 @@
 // ever touched from the network thread.
 
 #include <geometry_msgs/msg/twist.hpp>
+#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <nav2_msgs/action/navigate_to_pose.hpp>
 #include <nav2_msgs/srv/load_map.hpp>
@@ -228,17 +229,21 @@ private:
     // first, sees what the robot is actually working from rather than its own
     // last edit.
     void publishWaypoints();
+    void publishMissions();
+    void publishArmPosePresets();
     void publishLocations();
     void publishMarkers();
     void publishMapCatalog();
     void publishActiveMap();
     bool loadMapBundle(const std::string &map_id, std::string *error = nullptr);
     bool saveMapState(const char *filename, const json &state);
+    bool saveMissions(std::string *error = nullptr);
+    bool saveArmPosePresets(std::string *error = nullptr);
 
     // ---- mission adapter ------------------------------------------------
     /// Converts the robot-owned map bundle into an immutable typed plan.
     std::optional<shalom_interfaces::msg::MissionPlan> makeMissionPlan(
-        std::string *error = nullptr);
+        const json *mission = nullptr, std::string *error = nullptr);
     void configureAndStartMission(const Envelope &request);
     void sendMissionControl(const Envelope &request, uint8_t operation);
     void pauseMissionForManualTakeover();
@@ -334,6 +339,8 @@ private:
     std::string mapsDir_ = "/var/lib/shalom/maps";
 
     json waypoints_ = json::array();
+    json missions_ = json::array();
+    json armPosePresets_ = json::array();
     json markers_ = json::array();
     bool wasConnected_ = false;
 
@@ -397,9 +404,12 @@ private:
 
     /// 마지막으로 보고된 팔 자세. cmd/arm/stop 이 그 자리를 목표로 되쓴다.
     std::vector<double> lastArmPositions_;
+    /// True only after a safety-gated FR3 executor has been integrated.
+    bool armExecutionEnabled_ = false;
 
     // ---- ROS interfaces --------------------------------------------------
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr armCmdPub_;
+    rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initialPosePub_;
     /// Manual-mode hold for the base. Zero velocity at 20 Hz, which is what
     /// keeps twist_mux from falling through to Nav2 while the operator has
     /// taken manual control. The arm has the same source in joint_mux.
