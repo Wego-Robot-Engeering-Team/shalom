@@ -26,6 +26,7 @@
 
 #include <QHash>
 #include <QMainWindow>
+#include <optional>
 
 #include "robot/RobotLink.h"
 #include "panels/LocationPanel.h"
@@ -153,6 +154,9 @@ private:
     /// Keeps the top-bar name and role badge on the current session.
 
     void setMode(const QString &mode);
+    void refreshGoalAvailability();
+    bool canPlaceGoal() const;
+    void showReportedDriveMode();
 
     /// Sends the robot to a taught pose (dock or home). Autonomous driving is
     /// what carries it there, so this switches the mode rather than failing on
@@ -182,6 +186,7 @@ private:
     /// validating it. Rejections and low-confidence captures are logged with
     /// their reason so a bad waypoint can be traced later.
     void captureLocation(const QString &kind);
+    bool submitWaypoints(const QList<QVariantMap> &points);
 
     void startSession();
 
@@ -214,6 +219,8 @@ private:
     ArmPanel *arm_ = nullptr;
     LocationPanel *locations_ = nullptr;
     CapturePanel *capture_ = nullptr;
+    QVariantMap pendingCaptureMetadata_;
+    QString lastCaptureFile_;
     DataPanel *data_ = nullptr;
     DiagnosticsPanel *diagnostics_ = nullptr;
     SettingsDialog *settings_ = nullptr;
@@ -230,17 +237,20 @@ private:
     QHash<QString, QTcpSocket *> activePresenceProbes_;
     bool autoConnectOnPresence_ = true;
 
-    /// What the robot last called itself, and the id it stamps on every frame.
-    /// Kept apart because they answer different questions.
+    /// Robot-reported internal name and ID. The ID is the primary live label;
+    /// the local profile's optional alias is never overwritten by either.
     QString saidName_;
     QString saidId_;
     QPushButton *autoBtn_ = nullptr;
     QPushButton *manualBtn_ = nullptr;
+    bool driveModeConfirmed_ = false;
+    std::optional<hmi::robot::DriveMode> requestedDriveMode_;
     IconButton *themeBtn_ = nullptr;
     IconButton *settingsBtn_ = nullptr;
 
     /// What the map click should produce once placed: empty means a goal pose.
     QString pendingPlacementKind_;
+    bool waypointWritePending_ = false;
 
     RobotSnapshot snapshot_;
     /// Last reported charge. Kept out of RobotSnapshot, which exists to judge
@@ -257,6 +267,10 @@ private:
     hmi::robot::RobotLink *robot_ = nullptr;
     hmi::robot::MapData mapData_;
     QList<QVariantMap> maps_;
+    QString activeMapId_;
+    QString activeMapName_;
+    QString mapExtent_;
+    QString requestedMapId_;
     QList<QVariantMap> missionDefinitions_;
     QString activeMissionId_;
     int activeMissionIndex_ = -1;

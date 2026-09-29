@@ -111,6 +111,48 @@ private slots:
         QVERIFY(result.records.first().isComplete());
     }
 
+    void scan_usesOriginalPointIdFromRobotSidecar()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        writeFile(dir.path() + QStringLiteral("/GTXA-042_05_C01-P03,20260929120000.png"));
+        writeFile(dir.path() + QStringLiteral("/GTXA-042_05_C01-P03,20260929120000.json"),
+                  QStringLiteral(R"({"vehicle_number":"GTXA_042","car_number":"05","point_id":"C01/P03"})"));
+        const auto records = scanDirectory(dir.path()).records;
+        QCOMPARE(records.size(), 1);
+        QCOMPARE(records.first().vehicleNumber, QStringLiteral("GTXA_042"));
+        QCOMPARE(records.first().pointId, QStringLiteral("C01/P03"));
+    }
+
+    void failedDownloadNeverDeletesExistingTarget()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString target = dir.path() + QStringLiteral("/existing.png");
+        writeFile(target, QStringLiteral("original"));
+        QVERIFY(!copyFileAtomically(dir.path() + QStringLiteral("/missing.png"), target));
+        QFile saved(target);
+        QVERIFY(saved.open(QIODevice::ReadOnly));
+        QCOMPARE(saved.readAll(), QByteArray("original"));
+    }
+
+    void downloadCanReplaceExistingTargetAndSameFileSafely()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString source = dir.path() + QStringLiteral("/source.png");
+        const QString target = dir.path() + QStringLiteral("/target.png");
+        writeFile(source, QStringLiteral("new image"));
+        writeFile(target, QStringLiteral("old image"));
+        QVERIFY(copyFileAtomically(source, target));
+        QVERIFY(copyFileAtomically(source, source));
+        for (const auto &path : {source, target}) {
+            QFile saved(path);
+            QVERIFY(saved.open(QIODevice::ReadOnly));
+            QCOMPARE(saved.readAll(), QByteArray("new image"));
+        }
+    }
+
     /// 사이드카는 목록에 따로 올라오면 안 된다. 이미지 수가 두 배로 보인다.
     void scan_doesNotListSidecarsSeparately()
     {

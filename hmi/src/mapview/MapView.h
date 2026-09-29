@@ -44,6 +44,7 @@ public:
     ~MapView() override;
 
     void setMap(const MapInfo &info, const QImage &image);
+    void clearMap();
     const MapInfo *mapInfo() const;
     void fitMap();
 

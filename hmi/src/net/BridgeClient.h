@@ -62,6 +62,8 @@ public:
     void requestMapCatalog();
     void selectMap(const QString &mapId);
     void renameMap(const QString &mapId, const QString &name);
+    void setDefaultMap(const QString &mapId);
+    void deleteMap(const QString &mapId);
 
     // ---- RobotLink ------------------------------------------------------
     void setCmdVel(double vx, double vy, double wz) override;
@@ -106,6 +108,7 @@ public:
     void stopArm() override;
     void requestArmPosePresets() override;
     void saveArmPosePreset(const QVariantMap &preset) override;
+    void updateArmPosePreset(const QVariantMap &preset, quint64 expectedRevision) override;
 
     bool isConnected() const override;
     QString describe() const override;
@@ -113,8 +116,8 @@ public:
 signals:
     /// A map arrived. Separate from telemetry because it is large and rare.
     void mapReceived(const QByteArray &pngBytes, const QJsonObject &meta);
-    /// A photograph was taken: the JPEG bytes and its sidecar metadata.
-    void previewReceived(const QByteArray &jpegBytes, const QJsonObject &meta);
+    /// A photograph was saved: the PNG bytes and its sidecar metadata.
+    void previewReceived(const QByteArray &pngBytes, const QJsonObject &meta);
     void mapsReceived(const QList<QVariantMap> &maps);
     void activeMapReceived(const QVariantMap &map);
 
@@ -211,7 +214,9 @@ private:
     QList<QVariantMap> markers_;
     QVariantMap home_;
     hmi::robot::MissionState mission_ = hmi::robot::MissionState::Idle;
+    bool missionStateSeen_ = false;
     hmi::robot::DriveMode mode_ = hmi::robot::DriveMode::Auto;
+    bool modeReported_ = false;
 
     /// Posture and motion authority as reported by the robot. The UI does
     /// not guess either of them.

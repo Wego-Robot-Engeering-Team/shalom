@@ -56,6 +56,7 @@ public:
     void setArmState(const QList<double> &positions, double manipulability,
                      double sigmaMin, const QString &moveitState = QStringLiteral("idle"));
     void setControlsEnabled(bool on);
+    void setExecutionAvailable(bool available);
     void clearReportedState();
     void setCommandResult(const QString &channel, bool ok, const QString &code,
                           const QString &message);
@@ -72,7 +73,9 @@ signals:
     void eeGoal(const QVariantMap &pose);
     void presetRequested(const QString &name);
     void stopRequested();
-    void savePosePresetRequested(const QString &name, const QList<double> &positions);
+    void savePosePresetRequested(const QString &name, const QString &description,
+                                 const QList<double> &positions);
+    void updatePosePresetRequested(const QVariantMap &preset, quint64 expectedRevision);
 
 private:
     void build3DSection();
@@ -119,6 +122,7 @@ private:
     QVBoxLayout *controlsLayout_ = nullptr;
     QComboBox *savedPresets_ = nullptr;
     QPushButton *loadSavedPreset_ = nullptr;
+    QPushButton *editSavedPreset_ = nullptr;
     QPushButton *jointSend_ = nullptr;
     QPushButton *eeSend_ = nullptr;
 
@@ -143,6 +147,7 @@ private:
     bool eeReachable_ = true;
     bool hasPendingGoal_ = false;
     bool controlsEnabled_ = false;
+    bool executionAvailable_ = false;
     void refreshCommandControls();
     robot::PoseWarning lastWarning_;
 };

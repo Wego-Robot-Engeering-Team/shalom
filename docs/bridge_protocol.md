@@ -62,7 +62,7 @@
 |---|---|
 | `state/pose` | 위치·방향 |
 | `state/battery` | 배터리 |
-| `state/system` | CPU·GPU·네트워크 |
+| `state/system` | CPU·GPU·네트워크 및 촬영·팔 실행기 활성 여부 |
 | `state/safety` | E-Stop·운용 모드 |
 | `state/nav` | 주행 상태·목표 |
 | `state/plan` | 계획 경로 |
@@ -78,11 +78,11 @@
 | `state/markers` | 측량된 AprilTag 자리 |
 | `state/maps` | 로봇이 보유한 지도 목록 |
 | `state/active_map` | 로봇이 현재 사용하는 지도 |
-| `state/capture_spool` | 촬영 업로드 상태 |
+| `state/capture_spool` | 촬영 공유 저장소 상태 (기존 채널명 유지) |
 | `state/health` | 센서·링크 상태 |
 | `evt/log` | 이벤트·경고 |
 | `map/occupancy` | PNG 점유격자 |
-| `capture/preview` | JPEG 미리보기 |
+| `capture/preview` | 저장된 PNG 미리보기 |
 
 `map/occupancy`는 `width`, `height`, `resolution`, `origin`, `encoding: "png"`을
 `p`에 넣고 PNG를 payload로 보낸다. `capture/preview`도 metadata를 `p`에 넣고
@@ -92,11 +92,25 @@
 `total`, `reason_code`를 보낸다. 진행 인덱스와 총 단계 수는 로봇의 실행 계획 기준이며
 저장된 Waypoint 목록의 순서나 크기와 같다고 가정하지 않는다.
 
-`state/maps`의 각 항목은 `id`, `name`, `created_at`, `active`, `waypoint_count`를
-가진다. `id`는 지도 디렉터리의 변경하지 않는 식별자이고, `name`은 로봇의
-`metadata.json`에 저장된 표시 이름이다. HMI는 로봇 파일 시스템을 직접 읽지 않고 이
+`state/maps`의 각 항목은 `id`, `name`, `created_at`(기록된 경우), `active`,
+`default`, `waypoint_count`를
+가진다. `id`와 `name`은 지도 폴더 이름이다. HMI는 로봇 파일 시스템을 직접 읽지 않고 이
 목록만 표시한다. 지도 전환이 성공하면 브릿지는 `state/active_map`과 선택된 지도 기준의 `map/occupancy`,
 `state/waypoints`, `state/locations`, `state/markers`, `state/missions`를 다시 보낸다.
+
+`state/waypoints`와 `cmd/waypoints/set`의 각 지점에는 안정적인 `id`, 조작자가 지정한
+`name`, 지도 좌표계의 `x`·`y`(m), `theta`(라디안, 도착 시 바라볼 yaw)를 사용한다.
+HMI는 방향을 도(°)로 표시·편집하고 전송할 때 라디안으로 변환한다. 이전 지도에
+`name` 또는 `theta`가 없는 지점은 다시 저장할 때 각각 ID와 0을 채운다.
+`status`는 저장 파일의 필드가 아니라 현재 미션에서 계산해 `state/waypoints`에만
+보내는 화면용 상태다. 브리지는 저장 요청에 포함된 `status`를 제거한다.
+`state/trail`은 현재 이동 작업의 경로다. 새 개별 주행 목표가 Nav2에 수락되거나
+미션이 `RUNNING`으로 전환되면 `reset=true`와 빈 점 목록을 발행한다. 초기 위치
+지정 때도 경로를 지우고, 새 AMCL 위치가 TF에 반영된 뒤부터 다시 기록한다.
+미션 내부 단계·일시정지·재개·완료에서는 경로를 유지한다.
+지도 선택 전에 브리지는 `metadata.json`의 `schema_version` 1·2와
+`waypoints.json`·`locations.json`·`markers.json`·`missions.json`의 버전 1을 확인한다.
+지원하지 않는 버전이면 현재 지도를 유지하고 전환을 거부한다.
 
 ### 2D 초기 위치 추정
 
@@ -123,11 +137,28 @@ executor가 연결되어 있지 않으면 미션 전체를 시작 전에 거절�
 ### 로봇 소유 팔 자세 프리셋
 
 `state/arm_pose_presets`는 `{ "presets": [...] }`를 보내며 각 항목은 `id`, `name`,
-`positions`(FR3 6축 라디안), `archived`를 가진다. 로봇의 `mapsDir` 아래
+`description`, `positions`(FR3 6축 라디안), `revision`, `archived`를 가진다. 로봇의 `mapsDir` 아래
 `arm_pose_presets.json`에 저장하며 지도와 무관하다. `cmd/arm/pose_presets/list`로
 목록을 요청하고 `cmd/arm/pose_presets/save`에 `{ "preset": { … } }`를 보내 추가한다.
+수정은 `cmd/arm/pose_presets/update`에 `preset`과 `expected_revision`을 보내며,
+로봇이 저장에 성공한 뒤 다시 발행한 목록으로 HMI를 갱신한다. 다른 HMI가 먼저
+수정했다면 revision 불일치로 거절한다.
 저장은 관절 수와 FR3 관절 한계를 로봇에서 다시 검사한다. HMI에서 프리셋을 불러오면
 목표값과 3D 미리보기만 바뀌며, 실제 동작은 별도의 관절 목표 전송으로 요청한다.
+
+### 로봇 지도 목록
+
+`state/maps`는 로봇의 지도 디렉터리를 조회한 목록이며 각 항목의 `id`와 `name`은
+폴더 이름이다. `cmd/maps/rename`은 폴더를 실제로 바꾸고 지도별 JSON의 `map_id` 및
+미션의 지도 참조도 갱신한다. 팔 자세 프리셋은 지도 밖에 있어 영향받지 않는다.
+`cmd/maps/delete`는 사용 중이 아니고 시작 지도도 아닌 지도 폴더 전체를 로봇의
+`mapsDir/.trash`로 옮긴다. 폴더 안의 웨이포인트와 미션도 함께 보관되며 일반 목록에서는
+빠진다. `cmd/maps/select`가 성공하면 로봇이 새 지도의 웨이포인트·미션을 발행한다.
+`cmd/maps/list`는 목록과 현재 지도의 웨이포인트·미션·고정 위치·마커·이미지를
+함께 재발행한다. HMI가 빠르게 재접속해도 지도별 자료를 다시 받을 수 있다.
+`cmd/maps/set_default`는 `{"id":"지도 폴더명"}`을 받아 로봇의
+`maps_dir/default_map.json`을 갱신한다. 빈 ID는 기본 지도 해제다. 현재 실행 중인
+지도는 바꾸지 않으며 다음 기동부터 적용된다.
 
 ### `state/mission` 의 상태 값
 
@@ -169,7 +200,10 @@ executor가 연결되어 있지 않으면 미션 전체를 시작 전에 거절�
 | `cmd/markers/set` | 마커 전체 설정 |
 | `cmd/maps/list` | 로봇 지도 목록 요청 |
 | `cmd/maps/select` | `id`로 로봇의 활성 지도 전환 |
-| `cmd/maps/rename` | `id`의 로봇 측 표시 이름 변경 |
+| `cmd/maps/rename` | `id`의 지도 폴더 이름 변경 (`name`: 새 폴더 이름) |
+| `cmd/maps/set_default` | 다음 기동에 사용할 기본 지도 지정·해제 (`id` 빈 값은 해제) |
+| `cmd/maps/delete` | 비활성 지도 전체를 로봇의 `.trash`로 보관 |
+| `cmd/trail/snapshot` | 재접속한 HMI에 해당 로봇의 최근 주행 궤적을 `reset=true`로 재전송 |
 | `cmd/power/policy` | 배터리 복귀·출발 기준 |
 | `cmd/mission/start` | 점검 시작 |
 | `cmd/mission/pause` | 점검 일시정지 |
@@ -181,6 +215,7 @@ executor가 연결되어 있지 않으면 미션 전체를 시작 전에 거절�
 | `cmd/arm/stop` | 암 정지 |
 | `cmd/arm/pose_presets/list` | 로봇 팔 자세 프리셋 목록 요청 |
 | `cmd/arm/pose_presets/save` | 사용자 팔 자세 프리셋 추가 |
+| `cmd/arm/pose_presets/update` | 팔 자세 이름·설명·관절값 수정 (`expected_revision` 필요) |
 | `cmd/base/posture` | 본체 자세 전환 (앉기·일어서기) |
 | `cmd/capture/trigger` | 촬영 |
 
@@ -271,9 +306,11 @@ E-Stop 과 정지의 차이는 게이트가 만든다. `controlled_stop`·`fault
 - `cmd/capture/trigger`로 촬영을 요청한다. 로봇은 움직이는 중이면 `E_MODE`로
   거절한다 — 과업지시서 2.2.4가 정지 상태 촬영을 요구하므로, 화면이 버튼을
   잠그는 것과 별개로 규칙 자체는 로봇이 지킨다.
-- 저장 파일명은 `차량번호_량번호_포인트ID,YYYYMMDDHHMMSS.jpg`이고, 같은
+- 저장 파일명은 `차량번호_량번호_포인트ID,YYYYMMDDHHMMSS.png`이고, 같은
   이름의 `.json`에 로봇좌표·촬영거리·Apriltag ID가 들어간다.
-- 원본은 로컬 스풀에 보관하고, NAS 체크섬 검증 뒤 삭제한다.
+- 로봇과 HMI는 같은 NAS 공유 폴더를 각각 마운트한다. 로봇은 마운트가 없으면
+  촬영을 거절하고 로컬 폴더에 성공한 것처럼 저장하지 않는다. 현재 구현에는
+  오프라인 업로드 대기열이 없다.
 - `dock`, `home`, 점검 지점은 로봇이 보관한다.
 - `state/health`는 센서별 `expected_hz`, `actual_hz`, `last_seen_ms`, `state`와 링크 지표를 보낸다.
 

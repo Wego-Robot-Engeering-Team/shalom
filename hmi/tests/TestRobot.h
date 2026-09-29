@@ -19,7 +19,11 @@ public:
     void setCmdVel(double, double, double) override {}
     void requestGoal(double, double, double) override {}
     void cancelNav() override {}
-    void setWaypoints(const QList<QVariantMap> &waypoints) override { waypoints_ = waypoints; }
+    void setWaypoints(const QList<QVariantMap> &waypoints) override
+    {
+        waypoints_ = waypoints;
+        emit waypointsChanged(waypoints_);
+    }
     void setLocations(const QList<QVariantMap> &) override {}
     void setMarkers(const QList<QVariantMap> &) override {}
     void setBatteryPolicy(double, double) override {}

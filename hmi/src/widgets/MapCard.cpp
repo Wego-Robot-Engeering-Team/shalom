@@ -7,12 +7,14 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QEvent>
+#include <QFontMetrics>
 #include <QResizeEvent>
 #include <QVBoxLayout>
 
 #include "mapview/MapView.h"
 #include "theme/Tokens.h"
 #include "widgets/MapLegend.h"
+#include "widgets/IconButton.h"
 #include "widgets/Primitives.h"
 
 namespace hmi::ui {
@@ -58,17 +60,30 @@ MapCard::MapCard(QWidget *parent) : QWidget(parent)
         "저장된 지도에서 로봇의 초기 위치와 방향을 지정합니다"));
     tb->addWidget(poseEstimate_);
 
-    mapButton_ = new QPushButton(QStringLiteral("지도 선택"));
+    mapControls_ = new QWidget(this);
+    auto *mapControlsLayout = new QHBoxLayout(mapControls_);
+    mapControlsLayout->setContentsMargins(0, 0, 0, 0);
+    mapControlsLayout->setSpacing(metrics::s1);
+    mapButton_ = new QPushButton(QStringLiteral("지도 없음 ▾"), mapControls_);
+    mapButton_->setObjectName(QStringLiteral("CurrentMapButton"));
     mapButton_->setProperty("size", "sm");
+    mapButton_->setMinimumWidth(150);
+    mapButton_->setMaximumWidth(250);
     mapButton_->setEnabled(false);
-    mapButton_->setToolTip(QStringLiteral("연결된 로봇의 지도를 선택합니다"));
-    tb->addWidget(mapButton_);
+    mapButton_->setToolTip(QStringLiteral("현재 지도와 저장된 지도 목록"));
+    refreshButton_ = new IconButton(IconButton::Glyph::Refresh, mapControls_);
+    refreshButton_->setObjectName(QStringLiteral("RefreshMapListButton"));
+    refreshButton_->setEnabled(false);
+    refreshButton_->setToolTip(QStringLiteral("지도 목록 새로고침"));
+    mapControlsLayout->addWidget(mapButton_);
+    mapControlsLayout->addWidget(refreshButton_);
 
     // "전체 보기" 버튼은 뺐다. 확대를 되돌리는 일이 툴바 한 자리를 늘 차지할
     // 만큼 잦지 않다. 지도를 두 번 누르면 같은 일을 한다.
     tb->addSpacing(metrics::s3);
     mapLabel_ = new QLabel(QStringLiteral("지도 없음"));
     mapLabel_->setObjectName(QStringLiteral("Hint"));
+    mapLabel_->hide();
     tb->addWidget(mapLabel_);
 
     // 범례. 한 번 묻고 마는 것이라 구석에 작게 둔다.
@@ -92,7 +107,8 @@ MapCard::MapCard(QWidget *parent) : QWidget(parent)
         readout_->setText(QStringLiteral("%1, %2").arg(x, 7, 'f', 2).arg(y, 7, 'f', 2));
         readout_->show();
         readout_->adjustSize();
-        readout_->move(width() - readout_->width() - metrics::s3, metrics::s3);
+        readout_->move(width() - readout_->width() - metrics::s3,
+                       mapControls_->y() + mapControls_->height() + metrics::s1);
     });
 }
 
@@ -113,8 +129,34 @@ void MapCard::addModeButtons(QWidget *autoBtn, QWidget *manualBtn)
 
 void MapCard::setMapLabel(const QString &mapId, const QString &extent)
 {
-    mapLabel_->setText(QStringLiteral("%1 · %2").arg(mapId, extent));
+    const QString name = mapId == QLatin1String("live")
+        ? QStringLiteral("실시간 지도") : mapId;
+    const QString shown = name.isEmpty() ? QStringLiteral("지도 없음") : name;
+    mapButton_->setText(mapButton_->fontMetrics().elidedText(
+        shown, Qt::ElideRight, 190) + QStringLiteral(" ▾"));
+    mapButton_->setToolTip(shown + QStringLiteral(" · 클릭하여 지도 선택"));
+    mapLabel_->setText(extent);
+    mapLabel_->setVisible(!extent.isEmpty());
     toolbar_->adjustSize();
+    positionMapControls();
+}
+
+void MapCard::setMapListEnabled(bool enabled)
+{
+    mapButton_->setEnabled(enabled);
+    refreshButton_->setEnabled(enabled);
+}
+
+void MapCard::positionMapControls()
+{
+    mapControls_->adjustSize();
+    const int x = width() - mapControls_->width() - metrics::s3;
+    const int y = toolbar_->width() + mapControls_->width() + metrics::s3 * 3 > width()
+        ? metrics::s3 + toolbar_->height() + metrics::s1 : metrics::s3;
+    mapControls_->move(x, y);
+    if (readout_->isVisible())
+        readout_->move(width() - readout_->width() - metrics::s3,
+                       y + mapControls_->height() + metrics::s1);
 }
 
 void MapCard::setPlacementHint(const QString &text)
@@ -140,12 +182,14 @@ void MapCard::resizeEvent(QResizeEvent *ev)
     QWidget::resizeEvent(ev);
     toolbar_->adjustSize();
     toolbar_->move(metrics::s3, metrics::s3);
+    positionMapControls();
 
     legend_->move(width() - legend_->width() - metrics::s3,
                   height() - legend_->height() - metrics::s3);
     if (readout_->isVisible()) {
         readout_->adjustSize();
-        readout_->move(width() - readout_->width() - metrics::s3, metrics::s3);
+        readout_->move(width() - readout_->width() - metrics::s3,
+                       mapControls_->y() + mapControls_->height() + metrics::s1);
     }
     if (hint_->isVisible()) {
         hint_->adjustSize();

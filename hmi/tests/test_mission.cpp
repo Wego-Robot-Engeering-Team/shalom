@@ -2,12 +2,15 @@
 // SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
 #include <QAbstractItemView>
+#include <QApplication>
+#include <QInputDialog>
 #include <QLabel>
 #include <QListWidget>
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QTableWidget>
 #include <QTest>
+#include <QTimer>
 
 #include "panels/MissionLibraryPanel.h"
 #include "panels/MissionPanel.h"
@@ -41,7 +44,7 @@ private slots:
         panel.setMapId(QStringLiteral("map-1"));
         panel.setMissions({mission({QVariantMap{{"id", "move-1"}, {"type", "navigate"},
                                          {"location_id", "wp-1"}}})});
-        auto *run = button(panel, QStringLiteral("실행"));
+        auto *run = button(panel, QStringLiteral("선택 미션 실행"));
         QVERIFY(run);
         QVERIFY2(run->isEnabled(), qPrintable(run->toolTip()));
         QSignalSpy spy(&panel, &MissionLibraryPanel::runRequested);
@@ -58,7 +61,7 @@ private slots:
                                          {"location_id", "wp-1"}},
                                     QVariantMap{{"id", "photo-1"}, {"type", "capture"},
                                                 {"preset", "detail"}}})});
-        auto *run = button(panel, QStringLiteral("실행"));
+        auto *run = button(panel, QStringLiteral("선택 미션 실행"));
         auto *save = button(panel, QStringLiteral("저장"));
         QVERIFY(run && save);
         QVERIFY(!run->isEnabled());
@@ -99,7 +102,7 @@ private slots:
                                                 {"requires", QStringList{QStringLiteral("nav")}}}});
         stored[QStringLiteral("description")] = QStringLiteral("차량 하부 점검");
         panel.setMissions({stored});
-        auto *run = button(panel, QStringLiteral("실행"));
+        auto *run = button(panel, QStringLiteral("선택 미션 실행"));
         auto *save = button(panel, QStringLiteral("저장"));
         QVERIFY(run && save);
         QVERIFY(run->isEnabled());
@@ -124,6 +127,7 @@ private slots:
         QVERIFY(list && go);
         QCOMPARE(list->dragDropMode(), QAbstractItemView::NoDragDrop);
         QSignalSpy spy(&panel, &WaypointPanel::gotoRequested);
+        panel.setEditingEnabled(true);
         list->setCurrentRow(0);
         go->click();
         QCOMPARE(spy.size(), 1);
@@ -154,6 +158,58 @@ private slots:
                      .value(QStringLiteral("id")).toString(), QStringLiteral("second"));
     }
 
+    void refreshingMissionsPreservesDraftUntilRobotStoresIt()
+    {
+        MissionLibraryPanel panel;
+        panel.setMapId(QStringLiteral("map-1"));
+        const QVariantMap stored = mission({QVariantMap{{"id", "move-1"},
+            {"type", "navigate"}, {"location_id", "wp-1"}}});
+        panel.setMissions({stored});
+        auto *name = panel.findChild<QLineEdit *>();
+        auto *save = button(panel, QStringLiteral("저장"));
+        QVERIFY(name && save);
+        name->setText(QStringLiteral("수정 중인 이름"));
+
+        panel.setMissions({stored});
+        QCOMPARE(name->text(), QStringLiteral("수정 중인 이름"));
+        QSignalSpy saves(&panel, &MissionLibraryPanel::saveRequested);
+        save->click();
+        QCOMPARE(saves.size(), 1);
+        QCOMPARE(saves.last().at(1).toULongLong(), 1ULL);
+
+        QVariantMap updated = stored;
+        updated[QStringLiteral("name")] = QStringLiteral("수정 중인 이름");
+        updated[QStringLiteral("revision")] = 2;
+        panel.setMissions({updated});
+        QCOMPARE(name->text(), QStringLiteral("수정 중인 이름"));
+        save->click();
+        QCOMPARE(saves.size(), 2);
+        QCOMPARE(saves.last().at(1).toULongLong(), 2ULL);
+    }
+
+    void stepTargetCanBeChosenByWaypointName()
+    {
+        MissionLibraryPanel panel;
+        panel.setMapId(QStringLiteral("map-1"));
+        panel.setWaypoints({QVariantMap{{"id", "wp-1"}, {"name", "입구"}},
+                            QVariantMap{{"id", "wp-2"}, {"name", "후면"}}});
+        button(panel, QStringLiteral("새 미션"))->click();
+        button(panel, QStringLiteral("단계 추가"))->click();
+        auto *steps = panel.findChild<QTableWidget *>(QStringLiteral("MissionSteps"));
+        auto *choose = button(panel, QStringLiteral("대상 선택"));
+        QVERIFY(steps && choose);
+        steps->selectRow(0);
+        QVERIFY(choose->isEnabled());
+        QTimer::singleShot(0, [] {
+            auto *dialog = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+            QVERIFY(dialog);
+            dialog->setTextValue(QStringLiteral("후면  (wp-2)"));
+            dialog->accept();
+        });
+        choose->click();
+        QCOMPARE(steps->item(0, 2)->text(), QStringLiteral("wp-2"));
+    }
+
     void missionLibraryFitsNarrowContextColumn()
     {
         MissionLibraryPanel panel;
@@ -176,14 +232,44 @@ private slots:
     void missionProgressDoesNotUseCatalogOrder()
     {
         MissionPanel panel;
+        auto *pauseResume = panel.findChild<QPushButton *>(
+            QStringLiteral("MissionPauseResumeButton"));
+        auto *cancel = panel.findChild<QPushButton *>(
+            QStringLiteral("MissionCancelButton"));
+        QVERIFY(pauseResume && cancel);
+        QVERIFY(pauseResume->isHidden());
+        QVERIFY(cancel->isHidden());
+        for (const auto *button : panel.findChildren<QPushButton *>())
+            QVERIFY(button->text() != QStringLiteral("미션 선택"));
         panel.setProgress(QStringLiteral("정기 점검"), 1, 3,
                           {QStringLiteral("후면"), QStringLiteral("전면"), QStringLiteral("복귀 전")});
         panel.setMissionState(QStringLiteral("running"));
+        QVERIFY(!pauseResume->isHidden());
+        QVERIFY(!cancel->isHidden());
         const auto labels = panel.findChildren<QLabel *>();
         bool found = false;
         for (const auto *label : labels)
             found |= label->text().contains(QStringLiteral("2. 전면"));
         QVERIFY(found);
+        auto *currentMission = panel.findChild<QLabel *>(QStringLiteral("CurrentMissionName"));
+        auto *nextMission = panel.findChild<QLabel *>(QStringLiteral("NextMissionName"));
+        QVERIFY(currentMission && nextMission);
+        QCOMPARE(currentMission->text(), QStringLiteral("정기 점검"));
+        QCOMPARE(nextMission->text(), QStringLiteral("예약된 미션 없음"));
+        auto *pause = button(panel, QStringLiteral("일시정지"));
+        QVERIFY(pause && pause->isEnabled());
+        QSignalSpy pauseRequested(&panel, &MissionPanel::missionPause);
+        pause->click();
+        QCOMPARE(pauseRequested.size(), 1);
+        panel.setMissionState(QStringLiteral("paused"));
+        auto *resume = button(panel, QStringLiteral("미션 재개"));
+        QVERIFY(resume && resume->isEnabled());
+        QSignalSpy resumeRequested(&panel, &MissionPanel::missionResume);
+        resume->click();
+        QCOMPARE(resumeRequested.size(), 1);
+        panel.setMissionState(QStringLiteral("completed"));
+        QVERIFY(pauseResume->isHidden());
+        QVERIFY(cancel->isHidden());
     }
 };
 

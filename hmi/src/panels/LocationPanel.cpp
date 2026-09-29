@@ -70,44 +70,16 @@ LocationPanel::LocationPanel(QWidget *parent) : QWidget(parent)
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
 
-    card_ = new Card(QStringLiteral("위치 등록"));
+    card_ = new Card(QStringLiteral("고정 위치와 마커"));
     ready_ = new Badge(QStringLiteral("대기"), QStringLiteral("neutral"));
     card_->addHeaderWidget(ready_);
     outer->addWidget(card_);
 
-    // ---- 점검포인트 추가 ----
-    card_->body()->addWidget(sectionLabel(QStringLiteral("점검포인트 추가")));
-
-    auto *addRow = new QHBoxLayout;
-    addRow->setSpacing(metrics::s2);
-
-    auto *fromRobot = new QPushButton(QStringLiteral("로봇 위치로 추가"));
-    fromRobot->setProperty("variant", "primary");
-    fromRobot->setToolTip(QStringLiteral(
-        "로봇이 서 있는 자세를 그대로 저장합니다.\n"
-        "도달 가능성이 이미 검증된 좌표라 지도 클릭보다 정확합니다."));
-    connect(fromRobot, &QPushButton::clicked, this,
-            [this] { emit captureFromRobot(QStringLiteral("inspection")); });
-
-    auto *fromMap = new QPushButton(QStringLiteral("지도에서 추가"));
-    fromMap->setToolTip(QStringLiteral(
-        "지도를 클릭해 위치를, 드래그해 방향을 지정합니다.\n"
-        "도달 가능 여부는 확인되지 않습니다."));
-    connect(fromMap, &QPushButton::clicked, this,
-            [this] { emit captureFromMap(QStringLiteral("inspection")); });
-
-    addRow->addWidget(fromRobot, 1);
-    addRow->addWidget(fromMap, 1);
-    card_->body()->addLayout(addRow);
-    captureButtons_ << fromRobot;
-
+    // 웨이포인트 추가는 바로 아래 Waypoints 카드 한 곳에서만 시작한다.
     hint_ = new QLabel;
     hint_->setObjectName(QStringLiteral("Hint"));
     hint_->setWordWrap(true);
     card_->body()->addWidget(hint_);
-
-    card_->body()->addSpacing(metrics::s2);
-    card_->body()->addWidget(new HLine);
 
     // ---- 고정 위치 ----
     card_->body()->addWidget(sectionLabel(QStringLiteral("주요 지점")));
@@ -149,7 +121,7 @@ QWidget *LocationPanel::buildMarkerSection()
 
     auto *row = new QHBoxLayout;
     row->setSpacing(metrics::s2);
-    auto *add = new QPushButton(QStringLiteral("지도에서 추가"));
+    auto *add = new QPushButton(QStringLiteral("마커 위치 지정"));
     add->setProperty("size", "sm");
     markerDelete_ = new QPushButton(QStringLiteral("삭제"));
     markerDelete_->setProperty("size", "sm");
@@ -254,7 +226,7 @@ void LocationPanel::setSnapshot(const RobotSnapshot &snap)
 
 void LocationPanel::refreshEnabled()
 {
-    const CaptureCheck check = checkCapture(snap_, QStringLiteral("inspection"));
+    const CaptureCheck check = checkCapture(snap_, QStringLiteral("dock"));
 
     for (auto *b : std::as_const(captureButtons_))
         b->setEnabled(check.allowed);

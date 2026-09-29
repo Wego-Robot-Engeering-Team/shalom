@@ -15,7 +15,7 @@
 | `state/battery` | 1 Hz | |
 | `state/system` | 1 Hz | |
 | `state/health` | 1 Hz | |
-| `state/capture_spool` | 촬영 시 | |
+| `state/capture_spool` | 1 Hz 및 촬영 시 | |
 | `state/safety` | 변경 시 + 1 Hz | |
 | `state/base` | 변경 시 | |
 | `state/mission` | 변경 시 | |
@@ -108,10 +108,13 @@
 {"cpu_pct": 41.2, "mem_pct": 55.0, "cpu_temp_c": 62.0,
  "gpu_pct": 18.0, "gpu_temp_c": 58.0,
  "net_rtt_ms": 3.2, "net_rssi": -47,
- "robot_id": "R1", "robot_name": "1호기"}
+ "robot_id": "R1", "robot_name": "1호기",
+ "capture_enabled": true, "arm_execution_enabled": false}
 ```
 
 사람이 읽을 로봇 이름이 실리는 유일한 채널이다.
+`capture_enabled`와 `arm_execution_enabled`는 로봇 브리지가 보고하는 기능 활성 여부다.
+HMI는 비활성 기능의 실행 버튼을 열지 않는다. 팔 자세 미리보기와 저장은 별개다.
 
 ## `state/arm`
 
@@ -122,6 +125,8 @@
 ```
 
 관절각은 라디안이다. 세 배열의 길이와 순서는 같다.
+`manipulability`·`sigma_min`·`moveit_state`는 실제 제어기가 보고할 때만 보낸다.
+없으면 HMI는 조작성 경고나 동작 상태를 추측하지 않는다.
 
 ## `state/mission` — 점검 시나리오
 
@@ -150,8 +155,8 @@
 {"points": [{"id": "P03", "x": 2.1, "y": 0.4, "theta": 1.57, "status": "done"}]}
 ```
 
-목록 전체가 매번 온다. 로봇이 보관하는 값이며 `status` 는 진행에 따라 로봇이
-갱신한다.
+목록 전체가 매번 온다. 지점의 이름·좌표는 로봇에 저장되지만 `status`는 저장하지
+않는다. 브리지가 현재 미션 상태에서 계산해 화면에 보낼 때만 붙인다.
 
 ## `state/locations` — home 과 dock
 
@@ -174,15 +179,16 @@
 ## `state/maps` — 보관 중인 지도 목록
 
 ```json
-{"maps": [{"id": "2026-09-07", "name": "차량기지 A동", "active": true,
+{"maps": [{"id": "inspection_a", "name": "inspection_a", "active": true,
            "waypoint_count": 12, "created_at": "2026-09-07T10:22:00Z"}]}
 ```
 
 | 필드 | 설명 |
 |---|---|
-| `id` | 지도 식별자. `cmd/maps/select` 에 그대로 쓴다. 변경하지 않는다 |
-| `name` | 사람이 읽을 이름. 로봇의 `metadata.json`에 저장되며 `cmd/maps/rename`으로 바꾼다. 파일이 없으면 `id`와 같다 |
+| `id` | 지도 폴더 이름. `cmd/maps/select`에 그대로 쓴다. 이름을 바꾸면 함께 바뀐다 |
+| `name` | HMI 표시 이름. 현재는 폴더 이름과 같다 |
 | `active` | 현재 쓰는 지도인지 |
+| `default` | 다음 기동에 자동으로 열 기본 지도인지 |
 | `waypoint_count` | 그 지도에 등록된 점검포인트 수 |
 | `created_at` | 생성 시각. 없을 수 있다 |
 
@@ -191,7 +197,7 @@
 ## `state/active_map` — 현재 지도
 
 ```json
-{"id": "2026-09-07", "name": "차량기지 A동"}
+{"id": "inspection_a", "name": "inspection_a"}
 ```
 
 `map/occupancy` 의 `map_id` 와 같은 값이다. 둘이 다르면 지도가 바뀌는 중이다.
@@ -204,6 +210,9 @@
 
 `state/plan` 은 계획 경로, `state/trail` 은 지나온 궤적이다. `state/trail` 에는
 `reset` 이 함께 오며, `true` 면 클라이언트는 기존 궤적을 버리고 새로 그린다.
+새 주행 목표가 수락되거나 새 미션이 실제로 시작될 때, 또는 2D 초기 위치를 다시
+지정할 때 경로를 초기화한다. 미션 단계 이동·일시정지·재개·완료는 초기화하지 않는다.
+초기 위치 재지정 후에는 새 AMCL 위치가 TF에 반영될 때까지 기록을 보류한다.
 
 ## `state/health` — 센서와 링크
 
@@ -226,14 +235,15 @@
 
 `last_seen_ms` 는 한 번도 못 본 센서에서 `null` 이다.
 
-## `state/capture_spool` — 촬영 업로드
+## `state/capture_spool` — 촬영 공유 저장소
 
 ```json
-{"nas_online": true, "pending": 4, "spool_free_mb": 18240.5}
+{"nas_online": true, "pending": 0, "spool_free_mb": 18240.5}
 ```
 
-원본은 로봇에서 NAS 로 직접 보낸다. 이 채널이 점검이 실제로 끝났는지 알 수 있는
-유일한 근거다 — 사진이 다 찍혔어도 업로드가 밀려 있으면 끝난 것이 아니다.
+`nas_online`은 설정된 NAS 마운트가 로봇에서 확인되는지 나타낸다.
+`spool_free_mb`는 해당 저장소의 남은 용량이다. 기존 키 이름은 호환성을 위해
+유지하지만, 원본을 공유 폴더에 직접 저장하므로 `pending`은 항상 0이다.
 
 ## `map/occupancy` — 점유격자
 

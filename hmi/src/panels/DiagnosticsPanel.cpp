@@ -130,7 +130,7 @@ DiagnosticsPanel::DiagnosticsPanel(QWidget *parent) : QWidget(parent)
     // ---- 저장 ----
     auto *storageCard = new Card(QStringLiteral("촬영 데이터"));
     nas_ = metricRow(storageCard->body(), QStringLiteral("저장 장치"));
-    spool_ = metricRow(storageCard->body(), QStringLiteral("업로드 대기"));
+    spool_ = metricRow(storageCard->body(), QStringLiteral("저장 공간"));
 
     outer->addWidget(storageCard);
 
@@ -187,14 +187,12 @@ void DiagnosticsPanel::setSystem(double cpu, double gpu, double mem, double cpuT
     gpuTemp_->setReading(gpuTemp);
 }
 
-void DiagnosticsPanel::setStorage(bool nasOnline, int pendingUploads, double spoolFreeMb)
+void DiagnosticsPanel::setStorage(bool nasOnline, int /*pendingUploads*/, double spoolFreeMb)
 {
     nas_->setText(nasOnline ? QStringLiteral("연결됨") : QStringLiteral("끊김"));
-    spool_->setText(pendingUploads == 0
-                        ? QStringLiteral("없음  ·  여유 %1 GB").arg(spoolFreeMb / 1024, 0, 'f', 1)
-                        : QStringLiteral("%1건  ·  여유 %2 GB")
-                              .arg(pendingUploads)
-                              .arg(spoolFreeMb / 1024, 0, 'f', 1));
+    spool_->setText(nasOnline
+        ? QStringLiteral("여유 %1 GB").arg(spoolFreeMb / 1024, 0, 'f', 1)
+        : QStringLiteral("확인 불가"));
 }
 
 }  // namespace hmi::ui

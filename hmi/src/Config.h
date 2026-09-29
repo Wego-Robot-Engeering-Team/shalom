@@ -27,7 +27,7 @@ namespace hmi {
 /// the same protocol either way, and pretending otherwise would mean the
 /// screen shows something the robot never said.
 struct RobotEntry {
-    QString name;   ///< what the operator calls it
+    QString name;   ///< optional local alias; the robot-reported ID is authoritative
     QString host;
     int port = 9090;
 };

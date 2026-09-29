@@ -1,6 +1,6 @@
 robot:
   id: "SE-0001"
-  date: "2024-06-01" # 납품 일자
+  date: "2027-03-15" # 납품 일자
   ip_address: "" # local IP address of the robot.
   developer: "WeGo Robotics"
   

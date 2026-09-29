@@ -7,6 +7,7 @@
 #include <QPainter>
 #include <QStyle>
 #include <QStyleOptionViewItem>
+#include <QtMath>
 
 #include "mapview/MapItems.h"
 #include "theme/Tokens.h"
@@ -76,9 +77,10 @@ void WaypointDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
     QFont fm = monoFont(9);
     p->setFont(fm);
     p->setPen(QColor(C.textMute));
-    QString sub = QStringLiteral("%1, %2")
+    QString sub = QStringLiteral("x %1  ·  y %2  ·  방향 %3°")
                       .arg(d.value(QStringLiteral("x")).toDouble(), 0, 'f', 2)
-                      .arg(d.value(QStringLiteral("y")).toDouble(), 0, 'f', 2);
+                      .arg(d.value(QStringLiteral("y")).toDouble(), 0, 'f', 2)
+                      .arg(qRadiansToDegrees(d.value(QStringLiteral("theta")).toDouble()), 0, 'f', 1);
     if (d.contains(QStringLiteral("tag_id")))
         sub += QStringLiteral("   마커 %1").arg(d.value(QStringLiteral("tag_id")).toInt());
     p->drawText(r.adjusted(26, 0, -62, -3), Qt::AlignLeft | Qt::AlignBottom, sub);

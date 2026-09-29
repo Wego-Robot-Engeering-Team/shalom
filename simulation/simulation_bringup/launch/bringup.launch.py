@@ -3,13 +3,50 @@
 
 """Run the B2 simulation as a robot-shaped HMI endpoint."""
 
+import json
+from pathlib import Path
+
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable
+from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
+                            OpaqueFunction, SetEnvironmentVariable, SetLaunchConfiguration)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+from ament_index_python.packages import get_package_share_directory
+
+
+def _writable_maps_dir():
+    """In a symlink install, use the source maps tree, not copied package files."""
+    installed = Path(get_package_share_directory("simulation_bringup")) / "maps"
+    readme = installed / "README.md"
+    return str(readme.resolve().parent)
+
+
+def _resolve_default_map(context):
+    requested = LaunchConfiguration("map").perform(context)
+    if requested == "none":
+        return [SetLaunchConfiguration("map", "")]
+    if requested != "auto":
+        return []
+    maps_dir = Path(LaunchConfiguration("maps_dir").perform(context))
+    setting = maps_dir / "default_map.json"
+    if not setting.is_file():
+        return [SetLaunchConfiguration("map", "")]
+    try:
+        map_id = json.loads(setting.read_text(encoding="utf-8"))["map_id"]
+    except (OSError, KeyError, ValueError, TypeError) as exc:
+        raise RuntimeError(f"invalid default map setting: {setting}") from exc
+    if map_id == "":
+        return [SetLaunchConfiguration("map", "")]
+    if (not isinstance(map_id, str) or Path(map_id).name != map_id or
+            map_id in (".", "..") or ".." in map_id):
+        raise RuntimeError(f"invalid default map id in {setting}")
+    map_yaml = maps_dir / map_id / "map.yaml"
+    if not map_yaml.is_file():
+        raise RuntimeError(f"default map is missing: {map_yaml}")
+    return [SetLaunchConfiguration("map", str(map_yaml))]
 
 
 def generate_launch_description():
@@ -92,13 +129,14 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument("pointcloud_topic", default_value="/b2/points"),
         DeclareLaunchArgument("maps_dir",
-                              default_value=PathJoinSubstitution([sim, "maps"]),
+                              default_value=_writable_maps_dir(),
                               description="Simulator-owned map bundle directory"),
         DeclareLaunchArgument(
             "map",
-            default_value=PathJoinSubstitution([sim, "maps", "2026-09-07", "map.yaml"]),
-            description="절대 경로의 map.yaml 또는 빈 값",
+            default_value="auto",
+            description="auto(기본 지도), none(SLAM), 절대 경로의 map.yaml",
         ),
+        OpaqueFunction(function=_resolve_default_map),
         DeclareLaunchArgument("slam", default_value="true"),
         DeclareLaunchArgument("nav2", default_value="true"),
         DeclareLaunchArgument("viewer", default_value="true"),

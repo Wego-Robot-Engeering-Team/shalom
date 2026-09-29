@@ -5,6 +5,10 @@
 
 #include <QGridLayout>
 #include <QComboBox>
+#include <QCheckBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLabel>
@@ -19,6 +23,8 @@
 #include <QtMath>
 
 #include <algorithm>
+#include <cmath>
+#include <optional>
 
 #include "RobotDef.h"
 #include "robot/Kinematics.h"
@@ -48,6 +54,46 @@ double wrapNear(double v, double ref)
     while (ref - v > M_PI)
         v += 2 * M_PI;
     return v;
+}
+
+struct PoseMetadata {
+    QString name;
+    QString description;
+    bool useCurrentJoints = false;
+};
+
+std::optional<PoseMetadata> editPoseMetadata(QWidget *parent, const QString &title,
+                                             const QString &name, const QString &description,
+                                             bool allowJointUpdate)
+{
+    QDialog dialog(parent);
+    dialog.setWindowTitle(title);
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *form = new QFormLayout;
+    auto *nameEdit = new QLineEdit(name);
+    nameEdit->setMaxLength(80);
+    auto *descriptionEdit = new QLineEdit(description);
+    descriptionEdit->setMaxLength(400);
+    form->addRow(QStringLiteral("이름"), nameEdit);
+    form->addRow(QStringLiteral("설명"), descriptionEdit);
+    layout->addLayout(form);
+    auto *useCurrent = new QCheckBox(QStringLiteral("현재 목표 관절값으로 갱신"));
+    if (allowJointUpdate)
+        layout->addWidget(useCurrent);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
+    buttons->button(QDialogButtonBox::Save)->setText(QStringLiteral("저장"));
+    buttons->button(QDialogButtonBox::Save)->setEnabled(!name.trimmed().isEmpty());
+    QObject::connect(nameEdit, &QLineEdit::textChanged, buttons,
+                     [buttons](const QString &text) {
+                         buttons->button(QDialogButtonBox::Save)->setEnabled(!text.trimmed().isEmpty());
+                     });
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+    if (dialog.exec() != QDialog::Accepted)
+        return std::nullopt;
+    return PoseMetadata{nameEdit->text().trimmed(), descriptionEdit->text().trimmed(),
+                        allowJointUpdate && useCurrent->isChecked()};
 }
 
 }  // namespace
@@ -309,25 +355,58 @@ void ArmPanel::buildPresetSection()
     savedPresets_->setObjectName(QStringLiteral("SavedArmPosePresets"));
     savedPresets_->addItem(QStringLiteral("저장된 자세 없음"), QString());
     loadSavedPreset_ = new QPushButton(QStringLiteral("불러오기"));
+    editSavedPreset_ = new QPushButton(QStringLiteral("수정"));
     auto *save = new QPushButton(QStringLiteral("목표 자세 저장"));
     save->setProperty("size", "sm");
     loadSavedPreset_->setProperty("size", "sm");
+    editSavedPreset_->setProperty("size", "sm");
     savedRow->addWidget(savedPresets_, 1);
     savedRow->addWidget(loadSavedPreset_);
+    savedRow->addWidget(editSavedPreset_);
     savedRow->addWidget(save);
     controlsLayout_->addLayout(savedRow);
 
     connect(save, &QPushButton::clicked, this, [this] {
-        bool ok = false;
-        const QString name = QInputDialog::getText(
-            this, QStringLiteral("팔 자세 저장"), QStringLiteral("프리셋 이름"),
-            QLineEdit::Normal, {}, &ok).trimmed();
-        if (!ok || name.isEmpty())
+        const auto metadata = editPoseMetadata(this, QStringLiteral("팔 자세 저장"), {}, {}, false);
+        if (!metadata)
             return;
         QList<double> q;
         for (auto *slider : std::as_const(sliders_))
             q << slider->command();
-        emit savePosePresetRequested(name, q);
+        commandStatus_->setText(QStringLiteral("목표 자세 저장 중…"));
+        commandStatus_->setProperty("tone", "info");
+        theme::repolish(commandStatus_);
+        commandStatus_->show();
+        emit savePosePresetRequested(metadata->name, metadata->description, q);
+    });
+    connect(editSavedPreset_, &QPushButton::clicked, this, [this] {
+        const QString id = savedPresets_->currentData().toString();
+        const auto it = std::find_if(posePresets_.cbegin(), posePresets_.cend(),
+            [&id](const QVariantMap &preset) {
+                return preset.value(QStringLiteral("id")).toString() == id;
+            });
+        if (it == posePresets_.cend())
+            return;
+        const auto metadata = editPoseMetadata(
+            this, QStringLiteral("팔 자세 수정"), it->value(QStringLiteral("name")).toString(),
+            it->value(QStringLiteral("description")).toString(), true);
+        if (!metadata)
+            return;
+        QVariantMap updated = *it;
+        updated[QStringLiteral("name")] = metadata->name;
+        updated[QStringLiteral("description")] = metadata->description;
+        if (metadata->useCurrentJoints) {
+            QVariantList positions;
+            for (auto *slider : std::as_const(sliders_))
+                positions << slider->command();
+            updated[QStringLiteral("positions")] = positions;
+        }
+        commandStatus_->setText(QStringLiteral("저장된 자세 수정 중…"));
+        commandStatus_->setProperty("tone", "info");
+        theme::repolish(commandStatus_);
+        commandStatus_->show();
+        emit updatePosePresetRequested(
+            updated, it->value(QStringLiteral("revision"), quint64{1}).toULongLong());
     });
     connect(loadSavedPreset_, &QPushButton::clicked, this, [this] {
         const QString id = savedPresets_->currentData().toString();
@@ -347,19 +426,32 @@ void ArmPanel::buildPresetSection()
         onSliderMoved(); // 로봇에는 보내지 않고 목표·3D 프리뷰만 갱신한다.
     });
     connect(savedPresets_, &QComboBox::currentIndexChanged, this,
-            [this](int index) { loadSavedPreset_->setEnabled(index > 0); });
+            [this](int index) {
+                loadSavedPreset_->setEnabled(index > 0);
+                editSavedPreset_->setEnabled(index > 0);
+            });
+    loadSavedPreset_->setEnabled(false);
+    editSavedPreset_->setEnabled(false);
 }
 
 void ArmPanel::setPosePresets(const QList<QVariantMap> &presets)
 {
+    const QString selectedId = savedPresets_->currentData().toString();
     posePresets_ = presets;
     const QSignalBlocker blocker(savedPresets_);
     savedPresets_->clear();
     savedPresets_->addItem(QStringLiteral("저장된 자세 선택"), QString());
-    for (const auto &preset : posePresets_)
+    for (const auto &preset : posePresets_) {
         savedPresets_->addItem(preset.value(QStringLiteral("name")).toString(),
                                preset.value(QStringLiteral("id")).toString());
-    loadSavedPreset_->setEnabled(false);
+        savedPresets_->setItemData(savedPresets_->count() - 1,
+                                   preset.value(QStringLiteral("description")).toString(),
+                                   Qt::ToolTipRole);
+    }
+    const int selectedIndex = savedPresets_->findData(selectedId);
+    savedPresets_->setCurrentIndex(selectedIndex > 0 ? selectedIndex : 0);
+    loadSavedPreset_->setEnabled(selectedIndex > 0);
+    editSavedPreset_->setEnabled(selectedIndex > 0);
 }
 
 void ArmPanel::setArmState(const QList<double> &positions, double manipulability,
@@ -387,26 +479,29 @@ void ArmPanel::setArmState(const QList<double> &positions, double manipulability
         refreshPreview();
     }
 
-    const double norm = qBound(0.0, manipulability / kManipNominal, 1.0);
+    const bool metricKnown = std::isfinite(manipulability) && manipulability >= 0.0;
+    const double norm = metricKnown
+        ? qBound(0.0, manipulability / kManipNominal, 1.0) : 1.0;
 
     // 여유가 있을 때는 아무 말도 하지 않는다. "정상입니다" 를 늘 띄워두면
     // 정말 문제가 생겼을 때의 한 줄이 똑같이 생긴 한 줄로 보인다.
     if (!hadArmState_) {
         advice_->hide();
-    } else if (norm <= kManipDanger) {
+    } else if (metricKnown && norm <= kManipDanger) {
         advice_->setText(QStringLiteral(
             "팔이 거의 다 펴졌거나 접혔습니다. 이 자세에서는 어떤 방향으로는 "
             "아예 움직이지 못합니다. 팔을 조금 되돌리거나 로봇을 옮기십시오."));
-    } else if (norm <= kManipWarn) {
+    } else if (metricKnown && norm <= kManipWarn) {
         advice_->setText(QStringLiteral(
             "움직일 수 있는 여유가 줄었습니다. 더 뻗으면 멈출 수 있으니 "
             "로봇을 조금 옮겨 자세를 바꾸는 편이 낫습니다."));
     }
-    advice_->setVisible(hadArmState_ && norm <= kManipWarn);
-    advice_->setToolTip(QStringLiteral("조작성 지수 %1 · 최소 특이값 %2")
-                            .arg(manipulability, 0, 'f', 4)
-                            .arg(sigmaMin, 0, 'f', 4));
-    view3d_->setSingularWarning(hadArmState_ && norm <= kManipWarn);
+    advice_->setVisible(hadArmState_ && metricKnown && norm <= kManipWarn);
+    advice_->setToolTip(metricKnown
+        ? QStringLiteral("조작성 지수 %1 · 최소 특이값 %2")
+              .arg(manipulability, 0, 'f', 4).arg(sigmaMin, 0, 'f', 4)
+        : QStringLiteral("로봇이 조작성 지수를 보내지 않았습니다."));
+    view3d_->setSingularWarning(hadArmState_ && metricKnown && norm <= kManipWarn);
 
     if (moveitState == QLatin1String("planning"))
         state_->set(QStringLiteral("계획 중"), QStringLiteral("info"));
@@ -414,8 +509,10 @@ void ArmPanel::setArmState(const QList<double> &positions, double manipulability
         state_->set(QStringLiteral("실행 중"), QStringLiteral("info"));
     else if (moveitState == QLatin1String("error"))
         state_->set(QStringLiteral("오류"), QStringLiteral("danger"));
-    else
+    else if (moveitState == QLatin1String("idle"))
         state_->set(QStringLiteral("대기"), QStringLiteral("neutral"));
+    else
+        state_->set(QStringLiteral("동작 상태 미제공"), QStringLiteral("neutral"));
 }
 
 void ArmPanel::setControlsEnabled(bool on)
@@ -425,6 +522,14 @@ void ArmPanel::setControlsEnabled(bool on)
         s->setEnabled(on);
     for (auto *s : std::as_const(ee_))
         s->setEnabled(on);
+    refreshCommandControls();
+}
+
+void ArmPanel::setExecutionAvailable(bool available)
+{
+    if (executionAvailable_ == available)
+        return;
+    executionAvailable_ = available;
     refreshCommandControls();
 }
 
@@ -450,6 +555,15 @@ void ArmPanel::clearReportedState()
 void ArmPanel::setCommandResult(const QString &channel, bool ok, const QString &code,
                                 const QString &message)
 {
+    if (channel == QLatin1String("cmd/arm/pose_presets/save") ||
+        channel == QLatin1String("cmd/arm/pose_presets/update")) {
+        commandStatus_->setText(ok ? QStringLiteral("팔 자세를 로봇에 저장했습니다.")
+                                   : QStringLiteral("자세 저장 실패 · %1 %2").arg(code, message));
+        commandStatus_->setProperty("tone", ok ? "info" : "danger");
+        theme::repolish(commandStatus_);
+        commandStatus_->show();
+        return;
+    }
     if (channel != QLatin1String("cmd/arm/joint_goal") &&
         channel != QLatin1String("cmd/arm/ee_goal"))
         return;
@@ -465,9 +579,15 @@ void ArmPanel::refreshCommandControls()
     for (auto *b : std::as_const(commandButtons_))
         b->setEnabled(controlsEnabled_ && hadArmState_);
     if (jointSend_)
-        jointSend_->setEnabled(controlsEnabled_ && hadArmState_ && hasPendingGoal_);
+        jointSend_->setEnabled(controlsEnabled_ && executionAvailable_ &&
+                               hadArmState_ && hasPendingGoal_);
     if (eeSend_)
-        eeSend_->setEnabled(controlsEnabled_ && hadArmState_ && hasPendingGoal_ && eeReachable_);
+        eeSend_->setEnabled(controlsEnabled_ && executionAvailable_ &&
+                            hadArmState_ && hasPendingGoal_ && eeReachable_);
+    for (auto *send : {jointSend_, eeSend_})
+        if (send)
+            send->setToolTip(executionAvailable_ ? QString()
+                : QStringLiteral("이 로봇은 팔 실행기가 비활성입니다. 자세 미리보기와 저장은 가능합니다."));
 }
 
 void ArmPanel::onSliderMoved()

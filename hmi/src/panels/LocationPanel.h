@@ -3,7 +3,8 @@
 
 #pragma once
 
-// Location teaching panel.
+// Fixed-location and marker teaching panel. Inspection waypoints are created
+// and managed together in WaypointPanel.
 //
 // Named poses are recorded two ways (protocol section 8):
 //
@@ -13,8 +14,8 @@
 //   - **from a map click**: quick to place, but nothing verifies the robot can
 //     actually get there or work from there.
 //
-// Capturing from the robot is the primary method for inspection points and the
-// dock; map clicks are for sketching a route before the robot is on site.
+// Capturing from the robot is the primary method for fixed locations; map
+// clicks allow those locations to be designated before the robot is on site.
 //
 // Before a capture is accepted the current pose is validated. A pose recorded
 // while the robot was moving, or from a stale link, produces a waypoint that

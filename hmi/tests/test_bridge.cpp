@@ -18,6 +18,8 @@
 //   - reconnecting after the peer disappears
 
 #include <QJsonArray>
+#include <QBuffer>
+#include <QImage>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSignalSpy>
@@ -25,6 +27,8 @@
 #include <QTcpSocket>
 #include <QUdpSocket>
 #include <QTest>
+
+#include <cmath>
 
 #include "net/BridgeClient.h"
 #include "net/Channels.h"
@@ -196,6 +200,38 @@ private slots:
         QCOMPARE(spy.takeLast().at(0).toString(), QString());
     }
 
+    void setEndpoint_discardsPreviousRobotNavigation()
+    {
+        connectPair();
+        QSignalSpy snapshots(client_, &BridgeClient::telemetry);
+        server_->send(pub(hmi::ch::kNav,
+                          {{"status", "navigating"},
+                           {"goal", QJsonObject{{"x", 4.0}, {"y", 2.0}, {"theta", 0.5}}}}));
+        server_->send(pub(hmi::ch::kPlan,
+                          {{"points", QJsonArray{QJsonArray{1.0, 1.0}, QJsonArray{4.0, 2.0}}}}));
+        server_->send(pub(hmi::ch::kTrail,
+                          {{"reset", true}, {"points", QJsonArray{QJsonArray{1.0, 1.0}}}}));
+        QVERIFY(waitFor([&snapshots] {
+            if (snapshots.isEmpty()) return false;
+            const auto tm = snapshots.last().at(0).value<Telemetry>();
+            return !tm.navGoal.isEmpty() && !tm.plan.isEmpty() && !tm.trail.isEmpty();
+        }));
+
+        MockBridge second;
+        client_->setEndpoint(QStringLiteral("127.0.0.1"), second.port());
+        QVERIFY(waitFor([&] { return second.hasPeer(); }));
+        QVERIFY(waitFor([&snapshots] {
+            if (snapshots.isEmpty()) return false;
+            const auto tm = snapshots.last().at(0).value<Telemetry>();
+            return tm.navGoal.isEmpty() && tm.plan.isEmpty() && tm.trail.isEmpty();
+        }));
+        QVERIFY(waitFor([&second] {
+            for (const auto &e : second.received)
+                if (e.ch == QLatin1String(hmi::ch::kCmdTrailSnapshot)) return true;
+            return false;
+        }));
+    }
+
     void connect_subscribesToStateChannels()
     {
         connectPair();
@@ -256,6 +292,8 @@ private slots:
         server_->send(pub(hmi::ch::kPose,
                           {{"x", 3.25}, {"y", -1.5}, {"theta", 0.75}, {"speed", 0.2}}));
         server_->send(pub(hmi::ch::kBattery, {{"soc", 63.0}}));
+        server_->send(pub(hmi::ch::kSystem,
+                          {{"capture_enabled", true}, {"arm_execution_enabled", false}}));
         QJsonArray joints{0.1, -0.8, 0.0, -2.2, 0.0, 1.5, 0.7};
         server_->send(pub(hmi::ch::kArm,
                           {{"positions", joints}, {"manipulability", 0.07},
@@ -272,7 +310,65 @@ private slots:
         QCOMPARE(tm.y, -1.5);
         QCOMPARE(tm.joints.size(), 7);
         QVERIFY(qFuzzyCompare(tm.manipulability, 0.07));
+        QVERIFY(tm.captureEnabled);
+        QVERIFY(!tm.armExecutionEnabled);
         QVERIFY2(tm.poseFresh, "방금 받은 위치는 신선해야 한다");
+    }
+
+    void missingArmMetricsRemainUnknown()
+    {
+        connectPair();
+        QSignalSpy snapshots(client_, &BridgeClient::telemetry);
+        server_->send(pub(hmi::ch::kArm, {{"positions", QJsonArray{0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0}}}));
+        QVERIFY(waitFor([&snapshots] {
+            return !snapshots.isEmpty() &&
+                snapshots.last().at(0).value<Telemetry>().joints.size() == 6;
+        }));
+        const auto tm = snapshots.last().at(0).value<Telemetry>();
+        QVERIFY(std::isnan(tm.manipulability));
+        QVERIFY(std::isnan(tm.sigmaMin));
+        QVERIFY(tm.armState.isEmpty());
+    }
+
+    void captureAcknowledgesSavedFileAndForwardsPngPreview()
+    {
+        connectPair();
+        QSignalSpy results(client_, &hmi::robot::RobotLink::commandResult);
+        QSignalSpy previews(client_, &BridgeClient::previewReceived);
+        client_->triggerCapture({{"vehicle_number", "GTXA-042"}, {"train_number", "1234"},
+                                 {"car_number", "05"}, {"point_id", "C01-P03"}});
+        QVERIFY(waitFor([this] {
+            for (const auto &request : server_->received)
+                if (request.ch == QLatin1String(hmi::ch::kCmdCapture)) return true;
+            return false;
+        }));
+        for (const auto &request : server_->received) {
+            if (request.ch != QLatin1String(hmi::ch::kCmdCapture))
+                continue;
+            auto response = makeResponse(request, true);
+            response.p[QStringLiteral("file")] = QStringLiteral("capture.png");
+            server_->send(response);
+            break;
+        }
+        QVERIFY(waitFor([&results] { return !results.isEmpty(); }));
+        QCOMPARE(results.last().at(0).toString(), QLatin1String(hmi::ch::kCmdCapture));
+        QCOMPARE(results.last().at(1).toBool(), true);
+        QCOMPARE(results.last().at(3).toString(), QStringLiteral("capture.png"));
+
+        QImage sample(2, 2, QImage::Format_RGB32);
+        sample.fill(Qt::red);
+        QByteArray png;
+        QBuffer buffer(&png);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QVERIFY(sample.save(&buffer, "PNG"));
+        auto preview = pub(hmi::ch::kPreview, {{"file", "capture.png"}});
+        preview.payload = png;
+        server_->send(preview);
+        QVERIFY(waitFor([&previews] { return !previews.isEmpty(); }));
+        QImage received;
+        QVERIFY(received.loadFromData(previews.last().at(0).toByteArray()));
+        QCOMPARE(received.size(), sample.size());
     }
 
     void telemetry_planAndTrailDecode()
@@ -290,6 +386,29 @@ private slots:
         const auto tm = spy.last().at(0).value<Telemetry>();
         QCOMPARE(tm.plan.first(), QPointF(1.0, 2.0));
         QCOMPARE(tm.trail.size(), 2);
+    }
+
+    void telemetry_trailResetDropsPreviousTask()
+    {
+        connectPair();
+        QSignalSpy spy(client_, &BridgeClient::telemetry);
+        server_->send(pub(hmi::ch::kTrail,
+                          {{"points", QJsonArray{QJsonArray{1.0, 2.0},
+                                                   QJsonArray{3.0, 4.0}}},
+                           {"reset", true}}));
+        QVERIFY(waitFor([&spy] {
+            return !spy.isEmpty() && spy.last().at(0).value<Telemetry>().trail.size() == 2;
+        }));
+        server_->send(pub(hmi::ch::kTrail, {{"points", QJsonArray{}}, {"reset", true}}));
+        QVERIFY(waitFor([&spy] {
+            return !spy.isEmpty() && spy.last().at(0).value<Telemetry>().trail.isEmpty();
+        }));
+        server_->send(pub(hmi::ch::kTrail,
+                          {{"points", QJsonArray{QJsonArray{5.0, 6.0}}}, {"reset", false}}));
+        QVERIFY(waitFor([&spy] {
+            return !spy.isEmpty() && spy.last().at(0).value<Telemetry>().trail.size() == 1;
+        }));
+        QCOMPARE(spy.last().at(0).value<Telemetry>().trail.first(), QPointF(5.0, 6.0));
     }
 
     /// 링크가 살아 있어도 pose 만 끊길 수 있다. 그 상태의 좌표를 사실처럼
@@ -315,6 +434,29 @@ private slots:
 
     // ---- 명령 ------------------------------------------------------------
 
+    void driveModeWaitsForRobotSafetyReport()
+    {
+        connectPair();
+        QList<hmi::robot::DriveMode> reports;
+        connect(client_, &hmi::robot::RobotLink::driveModeReported, this,
+                [&reports](hmi::robot::DriveMode mode) { reports << mode; });
+
+        client_->setMode(hmi::robot::DriveMode::Manual);
+        QCOMPARE(client_->mode(), hmi::robot::DriveMode::Auto);
+        QVERIFY(reports.isEmpty());
+
+        server_->send(pub(hmi::ch::kSafety, {{"mode", "manual"}}));
+        QVERIFY(waitFor([&] { return reports.size() == 1; }));
+        QCOMPARE(reports.last(), hmi::robot::DriveMode::Manual);
+        QCOMPARE(client_->mode(), hmi::robot::DriveMode::Manual);
+
+        client_->setMode(hmi::robot::DriveMode::Auto);
+        QCOMPARE(client_->mode(), hmi::robot::DriveMode::Manual);
+        server_->send(pub(hmi::ch::kSafety, {{"mode", "auto"}}));
+        QVERIFY(waitFor([&] { return reports.size() == 2; }));
+        QCOMPARE(client_->mode(), hmi::robot::DriveMode::Auto);
+    }
+
     void command_isSentAsRequest()
     {
         connectPair();
@@ -333,6 +475,149 @@ private slots:
                 continue;
             QCOMPARE(e.p.value(QStringLiteral("x")).toDouble(), 2.0);
             QVERIFY2(!e.id.isEmpty(), "요청에는 상관 ID 가 있어야 한다");
+        }
+    }
+
+    void waypoints_followRobotConfirmationAndMapSwitch()
+    {
+        connectPair();
+        QSignalSpy changes(client_, &hmi::robot::RobotLink::waypointsChanged);
+        const QVariantMap draft{{"id", QStringLiteral("wp-1")},
+                                {"name", QStringLiteral("입구")},
+                                {"x", 1.0}, {"y", 2.0},
+                                {"status", QStringLiteral("done")}};
+        client_->setWaypoints({draft});
+        QCOMPARE(client_->waypoints().size(), 0);
+
+        QVERIFY(waitFor([this] {
+            for (const auto &e : server_->received)
+                if (e.ch == QLatin1String(hmi::ch::kCmdWaypointsSet))
+                    return true;
+            return false;
+        }));
+        for (const auto &e : server_->received)
+            if (e.ch == QLatin1String(hmi::ch::kCmdWaypointsSet))
+                QVERIFY(!e.p.value(QStringLiteral("points")).toArray().first()
+                             .toObject().contains(QStringLiteral("status")));
+        for (const auto &e : server_->received)
+            if (e.ch == QLatin1String(hmi::ch::kCmdWaypointsSet))
+                server_->send(makeResponse(e, false, QLatin1String(err::kMode),
+                                           QStringLiteral("저장된 지도가 필요합니다")));
+        QTest::qWait(30);
+        QCOMPARE(client_->waypoints().size(), 0);
+        QCOMPARE(changes.size(), 0);
+
+        server_->send(pub(hmi::ch::kWaypoints,
+                          {{"points", QJsonArray{QJsonObject::fromVariantMap(draft)}}}));
+        QVERIFY(waitFor([&changes] { return changes.size() == 1; }));
+        QCOMPARE(client_->waypoints().first().value(QStringLiteral("id")).toString(),
+                 QStringLiteral("wp-1"));
+
+        // 지도를 바꾸면 서버가 빈 목록을 보낸다. 이전 지도의 포인트는 남지 않는다.
+        server_->send(pub(hmi::ch::kWaypoints, {{"points", QJsonArray{}}}));
+        QVERIFY(waitFor([&changes] { return changes.size() == 2; }));
+        QCOMPARE(client_->waypoints().size(), 0);
+    }
+
+    void armPoseSave_resultAndPublishedListAreDistinct()
+    {
+        connectPair();
+        QSignalSpy results(client_, &hmi::robot::RobotLink::commandResult);
+        QSignalSpy presets(client_, &hmi::robot::RobotLink::armPosePresetsChanged);
+        const QVariantMap preset{{"id", QStringLiteral("pose-1")},
+                                 {"name", QStringLiteral("점검 자세")},
+                                 {"positions", QVariantList{0.0, -1.0, 0.0, -1.0, 0.0, 0.0}}};
+        client_->saveArmPosePreset(preset);
+        QVERIFY(waitFor([this] {
+            for (const auto &e : server_->received)
+                if (e.ch == QLatin1String(hmi::ch::kCmdArmPosePresetsSave))
+                    return true;
+            return false;
+        }));
+        for (const auto &e : server_->received)
+            if (e.ch == QLatin1String(hmi::ch::kCmdArmPosePresetsSave))
+                server_->send(makeResponse(e, true));
+        QVERIFY(waitFor([&results] { return !results.isEmpty(); }));
+        QCOMPARE(results.last().at(0).toString(),
+                 QLatin1String(hmi::ch::kCmdArmPosePresetsSave));
+        QVERIFY(results.last().at(1).toBool());
+        QCOMPARE(presets.size(), 0);
+
+        server_->send(pub(hmi::ch::kArmPosePresets,
+                          {{"presets", QJsonArray{QJsonObject::fromVariantMap(preset)}}}));
+        QVERIFY(waitFor([&presets] { return presets.size() == 1; }));
+        QCOMPARE(presets.last().at(0).value<QList<QVariantMap>>().first()
+                     .value(QStringLiteral("name")).toString(), QStringLiteral("점검 자세"));
+    }
+
+    void mapManagementCommands_areSentToRobot()
+    {
+        connectPair();
+        client_->renameMap(QStringLiteral("map-1"), QStringLiteral("시험 지도"));
+        client_->deleteMap(QStringLiteral("map-2"));
+        client_->setDefaultMap(QStringLiteral("map-1"));
+        QVERIFY(waitFor([this] {
+            bool renamed = false;
+            bool deleted = false;
+            bool defaultSet = false;
+            for (const auto &e : server_->received) {
+                renamed |= e.ch == QLatin1String(hmi::ch::kCmdMapsRename);
+                deleted |= e.ch == QLatin1String(hmi::ch::kCmdMapsDelete);
+                defaultSet |= e.ch == QLatin1String(hmi::ch::kCmdMapsSetDefault);
+            }
+            return renamed && deleted && defaultSet;
+        }));
+        for (const auto &e : server_->received) {
+            if (e.ch == QLatin1String(hmi::ch::kCmdMapsRename)) {
+                QCOMPARE(e.p.value(QStringLiteral("id")).toString(), QStringLiteral("map-1"));
+                QCOMPARE(e.p.value(QStringLiteral("name")).toString(), QStringLiteral("시험 지도"));
+            }
+            if (e.ch == QLatin1String(hmi::ch::kCmdMapsDelete))
+                QCOMPARE(e.p.value(QStringLiteral("id")).toString(), QStringLiteral("map-2"));
+            if (e.ch == QLatin1String(hmi::ch::kCmdMapsSetDefault))
+                QCOMPARE(e.p.value(QStringLiteral("id")).toString(), QStringLiteral("map-1"));
+        }
+    }
+
+    void emptyMapLocations_clearPreviousDockAndHome()
+    {
+        connectPair();
+        server_->send(pub(hmi::ch::kLocations,
+                          {{"locations", QJsonArray{
+                              QJsonObject{{"kind", "dock"}, {"x", 1.0}},
+                              QJsonObject{{"kind", "home"}, {"x", 2.0}}
+                          }}}));
+        QVERIFY(waitFor([this] {
+            return !client_->dockPose().isEmpty() && !client_->homePose().isEmpty();
+        }));
+        server_->send(pub(hmi::ch::kLocations, {{"locations", QJsonArray{}}}));
+        QVERIFY(waitFor([this] {
+            return client_->dockPose().isEmpty() && client_->homePose().isEmpty();
+        }));
+    }
+
+    void armPoseUpdate_sendsMetadataAndRevisionToRobot()
+    {
+        connectPair();
+        const QVariantMap preset{{"id", QStringLiteral("pose-1")},
+                                 {"name", QStringLiteral("수정한 자세")},
+                                 {"description", QStringLiteral("왼쪽 하부 촬영")},
+                                 {"positions", QVariantList{0.0, -1.0, 0.0, -1.0, 0.0, 0.0}}};
+        client_->updateArmPosePreset(preset, 4);
+        QVERIFY(waitFor([this] {
+            for (const auto &e : server_->received)
+                if (e.ch == QLatin1String(hmi::ch::kCmdArmPosePresetsUpdate))
+                    return true;
+            return false;
+        }));
+        for (const auto &e : server_->received) {
+            if (e.ch != QLatin1String(hmi::ch::kCmdArmPosePresetsUpdate))
+                continue;
+            QCOMPARE(e.p.value(QStringLiteral("expected_revision")).toInt(), 4);
+            const auto sent = e.p.value(QStringLiteral("preset")).toObject();
+            QCOMPARE(sent.value(QStringLiteral("name")).toString(), QStringLiteral("수정한 자세"));
+            QCOMPARE(sent.value(QStringLiteral("description")).toString(),
+                     QStringLiteral("왼쪽 하부 촬영"));
         }
     }
 
@@ -480,6 +765,15 @@ private slots:
         QVERIFY(waitFor([this] {
             return client_->missionState() == hmi::robot::MissionState::Paused;
         }));
+    }
+
+    void firstIdleMissionStateIsPublishedAfterConnection()
+    {
+        connectPair();
+        QSignalSpy spy(client_, &BridgeClient::missionStateChanged);
+        server_->send(pub(hmi::ch::kMission, {{"state", QStringLiteral("idle")}}));
+        QVERIFY(waitFor([&spy] { return spy.size() == 1; }));
+        QCOMPARE(client_->missionState(), hmi::robot::MissionState::Idle);
     }
 
     // ---- 본체 자세 -------------------------------------------------------

@@ -137,6 +137,8 @@ public:
     virtual void stopArm() = 0;
     virtual void requestArmPosePresets() {}
     virtual void saveArmPosePreset(const QVariantMap &preset) { Q_UNUSED(preset); }
+    virtual void updateArmPosePreset(const QVariantMap &preset, quint64 expectedRevision)
+    { Q_UNUSED(preset); Q_UNUSED(expectedRevision); }
 
     // ---- link -----------------------------------------------------------
     virtual bool isConnected() const = 0;
@@ -183,6 +185,10 @@ signals:
     /// Progress belongs to the robot's active plan, not to the waypoint catalog.
     void missionProgressChanged(const QString &missionId, int index, int total);
     void missionsChanged(const QList<QVariantMap> &missions);
+    /// The robot's committed waypoint catalog, also sent after a map switch.
+    void waypointsChanged(const QList<QVariantMap> &waypoints);
+    void fixedLocationsChanged();
+    void mapMarkersChanged();
     void armPosePresetsChanged(const QList<QVariantMap> &presets);
     void commandResult(const QString &channel, bool ok, const QString &code,
                        const QString &message);
@@ -191,6 +197,10 @@ signals:
     void baseStateChanged(const QString &posture, const QString &authority);
 
     void connectionChanged(bool connected);
+
+    /// Drive mode confirmed by the robot's safety state, not merely requested
+    /// by the operator. A new connection must report its mode again.
+    void driveModeReported(hmi::robot::DriveMode mode);
 
     /// Which robot is on the other end, once it has said so.
     ///

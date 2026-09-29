@@ -13,7 +13,7 @@
 namespace hmi::ui {
 
 /// Item data role holding the point's QVariantMap (id, name, x, y, status,
-/// optional tag_id).
+/// theta (radians), optional tag_id).
 inline constexpr int kWaypointRole = Qt::UserRole;
 
 /// Row height the delegate draws to; callers sizing a list can use it.

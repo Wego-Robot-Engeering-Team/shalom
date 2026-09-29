@@ -18,6 +18,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node, SetRemap
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -36,7 +37,7 @@ def _resolve_map(context, *_args, **_kwargs):
     if not resolved.is_absolute():
         raise RuntimeError(
             "map에는 절대 경로의 map.yaml을 지정해야 합니다. "
-            "예: map:=/var/lib/shalom/maps/2026-09-07/map.yaml "
+            "예: map:=/var/lib/shalom/maps/inspection_a/map.yaml "
             "(지도 없이 시작하려면 map 인자를 생략)"
         )
 
@@ -120,7 +121,6 @@ def generate_launch_description():
         name="map_server",
         output="screen",
         parameters=[{"use_sim_time": use_sim_time, "yaml_filename": LaunchConfiguration("map")}],
-        condition=IfCondition(localising),
     )
     amcl = Node(
         package="nav2_amcl",
@@ -128,16 +128,15 @@ def generate_launch_description():
         name="amcl",
         output="screen",
         parameters=[PathJoinSubstitution([config, "amcl.yaml"]), {"use_sim_time": use_sim_time}],
-        condition=IfCondition(localising),
     )
     localisation_manager = Node(
         package="nav2_lifecycle_manager",
         executable="lifecycle_manager",
         name="lifecycle_manager_localization",
         output="screen",
-        parameters=[{"use_sim_time": use_sim_time, "autostart": True,
+        parameters=[{"use_sim_time": use_sim_time,
+                     "autostart": ParameterValue(localising, value_type=bool),
                      "node_names": ["map_server", "amcl"]}],
-        condition=IfCondition(localising),
     )
 
     return LaunchDescription([

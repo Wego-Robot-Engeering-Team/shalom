@@ -17,10 +17,14 @@
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSet>
+#include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QTableWidget>
 #include <QVBoxLayout>
 #include <QUuid>
+
+#include <algorithm>
 
 namespace hmi::ui {
 
@@ -30,13 +34,10 @@ MissionLibraryPanel::MissionLibraryPanel(QWidget *parent) : QWidget(parent)
 {
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
-    auto *card = new Card(QStringLiteral("미션 라이브러리"), this);
+    auto *card = new Card(QStringLiteral("미션 관리"), this);
     outer->addWidget(card);
-    auto *intro = new QLabel(QStringLiteral(
-        "미션은 로봇에 저장됩니다. 단계에서 위치·팔 자세·촬영 프리셋을 선택합니다."));
-    intro->setWordWrap(true);
-    intro->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    card->body()->addWidget(intro);
+
+    card->body()->addWidget(sectionLabel(QStringLiteral("저장된 미션")));
 
     list_ = new QListWidget;
     list_->setObjectName(QStringLiteral("MissionList"));
@@ -65,10 +66,12 @@ MissionLibraryPanel::MissionLibraryPanel(QWidget *parent) : QWidget(parent)
     revision_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     card->body()->addWidget(revision_);
 
+    card->body()->addWidget(sectionLabel(QStringLiteral("실행 단계")));
+
     steps_ = new QTableWidget(0, 3);
     steps_->setObjectName(QStringLiteral("MissionSteps"));
     steps_->setHorizontalHeaderLabels({QStringLiteral("단계 ID"), QStringLiteral("유형"),
-                                       QStringLiteral("자산 ID")});
+                                       QStringLiteral("위치·자세 ID")});
     steps_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
     steps_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);
     steps_->setColumnWidth(0, 95);
@@ -83,6 +86,7 @@ MissionLibraryPanel::MissionLibraryPanel(QWidget *parent) : QWidget(parent)
     auto *stepActions = new QHBoxLayout;
     addStep_ = new QPushButton(QStringLiteral("단계 추가"));
     removeStep_ = new QPushButton(QStringLiteral("선택 단계 삭제"));
+    chooseTarget_ = new QPushButton(QStringLiteral("대상 선택"));
     stepUp_ = new QPushButton(QStringLiteral("위로"));
     stepDown_ = new QPushButton(QStringLiteral("아래로"));
     stepActions->addWidget(addStep_);
@@ -91,6 +95,7 @@ MissionLibraryPanel::MissionLibraryPanel(QWidget *parent) : QWidget(parent)
     card->body()->addLayout(stepActions);
 
     auto *orderActions = new QHBoxLayout;
+    orderActions->addWidget(chooseTarget_);
     orderActions->addWidget(stepUp_);
     orderActions->addWidget(stepDown_);
     orderActions->addStretch(1);
@@ -104,8 +109,8 @@ MissionLibraryPanel::MissionLibraryPanel(QWidget *parent) : QWidget(parent)
 
     auto *actions = new QHBoxLayout;
     save_ = new QPushButton(QStringLiteral("저장"));
-    archive_ = new QPushButton(QStringLiteral("보관"));
-    run_ = new QPushButton(QStringLiteral("실행"));
+    archive_ = new QPushButton(QStringLiteral("삭제"));
+    run_ = new QPushButton(QStringLiteral("선택 미션 실행"));
     save_->setProperty("variant", "primary");
     run_->setProperty("variant", "primary");
     actions->addWidget(save_);
@@ -136,8 +141,15 @@ MissionLibraryPanel::MissionLibraryPanel(QWidget *parent) : QWidget(parent)
         if (!editing_)
             return;
         const int row = steps_->rowCount();
+        QSet<QString> existing;
+        for (int i = 0; i < row; ++i)
+            if (const auto *item = steps_->item(i, 0))
+                existing.insert(item->text());
+        int sequence = 1;
+        while (existing.contains(QStringLiteral("step-%1").arg(sequence)))
+            ++sequence;
         steps_->insertRow(row);
-        steps_->setItem(row, 0, new QTableWidgetItem(QStringLiteral("step-%1").arg(row + 1)));
+        steps_->setItem(row, 0, new QTableWidgetItem(QStringLiteral("step-%1").arg(sequence)));
         auto *type = new QComboBox;
         type->addItem(QStringLiteral("이동"), QStringLiteral("navigate"));
         type->addItem(QStringLiteral("촬영"), QStringLiteral("capture"));
@@ -156,6 +168,7 @@ MissionLibraryPanel::MissionLibraryPanel(QWidget *parent) : QWidget(parent)
     });
     connect(stepUp_, &QPushButton::clicked, this, [this] { moveStep(-1); });
     connect(stepDown_, &QPushButton::clicked, this, [this] { moveStep(1); });
+    connect(chooseTarget_, &QPushButton::clicked, this, &MissionLibraryPanel::chooseStepTarget);
     connect(save_, &QPushButton::clicked, this, [this] {
         if (!editing_ || mapId_.isEmpty())
             return;
@@ -163,17 +176,42 @@ MissionLibraryPanel::MissionLibraryPanel(QWidget *parent) : QWidget(parent)
             status_->setText(QStringLiteral("미션 이름과 단계 하나 이상이 필요합니다."));
             return;
         }
+        QSet<QString> stepIds;
+        for (int row = 0; row < steps_->rowCount(); ++row) {
+            const auto *id = steps_->item(row, 0);
+            const auto *reference = steps_->item(row, 2);
+            const auto *type = qobject_cast<QComboBox *>(steps_->cellWidget(row, 1));
+            const QString stepId = id ? id->text().trimmed() : QString{};
+            const QString typeId = type ? type->currentData().toString() : QString{};
+            const QString ref = reference ? reference->text().trimmed() : QString{};
+            if (stepId.isEmpty() || stepIds.contains(stepId)) {
+                status_->setText(QStringLiteral("단계 ID가 비었거나 중복되었습니다."));
+                return;
+            }
+            stepIds.insert(stepId);
+            if (typeId != QLatin1String("dock") && ref.isEmpty()) {
+                status_->setText(QStringLiteral("%1단계의 대상 ID를 지정하십시오.").arg(row + 1));
+                return;
+            }
+            if (typeId == QLatin1String("dock") && row + 1 != steps_->rowCount()) {
+                status_->setText(QStringLiteral("충전소 복귀는 마지막 단계여야 합니다."));
+                return;
+            }
+        }
         emit saveRequested(currentMission(), revisionValue_);
         status_->setText(QStringLiteral("로봇에 저장 요청을 보냈습니다…"));
     });
     connect(archive_, &QPushButton::clicked, this, [this] {
         if (!editing_ || revisionValue_ == 0 || archived_)
             return;
-        if (QMessageBox::question(this, QStringLiteral("미션 보관"),
-                                  QStringLiteral("이 미션을 목록에서 보관할까요?"))
+        if (QMessageBox::question(this, QStringLiteral("미션 삭제"),
+                                  QStringLiteral("‘%1’ 미션을 목록에서 삭제할까요?\n"
+                                                 "로봇에는 복구 가능한 보관본이 남습니다.")
+                                      .arg(name_->text()),
+                                  QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
             == QMessageBox::Yes) {
             emit archiveRequested(editingId_, revisionValue_);
-            status_->setText(QStringLiteral("보관 요청을 보냈습니다…"));
+            status_->setText(QStringLiteral("삭제 요청을 보냈습니다…"));
         }
     });
     connect(run_, &QPushButton::clicked, this, [this] {
@@ -207,8 +245,63 @@ void MissionLibraryPanel::setMapId(const QString &mapId)
 
 void MissionLibraryPanel::setMissions(const QList<QVariantMap> &missions)
 {
+    QVariantMap draft;
+    QVariantMap previous;
+    if (editing_ && revisionValue_ > 0 && list_->currentItem()) {
+        previous = list_->currentItem()->data(Qt::UserRole).toMap();
+        if (previous.value(QStringLiteral("id")).toString() == editingId_) {
+            previous.remove(QStringLiteral("revision"));
+            previous.remove(QStringLiteral("archived"));
+            draft = currentMission();
+        }
+    }
     missions_ = missions;
-    refreshList(editingId_);
+    if (editing_ && revisionValue_ > 0) {
+        const auto stillAvailable = std::any_of(missions_.cbegin(), missions_.cend(),
+            [this](const QVariantMap &mission) {
+                return mission.value(QStringLiteral("id")).toString() == editingId_ &&
+                       !mission.value(QStringLiteral("archived")).toBool();
+            });
+        if (!stillAvailable) {
+            editing_ = false;
+            editingId_.clear();
+            revisionValue_ = 0;
+            archived_ = false;
+            name_->clear();
+            id_->setText(QStringLiteral("ID: —"));
+            revision_->setText(QStringLiteral("미션을 선택하십시오"));
+            steps_->setRowCount(0);
+            status_->setText(QStringLiteral("미션이 목록에서 삭제되었습니다."));
+        }
+    }
+    QVariantMap updated;
+    for (const auto &mission : missions_) {
+        if (mission.value(QStringLiteral("id")).toString() == editingId_) {
+            updated = mission;
+            updated.remove(QStringLiteral("revision"));
+            updated.remove(QStringLiteral("archived"));
+            break;
+        }
+    }
+    // 새로고침으로 편집 초안을 버리지 않는다. 방금 저장한 내용이 로봇에서
+    // 되돌아온 경우에는 새 revision을 반영하도록 다시 불러온다.
+    const bool preserveDraft = !draft.isEmpty() && draft != previous && draft != updated;
+    refreshList(editingId_, !preserveDraft);
+    if (preserveDraft)
+        status_->setText(QStringLiteral("수정 중인 내용은 유지했습니다. 저장 전에는 실행할 수 없습니다."));
+    updateControls();
+}
+
+void MissionLibraryPanel::setWaypoints(const QList<QVariantMap> &waypoints)
+{
+    waypoints_ = waypoints;
+    updateControls();
+}
+
+void MissionLibraryPanel::setArmPosePresets(const QList<QVariantMap> &presets)
+{
+    armPosePresets_ = presets;
+    updateControls();
 }
 
 void MissionLibraryPanel::setMissionState(hmi::robot::MissionState state)
@@ -224,7 +317,9 @@ void MissionLibraryPanel::handleCommandResult(const QString &channel, bool ok,
 {
     if (channel == QLatin1String(hmi::ch::kCmdMissionsSave) ||
         channel == QLatin1String(hmi::ch::kCmdMissionsArchive)) {
-        status_->setText(ok ? QStringLiteral("로봇 저장 완료")
+        status_->setText(ok ? (channel == QLatin1String(hmi::ch::kCmdMissionsArchive)
+                                 ? QStringLiteral("미션을 목록에서 삭제했습니다.")
+                                 : QStringLiteral("로봇 저장 완료"))
                             : QStringLiteral("저장 거부 · %1 %2").arg(code, message));
     } else if (channel == QLatin1String(hmi::ch::kCmdMissionStart)) {
         status_->setText(ok ? QStringLiteral("미션 실행을 수락했습니다")
@@ -278,25 +373,30 @@ QVariantMap MissionLibraryPanel::currentMission() const
     return mission;
 }
 
-void MissionLibraryPanel::refreshList(const QString &keepId)
+void MissionLibraryPanel::refreshList(const QString &keepId, bool reloadEditor)
 {
-    list_->clear();
     int selected = -1;
-    for (const auto &mission : missions_) {
-        if (mission.value(QStringLiteral("map_id")).toString() != mapId_ ||
-            mission.value(QStringLiteral("archived")).toBool())
-            continue;
-        auto *item = new QListWidgetItem(
-            QStringLiteral("%1   ·   r%2").arg(mission.value(QStringLiteral("name")).toString())
-                .arg(mission.value(QStringLiteral("revision")).toULongLong()), list_);
-        item->setData(Qt::UserRole, mission);
-        if (mission.value(QStringLiteral("id")).toString() == keepId)
-            selected = list_->row(item);
+    {
+        const QSignalBlocker blocker(list_);
+        list_->clear();
+        for (const auto &mission : missions_) {
+            if (mission.value(QStringLiteral("map_id")).toString() != mapId_ ||
+                mission.value(QStringLiteral("archived")).toBool())
+                continue;
+            auto *item = new QListWidgetItem(
+                QStringLiteral("%1   ·   r%2").arg(mission.value(QStringLiteral("name")).toString())
+                    .arg(mission.value(QStringLiteral("revision")).toULongLong()), list_);
+            item->setData(Qt::UserRole, mission);
+            if (mission.value(QStringLiteral("id")).toString() == keepId)
+                selected = list_->row(item);
+        }
+        if (selected >= 0)
+            list_->setCurrentRow(selected);
+        else if (!editing_ && list_->count() > 0)
+            list_->setCurrentRow(0);
     }
-    if (selected >= 0)
-        list_->setCurrentRow(selected);
-    else if (!editing_ && list_->count() > 0)
-        list_->setCurrentRow(0);
+    if (reloadEditor && list_->currentItem())
+        loadSelected();
 }
 
 void MissionLibraryPanel::loadSelected()
@@ -407,6 +507,55 @@ void MissionLibraryPanel::moveStep(int delta)
     updateControls();
 }
 
+void MissionLibraryPanel::chooseStepTarget()
+{
+    const int row = steps_->currentRow();
+    if (row < 0 || !editing_)
+        return;
+    auto *type = qobject_cast<QComboBox *>(steps_->cellWidget(row, 1));
+    auto *reference = steps_->item(row, 2);
+    if (!type || !reference)
+        return;
+    const QString typeId = type->currentData().toString();
+    const QList<QVariantMap> *assets = typeId == QLatin1String("navigate") ? &waypoints_
+                                    : typeId == QLatin1String("arm_move") ? &armPosePresets_
+                                    : nullptr;
+    if (!assets)
+        return;
+    QStringList labels;
+    QList<QString> ids;
+    for (const auto &asset : *assets) {
+        if (asset.value(QStringLiteral("archived")).toBool())
+            continue;
+        const QString id = asset.value(QStringLiteral("id")).toString();
+        if (id.isEmpty())
+            continue;
+        ids << id;
+        labels << QStringLiteral("%1  (%2)")
+                      .arg(asset.value(QStringLiteral("name"), id).toString(), id);
+    }
+    if (labels.isEmpty()) {
+        status_->setText(typeId == QLatin1String("navigate")
+                             ? QStringLiteral("이 지도에 저장된 웨이포인트가 없습니다.")
+                             : QStringLiteral("로봇에 저장된 팔 자세가 없습니다."));
+        return;
+    }
+    bool accepted = false;
+    const QString chosen = QInputDialog::getItem(
+        this, QStringLiteral("단계 대상 선택"),
+        typeId == QLatin1String("navigate") ? QStringLiteral("웨이포인트")
+                                             : QStringLiteral("팔 자세"),
+        labels, static_cast<int>(std::max<qsizetype>(0, ids.indexOf(reference->text()))),
+        false, &accepted);
+    if (!accepted)
+        return;
+    const int selected = labels.indexOf(chosen);
+    if (selected >= 0) {
+        reference->setText(ids.at(selected));
+        reference->setToolTip(chosen);
+    }
+}
+
 void MissionLibraryPanel::updateControls()
 {
     const bool canEdit = !missionBusy_ && !mapId_.isEmpty() && mapId_ != QLatin1String("live");
@@ -416,6 +565,11 @@ void MissionLibraryPanel::updateControls()
     stepUp_->setEnabled(canEdit && editing_ && steps_->currentRow() > 0);
     stepDown_->setEnabled(canEdit && editing_ && steps_->currentRow() >= 0 &&
                           steps_->currentRow() + 1 < steps_->rowCount());
+    const auto *selectedType = steps_->currentRow() >= 0
+        ? qobject_cast<QComboBox *>(steps_->cellWidget(steps_->currentRow(), 1)) : nullptr;
+    const QString typeId = selectedType ? selectedType->currentData().toString() : QString{};
+    chooseTarget_->setEnabled(canEdit && editing_ &&
+        (typeId == QLatin1String("navigate") || typeId == QLatin1String("arm_move")));
     name_->setEnabled(canEdit && editing_);
     steps_->setEnabled(canEdit && editing_);
     save_->setEnabled(canEdit && editing_);
