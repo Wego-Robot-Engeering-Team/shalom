@@ -14,6 +14,9 @@
 #include <QPointF>
 #include <QSet>
 #include <QString>
+#include <QVariantMap>
+
+#include <limits>
 
 #include "panels/DiagnosticsPanel.h"
 
@@ -60,21 +63,25 @@ struct Telemetry {
     QList<QPointF> plan;
     double soc = 0;
     QList<double> joints;
-    double manipulability = 0;
-    double sigmaMin = 0;
+    // Missing metrics are distinct from a measured zero (singularity).
+    double manipulability = std::numeric_limits<double>::quiet_NaN();
+    double sigmaMin = std::numeric_limits<double>::quiet_NaN();
 
     /// "idle" | "planning" | "executing" | "error".
     /// Reported by the arm controller rather than inferred here: guessing from
     /// base velocity got it backwards once already, and the operator cannot
     /// tell a wrong badge from a right one.
-    QString armState = QStringLiteral("idle");
+    QString armState;                    ///< empty when the controller did not report it
     QSet<int> seenTags;
     /// Controller load and temperature, in percent and degrees Celsius.
     /// GPU load matters here: inference runs on it, so a pegged GPU explains a
     /// slow capture in a way a busy CPU does not.
     double cpu = 0, gpu = 0, mem = 0, cpuTemp = 0, gpuTemp = 0, rtt = 0;
+    bool captureEnabled = false;
+    bool armExecutionEnabled = false;
     bool estop = false;
     QString navStatus;                ///< "idle" | "driving" | "arrived" | "blocked"
+    QVariantMap navGoal;              ///< Robot-reported active goal, empty when none
 
     /// False once the link has been quiet long enough that the pose can no
     /// longer be trusted. Everything that acts on position must check this.

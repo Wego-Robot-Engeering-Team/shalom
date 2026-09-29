@@ -4,8 +4,10 @@
 #include "hmi_bridge/bridge_node.hpp"
 
 #include <tf2/LinearMath/Quaternion.hpp>
+#include <lifecycle_msgs/msg/transition.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -15,7 +17,10 @@
 #include <filesystem>
 #include <limits>
 #include <iterator>
+#include <sstream>
+#include <string_view>
 #include <string>
+#include <stdexcept>
 #include <unordered_set>
 
 // 점유격자를 PNG 로 눌러 관제에 보낸다 (encodeGridPng).
@@ -68,11 +73,15 @@ constexpr auto kCmdMissionsSave = "cmd/missions/save";
 constexpr auto kCmdMissionsArchive = "cmd/missions/archive";
 constexpr auto kCmdArmPosePresetsList = "cmd/arm/pose_presets/list";
 constexpr auto kCmdArmPosePresetsSave = "cmd/arm/pose_presets/save";
+constexpr auto kCmdArmPosePresetsUpdate = "cmd/arm/pose_presets/update";
 constexpr auto kCmdLocationsSet = "cmd/locations/set";
 constexpr auto kCmdMarkersSet = "cmd/markers/set";
 constexpr auto kCmdMapsList = "cmd/maps/list";
 constexpr auto kCmdMapsSelect = "cmd/maps/select";
 constexpr auto kCmdMapsRename = "cmd/maps/rename";
+constexpr auto kCmdMapsSetDefault = "cmd/maps/set_default";
+constexpr auto kCmdMapsDelete = "cmd/maps/delete";
+constexpr auto kCmdTrailSnapshot = "cmd/trail/snapshot";
 constexpr auto kChPreview = "capture/preview";
 constexpr auto kChCaptureSpool = "state/capture_spool";
 constexpr auto kCmdCapture = "cmd/capture/trigger";
@@ -87,6 +96,21 @@ constexpr auto kCmdArmEeGoal = "cmd/arm/ee_goal";
 constexpr auto kCmdArmStop = "cmd/arm/stop";
 constexpr auto kCmdBasePosture = "cmd/base/posture";
 constexpr auto kChBase = "state/base";
+
+std::string readDefaultMapId(const std::filesystem::path &root)
+{
+    std::ifstream in(root / "default_map.json");
+    if (!in)
+        return {};
+    try {
+        json document;
+        if (in >> document && document.is_object() &&
+            document.contains("map_id") && document["map_id"].is_string())
+            return document["map_id"].get<std::string>();
+    } catch (const json::exception &) {
+    }
+    return {};
+}
 
 /// 주행 결과를 카탈로그에 등록된 코드로 옮긴다.
 ///
@@ -151,9 +175,72 @@ const char *missionStateName(uint8_t state)
 const std::vector<std::string> kArmJointNames{
     "j1", "j2", "j3", "j4", "j5", "j6"};
 
+bool validArmPresetId(const std::string &value)
+{
+    return !value.empty() && value.size() <= 96 &&
+        std::all_of(value.begin(), value.end(), [](unsigned char c) {
+            return std::isalnum(c) || c == '-' || c == '_';
+        });
+}
+
+bool validArmPresetPositions(const json &positions)
+{
+    if (!positions.is_array() || positions.size() != kArmJointNames.size())
+        return false;
+    static constexpr double kJointMin[] = {-3.0543, -4.6251, -2.8274, -4.6251, -3.0543, -3.0543};
+    static constexpr double kJointMax[] = { 3.0543,  1.4835,  2.8274,  1.4835,  3.0543,  3.0543};
+    for (size_t i = 0; i < positions.size(); ++i) {
+        if (!positions[i].is_number() || !std::isfinite(positions[i].get<double>()) ||
+            positions[i].get<double>() < kJointMin[i] || positions[i].get<double>() > kJointMax[i])
+            return false;
+    }
+    return true;
+}
+
+bool validArmPresetText(const std::string &name, const std::string &description)
+{
+    return !name.empty() && name.size() <= 80 && description.size() <= 400 &&
+        name.find_first_of("\r\n") == std::string::npos &&
+        description.find_first_of("\r\n") == std::string::npos;
+}
+
 /// 트레일을 이만큼 움직였을 때만 한 점을 남긴다. 서 있는 로봇이 초당 두 점씩
 /// 같은 자리를 쌓으면 화면의 선이 뭉치고 대역폭만 먹는다.
 constexpr double kTrailMinStepM = 0.05;
+// 새 AMCL pose가 반영되기 전의 map->base는 옛 위치일 수 있다.
+constexpr double kTrailLocalizationMatchM = 0.30;
+
+bool mountPointActive(const std::string &mountPoint)
+{
+    if (mountPoint.empty())
+        return false;
+    std::ifstream mounts("/proc/self/mountinfo");
+    std::string line;
+    while (std::getline(mounts, line)) {
+        std::istringstream fields(line);
+        std::string id, parent, device, root, mountedAt;
+        if (fields >> id >> parent >> device >> root >> mountedAt &&
+            mountedAt == mountPoint)
+            return true;
+    }
+    return false;
+}
+
+std::string captureFilePart(std::string value)
+{
+    for (char &ch : value) {
+        const auto byte = static_cast<unsigned char>(ch);
+        if (byte < 32 || std::string_view("<>:\"/\\|?*,_").find(ch) != std::string_view::npos)
+            ch = '-';
+    }
+    const auto begin = value.find_first_not_of(" \t");
+    if (begin == std::string::npos)
+        return {};
+    value = value.substr(begin, value.find_last_not_of(" \t") - begin + 1);
+    if (value.size() > 80)
+        value.resize(80);
+    return value;
+}
 
 }  // namespace
 
@@ -197,13 +284,19 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
                         "initial_map은 절대 경로의 map.yaml이어야 합니다: %s",
                         initialMap.c_str());
         } else {
-            std::error_code ec;
-            const auto relative = std::filesystem::relative(
-                requested, std::filesystem::path(mapsDir_), ec);
-            if (!ec && relative.filename() == "map.yaml"
+            // colcon --symlink-install은 map.yaml만 원본 소스로 연결할 수 있다.
+            // filesystem::relative는 심볼릭 링크를 따라가 mapsDir 밖의 파일로
+            // 계산하므로, 구성에 적힌 경로의 구조를 그대로 비교한다.
+            const auto relative = requested.lexically_normal().lexically_relative(
+                std::filesystem::path(mapsDir_).lexically_normal());
+            if (!relative.empty() && relative.filename() == "map.yaml"
                 && relative.parent_path().filename() == relative.parent_path()) {
                 mapId = relative.parent_path().string();
             }
+            if (mapId.empty())
+                RCLCPP_WARN(get_logger(),
+                            "initial_map은 maps_dir 바로 아래 <지도 ID>/map.yaml이어야 합니다: %s",
+                            initialMap.c_str());
         }
         std::string detail;
         if (!mapId.empty() && !loadMapBundle(mapId, &detail)) {
@@ -266,6 +359,7 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
             json points = json::array();
             for (const auto &pose : msg->poses)
                 points.push_back({pose.pose.position.x, pose.pose.position.y});
+            lastPlanPoints_ = points;
             sendEnvelope(makePublish(kChPlan, json{{"points", points}}), true);
         });
 
@@ -286,7 +380,7 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
                                  json{{"x", msg->info.origin.position.x},
                                       {"y", msg->info.origin.position.y},
                                       {"theta", 0.0}}},
-                                {"map_id", mapId_},
+                                {"map_id", pendingMapPublication_ ? pendingMapId_ : mapId_},
                                 {"encoding", "png"}};
             lastMapPng_ = png;
             sendEnvelope(makePublish(kChMap, lastMapMeta_), false, png);
@@ -358,6 +452,20 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     missionStateSub_ = create_subscription<shalom_interfaces::msg::MissionState>(
         "/mission/state", rclcpp::QoS(1).transient_local(),
         std::bind(&BridgeNode::onMissionState, this, std::placeholders::_1));
+    amclPoseSub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+        "/amcl_pose", rclcpp::QoS(10), [this](
+            const geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr &message) {
+            if (!trailAwaitingLocalization_ || message->header.frame_id != mapFrame_ ||
+                rclcpp::Time(message->header.stamp) < trailInitialPoseAt_)
+                return;
+            const double x = message->pose.pose.position.x;
+            const double y = message->pose.pose.position.y;
+            if (!std::isfinite(x) || !std::isfinite(y))
+                return;
+            trailExpectedX_ = x;
+            trailExpectedY_ = y;
+            trailNewPoseReceived_ = true;
+        });
 
     linkTimer_ = create_wall_timer(10ms, [this] { pollLink(); });
     poseTimer_ = create_wall_timer(100ms, [this] { publishPose(); });     // 10 Hz
@@ -367,7 +475,10 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     });                                                                    // 20 Hz
     healthTimer_ = create_wall_timer(1s, [this] { publishHealth(); });
     navTimer_ = create_wall_timer(200ms, [this] { publishNav(); });       // 5 Hz
-    systemTimer_ = create_wall_timer(1s, [this] { publishSystem(); });
+    systemTimer_ = create_wall_timer(1s, [this] {
+        publishSystem();
+        publishCaptureSpool();
+    });
     trailTimer_ = create_wall_timer(500ms, [this] { publishTrail(); });   // 2 Hz
 
     // 팔은 이름으로 지시한다. 받는 쪽(시뮬레이터든 실기 드라이버든)이 자기
@@ -389,8 +500,18 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     captureEnabled_ = declare_parameter("capture.enabled", false);
     if (captureEnabled_) {
         spoolDir_ = declare_parameter("capture.spool_dir",
-                                      std::string(std::getenv("HOME") ? std::getenv("HOME") : "/tmp")
-                                          + "/inspection");
+                                      std::string("/mnt/nas/inspection"));
+        captureMountPoint_ = declare_parameter("capture.mount_point", std::string("/mnt/nas"));
+        captureRequireMount_ = declare_parameter("capture.require_mount", true);
+        if (captureRequireMount_) {
+            const auto root = std::filesystem::path(captureMountPoint_).lexically_normal().string();
+            const auto folder = std::filesystem::path(spoolDir_).lexically_normal().string();
+            if (root.empty() || root == "/" || root.front() != '/' ||
+                (folder != root && folder.rfind(root + "/", 0) != 0)) {
+                throw std::invalid_argument(
+                    "capture.spool_dir must be under capture.mount_point");
+            }
+        }
         maxCaptureLinear_ = declare_parameter("capture.max_linear_speed", maxCaptureLinear_);
         maxCaptureAngular_ = declare_parameter("capture.max_angular_speed", maxCaptureAngular_);
         const auto colorTopic = declare_parameter(
@@ -415,6 +536,10 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     // 자리가 하나 더 생긴다.
     navClient_ = rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose");
     mapLoadClient_ = create_client<nav2_msgs::srv::LoadMap>("map_server/load_map");
+    localizationManagerClient_ = create_client<nav2_msgs::srv::ManageLifecycleNodes>(
+        "lifecycle_manager_localization/manage_nodes");
+    slamLifecycleClient_ = create_client<lifecycle_msgs::srv::ChangeState>(
+        "slam_toolbox/change_state");
 
     // 감시할 센서 목록은 파라미터에서 온다 (bridge.yaml 의 sensors).
     for (const auto &id : declare_parameter<std::vector<std::string>>(
@@ -656,15 +781,63 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdWaypointsSet) {
+        if (!pendingMapId_.empty()) {
+            respond(request, false, err::kBusy, "지도 전환이 끝난 뒤 웨이포인트를 변경하십시오");
+            return;
+        }
         if (haveMissionState_ && missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
             missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
             missionState_.state != shalom_interfaces::msg::MissionState::FAILED) {
             respond(request, false, err::kBusy, "미션이 끝난 뒤 점검 지점을 변경하십시오");
             return;
         }
-        waypoints_ = request.p.value("points", json::array());
+        if (mapId_ == "live") {
+            respond(request, false, err::kMode, "저장된 지도를 선택한 뒤 웨이포인트를 등록하십시오");
+            return;
+        }
+        json points = request.p.value("points", json::array());
+        if (!points.is_array()) {
+            respond(request, false, err::kBadPayload, "웨이포인트 목록이 올바르지 않습니다");
+            return;
+        }
+        std::unordered_set<std::string> ids;
+        for (auto &point : points) {
+            if (!point.is_object() || !point.contains("id") || !point["id"].is_string()
+                || !point.contains("x") || !point["x"].is_number()
+                || !point.contains("y") || !point["y"].is_number()) {
+                respond(request, false, err::kBadPayload, "웨이포인트 ID와 좌표를 확인하십시오");
+                return;
+            }
+            const std::string id = point["id"].get<std::string>();
+            if (id.empty() || !ids.insert(id).second) {
+                respond(request, false, err::kBadPayload, "웨이포인트 ID가 비었거나 중복되었습니다");
+                return;
+            }
+            // 기존 지도에는 이름/방향이 없는 지점도 있다. 목록을 다시
+            // 저장할 때 명시적인 기본값으로 보완하되 기존 ID는 유지한다.
+            if (!point.contains("name")) point["name"] = id;
+            if (!point.contains("theta")) point["theta"] = 0.0;
+            if (!point["name"].is_string() || !point["theta"].is_number()) {
+                respond(request, false, err::kBadPayload, "웨이포인트 이름과 방향을 확인하십시오");
+                return;
+            }
+            const auto name = point["name"].get<std::string>();
+            if (name.empty() || name.size() > 120 || name.find('\n') != std::string::npos
+                || name.find('\r') != std::string::npos
+                || !std::isfinite(point["x"].get<double>())
+                || !std::isfinite(point["y"].get<double>())
+                || !std::isfinite(point["theta"].get<double>())) {
+                respond(request, false, err::kBadPayload, "웨이포인트 이름·좌표·방향이 올바르지 않습니다");
+                return;
+            }
+            point.erase("status");
+        }
+        if (!saveMapState("waypoints.json", points)) {
+            respond(request, false, err::kHardware, "웨이포인트 파일을 저장하지 못했습니다");
+            return;
+        }
+        waypoints_ = points;
         ++missionPlanRevision_;
-        saveMapState("waypoints.json", waypoints_);
         respond(request, true);
         publishWaypoints();
         publishMapCatalog();
@@ -686,39 +859,77 @@ void BridgeNode::handleRequest(const Envelope &request)
 
     if (request.ch == kCmdArmPosePresetsSave) {
         const json preset = request.p.value("preset", json::object());
+        if (!preset.is_object()) {
+            respond(request, false, err::kBadPayload, "팔 자세 프리셋 형식이 올바르지 않습니다");
+            return;
+        }
         const std::string id = preset.value("id", std::string{});
         const std::string name = preset.value("name", std::string{});
+        const std::string description = preset.value("description", std::string{});
         const auto positions = preset.value("positions", json::array());
-        const auto valid_id = [](const std::string &value) {
-            return !value.empty() && value.size() <= 96 &&
-                std::all_of(value.begin(), value.end(), [](unsigned char c) {
-                    return std::isalnum(c) || c == '-' || c == '_';
-                });
-        };
-        if (!preset.is_object() || !valid_id(id) || name.empty() || name.size() > 80 ||
-            name.find('\n') != std::string::npos || name.find('\r') != std::string::npos ||
-            !positions.is_array() || positions.size() != kArmJointNames.size()) {
+        if (!validArmPresetId(id) || !validArmPresetText(name, description) ||
+            !validArmPresetPositions(positions)) {
             respond(request, false, err::kBadPayload, "프리셋 이름 또는 관절값이 올바르지 않습니다");
             return;
         }
-        static constexpr double kJointMin[] = {-3.0543, -4.6251, -2.8274, -4.6251, -3.0543, -3.0543};
-        static constexpr double kJointMax[] = { 3.0543,  1.4835,  2.8274,  1.4835,  3.0543,  3.0543};
-        for (size_t i = 0; i < positions.size(); ++i) {
-            if (!positions[i].is_number() || !std::isfinite(positions[i].get<double>()) ||
-                positions[i].get<double>() < kJointMin[i] || positions[i].get<double>() > kJointMax[i]) {
-                respond(request, false, err::kBadPayload, "프리셋 관절값이 FR3 가동 범위를 벗어났습니다");
-                return;
-            }
+        if (std::any_of(armPosePresets_.begin(), armPosePresets_.end(), [&name, &id](const json &item) {
+                return item.value("name", std::string{}) == name ||
+                       item.value("id", std::string{}) == id;
+            })) {
+            respond(request, false, err::kBadPayload, "같은 이름 또는 ID의 프리셋이 이미 있습니다");
+            return;
         }
-        if (std::any_of(armPosePresets_.begin(), armPosePresets_.end(), [&name](const json &item) {
-                return item.value("name", std::string{}) == name;
+        const json previous = armPosePresets_;
+        armPosePresets_.push_back(json{{"id", id}, {"name", name},
+                                       {"description", description}, {"positions", positions},
+                                       {"revision", 1}, {"archived", false}});
+        std::string error;
+        if (!saveArmPosePresets(&error)) {
+            armPosePresets_ = previous;
+            respond(request, false, err::kHardware, error);
+            return;
+        }
+        publishArmPosePresets();
+        respond(request, true);
+        return;
+    }
+
+    if (request.ch == kCmdArmPosePresetsUpdate) {
+        const json preset = request.p.value("preset", json::object());
+        if (!preset.is_object()) {
+            respond(request, false, err::kBadPayload, "팔 자세 프리셋 형식이 올바르지 않습니다");
+            return;
+        }
+        const std::string id = preset.value("id", std::string{});
+        const std::string name = preset.value("name", std::string{});
+        const std::string description = preset.value("description", std::string{});
+        const json positions = preset.value("positions", json::array());
+        const uint64_t expected = request.p.value("expected_revision", uint64_t{0});
+        if (!validArmPresetId(id) || !validArmPresetText(name, description) ||
+            !validArmPresetPositions(positions)) {
+            respond(request, false, err::kBadPayload, "프리셋 이름·설명·관절값이 올바르지 않습니다");
+            return;
+        }
+        auto found = std::find_if(armPosePresets_.begin(), armPosePresets_.end(), [&id](const json &item) {
+            return item.value("id", std::string{}) == id;
+        });
+        if (found == armPosePresets_.end() || found->value("revision", uint64_t{1}) != expected) {
+            respond(request, false, err::kBusy, "팔 자세가 다른 화면에서 변경됐습니다. 다시 불러오십시오");
+            publishArmPosePresets();
+            return;
+        }
+        if (std::any_of(armPosePresets_.begin(), armPosePresets_.end(), [&name, &id](const json &item) {
+                return item.value("id", std::string{}) != id &&
+                       item.value("name", std::string{}) == name;
             })) {
             respond(request, false, err::kBadPayload, "같은 이름의 프리셋이 이미 있습니다");
             return;
         }
         const json previous = armPosePresets_;
-        armPosePresets_.push_back(json{{"id", id}, {"name", name},
-                                       {"positions", positions}, {"archived", false}});
+        (*found)["name"] = name;
+        (*found)["description"] = description;
+        (*found)["positions"] = positions;
+        (*found)["revision"] = expected + 1;
         std::string error;
         if (!saveArmPosePresets(&error)) {
             armPosePresets_ = previous;
@@ -731,6 +942,10 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdMissionsSave) {
+        if (!pendingMapId_.empty()) {
+            respond(request, false, err::kBusy, "지도 전환이 끝난 뒤 미션을 변경하십시오");
+            return;
+        }
         if (mapId_ == "live") {
             respond(request, false, err::kMode, "저장된 지도를 선택한 뒤 미션을 저장하십시오");
             return;
@@ -822,7 +1037,7 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdMissionsArchive) {
-        if (mapId_ == "live" || navGoal_ || (haveMissionState_ &&
+        if (mapId_ == "live" || !pendingMapId_.empty() || navGoal_ || (haveMissionState_ &&
             missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
             missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
             missionState_.state != shalom_interfaces::msg::MissionState::FAILED)) {
@@ -883,52 +1098,53 @@ void BridgeNode::handleRequest(const Envelope &request)
         respond(request, true);
         publishMapCatalog();
         publishActiveMap();
+        // HMI가 빠르게 다른 로봇으로 전환하면 publishHealth의 1초 폴링이
+        // 연결 종료를 보지 못할 수 있다. 목록 요청은 연결 직후 항상 오므로
+        // 현재 지도에 속한 자료도 함께 다시 발행한다.
+        publishWaypoints();
+        publishMissions();
+        publishLocations();
+        publishMarkers();
+        if (!lastMapPng_.empty())
+            sendEnvelope(makePublish(kChMap, lastMapMeta_), false, lastMapPng_);
+        return;
+    }
+
+    if (request.ch == kCmdTrailSnapshot) {
+        json points = json::array();
+        for (const auto &pt : trailHistory_)
+            points.push_back({pt.first, pt.second});
+        sendEnvelope(makePublish(kChTrail, json{{"points", points}, {"reset", true}}));
+        trailPending_.clear();
+        trailReset_ = false;
+        trailWasConnected_ = true;
+        respond(request, true);
         return;
     }
 
     if (request.ch == kCmdMapsSelect) {
         const std::string id = request.p.value("id", std::string{});
         if (!haveMissionState_ || missionState_.state != shalom_interfaces::msg::MissionState::IDLE ||
-            navGoal_) {
+            navGoal_ || pendingGoto_ || !pendingMapId_.empty()) {
             respond(request, false, err::kBusy,
                     "주행 또는 점검이 끝난 뒤에 지도를 전환하십시오");
             return;
         }
-        if (id.empty() || id.find('/') != std::string::npos || id.find("..") != std::string::npos
+        if (id.empty() || id == "." || id.find('/') != std::string::npos || id.find("..") != std::string::npos
             || !std::filesystem::is_regular_file(std::filesystem::path(mapsDir_) / id / "map.yaml")) {
             respond(request, false, err::kBadPayload, "유효하지 않거나 없는 지도입니다");
             return;
         }
-        if (!mapLoadClient_->service_is_ready()) {
-            respond(request, false, err::kHardware,
-                    "map_server/load_map 서비스를 찾지 못했습니다");
+        std::string detail;
+        if (!loadMapBundle(id, &detail, true)) {
+            respond(request, false, err::kBadPayload, detail);
             return;
         }
-
-        auto load = std::make_shared<nav2_msgs::srv::LoadMap::Request>();
-        load->map_url = (std::filesystem::path(mapsDir_) / id / "map.yaml").string();
-        mapLoadClient_->async_send_request(load, [this, request, id](
-                                                rclcpp::Client<nav2_msgs::srv::LoadMap>::SharedFuture future) {
-            const auto result = future.get();
-            if (result->result != nav2_msgs::srv::LoadMap::Response::RESULT_SUCCESS) {
-                respond(request, false, err::kHardware, "map_server가 지도를 불러오지 못했습니다");
-                return;
-            }
-            // loadMapBundle은 요청 전에 검증했지만, 서비스 응답이 돌아오는 동안
-            // 파일이 바뀌었을 수도 있으므로 상태도 성공 시점에 다시 읽는다.
-            std::string detail;
-            if (!loadMapBundle(id, &detail)) {
-                respond(request, false, err::kHardware, detail);
-                return;
-            }
-            publishActiveMap();
-            publishMapCatalog();
-            publishWaypoints();
-            publishMissions();
-            publishLocations();
-            publishMarkers();
-            respond(request, true);
-        });
+        pendingMapId_ = id;
+        if (mapId_ == "live")
+            switchFromSlam(request, id);
+        else
+            loadSelectedMap(request, id, false);
         return;
     }
 
@@ -936,78 +1152,243 @@ void BridgeNode::handleRequest(const Envelope &request)
         const std::string id = request.p.value("id", std::string{});
         const std::string name = request.p.value("name", std::string{});
         if (!haveMissionState_ || missionState_.state != shalom_interfaces::msg::MissionState::IDLE ||
-            navGoal_) {
+            navGoal_ || pendingGoto_ || !pendingMapId_.empty()) {
             respond(request, false, err::kBusy,
                     "주행 또는 점검이 끝난 뒤에 지도 이름을 바꾸십시오");
             return;
         }
-        if (id.empty() || id.find('/') != std::string::npos || id.find("..") != std::string::npos
+        if (id.empty() || id == "." || id.find('/') != std::string::npos || id.find("..") != std::string::npos
             || !std::filesystem::is_regular_file(std::filesystem::path(mapsDir_) / id / "map.yaml")) {
             respond(request, false, err::kBadPayload, "유효하지 않거나 없는 지도입니다");
             return;
         }
-        // 이름은 UTF-8 바이트 기준으로 제한한다. 줄바꿈을 허용하면 UI와 로그의
-        // 한 항목 경계가 깨지므로 표시 이름으로 쓸 수 없다.
-        if (name.empty() || name.size() > 120 || name.find('\n') != std::string::npos
-            || name.find('\r') != std::string::npos) {
-            respond(request, false, err::kBadPayload, "지도 이름은 줄바꿈 없는 1~120바이트여야 합니다");
+        // 지도 이름은 실제 디렉터리 이름이다. 경로 구분자와 제어 문자는 허용하지 않는다.
+        if (name.empty() || name.size() > 120 || name == "." || name.find("..") != std::string::npos ||
+            name == "live" || name == ".trash" || name.front() == ' ' || name.back() == ' ' ||
+            std::any_of(name.begin(), name.end(), [](unsigned char c) {
+                return c == '/' || c == '\\' || c < 0x20 || c == 0x7f;
+            })) {
+            respond(request, false, err::kBadPayload, "지도 이름에 사용할 수 없는 문자가 있습니다");
             return;
         }
-
-        const std::filesystem::path dir = std::filesystem::path(mapsDir_) / id;
-        const std::filesystem::path metadata_path = dir / "metadata.json";
-        json metadata{{"schema_version", 1}, {"id", id}};
+        if (name == id) {
+            respond(request, true);
+            return;
+        }
+        const std::filesystem::path root(mapsDir_);
+        const std::filesystem::path dir = root / id;
+        const std::filesystem::path destination = root / name;
+        std::error_code ec;
+        if (std::filesystem::exists(destination, ec) ||
+            std::filesystem::is_symlink(destination) || ec) {
+            respond(request, false, err::kBadPayload, "같은 이름의 지도가 이미 있습니다");
+            return;
+        }
+        // 먼저 모든 JSON의 새 내용을 준비한다. 한 파일이라도 읽거나 쓸 수 없으면
+        // 폴더를 옮기지 않는다. 기존 파일의 map_id와 미션 참조도 같이 변경한다.
+        const std::array<const char *, 5> files{
+            "metadata.json", "waypoints.json", "locations.json", "markers.json", "missions.json"};
+        std::vector<std::filesystem::path> staged;
+        const auto defaultMap = root / "default_map.json";
+        std::filesystem::path stagedDefaultMap;
+        const auto discardStaged = [&staged, &stagedDefaultMap]() {
+            for (const auto &path : staged) {
+                std::error_code ignored;
+                std::filesystem::remove(path, ignored);
+            }
+            if (!stagedDefaultMap.empty()) {
+                std::error_code ignored;
+                std::filesystem::remove(stagedDefaultMap, ignored);
+            }
+        };
         try {
-            std::ifstream in(metadata_path);
-            if (in)
-                in >> metadata;
-        } catch (const json::parse_error &e) {
-            RCLCPP_ERROR(get_logger(), "지도 메타데이터가 손상되어 이름을 바꾸지 않습니다 (%s): %s",
-                         metadata_path.c_str(), e.what());
-            respond(request, false, err::kHardware, "지도 메타데이터를 읽지 못했습니다");
+            for (const char *filename : files) {
+                const auto source = dir / filename;
+                if (std::string(filename) != "metadata.json" &&
+                    !std::filesystem::exists(source))
+                    continue;
+                json document = json::object();
+                if (std::filesystem::exists(source)) {
+                    std::ifstream in(source);
+                    if (!in || !(in >> document) || !document.is_object())
+                        throw std::runtime_error(std::string(filename) + " 읽기 실패");
+                    const int version = document.value("schema_version", 1);
+                    const bool metadata = std::string(filename) == "metadata.json";
+                    if (version < 1 || version > (metadata ? 2 : 1))
+                        throw std::runtime_error(std::string(filename) + " schema_version이 지원되지 않습니다");
+                }
+                if (std::string(filename) == "metadata.json") {
+                    document["schema_version"] = 2;
+                    document.erase("id");
+                    document["name"] = name;
+                    document.erase("map_yaml");
+                } else {
+                    document["map_id"] = name;
+                    if (std::string(filename) == "missions.json" &&
+                        document.value("missions", json::array()).is_array()) {
+                        for (auto &mission : document["missions"])
+                            if (mission.is_object()) mission["map_id"] = name;
+                    }
+                }
+                const auto temporary = dir / (std::string(".") + filename + ".rename.tmp");
+                staged.push_back(temporary);
+                std::ofstream out(temporary, std::ios::trunc);
+                if (!out || !(out << document.dump(2) << '\n'))
+                    throw std::runtime_error(std::string(filename) + " 쓰기 실패");
+                out.close();
+                if (!out)
+                    throw std::runtime_error(std::string(filename) + " 저장 실패");
+            }
+            if (std::filesystem::is_regular_file(defaultMap)) {
+                std::ifstream in(defaultMap);
+                json selected;
+                if (!in || !(in >> selected) || !selected.is_object())
+                    throw std::runtime_error("기본 지도 설정 읽기 실패");
+                if (selected.value("map_id", std::string{}) == id) {
+                    stagedDefaultMap = root / ".default_map.json.rename.tmp";
+                    selected["map_id"] = name;
+                    std::ofstream out(stagedDefaultMap, std::ios::trunc);
+                    if (!out || !(out << selected.dump(2) << '\n'))
+                        throw std::runtime_error("기본 지도 설정 쓰기 실패");
+                    out.close();
+                    if (!out)
+                        throw std::runtime_error("기본 지도 설정 저장 실패");
+                }
+            }
+        } catch (const std::exception &e) {
+            discardStaged();
+            respond(request, false, err::kHardware, std::string("지도 데이터 변경 준비 실패: ") + e.what());
             return;
         }
-        if (!metadata.is_object()) {
-            RCLCPP_ERROR(get_logger(), "지도 메타데이터 형식이 객체가 아닙니다: %s",
-                         metadata_path.c_str());
-            respond(request, false, err::kHardware, "지도 메타데이터 형식이 올바르지 않습니다");
+        std::filesystem::rename(dir, destination, ec);
+        if (ec) {
+            discardStaged();
+            respond(request, false, err::kHardware, "지도 폴더 이름 변경 실패: " + ec.message());
             return;
         }
-        metadata["schema_version"] = 1;
-        metadata["id"] = id;
-        metadata["name"] = name;
-
-        // 같은 디렉터리에 완성본을 쓴 뒤 rename한다. 전원 장애나 HMI 연결이
-        // 끊겨도 metadata.json이 반쯤 쓰인 상태로 남지 않게 한다.
-        const std::filesystem::path temporary_path = dir / ".metadata.json.tmp";
-        {
-            std::ofstream out(temporary_path, std::ios::trunc);
-            if (!out) {
-                respond(request, false, err::kHardware, "지도 메타데이터를 쓸 수 없습니다");
+        for (const auto &temporary : staged) {
+            std::string filename = temporary.filename().string();
+            filename.erase(0, 1);
+            filename.erase(filename.size() - std::string(".rename.tmp").size());
+            const auto target = destination / filename;
+            std::filesystem::rename(destination / temporary.filename(), target, ec);
+            if (ec) {
+                RCLCPP_ERROR(get_logger(), "지도 파일 갱신 실패 (%s): %s", target.c_str(), ec.message().c_str());
+                respond(request, false, err::kHardware, "지도 폴더는 변경됐지만 일부 데이터 갱신에 실패했습니다");
+                publishMapCatalog();
                 return;
             }
-            out << metadata.dump(2) << '\n';
-            if (!out) {
-                std::error_code remove_ec;
-                std::filesystem::remove(temporary_path, remove_ec);
-                respond(request, false, err::kHardware, "지도 메타데이터 저장에 실패했습니다");
+        }
+        if (!stagedDefaultMap.empty()) {
+            std::filesystem::rename(stagedDefaultMap, defaultMap, ec);
+            if (ec) {
+                RCLCPP_ERROR(get_logger(), "기본 지도 설정 갱신 실패: %s", ec.message().c_str());
+                respond(request, false, err::kHardware, "지도 이름은 바뀌었지만 기본 지도 설정 갱신에 실패했습니다");
+                publishMapCatalog();
                 return;
             }
         }
-        std::error_code rename_ec;
-        std::filesystem::rename(temporary_path, metadata_path, rename_ec);
-        if (rename_ec) {
-            std::error_code remove_ec;
-            std::filesystem::remove(temporary_path, remove_ec);
-            RCLCPP_ERROR(get_logger(), "지도 메타데이터 교체 실패 (%s): %s",
-                         metadata_path.c_str(), rename_ec.message().c_str());
-            respond(request, false, err::kHardware, "지도 메타데이터를 반영하지 못했습니다");
-            return;
+        if (get_parameter("initial_map").as_string() == (dir / "map.yaml").string())
+            set_parameter(rclcpp::Parameter("initial_map", (destination / "map.yaml").string()));
+        if (mapId_ == id) {
+            mapId_ = name;
+            lastMapMeta_["map_id"] = name;
+            for (auto &mission : missions_)
+                if (mission.is_object()) mission["map_id"] = name;
         }
-
         publishMapCatalog();
-        if (id == mapId_)
+        if (mapId_ == name) {
             publishActiveMap();
+            publishWaypoints();
+            publishMissions();
+            publishLocations();
+            publishMarkers();
+            if (!lastMapPng_.empty())
+                sendEnvelope(makePublish(kChMap, lastMapMeta_), false, lastMapPng_);
+        }
+        respond(request, true);
+        return;
+    }
+
+    if (request.ch == kCmdMapsSetDefault) {
+        const std::string id = request.p.value("id", std::string{});
+        const auto root = std::filesystem::path(mapsDir_);
+        if (!id.empty() && (id == "." || id.find('/') != std::string::npos ||
+            id.find("..") != std::string::npos ||
+            !std::filesystem::is_regular_file(root / id / "map.yaml"))) {
+            respond(request, false, err::kBadPayload, "유효하지 않거나 없는 지도입니다");
+            return;
+        }
+        const auto temporary = root / ".default_map.json.tmp";
+        const auto destination = root / "default_map.json";
+        std::ofstream out(temporary, std::ios::trunc);
+        if (!out || !(out << json{{"map_id", id}}.dump(2) << '\n')) {
+            respond(request, false, err::kHardware, "기본 지도 설정을 쓸 수 없습니다");
+            return;
+        }
+        out.close();
+        if (!out) {
+            std::error_code ignored;
+            std::filesystem::remove(temporary, ignored);
+            respond(request, false, err::kHardware, "기본 지도 설정을 저장하지 못했습니다");
+            return;
+        }
+        std::error_code ec;
+        std::filesystem::rename(temporary, destination, ec);
+        if (ec) {
+            std::error_code ignored;
+            std::filesystem::remove(temporary, ignored);
+            respond(request, false, err::kHardware, "기본 지도 설정을 저장하지 못했습니다");
+            return;
+        }
+        publishMapCatalog();
+        respond(request, true);
+        return;
+    }
+
+    if (request.ch == kCmdMapsDelete) {
+        const std::string id = request.p.value("id", std::string{});
+        if (!haveMissionState_ || missionState_.state != shalom_interfaces::msg::MissionState::IDLE ||
+            navGoal_ || pendingGoto_ || !pendingMapId_.empty()) {
+            respond(request, false, err::kBusy, "주행과 미션이 끝난 뒤 지도를 삭제하십시오");
+            return;
+        }
+        if (id.empty() || id == "." || id.find('/') != std::string::npos || id.find("..") != std::string::npos ||
+            id == mapId_) {
+            respond(request, false, err::kMode, "현재 사용 중인 지도는 삭제할 수 없습니다");
+            return;
+        }
+        const std::filesystem::path source = std::filesystem::path(mapsDir_) / id;
+        if (!std::filesystem::is_regular_file(source / "map.yaml")) {
+            respond(request, false, err::kBadPayload, "유효하지 않거나 없는 지도입니다");
+            return;
+        }
+        if (id == readDefaultMapId(std::filesystem::path(mapsDir_))) {
+            respond(request, false, err::kMode, "기본 지도를 변경하거나 해제한 뒤 삭제하십시오");
+            return;
+        }
+        const auto startupMap = get_parameter("initial_map").as_string();
+        if (!startupMap.empty() && std::filesystem::path(startupMap).lexically_normal() ==
+                                       (source / "map.yaml").lexically_normal()) {
+            respond(request, false, err::kMode,
+                    "기동 설정에서 사용하는 지도입니다. 시작 지도 설정을 먼저 변경하십시오");
+            return;
+        }
+        const std::filesystem::path trash = std::filesystem::path(mapsDir_) / ".trash";
+        std::error_code ec;
+        std::filesystem::create_directories(trash, ec);
+        if (ec) {
+            respond(request, false, err::kHardware, "지도 보관 폴더를 만들지 못했습니다: " + ec.message());
+            return;
+        }
+        const auto stamp = std::chrono::system_clock::now().time_since_epoch().count();
+        const auto destination = trash / (id + "-" + std::to_string(stamp));
+        std::filesystem::rename(source, destination, ec);
+        if (ec) {
+            respond(request, false, err::kHardware, "지도를 보관 폴더로 옮기지 못했습니다: " + ec.message());
+            return;
+        }
+        publishMapCatalog();
         respond(request, true);
         return;
     }
@@ -1057,6 +1438,10 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdInitialPose) {
+        if (!pendingMapId_.empty()) {
+            respond(request, false, err::kBusy, "지도 전환이 끝난 뒤 초기 위치를 지정하십시오");
+            return;
+        }
         const double x = request.p.value("x", std::numeric_limits<double>::quiet_NaN());
         const double y = request.p.value("y", std::numeric_limits<double>::quiet_NaN());
         const double theta = request.p.value("theta", std::numeric_limits<double>::quiet_NaN());
@@ -1085,6 +1470,10 @@ void BridgeNode::handleRequest(const Envelope &request)
         pose.pose.covariance[28] = 1.0e6;
         pose.pose.covariance[35] = 0.0685389;
         initialPosePub_->publish(pose);
+        resetTrail();
+        trailAwaitingLocalization_ = true;
+        trailNewPoseReceived_ = false;
+        trailInitialPoseAt_ = rclcpp::Time(pose.header.stamp);
         respond(request, true);
         sendEnvelope(makeEvent(kChLog, json{{"code", "LOCALIZATION_INITIAL_POSE_SET"},
                                             {"level", "info"},
@@ -1093,6 +1482,10 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdGoto) {
+        if (!pendingMapId_.empty()) {
+            respond(request, false, err::kBusy, "지도 전환이 끝난 뒤 목표를 지정하십시오");
+            return;
+        }
         if (manualMode_) {
             respond(request, false, err::kMode, "수동 모드에서는 자율 이동을 실행하지 않습니다");
             return;
@@ -1196,6 +1589,8 @@ void BridgeNode::publishSystem()
                                   {"gpu_temp_c", nullptr},
                                   {"net_rtt_ms", nullptr},
                                   {"net_rssi", nullptr},
+                                  {"capture_enabled", captureEnabled_},
+                                  {"arm_execution_enabled", armExecutionEnabled_},
                                   {"robot_id", robotId_},
                                   {"robot_name", robotName_}}),
                  true);
@@ -1247,7 +1642,52 @@ bool BridgeNode::applyArmGoal(const Envelope &request, const std::vector<double>
 
 void BridgeNode::publishWaypoints()
 {
-    sendEnvelope(makePublish(kChWaypoints, json{{"points", waypoints_}}));
+    // 위치 정의는 수정하지 않는다. 진행 상태는 현재 미션에서 발행할 때만 계산한다.
+    json points = waypoints_;
+    for (auto &point : points)
+        if (point.is_object()) point["status"] = "todo";
+    if (haveMissionState_ && missionState_.state != shalom_interfaces::msg::MissionState::IDLE) {
+        const bool completed = missionState_.state == shalom_interfaces::msg::MissionState::COMPLETED ||
+                               missionState_.state == shalom_interfaces::msg::MissionState::RETURNING;
+        const auto mission = std::find_if(missions_.begin(), missions_.end(), [this](const json &item) {
+            return item.is_object() &&
+                   item.value("id", std::string{}) == missionState_.mission_id;
+        });
+        if (mission != missions_.end() && mission->contains("steps") &&
+            (*mission)["steps"].is_array()) {
+            // 미션 단계 순서가 위치 목록의 순서와 다를 수 있다.
+            std::size_t stepIndex = 0;
+            for (const auto &step : mission->value("steps", json::array())) {
+                if (!step.is_object() || step.value("type", std::string{}) != "navigate") {
+                    ++stepIndex;
+                    continue;
+                }
+                const std::string locationId = step.value("location_id", std::string{});
+                const bool beforeCurrent = missionState_.current_step >= 0 &&
+                    stepIndex < std::size_t(missionState_.current_step);
+                const bool current = missionState_.current_step >= 0 &&
+                    stepIndex == std::size_t(missionState_.current_step);
+                for (auto &point : points)
+                    if (point.value("id", std::string{}) == locationId)
+                        point["status"] = completed || beforeCurrent ? "done"
+                            : current && missionState_.state == shalom_interfaces::msg::MissionState::FAILED
+                                ? "error" : current ? "current" : "todo";
+                ++stepIndex;
+            }
+        } else {
+            // 이전 전체 목록 기반 주행 계획을 위한 호환 경로.
+            for (std::size_t i = 0; i < points.size(); ++i) {
+                const bool beforeCurrent = missionState_.current_step >= 0 &&
+                    i < std::size_t(missionState_.current_step);
+                const bool current = missionState_.current_step >= 0 &&
+                    i == std::size_t(missionState_.current_step);
+                points[i]["status"] = completed || beforeCurrent ? "done"
+                    : current && missionState_.state == shalom_interfaces::msg::MissionState::FAILED
+                        ? "error" : current ? "current" : "todo";
+            }
+        }
+    }
+    sendEnvelope(makePublish(kChWaypoints, json{{"points", points}}));
 }
 
 void BridgeNode::publishMissions()
@@ -1270,17 +1710,134 @@ void BridgeNode::publishLocations()
 void BridgeNode::publishActiveMap()
 {
     json active{{"id", mapId_}, {"name", mapId_}};
-    const auto meta_path = std::filesystem::path(mapsDir_) / mapId_ / "metadata.json";
-    std::ifstream meta_in(meta_path);
-    json meta;
-    try {
-        if (meta_in >> meta)
-            active["name"] = meta.value("name", mapId_);
-    } catch (const json::parse_error &e) {
-        RCLCPP_WARN(get_logger(), "지도 메타데이터를 읽지 못했습니다 (%s): %s",
-                    meta_path.c_str(), e.what());
-    }
     sendEnvelope(makePublish(kChActiveMap, active));
+}
+
+void BridgeNode::loadSelectedMap(const Envelope &request, const std::string &id, bool from_slam)
+{
+    if (!mapLoadClient_->service_is_ready()) {
+        if (from_slam) {
+            restoreSlam(request, "map_server/load_map 서비스를 찾지 못했습니다");
+        } else {
+            pendingMapId_.clear();
+            respond(request, false, err::kHardware, "map_server/load_map 서비스를 찾지 못했습니다");
+        }
+        return;
+    }
+    auto load = std::make_shared<nav2_msgs::srv::LoadMap::Request>();
+    load->map_url = (std::filesystem::path(mapsDir_) / id / "map.yaml").string();
+    pendingMapPublication_ = true;
+    mapLoadClient_->async_send_request(load, [this, request, id, from_slam](
+        rclcpp::Client<nav2_msgs::srv::LoadMap>::SharedFuture future) {
+        if (future.get()->result != nav2_msgs::srv::LoadMap::Response::RESULT_SUCCESS) {
+            pendingMapPublication_ = false;
+            if (from_slam) restoreSlam(request, "map_server가 지도를 불러오지 못했습니다");
+            else {
+                pendingMapId_.clear();
+                respond(request, false, err::kHardware, "map_server가 지도를 불러오지 못했습니다");
+            }
+            return;
+        }
+        std::string detail;
+        if (!loadMapBundle(id, &detail)) {
+            pendingMapPublication_ = false;
+            if (from_slam) restoreSlam(request, detail);
+            else {
+                pendingMapId_.clear();
+                respond(request, false, err::kHardware, detail);
+            }
+            return;
+        }
+        pendingMapPublication_ = false;
+        pendingMapId_.clear();
+        publishActiveMap();
+        publishMapCatalog();
+        publishWaypoints();
+        publishMissions();
+        publishLocations();
+        publishMarkers();
+        sendEnvelope(makePublish(kChPlan, json{{"points", lastPlanPoints_}}), true);
+        sendEnvelope(makePublish(kChTrail,
+                                 json{{"points", json::array()}, {"reset", true}}));
+        respond(request, true);
+    });
+}
+
+void BridgeNode::switchFromSlam(const Envelope &request, const std::string &id)
+{
+    if (!slamLifecycleClient_->service_is_ready() ||
+        !localizationManagerClient_->service_is_ready()) {
+        pendingMapId_.clear();
+        respond(request, false, err::kHardware,
+                "SLAM 또는 위치 추정 전환 서비스를 찾지 못했습니다");
+        return;
+    }
+    // 먼저 위치 추정 노드를 inactive까지 준비한다. 이 동안 SLAM의 지도와
+    // map->odom은 그대로 살아 있어 전환 준비 실패가 주행 좌표계를 끊지 않는다.
+    auto configure = std::make_shared<nav2_msgs::srv::ManageLifecycleNodes::Request>();
+    configure->command = nav2_msgs::srv::ManageLifecycleNodes::Request::CONFIGURE;
+    localizationManagerClient_->async_send_request(configure, [this, request, id](
+        rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedFuture configured) {
+        if (!configured.get()->success) {
+            pendingMapId_.clear();
+            respond(request, false, err::kHardware, "map_server·AMCL 준비에 실패했습니다. SLAM은 유지됩니다");
+            return;
+        }
+        auto deactivate = std::make_shared<lifecycle_msgs::srv::ChangeState::Request>();
+        deactivate->transition.id = lifecycle_msgs::msg::Transition::TRANSITION_DEACTIVATE;
+        slamLifecycleClient_->async_send_request(deactivate, [this, request, id](
+            rclcpp::Client<lifecycle_msgs::srv::ChangeState>::SharedFuture stopped) {
+            if (!stopped.get()->success) {
+                pendingMapId_.clear();
+                respond(request, false, err::kHardware,
+                        "SLAM을 중지하지 못해 지도를 전환하지 않았습니다");
+                return;
+            }
+            auto resume = std::make_shared<nav2_msgs::srv::ManageLifecycleNodes::Request>();
+            resume->command = nav2_msgs::srv::ManageLifecycleNodes::Request::RESUME;
+            localizationManagerClient_->async_send_request(resume, [this, request, id](
+                rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedFuture resumed) {
+                if (!resumed.get()->success) {
+                    restoreSlam(request, "map_server·AMCL을 활성화하지 못했습니다");
+                    return;
+                }
+                loadSelectedMap(request, id, true);
+            });
+        });
+    });
+}
+
+void BridgeNode::restoreSlam(const Envelope &request, const std::string &reason)
+{
+    pendingMapPublication_ = false;
+    if (!localizationManagerClient_->service_is_ready()) {
+        pendingMapId_.clear();
+        respond(request, false, err::kHardware,
+                reason + "; 위치 추정 종료 서비스를 찾지 못해 수동 복구가 필요합니다");
+        return;
+    }
+    auto pause = std::make_shared<nav2_msgs::srv::ManageLifecycleNodes::Request>();
+    pause->command = nav2_msgs::srv::ManageLifecycleNodes::Request::PAUSE;
+    localizationManagerClient_->async_send_request(pause, [this, request, reason](
+        rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedFuture pause_future) {
+        if (!pause_future.get()->success || !slamLifecycleClient_->service_is_ready()) {
+            pendingMapId_.clear();
+            respond(request, false, err::kHardware,
+                    reason + "; 위치 추정 종료 실패로 수동 복구가 필요합니다");
+            return;
+        }
+        auto activate = std::make_shared<lifecycle_msgs::srv::ChangeState::Request>();
+        activate->transition.id = lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE;
+        slamLifecycleClient_->async_send_request(activate, [this, request, reason](
+            rclcpp::Client<lifecycle_msgs::srv::ChangeState>::SharedFuture activate_future) {
+            pendingMapId_.clear();
+            lastMapPng_.clear();
+            lastMapMeta_ = json::object();
+            respond(request, false, err::kHardware,
+                    reason + (activate_future.get()->success ? "; SLAM으로 복귀했습니다"
+                        : "; SLAM 복귀 실패로 수동 복구가 필요합니다"));
+        });
+    });
 }
 
 void BridgeNode::publishMapCatalog()
@@ -1288,6 +1845,7 @@ void BridgeNode::publishMapCatalog()
     json maps = json::array();
     std::error_code ec;
     const std::filesystem::path root(mapsDir_);
+    const std::string defaultId = readDefaultMapId(root);
     for (const auto &entry : std::filesystem::directory_iterator(root, ec)) {
         if (ec || !entry.is_directory())
             continue;
@@ -1297,35 +1855,38 @@ void BridgeNode::publishMapCatalog()
 
         const std::string id = dir.filename().string();
         json item{{"id", id}, {"name", id}, {"active", id == mapId_},
+                  {"default", id == defaultId},
                   {"waypoint_count", 0}};
         try {
             std::ifstream meta_in(dir / "metadata.json");
             json meta;
             if (meta_in >> meta) {
-                item["name"] = meta.value("name", id);
-                item["created_at"] = meta.value("created_at", std::string{});
+                if (meta.is_object() && meta.contains("created_at") &&
+                    meta["created_at"].is_string())
+                    item["created_at"] = meta["created_at"];
             }
             std::ifstream wp_in(dir / "waypoints.json");
             json waypoints;
             if (wp_in >> waypoints && waypoints["points"].is_array())
                 item["waypoint_count"] = waypoints["points"].size();
-        } catch (const json::parse_error &e) {
+        } catch (const json::exception &e) {
             RCLCPP_WARN(get_logger(), "지도 카탈로그 항목을 읽지 못했습니다 (%s): %s",
                         dir.c_str(), e.what());
         }
         maps.push_back(std::move(item));
     }
-    // 날짜 기반 ID는 문자열 정렬 자체가 시간순이다. directory_iterator의 순서는
-    // 파일 시스템마다 달라 HMI 목록까지 흔들리므로 여기서 고정한다.
+    // directory_iterator의 순서는 파일 시스템마다 달라 HMI 목록까지
+    // 흔들리므로 폴더 이름으로 정렬한다.
     std::sort(maps.begin(), maps.end(), [](const json &left, const json &right) {
         return left.value("id", std::string{}) < right.value("id", std::string{});
     });
     sendEnvelope(makePublish(kChMaps, json{{"maps", maps}}));
 }
 
-bool BridgeNode::loadMapBundle(const std::string &map_id, std::string *error)
+bool BridgeNode::loadMapBundle(const std::string &map_id, std::string *error,
+                               bool validate_only)
 {
-    if (map_id.empty() || map_id.find('/') != std::string::npos || map_id.find("..") != std::string::npos) {
+    if (map_id.empty() || map_id == "." || map_id.find('/') != std::string::npos || map_id.find("..") != std::string::npos) {
         if (error) *error = "유효하지 않은 지도 ID";
         return false;
     }
@@ -1335,23 +1896,70 @@ bool BridgeNode::loadMapBundle(const std::string &map_id, std::string *error)
         return false;
     }
 
-    const auto read = [this, &dir](const char *name, const char *key) {
+    std::ifstream metadata(dir / "metadata.json");
+    if (metadata) {
+        try {
+            json document;
+            metadata >> document;
+            if (!document.is_object() || !document.contains("schema_version") ||
+                !document["schema_version"].is_number_integer() ||
+                (document["schema_version"] != 1 && document["schema_version"] != 2)) {
+                if (error) *error = "metadata.json schema_version이 지원되지 않습니다";
+                return false;
+            }
+        } catch (const json::exception &e) {
+            if (error) *error = std::string("metadata.json 읽기 실패: ") + e.what();
+            return false;
+        }
+    }
+
+    const auto read = [&dir, error](const char *name, const char *key) -> std::optional<json> {
         std::ifstream in(dir / name);
-        json out = json::array();
+        if (!in)
+            return json::array();
         json doc;
         try {
-            if (in >> doc && doc[key].is_array())
-                out = doc[key];
-        } catch (const json::parse_error &e) {
-            RCLCPP_WARN(get_logger(), "지도 상태를 읽지 못했습니다 (%s): %s",
-                        (dir / name).c_str(), e.what());
+            in >> doc;
+            if (!doc.is_object() || !doc.contains(key) || !doc[key].is_array() ||
+                doc.value("schema_version", 1) != 1) {
+                if (error) *error = std::string(name) + " 형식 또는 schema_version이 지원되지 않습니다";
+                return std::nullopt;
+            }
+            return doc[key];
+        } catch (const json::exception &e) {
+            if (error) *error = std::string(name) + " 읽기 실패: " + e.what();
+            return std::nullopt;
         }
-        return out;
     };
-    waypoints_ = read("waypoints.json", "points");
-    locations_ = read("locations.json", "locations");
-    markers_ = read("markers.json", "markers");
-    missions_ = read("missions.json", "missions");
+    const auto points = read("waypoints.json", "points");
+    const auto locations = read("locations.json", "locations");
+    const auto markers = read("markers.json", "markers");
+    const auto missions = read("missions.json", "missions");
+    if (!points || !locations || !markers || !missions)
+        return false;
+    if (std::any_of(points->begin(), points->end(), [](const json &point) {
+            return !point.is_object();
+        })) {
+        if (error) *error = "waypoints.json에 올바르지 않은 지점이 있습니다";
+        return false;
+    }
+    if (validate_only)
+        return true;
+    if (mapId_ != map_id) {
+        trailPending_.clear();
+        trailHistory_.clear();
+        trailHasLast_ = false;
+        trailReset_ = true;
+        trailAwaitingLocalization_ = false;
+        trailNewPoseReceived_ = false;
+        lastPlanPoints_ = json::array();
+    }
+    waypoints_ = *points;
+    for (auto &point : waypoints_)
+        if (point.is_object()) point.erase("status");
+    locations_ = *locations;
+    markers_ = *markers;
+    missions_ = *missions;
     mapId_ = map_id;
     return true;
 }
@@ -1361,16 +1969,33 @@ bool BridgeNode::saveMapState(const char *filename, const json &state)
     if (mapId_ == "live")
         return false;
     const std::filesystem::path path = std::filesystem::path(mapsDir_) / mapId_ / filename;
-    std::ofstream out(path);
-    if (!out)
-        return false;
+    const std::filesystem::path temporary = path.parent_path() /
+        (std::string(".") + filename + ".tmp");
     const std::string key = std::string(filename) == "waypoints.json" ? "points"
                             : std::string(filename) == "locations.json" ? "locations"
                                                                           : "markers";
     json document{{"schema_version", 1}, {"map_id", mapId_}};
     document[key] = state;
-    out << document.dump(2);
-    return bool(out);
+    {
+        std::ofstream out(temporary, std::ios::trunc);
+        if (!out)
+            return false;
+        out << document.dump(2) << '\n';
+        out.close();
+        if (!out) {
+            std::error_code ec;
+            std::filesystem::remove(temporary, ec);
+            return false;
+        }
+    }
+    std::error_code ec;
+    std::filesystem::rename(temporary, path, ec);
+    if (ec) {
+        std::error_code removeError;
+        std::filesystem::remove(temporary, removeError);
+        return false;
+    }
+    return true;
 }
 
 bool BridgeNode::saveMissions(std::string *error)
@@ -1424,6 +2049,7 @@ bool BridgeNode::saveArmPosePresets(std::string *error)
             return false;
         }
         out << json{{"schema_version", 1}, {"presets", armPosePresets_}}.dump(2) << '\n';
+        out.close();
         if (!out) {
             std::filesystem::remove(temporary, ec);
             if (error) *error = "팔 자세 프리셋 저장에 실패했습니다";
@@ -1472,12 +2098,20 @@ double BridgeNode::centreDistanceMm() const
 void BridgeNode::publishCaptureSpool()
 {
     std::error_code ec;
-    const auto space = std::filesystem::space(spoolDir_, ec);
+    const bool mounted = captureEnabled_ &&
+        (!captureRequireMount_ || mountPointActive(captureMountPoint_));
+    std::filesystem::space_info space{};
+    if (mounted) {
+        std::filesystem::create_directories(spoolDir_, ec);
+        if (!ec)
+            space = std::filesystem::space(captureRequireMount_ ? captureMountPoint_ : spoolDir_, ec);
+    }
     sendEnvelope(makePublish(kChCaptureSpool,
-                             json{{"nas_online", !ec},
-                                  {"pending", capturesTaken_},
+                             json{{"nas_online", mounted && !ec},
+                                  {"pending", 0},
                                   {"spool_free_mb",
-                                   ec ? 0.0 : double(space.available) / (1024.0 * 1024.0)}}));
+                                   mounted && !ec
+                                       ? double(space.available) / (1024.0 * 1024.0) : 0.0}}));
 }
 
 void BridgeNode::handleCapture(const Envelope &request)
@@ -1505,15 +2139,32 @@ void BridgeNode::handleCapture(const Envelope &request)
         return;
     }
 
+    if (captureRequireMount_ && !mountPointActive(captureMountPoint_)) {
+        respond(request, false, err::kHardware,
+                "촬영 저장소가 마운트되지 않았습니다: " + captureMountPoint_);
+        return;
+    }
+
     // 파일명은 과업지시서가 정한 형식이다.
     //   차량번호_량번호_포인트ID,YYYYMMDDHHMMSS.확장자
-    const auto text = [&request](const char *key, const char *fallback) {
-        const std::string v = request.p.value(key, std::string());
-        return v.empty() ? std::string(fallback) : v;
+    const auto text = [&request](const char *key) {
+        const auto value = request.p.find(key);
+        return value != request.p.end() && value->is_string()
+            ? value->get<std::string>() : std::string{};
     };
-    const std::string vehicle = text("vehicle_number", "UNKNOWN");
-    const std::string car = text("car_number", "00");
-    const std::string point = text("point_id", "MANUAL");
+    const std::string vehicle = text("vehicle_number");
+    const std::string train = text("train_number");
+    const std::string car = text("car_number");
+    const std::string point = text("point_id");
+    const std::string safeVehicle = captureFilePart(vehicle);
+    const std::string safeTrain = captureFilePart(train);
+    const std::string safeCar = captureFilePart(car);
+    const std::string safePoint = captureFilePart(point);
+    if (safeVehicle.empty() || safeTrain.empty() || safeCar.empty() || safePoint.empty()) {
+        respond(request, false, err::kBadPayload,
+                "차량번호·편성번호·량번호·포인트ID를 입력하십시오");
+        return;
+    }
 
     const auto t = std::time(nullptr);
     std::tm tm{};
@@ -1521,7 +2172,7 @@ void BridgeNode::handleCapture(const Envelope &request)
     char stamp[16];
     std::strftime(stamp, sizeof(stamp), "%Y%m%d%H%M%S", &tm);
 
-    const std::string base = vehicle + "_" + car + "_" + point + "," + stamp;
+    const std::string base = safeVehicle + "_" + safeCar + "_" + safePoint + "," + stamp;
 
     std::error_code ec;
     std::filesystem::create_directories(spoolDir_, ec);
@@ -1540,6 +2191,17 @@ void BridgeNode::handleCapture(const Envelope &request)
     }
 
     const std::string imagePath = spoolDir_ + "/" + base + ".png";
+    const std::string sidecarPath = spoolDir_ + "/" + base + ".json";
+    const bool imageExists = std::filesystem::exists(imagePath, ec);
+    if (!ec && (imageExists || std::filesystem::exists(sidecarPath, ec))) {
+        respond(request, false, err::kBusy,
+                "같은 지점의 촬영 파일이 이미 있습니다. 1초 뒤 다시 촬영하십시오");
+        return;
+    }
+    if (ec) {
+        respond(request, false, err::kHardware, "기존 촬영 파일을 확인하지 못했습니다");
+        return;
+    }
     {
         std::ofstream out(imagePath, std::ios::binary);
         if (!out) {
@@ -1547,6 +2209,13 @@ void BridgeNode::handleCapture(const Envelope &request)
             return;
         }
         out.write(png.data(), std::streamsize(png.size()));
+        out.flush();
+        out.close();
+        if (!out) {
+            std::filesystem::remove(imagePath, ec);
+            respond(request, false, err::kHardware, "사진을 끝까지 저장하지 못했습니다");
+            return;
+        }
     }
 
     // 사이드카. 파일명에 담기지 않는 값들이 여기 들어간다 — 과업지시서의
@@ -1573,6 +2242,7 @@ void BridgeNode::handleCapture(const Envelope &request)
     const json meta{
         {"file", base + ".png"},
         {"vehicle_number", vehicle},
+        {"train_number", train},
         {"car_number", car},
         {"point_id", point},
         {"captured_at", std::string(stamp)},
@@ -1582,15 +2252,28 @@ void BridgeNode::handleCapture(const Envelope &request)
         {"map_id", mapId_},
     };
     {
-        std::ofstream out(spoolDir_ + "/" + base + ".json");
+        std::ofstream out(sidecarPath);
+        if (!out) {
+            std::filesystem::remove(imagePath, ec);
+            respond(request, false, err::kHardware, "촬영 메타데이터 파일을 만들지 못했습니다");
+            return;
+        }
         out << meta.dump(2);
+        out.flush();
+        out.close();
+        if (!out) {
+            std::filesystem::remove(sidecarPath, ec);
+            std::filesystem::remove(imagePath, ec);
+            respond(request, false, err::kHardware, "촬영 메타데이터를 저장하지 못했습니다");
+            return;
+        }
     }
 
-    ++capturesTaken_;
-    // 성공 응답에는 오류 코드가 없다. nullptr 을 넘기면 std::string 이
-    // 널에서 만들어져 노드가 죽는다 — 실제로 사진은 저장되고 그 직후
-    // 브릿지가 내려앉았다.
-    respond(request, true, std::string(), base + ".png");
+    // 파일명은 실제 저장 성공 응답에 넣는다. 관제의 예상 파일명과 서버
+    // 시각이 다를 수 있으므로, 화면과 이력은 이 값을 사용해야 한다.
+    auto response = makeResponse(request, true);
+    response.p["file"] = base + ".png";
+    sendEnvelope(response);
     RCLCPP_INFO(get_logger(), "촬영 저장: %s (%ux%u %s, PNG %zu 바이트)",
                 imagePath.c_str(), lastColor_->width, lastColor_->height,
                 lastColor_->encoding.c_str(), png.size());
@@ -1782,6 +2465,8 @@ void BridgeNode::configureAndStartMission(const Envelope &request)
                 [this, request](
                     rclcpp::Client<shalom_interfaces::srv::MissionControl>::SharedFuture result) {
                     const auto started = result.get();
+                    // READY 동안에는 안전·동작 권한을 기다릴 수 있다. 실제 RUNNING
+                    // 전환은 onMissionState가 확인하고 그때 경로를 초기화한다.
                     respond(request, started->accepted,
                             started->accepted ? std::string() : err::kMode,
                             started->detail);
@@ -1833,50 +2518,21 @@ void BridgeNode::onMissionState(
 {
     const uint8_t previous = haveMissionState_ ? missionState_.state
                                                : shalom_interfaces::msg::MissionState::IDLE;
+    if (message->state == shalom_interfaces::msg::MissionState::RUNNING &&
+        (previous == shalom_interfaces::msg::MissionState::IDLE ||
+         previous == shalom_interfaces::msg::MissionState::READY ||
+         previous == shalom_interfaces::msg::MissionState::COMPLETED ||
+         previous == shalom_interfaces::msg::MissionState::FAILED))
+        resetTrail();
     missionState_ = *message;
     haveMissionState_ = true;
-    for (auto &point : waypoints_)
-        point["status"] = "todo";
-    const bool completed = message->state == shalom_interfaces::msg::MissionState::COMPLETED ||
-                           message->state == shalom_interfaces::msg::MissionState::RETURNING;
-    const auto mission = std::find_if(missions_.begin(), missions_.end(), [message](const json &item) {
-        return item.value("id", std::string{}) == message->mission_id;
-    });
-    if (mission != missions_.end() && mission->contains("steps") &&
-        (*mission)["steps"].is_array()) {
-        // A saved mission chooses its own subset and order. The waypoint array
-        // is only a location catalog, so its array index is not a plan index.
-        std::size_t planIndex = 0;
-        for (const auto &step : mission->value("steps", json::array())) {
-            if (!step.is_object())
-                continue;
-            if (step.value("type", std::string{}) != "navigate")
-                continue;
-            const std::string locationId = step.value("location_id", std::string{});
-            const bool beforeCurrent = message->current_step >= 0 &&
-                                       planIndex < std::size_t(message->current_step);
-            const bool current = message->current_step >= 0 &&
-                                 planIndex == std::size_t(message->current_step);
-            for (auto &point : waypoints_) {
-                if (point.value("id", std::string{}) == locationId)
-                    point["status"] = completed || beforeCurrent ? "done"
-                        : current && message->state == shalom_interfaces::msg::MissionState::FAILED
-                            ? "error" : current ? "current" : "todo";
-            }
-            ++planIndex;
-        }
-    } else {
-        // Legacy whole-list plans still use the catalog array as their plan.
-        for (std::size_t i = 0; i < waypoints_.size(); ++i) {
-            const bool beforeCurrent = message->current_step >= 0 &&
-                                       i < std::size_t(message->current_step);
-            const bool current = message->current_step >= 0 &&
-                                 i == std::size_t(message->current_step);
-            waypoints_[i]["status"] = completed || beforeCurrent ? "done"
-                : current && message->state == shalom_interfaces::msg::MissionState::FAILED
-                    ? "error" : current ? "current" : "todo";
-        }
-    }
+    const bool terminal = message->state == shalom_interfaces::msg::MissionState::IDLE ||
+                          message->state == shalom_interfaces::msg::MissionState::COMPLETED ||
+                          message->state == shalom_interfaces::msg::MissionState::FAILED;
+    if (terminal && previous != message->state &&
+        (previous != shalom_interfaces::msg::MissionState::IDLE ||
+         message->state != shalom_interfaces::msg::MissionState::IDLE))
+        clearPlan();
     publishWaypoints();
     publishMission();
     if (message->state == shalom_interfaces::msg::MissionState::COMPLETED &&
@@ -1920,11 +2576,29 @@ void BridgeNode::publishMarkers()
     sendEnvelope(makePublish(kChMarkers, json{{"markers", markers_}}));
 }
 
+void BridgeNode::clearPlan()
+{
+    lastPlanPoints_ = json::array();
+    sendEnvelope(makePublish(kChPlan, json{{"points", lastPlanPoints_}}), true);
+}
+
+void BridgeNode::resetTrail()
+{
+    trailPending_.clear();
+    trailHistory_.clear();
+    trailHasLast_ = false;
+    trailReset_ = true;
+    // 재접속 시 보내는 스냅샷도 비어야 한다. 화면만 지우면 옛 경로가 되살아난다.
+    if (server_.isConnected())
+        sendEnvelope(makePublish(kChTrail,
+                                 json{{"points", json::array()}, {"reset", true}}));
+}
+
 void BridgeNode::publishTrail()
 {
-    if (!server_.isConnected())
-        return;
-
+    const bool connected = server_.isConnected();
+    if (!connected)
+        trailWasConnected_ = false;
     geometry_msgs::msg::TransformStamped tf;
     try {
         tf = tfBuffer_->lookupTransform(mapFrame_, baseFrame_, tf2::TimePointZero);
@@ -1934,11 +2608,37 @@ void BridgeNode::publishTrail()
     const double x = tf.transform.translation.x;
     const double y = tf.transform.translation.y;
 
+    if (trailAwaitingLocalization_) {
+        if (!trailNewPoseReceived_ ||
+            std::hypot(x - trailExpectedX_, y - trailExpectedY_) > kTrailLocalizationMatchM)
+            return;
+        trailAwaitingLocalization_ = false;
+        trailNewPoseReceived_ = false;
+    }
+
     if (!trailHasLast_ || std::hypot(x - trailLastX_, y - trailLastY_) >= kTrailMinStepM) {
         trailPending_.emplace_back(x, y);
+        trailHistory_.emplace_back(x, y);
+        if (trailHistory_.size() > 4000)
+            trailHistory_.erase(trailHistory_.begin(), trailHistory_.begin() +
+                               (trailHistory_.size() - 4000));
         trailLastX_ = x;
         trailLastY_ = y;
         trailHasLast_ = true;
+    }
+    if (!connected) {
+        trailPending_.clear();
+        return;
+    }
+    if (!trailWasConnected_ || trailReset_) {
+        json history = json::array();
+        for (const auto &pt : trailHistory_)
+            history.push_back({pt.first, pt.second});
+        sendEnvelope(makePublish(kChTrail, json{{"points", history}, {"reset", true}}));
+        trailPending_.clear();
+        trailReset_ = false;
+        trailWasConnected_ = true;
+        return;
     }
     if (trailPending_.empty() && !trailReset_)
         return;
@@ -2135,12 +2835,14 @@ void BridgeNode::startNavigation(const Envelope &request)
     opts.goal_response_callback = [this](NavGoalHandle::SharedPtr handle) {
         if (!handle) {
             navStatus_ = "rejected";
+            clearPlan();
             settleGoto(false, err::kUnreachable, "자율주행이 목표를 거부했습니다");
             return;
         }
         navGoal_ = handle;
         navGoalId_ = handle->get_goal_id();
         navStatus_ = "navigating";
+        resetTrail();
         settleGoto(true);
     };
 
@@ -2171,6 +2873,7 @@ void BridgeNode::startNavigation(const Envelope &request)
         navGoal_.reset();
         navDistance_ = 0.0;
         navEta_ = nullptr;
+        clearPlan();
         // 목표가 끝났다는 사실은 이벤트로도 한 번 보낸다. state/nav 는 손실을
         // 허용하는 스트림이라, 마지막 상태 한 프레임이 떨어지면 관제 화면에
         // 주행이 영영 끝나지 않은 것처럼 남는다.
@@ -2199,6 +2902,7 @@ void BridgeNode::cancelNavigation(const char *reason)
     // 여기서 닫는다. 그러지 않으면 관제는 목표가 살아 있다고 믿는다.
     settleGoto(false, err::kMode, reason);
     navStatus_ = "canceled";
+    clearPlan();
     RCLCPP_INFO(get_logger(), "자율주행 취소: %s", reason);
 }
 
@@ -2219,6 +2923,7 @@ void BridgeNode::publishNav()
     // 채 두면 관제는 다음 목표를 보낼 수 없고 (위의 E_BUSY), 이유도 모른다.
     if (pendingGoto_ && (now() - pendingGotoAt_) > rclcpp::Duration(kGoalAcceptTimeout)) {
         navStatus_ = "failed";
+        clearPlan();
         settleGoto(false, err::kUnreachable, "자율주행이 목표에 응답하지 않습니다");
     }
 
@@ -2557,6 +3262,8 @@ void BridgeNode::publishHealth()
         // 발행하므로, 이것이 없으면 나중에 붙은 화면은 빈 지도를 본다.
         if (!lastMapPng_.empty())
             sendEnvelope(makePublish(kChMap, lastMapMeta_), false, lastMapPng_);
+        if (!lastPlanPoints_.empty())
+            sendEnvelope(makePublish(kChPlan, json{{"points", lastPlanPoints_}}), true);
         // 점검이 도는 중에 관제가 새로 붙을 수 있다. 상태를 안 보내면
         // 화면은 대기로 보고, 버튼이 "자율주행 시작" 인 채로 남는다.
         publishMission();

@@ -1,0 +1,15 @@
+{
+  "schema_version": 2,
+  "map_version": 1,
+  "name": "gtxa_260928_113708",
+  "created_at": null,
+  "developer": "유준호",
+  "place": "MuJoCo",
+  "project": "샬롬엔지니어링",
+  "mapping": {
+    "dimension": "2d",
+    "lidar_sensor": "XT32",
+    "slam_software": "slam_toolbox"
+  },
+  "description": "MuJoCo 차고 전체를 담은 시뮬레이터 기본 지도 (239x179 셀, 0.1 m/셀)"
+}

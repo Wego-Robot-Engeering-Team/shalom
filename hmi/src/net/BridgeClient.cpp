@@ -151,6 +151,19 @@ void BridgeClient::setEndpoint(const QString &host, quint16 port)
     // 붙은 것처럼 보인다.
     const bool wanted = wantConnection_;
     disconnectFromBridge();
+    // 이미 끊어진 링크에서 다른 프로필을 고른 경우에도 disconnected
+    // 시그널이 다시 오지 않는다. 로봇별 화면 상태를 여기서 반드시 비운다.
+    resetLinkState();
+    telemetry_.link = {};
+    mission_ = MissionState::Idle;
+    mode_ = DriveMode::Auto;
+    basePosture_.clear();
+    motionAuthority_.clear();
+    estop_ = false;
+    everConnected_ = false;
+    rxBytes_ = 0;
+    txBytes_ = 0;
+    emit connectionChanged(false);
 
     host_ = host;
     port_ = port;
@@ -190,6 +203,16 @@ void BridgeClient::renameMap(const QString &mapId, const QString &name)
                 {{"id", mapId}, {"name", name}});
 }
 
+void BridgeClient::setDefaultMap(const QString &mapId)
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdMapsSetDefault), {{"id", mapId}});
+}
+
+void BridgeClient::deleteMap(const QString &mapId)
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdMapsDelete), {{"id", mapId}});
+}
+
 void BridgeClient::onConnected()
 {
     // Nagle 을 끈다. 하트비트와 조작 명령은 작고 지연에 민감해서,
@@ -224,6 +247,7 @@ void BridgeClient::onConnected()
 
     emit connectionChanged(true);
     requestMapCatalog();
+    sendRequest(QLatin1String(hmi::ch::kCmdTrailSnapshot));
     requestMissions();
     requestArmPosePresets();
     // 첫 연결과 재연결을 구분한다. 처음 붙는 것을 "재연결됨" 이라고 하면
@@ -237,6 +261,9 @@ void BridgeClient::onConnected()
 void BridgeClient::onDisconnected()
 {
     heartbeatTimer_->stop();
+    for (const auto &pending : pending_.values())
+        emit commandResult(pending.channel, false, QStringLiteral("LINK_LOST"),
+                           QStringLiteral("로봇 연결이 끊겼습니다"));
     resetLinkState();
     emit connectionChanged(false);
     // 한 번도 붙은 적 없이 끊긴 것은 "연결 끊김" 이 아니라 연결 실패다.
@@ -285,6 +312,16 @@ void BridgeClient::resetLinkState()
     robotName_.clear();
     decoder_.reset();
     pending_.clear();
+    waypoints_.clear();
+    dock_.clear();
+    home_.clear();
+    markers_.clear();
+    missionStateSeen_ = false;
+    modeReported_ = false;
+    const auto link = telemetry_.link;
+    telemetry_ = hmi::robot::Telemetry{};
+    telemetry_.link = link;
+    lastPoseMs_ = 0;
     heartbeatSentAt_.clear();
     lastSeq_.clear();
     // 위치를 즉시 오래된 것으로 표시한다. 끊긴 뒤에도 마지막 좌표가
@@ -344,6 +381,8 @@ void BridgeClient::sendEstopEnvelope(const Envelope &env)
 void BridgeClient::sendRequest(const QString &channel, const QJsonObject &payload)
 {
     if (!isConnected()) {
+        emit commandResult(channel, false, QStringLiteral("LINK_LOST"),
+                           QStringLiteral("로봇에 연결되지 않았습니다"));
         emit robotEvent(QStringLiteral("LINK_LOST"),
                         {{"reason", QStringLiteral("연결되지 않아 명령을 보내지 못했습니다")},
                          {"channel", channel}});
@@ -504,10 +543,13 @@ void BridgeClient::handleHeartbeat(const Envelope &env)
 
 void BridgeClient::handleResponse(const Envelope &env)
 {
-    pending_.remove(env.id);
+    // 기한이 지나거나 이전 연결에서 온 응답은 새 요청의 결과로 보이면 안 된다.
+    if (pending_.remove(env.id) == 0)
+        return;
     const bool ok = env.p.value(QStringLiteral("ok")).toBool();
     if (ok) {
-        emit commandResult(env.ch, true, {}, {});
+        emit commandResult(env.ch, true, {},
+                           env.p.value(QStringLiteral("file")).toString());
         return;
     }
 
@@ -551,6 +593,8 @@ void BridgeClient::handlePublish(const Envelope &env)
         telemetry_.mem = p.value(QStringLiteral("mem_pct")).toDouble();
         telemetry_.cpuTemp = p.value(QStringLiteral("cpu_temp_c")).toDouble();
         telemetry_.gpuTemp = p.value(QStringLiteral("gpu_temp_c")).toDouble();
+        telemetry_.captureEnabled = p.value(QStringLiteral("capture_enabled")).toBool();
+        telemetry_.armExecutionEnabled = p.value(QStringLiteral("arm_execution_enabled")).toBool();
         // 사람이 읽을 이름은 여기로만 온다. 봉투에는 식별자만 실린다 — 모든
         // 프레임에 이름을 얹으면 초당 수십 번 같은 문자열을 나르게 된다.
         const QString name = p.value(QStringLiteral("robot_name")).toString();
@@ -566,8 +610,15 @@ void BridgeClient::handlePublish(const Envelope &env)
             telemetry_.estop = estop;
         }
         const QString mode = p.value(QStringLiteral("mode")).toString();
-        if (!mode.isEmpty())
-            mode_ = mode == QLatin1String("manual") ? DriveMode::Manual : DriveMode::Auto;
+        if (mode == QLatin1String("manual") || mode == QLatin1String("auto")) {
+            const DriveMode reported = mode == QLatin1String("manual")
+                ? DriveMode::Manual : DriveMode::Auto;
+            if (!modeReported_ || reported != mode_) {
+                mode_ = reported;
+                modeReported_ = true;
+                emit driveModeReported(mode_);
+            }
+        }
         telemetry_.localizationOk = !p.value(QStringLiteral("localization_degraded")).toBool();
     } else if (ch == QLatin1String(hmi::ch::kBase)) {
         const QString posture = p.value(QStringLiteral("posture")).toString();
@@ -579,6 +630,10 @@ void BridgeClient::handlePublish(const Envelope &env)
         }
     } else if (ch == QLatin1String(hmi::ch::kNav)) {
         telemetry_.navStatus = p.value(QStringLiteral("status")).toString();
+        const bool active = telemetry_.navStatus == QLatin1String("accepting") ||
+                            telemetry_.navStatus == QLatin1String("navigating");
+        telemetry_.navGoal = active ? p.value(QStringLiteral("goal")).toObject().toVariantMap()
+                                    : QVariantMap{};
     } else if (ch == QLatin1String(hmi::ch::kPlan)) {
         telemetry_.plan = pointsFrom(p.value(QStringLiteral("points")).toArray());
     } else if (ch == QLatin1String(hmi::ch::kTrail)) {
@@ -595,10 +650,13 @@ void BridgeClient::handlePublish(const Envelope &env)
         for (const auto &v : p.value(QStringLiteral("positions")).toArray())
             q << v.toDouble();
         telemetry_.joints = q;
-        telemetry_.manipulability = p.value(QStringLiteral("manipulability")).toDouble();
-        telemetry_.sigmaMin = p.value(QStringLiteral("sigma_min")).toDouble();
-        const QString state = p.value(QStringLiteral("moveit_state")).toString();
-        telemetry_.armState = state.isEmpty() ? QStringLiteral("idle") : state;
+        telemetry_.manipulability = p.value(QStringLiteral("manipulability")).isDouble()
+            ? p.value(QStringLiteral("manipulability")).toDouble()
+            : std::numeric_limits<double>::quiet_NaN();
+        telemetry_.sigmaMin = p.value(QStringLiteral("sigma_min")).isDouble()
+            ? p.value(QStringLiteral("sigma_min")).toDouble()
+            : std::numeric_limits<double>::quiet_NaN();
+        telemetry_.armState = p.value(QStringLiteral("moveit_state")).toString();
     } else if (ch == QLatin1String(hmi::ch::kArmPosePresets)) {
         QList<QVariantMap> presets;
         for (const auto &value : p.value(QStringLiteral("presets")).toArray())
@@ -615,8 +673,11 @@ void BridgeClient::handlePublish(const Envelope &env)
         emit missionProgressChanged(p.value(QStringLiteral("mission_id")).toString(),
                                     p.value(QStringLiteral("index")).toInt(-1),
                                     p.value(QStringLiteral("total")).toInt());
-        if (next != mission_) {
+        // 연결 직후 첫 상태는 값이 기존 Idle과 같아도 반드시 알린다.
+        // 그렇지 않으면 재연결한 HMI의 현황 카드가 '연결 없음'에 남는다.
+        if (!missionStateSeen_ || next != mission_) {
             mission_ = next;
+            missionStateSeen_ = true;
             emit missionStateChanged(mission_);
         }
     } else if (ch == QLatin1String(hmi::ch::kWaypoints)) {
@@ -624,6 +685,7 @@ void BridgeClient::handlePublish(const Envelope &env)
         for (const auto &v : p.value(QStringLiteral("points")).toArray())
             wps << v.toObject().toVariantMap();
         waypoints_ = wps;
+        emit waypointsChanged(wps);
     } else if (ch == QLatin1String(hmi::ch::kMissions)) {
         QList<QVariantMap> missions;
         const auto array = p.value(QStringLiteral("missions")).toArray();
@@ -635,6 +697,8 @@ void BridgeClient::handlePublish(const Envelope &env)
     } else if (ch == QLatin1String(hmi::ch::kLocations)) {
         // 충전소와 시작점은 순회 목록에 들어가지 않는다. 로봇이 스스로
         // 복귀할 때 쓰는 자리라 로봇이 말해 주는 것이 원본이다.
+        dock_.clear();
+        home_.clear();
         for (const auto &v : p.value(QStringLiteral("locations")).toArray()) {
             const QVariantMap loc = v.toObject().toVariantMap();
             const QString kind = loc.value(QStringLiteral("kind")).toString();
@@ -643,11 +707,13 @@ void BridgeClient::handlePublish(const Envelope &env)
             else if (kind == QLatin1String("home"))
                 home_ = loc;
         }
+        emit fixedLocationsChanged();
     } else if (ch == QLatin1String(hmi::ch::kMarkers)) {
         QList<QVariantMap> ms;
         for (const auto &v : p.value(QStringLiteral("markers")).toArray())
             ms << v.toObject().toVariantMap();
         markers_ = ms;
+        emit mapMarkersChanged();
     } else if (ch == QLatin1String(hmi::ch::kMaps)) {
         QList<QVariantMap> maps;
         for (const auto &v : p.value(QStringLiteral("maps")).toArray())
@@ -704,11 +770,15 @@ void BridgeClient::checkTimeouts()
 
     // 응답 없는 명령. 조용히 사라지면 조작자는 명령이 먹은 줄 안다.
     for (auto it = pending_.begin(); it != pending_.end();) {
-        if (now - it->sentAtMs > kRequestTimeoutMs) {
+        const qint64 timeoutMs = it->channel == QLatin1String(hmi::ch::kCmdMapsSelect)
+                                     ? 45000 : kRequestTimeoutMs;
+        if (now - it->sentAtMs > timeoutMs) {
+            emit commandResult(it->channel, false, QStringLiteral("E_BUSY"),
+                               QStringLiteral("로봇 응답이 없습니다"));
             emit robotEvent(QStringLiteral("E_BUSY"),
                             {{"channel", it->channel},
                              {"msg", QStringLiteral("응답 없음 (%1 ms 초과)")
-                                         .arg(kRequestTimeoutMs)}});
+                                         .arg(timeoutMs)}});
             it = pending_.erase(it);
         } else {
             ++it;
@@ -772,10 +842,12 @@ void BridgeClient::cancelNav()
 
 void BridgeClient::setWaypoints(const QList<QVariantMap> &waypoints)
 {
-    waypoints_ = waypoints;
     QJsonArray arr;
-    for (const auto &w : waypoints)
-        arr.append(QJsonObject::fromVariantMap(w));
+    for (const auto &w : waypoints) {
+        QJsonObject point = QJsonObject::fromVariantMap(w);
+        point.remove(QStringLiteral("status"));
+        arr.append(point);
+    }
     sendRequest(QLatin1String(hmi::ch::kCmdWaypointsSet), {{"points", arr}});
 }
 
@@ -882,7 +954,7 @@ void BridgeClient::releaseEstop()
 
 void BridgeClient::setMode(DriveMode mode)
 {
-    mode_ = mode;
+    // cmd/mode is a request. Only state/safety confirms the effective mode.
     sendRequest(QLatin1String(hmi::ch::kCmdMode),
                 {{"mode", mode == DriveMode::Manual ? QStringLiteral("manual")
                                                     : QStringLiteral("auto")}});
@@ -931,6 +1003,13 @@ void BridgeClient::saveArmPosePreset(const QVariantMap &preset)
 {
     sendRequest(QLatin1String(hmi::ch::kCmdArmPosePresetsSave),
                 {{"preset", QJsonObject::fromVariantMap(preset)}});
+}
+
+void BridgeClient::updateArmPosePreset(const QVariantMap &preset, quint64 expectedRevision)
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdArmPosePresetsUpdate),
+                {{"preset", QJsonObject::fromVariantMap(preset)},
+                 {"expected_revision", qint64(expectedRevision)}});
 }
 
 }  // namespace hmi::net

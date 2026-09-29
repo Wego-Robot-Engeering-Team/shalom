@@ -37,8 +37,6 @@ public:
     void setDockKnown(bool known);
 
 signals:
-    void missionSelectionRequested();
-
     /// Pause keeps the robot's active plan and resume continues its step index.
     void missionPause();
     void missionResume();
@@ -55,7 +53,7 @@ signals:
 private:
     void refresh();
 
-    /// The run button opens mission selection while idle, then pauses/resumes.
+    /// The run button pauses or resumes an active mission.
     void onRunClicked();
 
     /// Cancelling is not undoable and a run can be an hour of driving. Asked
@@ -67,12 +65,13 @@ private:
     Badge *state_ = nullptr;
     QProgressBar *bar_ = nullptr;
     QLabel *count_ = nullptr;
+    QLabel *missionNameLabel_ = nullptr;
     QLabel *current_ = nullptr;
     QLabel *next_ = nullptr;
+    QLabel *nextMission_ = nullptr;
 
-    /// One button for the run itself: start, then pause, then resume. Three
-    /// labels on one control rather than three controls of which two are
-    /// always greyed out.
+    /// One button for pause/resume. Mission selection and start belong to the
+    /// mission management panel, not this status card.
     QPushButton *run_ = nullptr;
 
     /// Ending the run and sending the robot home are different things, so they

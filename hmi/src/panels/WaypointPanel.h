@@ -10,6 +10,7 @@
 
 class QListWidget;
 class QPushButton;
+class QLabel;
 
 namespace hmi::ui {
 
@@ -22,11 +23,16 @@ public:
     explicit WaypointPanel(QWidget *parent = nullptr);
 
     void setWaypoints(const QList<QVariantMap> &waypoints);
+    void setEditingEnabled(bool enabled);
+    void setRobotPoseAvailable(bool available, const QString &reason = {});
+    void setSaveStatus(const QString &message, bool error = false);
     QList<QVariantMap> waypoints() const;
     void setStatus(const QString &id, const QString &status);
 
 signals:
     void addRequested();
+    void captureFromRobotRequested();
+    void editRequested(const QString &id);
     void deleteRequested(const QString &id);
     void gotoRequested(const QString &id);
     void waypointSelected(const QString &id);
@@ -36,9 +42,19 @@ signals:
     void waypointsChanged(const QList<QVariantMap> &points);
 
 private:
+    void updateActionButtons();
+
     Card *card_ = nullptr;
     Badge *count_ = nullptr;
     QListWidget *list_ = nullptr;
+    QPushButton *add_ = nullptr;
+    QPushButton *fromRobot_ = nullptr;
+    QPushButton *edit_ = nullptr;
+    QPushButton *delete_ = nullptr;
+    QPushButton *go_ = nullptr;
+    QLabel *saveStatus_ = nullptr;
+    bool editingEnabled_ = false;
+    bool robotPoseAvailable_ = false;
 };
 
 }  // namespace hmi::ui

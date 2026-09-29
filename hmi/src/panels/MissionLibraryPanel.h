@@ -24,6 +24,8 @@ public:
     explicit MissionLibraryPanel(QWidget *parent = nullptr);
 
     void setMissions(const QList<QVariantMap> &missions);
+    void setWaypoints(const QList<QVariantMap> &waypoints);
+    void setArmPosePresets(const QList<QVariantMap> &presets);
     void setMapId(const QString &mapId);
     void setMissionState(hmi::robot::MissionState state);
     void handleCommandResult(const QString &channel, bool ok,
@@ -37,9 +39,10 @@ signals:
 
 private:
     void loadSelected();
-    void refreshList(const QString &keepId = {});
+    void refreshList(const QString &keepId = {}, bool reloadEditor = true);
     void updateControls();
     void moveStep(int delta);
+    void chooseStepTarget();
     QVariantMap currentMission() const;
     QString runBlockReason(const QVariantMap &mission) const;
 
@@ -53,11 +56,14 @@ private:
     QPushButton *removeStep_ = nullptr;
     QPushButton *stepUp_ = nullptr;
     QPushButton *stepDown_ = nullptr;
+    QPushButton *chooseTarget_ = nullptr;
     QPushButton *new_ = nullptr;
     QPushButton *save_ = nullptr;
     QPushButton *archive_ = nullptr;
     QPushButton *run_ = nullptr;
     QList<QVariantMap> missions_;
+    QList<QVariantMap> waypoints_;
+    QList<QVariantMap> armPosePresets_;
     QString mapId_;
     QString editingId_;
     quint64 revisionValue_ = 0;

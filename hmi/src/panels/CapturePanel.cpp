@@ -4,7 +4,6 @@
 #include "panels/CapturePanel.h"
 
 #include <QGridLayout>
-#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -33,11 +32,18 @@ CapturePanel::CapturePanel(QWidget *parent) : QWidget(parent)
     outer->addWidget(card_);
 
     captureButton_ = new QPushButton(QStringLiteral("촬영"));
+    captureButton_->setObjectName(QStringLiteral("CaptureTriggerButton"));
     captureButton_->setProperty("variant", "primary");
     captureButton_->setMinimumHeight(38);
     connect(captureButton_, &QPushButton::clicked, this, [this] {
+        if (!captureButton_->isEnabled())
+            return;
         capturedAt_ = QDateTime::currentDateTime();
-        hasCapture_ = true;
+        capturePending_ = true;
+        captureStored_ = false;
+        captureError_.clear();
+        savedFileName_.clear();
+        preview2d_->clear();
         refreshDerived();
         emit captureRequested();
     });
@@ -49,13 +55,8 @@ CapturePanel::CapturePanel(QWidget *parent) : QWidget(parent)
     card_->body()->addWidget(hint_);
 
     // ---- 미리보기 ----
-    auto *previews = new QHBoxLayout;
-    previews->setSpacing(metrics::s2);
     preview2d_ = new PreviewView(QStringLiteral("2D"));
-    preview3d_ = new PreviewView(QStringLiteral("3D"));
-    previews->addWidget(preview2d_);
-    previews->addWidget(preview3d_);
-    card_->body()->addLayout(previews);
+    card_->body()->addWidget(preview2d_);
 
     // ---- 메타데이터 ----
     auto *metaCard = new Card(QStringLiteral("메타데이터"));
@@ -90,12 +91,6 @@ CapturePanel::CapturePanel(QWidget *parent) : QWidget(parent)
     fileNamePreview_->setWordWrap(true);
     metaCard->body()->addWidget(fileNamePreview_);
 
-    saveButton_ = new QPushButton(QStringLiteral("저장"));
-    saveButton_->setProperty("variant", "primary");
-    connect(saveButton_, &QPushButton::clicked, this,
-            [this] { emit saveRequested(currentMetadata()); });
-    metaCard->body()->addWidget(saveButton_);
-
     outer->addStretch(1);
     refreshDerived();
 }
@@ -111,26 +106,52 @@ void CapturePanel::setContext(double x, double y, double theta, int visibleTagId
 
 void CapturePanel::setCaptureAllowed(bool allowed, const QString &reason)
 {
-    captureButton_->setEnabled(allowed);
-    if (allowed) {
-        state_->set(QStringLiteral("촬영 가능"), QStringLiteral("ok"));
-        hint_->setText(QStringLiteral("정지 상태에서만 촬영합니다."));
-    } else {
-        state_->set(QStringLiteral("촬영 불가"), QStringLiteral("warn"));
-        hint_->setText(reason.isEmpty()
-                           ? QStringLiteral("로봇이 멈춘 뒤에 촬영할 수 있습니다.")
-                           : reason);
-    }
+    captureAllowed_ = allowed;
+    blockedReason_ = reason;
+    refreshDerived();
+}
+
+void CapturePanel::captureStored()
+{
+    capturePending_ = false;
+    captureStored_ = true;
+    captureError_.clear();
+    refreshDerived();
+}
+
+void CapturePanel::captureFailed(const QString &reason)
+{
+    capturePending_ = false;
+    captureStored_ = false;
+    savedFileName_.clear();
+    captureError_ = reason;
+    refreshDerived();
+}
+
+void CapturePanel::setSavedFileName(const QString &fileName)
+{
+    if (!captureStored_)
+        return;
+    savedFileName_ = fileName;
+    refreshDerived();
+}
+
+void CapturePanel::resetCapture()
+{
+    capturePending_ = false;
+    captureStored_ = false;
+    captureAllowed_ = false;
+    blockedReason_ = QStringLiteral("로봇에 연결한 뒤 촬영할 수 있습니다.");
+    captureError_.clear();
+    savedFileName_.clear();
+    capturedAt_ = {};
+    preview2d_->clear();
+    refreshDerived();
 }
 
 void CapturePanel::showPreview2d(const QImage &image)
 {
     preview2d_->setImage(image);
-}
-
-void CapturePanel::showPreview3d(const QImage &image)
-{
-    preview3d_->setImage(image);
 }
 
 CaptureMetadata CapturePanel::currentMetadata() const
@@ -157,28 +178,37 @@ void CapturePanel::refreshDerived()
             .arg(qRadiansToDegrees(theta_), 0, 'f', 1)
             .arg(tagId_ >= 0 ? QString::number(tagId_) : QStringLiteral("미인식")));
 
-    const CaptureMetadata m = currentMetadata();
-
-    // 촬영 전에는 저장할 것이 없다. 메타데이터만 채워도 저장이 열리면
-    // 이미지 없는 기록이 생긴다.
-    if (!hasCapture_) {
-        fileNamePreview_->setText(QStringLiteral("촬영 후 표시"));
-        saveButton_->setEnabled(false);
-        return;
-    }
-
+    CaptureMetadata m = currentMetadata();
+    m.capturedAt = QDateTime::currentDateTime();
     const QStringList missing = m.missingFields();
-    if (!missing.isEmpty()) {
-        // 파일명을 미리 보여주는 이유는, 규정 형식이 검수 항목이기 때문이다.
-        // 조작자가 저장 전에 눈으로 확인할 수 있어야 한다.
-        fileNamePreview_->setText(
-            QStringLiteral("입력 필요: %1").arg(missing.join(QStringLiteral(", "))));
-        saveButton_->setEnabled(false);
-        return;
+    captureButton_->setEnabled(captureAllowed_ && !capturePending_ && missing.isEmpty());
+    if (capturePending_) {
+        state_->set(QStringLiteral("저장 중"), QStringLiteral("info"));
+        hint_->setText(QStringLiteral("로봇의 촬영 결과를 기다리는 중입니다."));
+        fileNamePreview_->setText(QStringLiteral("저장 결과 대기"));
+    } else if (!captureError_.isEmpty()) {
+        state_->set(QStringLiteral("촬영 실패"), QStringLiteral("danger"));
+        hint_->setText(captureError_);
+        fileNamePreview_->setText(QStringLiteral("저장된 파일 없음"));
+    } else if (captureStored_) {
+        state_->set(QStringLiteral("저장 완료"), QStringLiteral("ok"));
+        hint_->setText(QStringLiteral("로봇에 저장했습니다. 다시 촬영할 수 있습니다."));
+        fileNamePreview_->setText(savedFileName_.isEmpty()
+            ? QStringLiteral("저장 완료 · 미리보기 대기") : savedFileName_);
+    } else if (!captureAllowed_) {
+        state_->set(QStringLiteral("촬영 불가"), QStringLiteral("warn"));
+        hint_->setText(blockedReason_.isEmpty()
+            ? QStringLiteral("로봇이 멈춘 뒤에 촬영할 수 있습니다.") : blockedReason_);
+        fileNamePreview_->setText(QStringLiteral("촬영 후 표시"));
+    } else if (!missing.isEmpty()) {
+        state_->set(QStringLiteral("정보 입력 필요"), QStringLiteral("warn"));
+        hint_->setText(QStringLiteral("%1을 입력하십시오.").arg(missing.join(QStringLiteral(", "))));
+        fileNamePreview_->setText(QStringLiteral("촬영 후 표시"));
+    } else {
+        state_->set(QStringLiteral("촬영 가능"), QStringLiteral("ok"));
+        hint_->setText(QStringLiteral("촬영하면 로봇에 바로 저장됩니다."));
+        fileNamePreview_->setText(QStringLiteral("촬영 후 표시"));
     }
-
-    fileNamePreview_->setText(m.fileName(QStringLiteral("jpg")));
-    saveButton_->setEnabled(true);
 }
 
 }  // namespace hmi::ui

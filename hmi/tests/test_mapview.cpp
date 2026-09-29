@@ -4,6 +4,7 @@
 // 지도 오버레이. 조작자가 지도에서 무엇을 짚을 수 있는지가 여기 걸려 있다.
 
 #include <QGraphicsScene>
+#include <QGraphicsPathItem>
 #include <QTest>
 
 #include "mapview/MapItems.h"
@@ -123,6 +124,38 @@ private slots:
         v.setSelectedWaypoint(QStringLiteral("B"));
         v.setWaypoints({QVariantMap{{"id", QStringLiteral("A")}, {"x", 1.0}, {"y", 1.0}}});
         QVERIFY(v.selectedWaypoint().isEmpty());
+    }
+
+    void changingMapClearsPreviousWaypoints()
+    {
+        MapView v;
+        v.setMap(testMap(), testImage());
+        v.setWaypoints({QVariantMap{{"id", "old"}, {"x", 1.0}, {"y", 1.0}}});
+        v.setSelectedWaypoint(QStringLiteral("old"));
+        MapInfo next = testMap();
+        next.mapId = QStringLiteral("next");
+        v.setMap(next, testImage());
+        QVERIFY(v.selectedWaypoint().isEmpty());
+        for (auto *item : v.scene()->items())
+            QVERIFY(!dynamic_cast<WaypointMarker *>(item));
+    }
+
+    void clearMap_removesPreviousRobotOverlays()
+    {
+        MapView v;
+        v.setMap(testMap(), testImage());
+        v.setTrail({QPointF(0, 0), QPointF(1, 1)});
+        v.setPlan({QPointF(1, 1), QPointF(2, 2)});
+        v.setGoal(2, 2, 0);
+        v.setRobotPose(1, 1, 0);
+        v.clearMap();
+        QVERIFY(v.mapInfo() == nullptr);
+        for (auto *item : v.scene()->items()) {
+            if (auto *path = dynamic_cast<QGraphicsPathItem *>(item))
+                QVERIFY(path->path().isEmpty());
+            if (auto *goal = dynamic_cast<GoalMarker *>(item))
+                QVERIFY(!goal->isVisible());
+        }
     }
 };
 

@@ -19,6 +19,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(nav2_msgs REQUIRED)
+find_package(lifecycle_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
@@ -42,7 +43,7 @@ target_include_directories(hmi_bridge_node PRIVATE
 )
 
 ament_target_dependencies(hmi_bridge_node
-    rclcpp rclcpp_action std_msgs shalom_interfaces std_srvs sensor_msgs geometry_msgs nav_msgs nav2_msgs
+    rclcpp rclcpp_action std_msgs shalom_interfaces std_srvs sensor_msgs geometry_msgs nav_msgs nav2_msgs lifecycle_msgs
     tf2 tf2_ros tf2_geometry_msgs
 )
 target_link_libraries(hmi_bridge_node nlohmann_json::nlohmann_json)

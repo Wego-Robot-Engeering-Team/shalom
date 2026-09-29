@@ -17,19 +17,34 @@
 #include <QtMath>
 
 #include <QLabel>
+#include <QBuffer>
 #include <QImage>
 #include <QLineEdit>
+#include <QListWidget>
+#include <QPainter>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSignalSpy>
+#include <QStyleOptionViewItem>
 #include <QStackedWidget>
+#include <QTreeWidget>
+#include <QTcpServer>
+#include <QTcpSocket>
+
+#include <limits>
 
 #include "Config.h"
 #include "RobotDef.h"
 #include "MainWindow.h"
+#include "net/BridgeClient.h"
+#include "net/Channels.h"
 #include "panels/ArmPanel.h"
+#include "panels/CapturePanel.h"
+#include "panels/LocationPanel.h"
 #include "panels/MissionPanel.h"
 #include "panels/StatusPanel.h"
+#include "panels/WaypointPanel.h"
 #include "robot/Kinematics.h"
 #include "TestRobot.h"
 #include "theme/Style.h"
@@ -37,8 +52,11 @@
 #include "views/SettingsDialog.h"
 #include "views/WelcomeDialog.h"
 #include "widgets/NotificationCenter.h"
+#include "widgets/IconButton.h"
+#include "widgets/MapCard.h"
 #include "widgets/Robot3DView.h"
 #include "widgets/ValueSlider.h"
+#include "widgets/WaypointDelegate.h"
 
 using namespace hmi;
 
@@ -100,6 +118,80 @@ class TestRender : public QObject {
     Q_OBJECT
 
 private slots:
+    void captureOnlyReportsSaveAfterRobotConfirms()
+    {
+        ui::CapturePanel panel;
+        panel.setContext(1.0, 2.0, 0.0, -1);
+        panel.setCaptureAllowed(true);
+        for (auto *field : panel.findChildren<QLineEdit *>()) {
+            if (field->placeholderText().contains(QStringLiteral("GTXA")))
+                field->setText(QStringLiteral("GTXA-042"));
+            else if (field->placeholderText().contains(QStringLiteral("1234")))
+                field->setText(QStringLiteral("1234"));
+            else if (field->placeholderText().contains(QStringLiteral("05")))
+                field->setText(QStringLiteral("05"));
+            else if (field->placeholderText().contains(QStringLiteral("C01")))
+                field->setText(QStringLiteral("C01-P03"));
+        }
+        auto *trigger = panel.findChild<QPushButton *>(QStringLiteral("CaptureTriggerButton"));
+        QVERIFY(trigger && trigger->isEnabled());
+        QSignalSpy requests(&panel, &ui::CapturePanel::captureRequested);
+        trigger->click();
+        QCOMPARE(requests.size(), 1);
+        QVERIFY(!trigger->isEnabled());
+        panel.captureFailed(QStringLiteral("카메라 영상 없음"));
+        QVERIFY(trigger->isEnabled());
+        trigger->click();
+        panel.captureStored();
+        panel.setSavedFileName(QStringLiteral("GTXA-042_05_C01-P03,20260929120000.png"));
+        bool foundSavedName = false;
+        for (const auto *label : panel.findChildren<QLabel *>())
+            foundSavedName |= label->text().contains(QStringLiteral("20260929120000.png"));
+        QVERIFY(foundSavedName);
+        panel.resetCapture();
+        QVERIFY(!trigger->isEnabled());
+        for (const auto *label : panel.findChildren<QLabel *>())
+            QVERIFY(!label->text().contains(QStringLiteral("20260929120000.png")));
+    }
+
+    void armWithoutReportedMetricDoesNotWarnAboutSingularity()
+    {
+        ui::ArmPanel arm;
+        const QList<double> home{0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785};
+        arm.setArmState(home, std::numeric_limits<double>::quiet_NaN(),
+                        std::numeric_limits<double>::quiet_NaN(), {});
+        QLabel *advice = nullptr;
+        for (auto *label : arm.findChildren<QLabel *>()) {
+            if (label->toolTip().contains(QStringLiteral("조작성 지수"))) {
+                advice = label;
+                break;
+            }
+        }
+        QVERIFY(advice);
+        QVERIFY(advice->isHidden());
+        arm.setArmState(home, 0.0, 0.0, QStringLiteral("idle"));
+        QVERIFY(!advice->isHidden());
+    }
+
+    void armPreviewStaysEditableWhenExecutionIsDisabled()
+    {
+        ui::ArmPanel arm;
+        arm.setControlsEnabled(true);
+        arm.setArmState({0.0, -0.785, 0.0, -2.356, 0.0, 1.571},
+                        std::numeric_limits<double>::quiet_NaN(),
+                        std::numeric_limits<double>::quiet_NaN());
+        auto *joint = arm.findChild<ui::ValueSlider *>(QStringLiteral("Joint2"));
+        QPushButton *send = nullptr;
+        for (auto *button : arm.findChildren<QPushButton *>())
+            if (button->text() == QStringLiteral("관절 목표 보내기"))
+                send = button;
+        QVERIFY(joint && send);
+        joint->setCommand(-1.2);
+        QVERIFY(joint->isEnabled());
+        QVERIFY(!send->isEnabled());
+        arm.setExecutionAvailable(true);
+        QVERIFY(send->isEnabled());
+    }
 
     void initTestCase()
     {
@@ -122,6 +214,73 @@ private slots:
         QVERIFY(stack->widget(1)->findChild<ui::MissionPanel *>());
         QVERIFY(!stack->widget(1)->findChild<ui::StatusPanel *>());
         QVERIFY(!window.findChild<QPushButton *>(QStringLiteral("MissionSummary")));
+    }
+
+    void connectedRobotIdIsPrimaryAndAliasStaysLocal()
+    {
+        auto &cfg = Config::instance();
+        const auto previous = cfg.robots();
+        const int previousCurrent = cfg.currentRobot();
+        cfg.setRobots({{QStringLiteral("A검수선"), QStringLiteral("192.0.2.41"), 9090}});
+        cfg.setCurrentRobot(0);
+
+        auto *robot = new test::TestRobot;
+        ui::MainWindow window(robot);
+        auto *primary = window.findChild<QLabel *>(QStringLiteral("RobotPickerName"));
+        auto *secondary = window.findChild<QLabel *>(QStringLiteral("RobotPickerAddr"));
+        QVERIFY(primary && secondary);
+        emit robot->robotIdentity(QStringLiteral("SE-0001"), QStringLiteral("내부 이름"));
+        QCOMPARE(primary->text(), QStringLiteral("SE-0001"));
+        QVERIFY(secondary->text().contains(QStringLiteral("A검수선")));
+        QVERIFY(secondary->text().contains(QStringLiteral("192.0.2.41")));
+        QCOMPARE(cfg.robots().first().name, QStringLiteral("A검수선"));
+
+        cfg.setRobots(previous);
+        cfg.setCurrentRobot(previousCurrent);
+    }
+
+    void robotAliasIsOptionalInConnectionSettings()
+    {
+        ui::SettingsDialog dialog;
+        auto *alias = dialog.findChild<QLineEdit *>(QStringLiteral("RobotAliasInput"));
+        auto *address = dialog.findChild<QLineEdit *>(QStringLiteral("RobotAddressInput"));
+        auto *add = dialog.findChild<QPushButton *>(QStringLiteral("AddRobotButton"));
+        auto *list = dialog.findChild<QTreeWidget *>(QStringLiteral("PickList"));
+        QVERIFY(alias && address && add && list);
+        QVERIFY(alias->text().isEmpty());
+        address->setText(QStringLiteral("192.0.2.42"));
+        QVERIFY(add->isEnabled());
+        add->click();
+        bool found = false;
+        for (int i = 0; i < list->topLevelItemCount(); ++i) {
+            const auto *item = list->topLevelItem(i);
+            if (item->text(0) == QStringLiteral("192.0.2.42:9090")) {
+                found = true;
+                QCOMPARE(item->text(1), QStringLiteral("—"));
+            }
+        }
+        QVERIFY(found);
+    }
+
+    void mapSelectorShowsCurrentNameWithAdjacentRefresh()
+    {
+        ui::MapCard card;
+        card.resize(700, 420);
+        card.setMapLabel(QStringLiteral("차량기지 A구역"), QStringLiteral("20×10 m"));
+        card.show();
+        auto *select = card.findChild<QPushButton *>(QStringLiteral("CurrentMapButton"));
+        auto *refresh = card.findChild<ui::IconButton *>(
+            QStringLiteral("RefreshMapListButton"));
+        QVERIFY(select);
+        QVERIFY(refresh);
+        QVERIFY(select->text().contains(QStringLiteral("차량기지 A구역")));
+        QVERIFY(refresh->mapTo(&card, QPoint(0, 0)).x() >
+                select->mapTo(&card, QPoint(0, 0)).x());
+        card.setMapListEnabled(true);
+        QVERIFY(select->isEnabled());
+        QVERIFY(refresh->isEnabled());
+        card.setMapLabel(QStringLiteral("live"), {});
+        QVERIFY(select->text().contains(QStringLiteral("실시간 지도")));
     }
 
     /// 첫 arm telemetry 전에도 조작자가 관절 또는 끝단 목표를 바꾸면
@@ -181,6 +340,154 @@ private slots:
         QVERIFY(status);
         QVERIFY(!status->isHidden());
         QVERIFY(status->text().contains(QStringLiteral("실행기가 연결되지 않았습니다")));
+    }
+
+    void armSaveResultReachesPanelWithoutPriorSave()
+    {
+        auto *robot = new test::TestRobot;
+        ui::MainWindow window(robot);
+        auto *arm = window.findChild<ui::ArmPanel *>();
+        QVERIFY(arm);
+        auto *status = arm->findChild<QLabel *>(QStringLiteral("ArmCommandStatus"));
+        QVERIFY(status);
+
+        emit robot->commandResult(QStringLiteral("cmd/arm/pose_presets/save"), false,
+                                  QStringLiteral("E_BAD_PAYLOAD"),
+                                  QStringLiteral("같은 이름의 프리셋이 이미 있습니다"));
+        QVERIFY(!status->isHidden());
+        QVERIFY(status->text().contains(QStringLiteral("같은 이름")));
+        emit robot->commandResult(QStringLiteral("cmd/arm/pose_presets/save"), true, {}, {});
+        QVERIFY(status->text().contains(QStringLiteral("저장했습니다")));
+    }
+
+    void waypointsFollowRobotPublishedCatalog()
+    {
+        auto *robot = new test::TestRobot;
+        ui::MainWindow window(robot);
+        auto *panel = window.findChild<ui::WaypointPanel *>();
+        QVERIFY(panel);
+        const QVariantMap point{{"id", QStringLiteral("wp-1")},
+                                {"name", QStringLiteral("입구")},
+                                {"x", 1.0}, {"y", 2.0}};
+        robot->setWaypoints({point});
+        QCOMPARE(panel->waypoints().size(), 1);
+        QCOMPARE(panel->waypoints().first().value(QStringLiteral("id")).toString(),
+                 QStringLiteral("wp-1"));
+        robot->setWaypoints({});
+        QCOMPARE(panel->waypoints().size(), 0);
+
+        emit robot->commandResult(QStringLiteral("cmd/waypoints/set"), false,
+                                  QStringLiteral("E_MODE"),
+                                  QStringLiteral("저장된 지도를 선택하십시오"));
+        auto *status = panel->findChild<QLabel *>(QStringLiteral("WaypointSaveStatus"));
+        QVERIFY(status);
+        QVERIFY(!status->isHidden());
+        QVERIFY(status->text().contains(QStringLiteral("저장된 지도를 선택하십시오")));
+    }
+
+    void waypointCreationHasOneHome()
+    {
+        auto *robot = new test::TestRobot;
+        ui::MainWindow window(robot);
+        auto *waypoints = window.findChild<ui::WaypointPanel *>();
+        auto *locations = window.findChild<ui::LocationPanel *>();
+        QVERIFY(waypoints && locations);
+        QVERIFY(waypoints->findChild<QPushButton *>(QStringLiteral("WaypointFromRobotButton")));
+        QVERIFY(waypoints->findChild<QPushButton *>(QStringLiteral("WaypointFromMapButton")));
+        for (auto *button : locations->findChildren<QPushButton *>()) {
+            QVERIFY(button->text() != QStringLiteral("로봇 위치로 추가"));
+            QVERIFY(button->text() != QStringLiteral("지도에서 추가"));
+        }
+    }
+
+    void goalButtonFollowsReportedModeAndMap()
+    {
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), server.serverPort());
+        ui::MainWindow window(link);
+        auto *map = window.findChild<ui::MapCard *>();
+        QVERIFY(map);
+        QVERIFY(!map->goalButton()->isEnabled());
+
+        link->connectToBridge();
+        QTRY_VERIFY(server.hasPendingConnections());
+        auto *peer = server.nextPendingConnection();
+        QTRY_VERIFY(link->isConnected());
+
+        QImage image(8, 8, QImage::Format_RGB32);
+        image.fill(Qt::white);
+        QByteArray png;
+        QBuffer buffer(&png);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QVERIFY(image.save(&buffer, "PNG"));
+        emit link->activeMapReceived({{QStringLiteral("id"), QStringLiteral("map-1")},
+                                      {QStringLiteral("name"), QStringLiteral("map-1")}});
+        emit link->mapReceived(png, {{QStringLiteral("width"), 8},
+                                     {QStringLiteral("height"), 8},
+                                     {QStringLiteral("resolution"), 0.1},
+                                     {QStringLiteral("map_id"), QStringLiteral("map-1")}});
+        QVERIFY(!map->goalButton()->isEnabled());  // 지도가 있어도 모드 미확인
+
+        const auto reportMode = [peer](const char *mode) {
+            const auto state = net::makePublish(QLatin1String(hmi::ch::kSafety),
+                                                {{QStringLiteral("mode"), QLatin1String(mode)}});
+            peer->write(net::encodeFrame(state.toHeader(), state.payload));
+            peer->flush();
+        };
+        reportMode("auto");
+        QTRY_VERIFY(map->goalButton()->isEnabled());
+
+        window.setDriveMode(QStringLiteral("manual"));
+        QVERIFY(!map->goalButton()->isEnabled());
+        reportMode("manual");
+        QTRY_VERIFY(link->mode() == robot::DriveMode::Manual);
+        QVERIFY(!map->goalButton()->isEnabled());
+
+        window.setDriveMode(QStringLiteral("auto"));
+        QVERIFY(!map->goalButton()->isEnabled());
+        reportMode("auto");
+        QTRY_VERIFY(map->goalButton()->isEnabled());
+    }
+
+    void waypointPanelShowsHeadingAndOffersEdit()
+    {
+        ui::WaypointPanel panel;
+        panel.resize(420, 360);
+        panel.show();
+        QVariantMap point{{"id", QStringLiteral("wp-1")},
+                          {"name", QStringLiteral("입구")},
+                          {"x", 1.0}, {"y", 2.0}, {"theta", 0.0}};
+        panel.setWaypoints({point});
+        panel.setEditingEnabled(true);
+        auto *list = panel.findChild<QListWidget *>();
+        auto *edit = panel.findChild<QPushButton *>(QStringLiteral("WaypointEditButton"));
+        QVERIFY(list);
+        QVERIFY(edit);
+        QVERIFY(!edit->isEnabled());
+
+        auto paintRow = [list] {
+            QImage image(420, ui::kWaypointRowHeight, QImage::Format_ARGB32);
+            image.fill(Qt::white);
+            QPainter painter(&image);
+            QStyleOptionViewItem option;
+            option.rect = image.rect();
+            ui::WaypointDelegate delegate;
+            delegate.paint(&painter, option, list->model()->index(0, 0));
+            return image;
+        };
+        const QImage east = paintRow();
+        point[QStringLiteral("theta")] = qDegreesToRadians(90.0);
+        panel.setWaypoints({point});
+        const QImage north = paintRow();
+        QVERIFY(changedPixels(east, north) > 0);
+
+        list->setCurrentRow(0);
+        QVERIFY(edit->isEnabled());
+        QSignalSpy edits(&panel, &ui::WaypointPanel::editRequested);
+        edit->click();
+        QCOMPARE(edits.size(), 1);
+        QCOMPARE(edits.first().first().toString(), QStringLiteral("wp-1"));
     }
 
     /// 대화상자는 창 계층 밖이라 위 순회에 걸리지 않는다.

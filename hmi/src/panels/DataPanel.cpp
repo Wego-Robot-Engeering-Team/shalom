@@ -20,6 +20,7 @@
 #include <QStyle>
 #include <QStyledItemDelegate>
 #include <QVBoxLayout>
+#include <QtMath>
 
 #include "theme/Tokens.h"
 #include "widgets/PreviewView.h"
@@ -268,13 +269,17 @@ void DataPanel::showRecord(const InspectionRecord &record)
     lines << QStringLiteral("크기  %1").arg(humanSize(record.fileSize));
 
     if (record.hasSidecar()) {
-        const QJsonObject pose =
-            record.sidecar->value(QStringLiteral("robot_pose")).toObject();
+        QJsonObject pose = record.sidecar->value(QStringLiteral("robot")).toObject();
+        if (pose.isEmpty())
+            pose = record.sidecar->value(QStringLiteral("robot_pose")).toObject();
         if (!pose.isEmpty()) {
+            const double thetaDegrees = pose.contains(QStringLiteral("theta_deg"))
+                ? pose.value(QStringLiteral("theta_deg")).toDouble()
+                : qRadiansToDegrees(pose.value(QStringLiteral("theta")).toDouble());
             lines << QStringLiteral("로봇 위치  %1, %2   방향 %3°")
                          .arg(pose.value(QStringLiteral("x")).toDouble(), 0, 'f', 2)
                          .arg(pose.value(QStringLiteral("y")).toDouble(), 0, 'f', 2)
-                         .arg(pose.value(QStringLiteral("theta_deg")).toDouble(), 0, 'f', 1);
+                         .arg(thetaDegrees, 0, 'f', 1);
         }
         const double distance =
             record.sidecar->value(QStringLiteral("distance_mm")).toDouble();
@@ -310,8 +315,7 @@ void DataPanel::downloadSelected()
         return;
 
     // 사이드카도 함께 가져간다. 메타데이터 없는 이미지는 증거로서 값이 없다.
-    QFile::remove(target);
-    if (!QFile::copy(record.filePath, target)) {
+    if (!hmi::data::copyFileAtomically(record.filePath, target)) {
         QMessageBox::warning(this, QStringLiteral("내려받기 실패"),
                              QStringLiteral("파일을 복사하지 못했습니다."));
         return;
@@ -325,8 +329,13 @@ void DataPanel::downloadSelected()
         const QString sidecarTarget = targetInfo.absolutePath() + QLatin1Char('/')
                                       + targetInfo.completeBaseName()
                                       + QStringLiteral(".json");
-        QFile::remove(sidecarTarget);
-        QFile::copy(sidecar, sidecarTarget);
+        if (!hmi::data::copyFileAtomically(sidecar, sidecarTarget)) {
+            QMessageBox::warning(this, QStringLiteral("메타데이터 내려받기 실패"),
+                                 QStringLiteral("이미지는 저장했지만 메타데이터 파일을 복사하지 못했습니다."));
+            emit notice(QStringLiteral("warn"),
+                        QStringLiteral("이미지만 내려받았습니다: %1").arg(record.fileName));
+            return;
+        }
     }
 
     emit notice(QStringLiteral("ok"),

@@ -5,14 +5,12 @@
 
 // Capture control panel. Statement of work 2.2.7 [4].
 //
-//   - manual capture trigger, with the 2D and 3D previews shown immediately
+//   - manual capture trigger, with the saved 2D preview shown afterwards
 //   - metadata entry, with pose, time and tag filled in from telemetry
-//   - save to the NAS
+//   - the robot saves the original when it accepts the trigger
 //
-// The panel shows the file name it is about to write. The name is fixed by the
-// statement of work and is an acceptance item, so the operator should be able
-// to see it is right before the image is filed rather than discovering it at
-// inspection.
+// The panel shows the file name returned by the robot after the save, not a
+// second local "save" action that could falsely claim success.
 //
 // There is no live video here, by decision. The statement of work asks for a
 // preview of the captured result, not a feed, and capture happens from a
@@ -55,16 +53,17 @@ public:
     /// robot. Sent with the trigger so the robot writes the sidecar.
     hmi::capture::CaptureMetadata currentMetadata() const;
 
-    /// Integration seam: a robot with capture capability returns frames over
-    /// evt/capture_done. Keep these available even when the selected endpoint
-    /// has capture disabled.
+    /// Result of the robot's capture command. The preview may follow later.
+    void captureStored();
+    void captureFailed(const QString &reason);
+    void setSavedFileName(const QString &fileName);
+    void resetCapture();
+
+    /// The robot sends the saved image bytes over capture/preview.
     void showPreview2d(const QImage &image);
-    void showPreview3d(const QImage &image);
 
 signals:
     void captureRequested();
-
-    void saveRequested(const hmi::capture::CaptureMetadata &metadata);
 
 private:
     void refreshDerived();
@@ -74,7 +73,6 @@ private:
     Badge *state_ = nullptr;
 
     PreviewView *preview2d_ = nullptr;
-    PreviewView *preview3d_ = nullptr;
 
     QLineEdit *vehicleNumber_ = nullptr;
     QLineEdit *trainNumber_ = nullptr;
@@ -86,11 +84,14 @@ private:
     QLabel *hint_ = nullptr;
 
     QPushButton *captureButton_ = nullptr;
-    QPushButton *saveButton_ = nullptr;
-
     double x_ = 0, y_ = 0, theta_ = 0;
     int tagId_ = -1;
-    bool hasCapture_ = false;
+    bool captureAllowed_ = false;
+    bool capturePending_ = false;
+    bool captureStored_ = false;
+    QString blockedReason_;
+    QString captureError_;
+    QString savedFileName_;
     QDateTime capturedAt_;
 };
 

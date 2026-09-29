@@ -26,6 +26,9 @@ public:
         Sliders,   ///< settings
         Sun,       ///< switch to the light theme
         Moon,      ///< switch to the dark theme
+        Refresh,   ///< refresh a catalog
+        Edit,      ///< rename an item
+        Trash,     ///< archive an item
     };
 
     explicit IconButton(Glyph glyph, QWidget *parent = nullptr);

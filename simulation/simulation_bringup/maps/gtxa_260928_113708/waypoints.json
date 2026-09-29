@@ -1,0 +1,16 @@
+{
+  "map_id": "gtxa_260928_113708",
+  "points": [
+    {
+      "captured_from": "robot",
+      "id": "4448201c-0ceb-4925-b284-84ba800a95fd",
+      "kind": "inspection",
+      "localization_ok": true,
+      "name": "점검 위치 1",
+      "theta": 0.07563602447282083,
+      "x": 1.213980495320861,
+      "y": 0.6337616349251798
+    }
+  ],
+  "schema_version": 1
+}

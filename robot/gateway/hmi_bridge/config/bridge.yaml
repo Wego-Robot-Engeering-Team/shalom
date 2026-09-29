@@ -21,6 +21,11 @@
 
     # FR3 카메라 프레임은 촬영 요청을 처리하는 데만 쓴다. HMI로 연속 영상을 보내지 않는다.
     capture.enabled: true
+    # 로봇과 HMI에 같은 NAS를 마운트한다. 없으면 촬영을 거절해 로컬에
+    # 저장된 파일을 NAS에 올라간 것처럼 표시하지 않는다.
+    capture.spool_dir: "/mnt/nas/inspection"
+    capture.mount_point: "/mnt/nas"
+    capture.require_mount: true
     capture.color_topic: "/fr3/camera_2d/image_raw"
     capture.depth_topic: "/fr3/camera_3d/image_raw"  # aligned 16UC1 depth image
 

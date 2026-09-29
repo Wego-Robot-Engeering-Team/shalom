@@ -35,10 +35,11 @@ ros2 launch simulation_bringup bringup.launch.py viewer:=false map:=2026-09-07
 └── markers.json
 ```
 
-`map:=latest`는 bundle 디렉터리의 가장 마지막 지도 ID를 고른다. `map:=none`은
-실시간 SLAM으로 시작한다. HMI에서 지도 메뉴를 선택하면 bridge가
-`map_server/load_map`을 호출하고 해당 지도 상태를 함께 다시 보낸다. 주행·미션
-중에는 전환 요청이 거절된다.
+실기·시뮬 모두 `map:=auto`가 기본이며 `maps_dir/default_map.json`의 `map_id`를
+읽는다. 기본 지도 파일이 없거나 ID가 비어 있으면 SLAM으로 시작한다. 명시적으로
+SLAM을 선택하려면 `map:=none`을 쓴다. HMI에서 SLAM 중 저장 지도를 고르면
+SLAM을 비활성화하고 map_server·AMCL을 활성화해 해당 지도를 불러온다.
+주행·미션 중에는 전환 요청이 거절된다.
 
 ## 구성
 

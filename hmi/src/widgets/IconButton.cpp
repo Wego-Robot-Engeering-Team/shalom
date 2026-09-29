@@ -69,6 +69,46 @@ void drawMoon(QPainter &p, const QPointF &c, double r, const QColor &tone)
     p.drawPath(disc.subtracted(bite));
 }
 
+void drawRefresh(QPainter &p, const QPointF &c, double r, const QColor &tone)
+{
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(tone, 1.7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.drawArc(QRectF(c.x() - r * 0.72, c.y() - r * 0.72,
+                     r * 1.44, r * 1.44), 25 * 16, 295 * 16);
+    p.drawLine(QPointF(c.x() + r * 0.72, c.y() - r * 0.35),
+               QPointF(c.x() + r * 0.72, c.y() + r * 0.18));
+    p.drawLine(QPointF(c.x() + r * 0.72, c.y() - r * 0.35),
+               QPointF(c.x() + r * 0.22, c.y() - r * 0.30));
+}
+
+void drawEdit(QPainter &p, const QPointF &c, double r, const QColor &tone)
+{
+    p.setPen(QPen(tone, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setBrush(Qt::NoBrush);
+    p.drawLine(QPointF(c.x() - r * 0.65, c.y() + r * 0.60),
+               QPointF(c.x() + r * 0.45, c.y() - r * 0.50));
+    p.drawLine(QPointF(c.x() + r * 0.20, c.y() - r * 0.75),
+               QPointF(c.x() + r * 0.70, c.y() - r * 0.25));
+    p.drawLine(QPointF(c.x() - r * 0.70, c.y() + r * 0.70),
+               QPointF(c.x() - r * 0.20, c.y() + r * 0.58));
+}
+
+void drawTrash(QPainter &p, const QPointF &c, double r, const QColor &tone)
+{
+    p.setPen(QPen(tone, 1.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setBrush(Qt::NoBrush);
+    p.drawLine(QPointF(c.x() - r * 0.72, c.y() - r * 0.45),
+               QPointF(c.x() + r * 0.72, c.y() - r * 0.45));
+    p.drawLine(QPointF(c.x() - r * 0.28, c.y() - r * 0.72),
+               QPointF(c.x() + r * 0.28, c.y() - r * 0.72));
+    p.drawRoundedRect(QRectF(c.x() - r * 0.48, c.y() - r * 0.30,
+                             r * 0.96, r * 1.05), 1.2, 1.2);
+    p.drawLine(QPointF(c.x() - r * 0.15, c.y() - r * 0.08),
+               QPointF(c.x() - r * 0.15, c.y() + r * 0.47));
+    p.drawLine(QPointF(c.x() + r * 0.15, c.y() - r * 0.08),
+               QPointF(c.x() + r * 0.15, c.y() + r * 0.47));
+}
+
 }  // namespace
 
 IconButton::IconButton(Glyph glyph, QWidget *parent) : QPushButton(parent), glyph_(glyph)
@@ -103,6 +143,9 @@ void IconButton::paintEvent(QPaintEvent *ev)
     case Glyph::Sliders: drawSliders(p, c, r * 0.86, tone); break;
     case Glyph::Sun:     drawSun(p, c, r, tone); break;
     case Glyph::Moon:    drawMoon(p, c, r * 0.92, tone); break;
+    case Glyph::Refresh: drawRefresh(p, c, r, tone); break;
+    case Glyph::Edit:    drawEdit(p, c, r, tone); break;
+    case Glyph::Trash:   drawTrash(p, c, r, tone); break;
     }
 }
 

@@ -21,6 +21,7 @@ class MapView;
 namespace hmi::ui {
 
 class MapLegend;
+class IconButton;
 
 class MapCard : public QWidget {
     Q_OBJECT
@@ -31,6 +32,8 @@ public:
     QPushButton *goalButton() const { return goal_; }
     QPushButton *poseEstimateButton() const { return poseEstimate_; }
     QPushButton *mapButton() const { return mapButton_; }
+    IconButton *refreshButton() const { return refreshButton_; }
+    void setMapListEnabled(bool enabled);
     MapLegend *legend() const { return legend_; }
 
     /// Puts the drive-mode buttons at the left of the map's floating toolbar.
@@ -60,10 +63,13 @@ private:
     QPushButton *goal_ = nullptr;
     QPushButton *poseEstimate_ = nullptr;
     QPushButton *mapButton_ = nullptr;
+    IconButton *refreshButton_ = nullptr;
+    QWidget *mapControls_ = nullptr;
     QLabel *mapLabel_ = nullptr;
     QLabel *readout_ = nullptr;
     QLabel *hint_ = nullptr;
     MapLegend *legend_ = nullptr;
+    void positionMapControls();
 };
 
 }  // namespace hmi::ui

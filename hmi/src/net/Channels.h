@@ -29,9 +29,8 @@ inline constexpr auto kLog = "evt/log";               ///< event
 inline constexpr auto kMap = "map/occupancy";         ///< binary, on change
 inline constexpr auto kPreview = "capture/preview";   ///< binary, on capture
 
-/// Upload backlog for captured originals. Those files go straight from the
-/// robot to the NAS (protocol section 6), so this channel is the operator's
-/// only way to tell whether an inspection run is actually finished.
+/// Shared capture storage status. Captures are saved directly to the mounted
+/// NAS; there is no background upload queue in this build.
 inline constexpr auto kCaptureSpool = "state/capture_spool";
 
 /// Sensor and link health. Staleness is judged by the bridge against each
@@ -62,6 +61,9 @@ inline constexpr auto kCmdMarkersSet = "cmd/markers/set";       ///< replaces th
 inline constexpr auto kCmdMapsList = "cmd/maps/list";
 inline constexpr auto kCmdMapsSelect = "cmd/maps/select";
 inline constexpr auto kCmdMapsRename = "cmd/maps/rename";
+inline constexpr auto kCmdMapsSetDefault = "cmd/maps/set_default";
+inline constexpr auto kCmdMapsDelete = "cmd/maps/delete";
+inline constexpr auto kCmdTrailSnapshot = "cmd/trail/snapshot";
 
 /// Battery policy the robot must enforce: return_at and depart_at, in percent.
 ///
@@ -80,6 +82,7 @@ inline constexpr auto kCmdArmEeGoal = "cmd/arm/ee_goal";
 inline constexpr auto kCmdArmStop = "cmd/arm/stop";
 inline constexpr auto kCmdArmPosePresetsList = "cmd/arm/pose_presets/list";
 inline constexpr auto kCmdArmPosePresetsSave = "cmd/arm/pose_presets/save";
+inline constexpr auto kCmdArmPosePresetsUpdate = "cmd/arm/pose_presets/update";
 
 /// Base posture. stand_up | stand_down | balance_stand | recovery_stand | damp.
 /// damp releases the joints, so the robot drops where it stands: the bridge

@@ -26,6 +26,8 @@
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <nav2_msgs/action/navigate_to_pose.hpp>
 #include <nav2_msgs/srv/load_map.hpp>
+#include <nav2_msgs/srv/manage_lifecycle_nodes.hpp>
+#include <lifecycle_msgs/srv/change_state.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <nav_msgs/msg/odometry.hpp>
@@ -235,7 +237,11 @@ private:
     void publishMarkers();
     void publishMapCatalog();
     void publishActiveMap();
-    bool loadMapBundle(const std::string &map_id, std::string *error = nullptr);
+    void loadSelectedMap(const Envelope &request, const std::string &id, bool from_slam);
+    void switchFromSlam(const Envelope &request, const std::string &id);
+    void restoreSlam(const Envelope &request, const std::string &reason);
+    bool loadMapBundle(const std::string &map_id, std::string *error = nullptr,
+                       bool validate_only = false);
     bool saveMapState(const char *filename, const json &state);
     bool saveMissions(std::string *error = nullptr);
     bool saveArmPosePresets(std::string *error = nullptr);
@@ -268,6 +274,8 @@ private:
 
     /// Accumulated driven path, in map coordinates.
     void publishTrail();
+    void resetTrail();
+    void clearPlan();
 
     /// The occupancy grid, as an 8-bit greyscale PNG.
     ///
@@ -336,6 +344,8 @@ private:
 
     /// 관제 화면에 뜨는 지도 이름. 저장된 지도와 구분되도록 이름을 붙인다.
     std::string mapId_ = "live";
+    std::string pendingMapId_;
+    bool pendingMapPublication_ = false;
     std::string mapsDir_ = "/var/lib/shalom/maps";
 
     json waypoints_ = json::array();
@@ -376,10 +386,11 @@ private:
     rclcpp::Time lastOdomAt_;
 
     std::string spoolDir_;
+    std::string captureMountPoint_;
+    bool captureRequireMount_ = true;
     bool captureEnabled_ = false;
     double maxCaptureLinear_ = 0.03;    ///< m/s
     double maxCaptureAngular_ = 0.05;   ///< rad/s
-    int capturesTaken_ = 0;
 
     // 마지막으로 보낸 지도. /map 은 transient_local 이라 구독 콜백이 브릿지
     // 기동 때 한 번만 뜬다. 관제가 그 뒤에 붙으면 지도를 영영 못 받으므로
@@ -391,16 +402,19 @@ private:
     double returnAtPct_ = 25.0;   ///< battery level that sends the robot back
     double departAtPct_ = 80.0;   ///< level it will set out again at
 
-    /// Trail points not yet sent, and whether the station should clear first.
-    ///
-    /// Sent as an increment rather than the whole path: the run is long and
-    /// resending thousands of points twice a second would crowd out telemetry
-    /// that matters. `trailReset_` is set once, so a station connecting mid-run
-    /// starts from a clean line instead of appending to whatever it had.
+    /// Keep recent points even without an HMI connection. On reconnect the
+    /// selected station receives a snapshot, then only new points.
     std::vector<std::pair<double, double>> trailPending_;
+    std::vector<std::pair<double, double>> trailHistory_;
     double trailLastX_ = 0.0, trailLastY_ = 0.0;
     bool trailHasLast_ = false;
     bool trailReset_ = true;
+    bool trailWasConnected_ = false;
+    bool trailAwaitingLocalization_ = false;
+    bool trailNewPoseReceived_ = false;
+    rclcpp::Time trailInitialPoseAt_;
+    double trailExpectedX_ = 0.0, trailExpectedY_ = 0.0;
+    json lastPlanPoints_ = json::array();
 
     /// 마지막으로 보고된 팔 자세. cmd/arm/stop 이 그 자리를 목표로 되쓴다.
     std::vector<double> lastArmPositions_;
@@ -417,6 +431,8 @@ private:
 
     rclcpp_action::Client<NavigateToPose>::SharedPtr navClient_;
     rclcpp::Client<nav2_msgs::srv::LoadMap>::SharedPtr mapLoadClient_;
+    rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr localizationManagerClient_;
+    rclcpp::Client<lifecycle_msgs::srv::ChangeState>::SharedPtr slamLifecycleClient_;
     rclcpp::Client<shalom_interfaces::srv::ConfigureMission>::SharedPtr missionConfigureClient_;
     rclcpp::Client<shalom_interfaces::srv::MissionControl>::SharedPtr missionControlClient_;
     rclcpp::Client<shalom_interfaces::srv::SafetyCommand>::SharedPtr safetyCommandClient_;
@@ -429,6 +445,7 @@ private:
     rclcpp::Subscription<shalom_interfaces::msg::SafetyState>::SharedPtr safetyStateSub_;
     rclcpp::Subscription<shalom_interfaces::msg::MotionAuthority>::SharedPtr authoritySub_;
     rclcpp::Subscription<shalom_interfaces::msg::MissionState>::SharedPtr missionStateSub_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr amclPoseSub_;
 
     std::unique_ptr<tf2_ros::Buffer> tfBuffer_;
     std::shared_ptr<tf2_ros::TransformListener> tfListener_;

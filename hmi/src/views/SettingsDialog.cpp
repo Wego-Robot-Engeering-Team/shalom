@@ -293,7 +293,7 @@ QWidget *SettingsDialog::buildConnectionTab()
     robotList_ = new QTreeWidget;
     robotList_->setObjectName(QStringLiteral("PickList"));
     robotList_->setColumnCount(2);
-    robotList_->setHeaderLabels({QStringLiteral("IPv4 주소"), QStringLiteral("로봇 이름")});
+    robotList_->setHeaderLabels({QStringLiteral("IPv4 주소"), QStringLiteral("별칭")});
     robotList_->setRootIsDecorated(false);
     robotList_->setSelectionBehavior(QAbstractItemView::SelectRows);
     robotList_->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -312,8 +312,10 @@ QWidget *SettingsDialog::buildConnectionTab()
     lay->addWidget(sectionLabel(QStringLiteral("새 로봇 연결 추가")));
 
     name_ = new QLineEdit;
-    name_->setPlaceholderText(QStringLiteral("예: 1호기 · A검수선"));
+    name_->setObjectName(QStringLiteral("RobotAliasInput"));
+    name_->setPlaceholderText(QStringLiteral("선택 사항 · 예: A검수선"));
     host_ = new QLineEdit;
+    host_->setObjectName(QStringLiteral("RobotAddressInput"));
     host_->setPlaceholderText(QStringLiteral("예: 192.168.10.21"));
     port_ = new QSpinBox;
     port_->setRange(1, 65535);
@@ -322,13 +324,13 @@ QWidget *SettingsDialog::buildConnectionTab()
     // 확인해야 하는 값이고, 화면에 없으면 문서를 뒤지게 된다.
     port_->setEnabled(false);
     port_->setToolTip(QStringLiteral("통신 규약이 정한 값입니다 (9090)."));
-    lay->addWidget(fieldRow(QStringLiteral("로봇 이름"), name_, 96));
+    lay->addWidget(fieldRow(QStringLiteral("별칭"), name_, 96));
     lay->addWidget(fieldRow(QStringLiteral("IPv4 주소"), host_, 96));
     lay->addWidget(fieldRow(QStringLiteral("제어 포트"), port_, 96));
 
     auto *hint = new QLabel(QStringLiteral(
-        "로봇 이름과 IPv4 주소를 입력한 뒤 추가하십시오. 저장을 눌러야 "
-        "연결 목록에 영구 반영됩니다."));
+        "IPv4 주소로 연결합니다. 별칭은 이 HMI에서만 쓰는 이름이며 선택 사항입니다. "
+        "연결 후에는 로봇이 보낸 ID로 구분합니다."));
     hint->setObjectName(QStringLiteral("Hint"));
     hint->setWordWrap(true);
     lay->addWidget(hint);
@@ -339,6 +341,7 @@ QWidget *SettingsDialog::buildConnectionTab()
             });
 
     addRobotButton_ = new QPushButton(QStringLiteral("로봇 추가"));
+    addRobotButton_->setObjectName(QStringLiteral("AddRobotButton"));
     addRobotButton_->setProperty("variant", "primary");
     addRobotButton_->setEnabled(false);
     auto *addRow = new QHBoxLayout;
@@ -354,8 +357,7 @@ QWidget *SettingsDialog::buildConnectionTab()
 
     const auto refreshAddState = [this] {
         const QHostAddress parsed(host_->text().trimmed());
-        addRobotButton_->setEnabled(!name_->text().trimmed().isEmpty()
-                                    && !parsed.isNull()
+        addRobotButton_->setEnabled(!parsed.isNull()
                                     && parsed.protocol() == QAbstractSocket::IPv4Protocol);
     };
     connect(name_, &QLineEdit::textChanged, this, refreshAddState);
@@ -368,10 +370,9 @@ QWidget *SettingsDialog::buildConnectionTab()
         const QString displayName = name_->text().trimmed();
         const QString address = host_->text().trimmed();
         const QHostAddress parsed(address);
-        if (displayName.isEmpty() || parsed.isNull()
-            || parsed.protocol() != QAbstractSocket::IPv4Protocol) {
+        if (parsed.isNull() || parsed.protocol() != QAbstractSocket::IPv4Protocol) {
             QMessageBox::warning(this, QStringLiteral("연결을 추가할 수 없습니다"),
-                                 QStringLiteral("로봇 이름과 올바른 IPv4 주소를 입력하십시오."));
+                                 QStringLiteral("올바른 IPv4 주소를 입력하십시오."));
             return;
         }
         auto list = pendingRobots_;
@@ -769,7 +770,8 @@ void SettingsDialog::reloadRobotList()
     robotList_->clear();
     for (const auto &e : pendingRobots_) {
         robotList_->addTopLevelItem(new QTreeWidgetItem(
-            {QStringLiteral("%1:%2").arg(e.host).arg(e.port), e.name}));
+            {QStringLiteral("%1:%2").arg(e.host).arg(e.port),
+             e.name.isEmpty() ? QStringLiteral("—") : e.name}));
     }
     if (pendingCurrentRobot_ >= 0 && pendingCurrentRobot_ < robotList_->topLevelItemCount())
         robotList_->setCurrentItem(robotList_->topLevelItem(pendingCurrentRobot_));

@@ -70,4 +70,8 @@ struct ScanResult {
 /// Walks `directory` recursively for inspection images.
 ScanResult scanDirectory(const QString &directory, int maxFiles = 20000);
 
+/// Replace a downloaded file only after the full source was copied. On error
+/// an existing target remains untouched, including when source equals target.
+bool copyFileAtomically(const QString &sourcePath, const QString &targetPath);
+
 }  // namespace hmi::data

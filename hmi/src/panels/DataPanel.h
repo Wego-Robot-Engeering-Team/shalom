@@ -5,10 +5,9 @@
 
 // Inspection history browser. Statement of work 2.2.7 [5] item 13.
 //
-// Browses and downloads previously captured images from the NAS share over the
-// internal network. The control station only reads: the robot writes the
-// evidence directly to the share, so an operator's machine being off never
-// costs an inspection.
+// Browses and downloads previously captured images from the mounted NAS share.
+// Both the robot and HMI must mount the same share; the robot writes originals
+// there and the control station only reads them.
 //
 // Records whose metadata is incomplete are listed and marked rather than
 // hidden. A gap in the evidence that nobody can see is worse than one that is

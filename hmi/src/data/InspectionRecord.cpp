@@ -8,6 +8,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QSaveFile>
 #include <QRegularExpression>
 
 namespace hmi::data {
@@ -120,6 +121,19 @@ ScanResult scanDirectory(const QString &directory, int maxFiles)
             if (doc.isObject()) {
                 const QJsonObject o = doc.object();
                 record->sidecar = o;
+                // File-name components may be normalised for filesystem safety.
+                // The robot's sidecar retains the operator's original IDs.
+                for (const auto key : {"vehicle_number", "car_number", "point_id"}) {
+                    const QString value = o.value(QLatin1String(key)).toString();
+                    if (value.isEmpty())
+                        continue;
+                    if (QLatin1String(key) == QLatin1String("vehicle_number"))
+                        record->vehicleNumber = value;
+                    else if (QLatin1String(key) == QLatin1String("car_number"))
+                        record->carNumber = value;
+                    else
+                        record->pointId = value;
+                }
                 if (o.contains(QStringLiteral("tag_id")))
                     record->tagId = o.value(QStringLiteral("tag_id")).toInt(-1);
             }
@@ -134,6 +148,23 @@ ScanResult scanDirectory(const QString &directory, int maxFiles)
                   return a.capturedAt > b.capturedAt;
               });
     return result;
+}
+
+bool copyFileAtomically(const QString &sourcePath, const QString &targetPath)
+{
+    QFile source(sourcePath);
+    QSaveFile target(targetPath);
+    if (!source.open(QIODevice::ReadOnly) || !target.open(QIODevice::WriteOnly))
+        return false;
+
+    while (!source.atEnd()) {
+        const QByteArray chunk = source.read(1024 * 1024);
+        if (chunk.isEmpty() || target.write(chunk) != chunk.size()) {
+            target.cancelWriting();
+            return false;
+        }
+    }
+    return target.commit();
 }
 
 }  // namespace hmi::data

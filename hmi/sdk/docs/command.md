@@ -193,26 +193,28 @@ MoveIt2 의 몫인데 아직 연동되지 않았다.
 ### `cmd/capture/trigger`
 
 ```json
-{"vehicle_number": "GTXA-042", "car_number": "05",
+{"vehicle_number": "GTXA-042", "train_number": "1234", "car_number": "05",
  "point_id": "C01-P03", "tag_id": 7}
 ```
 
 | 필드 | 필수 | 기본값 |
 |---|---|---|
-| `vehicle_number` | 아니오 | `"UNKNOWN"` |
-| `car_number` | 아니오 | `"00"` |
-| `point_id` | 아니오 | `"MANUAL"` |
+| `vehicle_number` | 예 | 없음 |
+| `train_number` | 예 | 없음 |
+| `car_number` | 예 | 없음 |
+| `point_id` | 예 | 없음 |
 | `tag_id` | 아니오 | `null` |
 
 저장 파일명은 `차량번호_량번호_포인트ID,YYYYMMDDHHMMSS.png` 이고, 같은 이름의
-`.json` 에 메타데이터가 함께 저장된다. 성공 여부는 `res.p.ok`, 촬영 결과는
-`capture/preview` 및 `state/capture_spool`에서 확인한다.
+`.json` 에 메타데이터가 함께 저장된다. 성공 응답의 `res.p.ok: true`와
+`res.p.file`이 실제 저장 파일명을 알려준다. `capture/preview`에는 저장된
+PNG 바이트와 메타데이터가 온다.
 
 **이동 중에는 `E_MODE` 로 거절된다.** 과업지시서 2.2.4 가 정지 상태 촬영을
 요구하므로, 클라이언트가 버튼을 잠그는 것과 별개로 규칙 자체는 로봇이 지킨다.
 오도메트리가 끊겨 속도를 모르면 움직이는 것으로 본다.
 
-카메라 프레임이 없으면 `E_HARDWARE` 다.
+카메라 프레임이 없으면 `E_UNREACHABLE`, NAS 마운트가 없으면 `E_HARDWARE`다.
 
 촬영 직후 `capture/preview` 와 `state/capture_spool` 이 발행된다.
 
@@ -245,17 +247,27 @@ MoveIt2 의 몫인데 아직 연동되지 않았다.
 전환이 끝나면 `state/active_map`, `map/occupancy`, `state/waypoints`,
 `state/locations`, `state/markers` 가 새 지도 기준으로 다시 발행된다.
 
-### `cmd/maps/rename` — 지도 표시 이름 변경
+### `cmd/maps/rename` — 지도 폴더 이름 변경
 
 ```json
-{"id": "2026-09-07", "name": "차량기지 A동"}
+{"id": "inspection_a", "name": "inspection_b"}
 ```
 
-`id`는 바꾸지 않는 지도 식별자이고, `name`만 로봇의
-`<maps_dir>/<id>/metadata.json`에 저장한다. HMI와 다른 SDK 클라이언트는 이후
-발행되는 `state/maps`, `state/active_map`에서 같은 이름을 받는다.
+`id`는 현재 폴더 이름이고 `name`은 새 폴더 이름이다. 로봇은 폴더와 지도별
+웨이포인트·미션의 지도 참조를 함께 변경한다. 이후 `state/maps`와
+`state/active_map`은 새 폴더명을 `id`와 `name`으로 보낸다.
 
-주행·점검 중에는 바꿀 수 없다. `name`은 줄바꿈 없는 UTF-8 1~120바이트여야 한다.
+주행·점검 중에는 바꿀 수 없다. `name`은 UTF-8 1~120바이트이며 경로 구분자,
+제어 문자, `..`를 포함할 수 없다. 이미 존재하는 폴더 이름도 사용할 수 없다.
+
+### `cmd/maps/set_default` — 다음 기동의 기본 지도
+
+```json
+{"id": "inspection_a"}
+```
+
+로봇의 `maps_dir/default_map.json`을 갱신한다. `id`를 빈 문자열로 보내면 기본
+지도를 해제해 다음 기동에 SLAM으로 시작한다. 현재 실행 중인 지도는 바꾸지 않는다.
 
 ---
 

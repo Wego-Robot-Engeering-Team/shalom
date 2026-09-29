@@ -99,6 +99,13 @@ static StationMarker *placeStation(QGraphicsScene *scene, StationMarker *existin
 
 void MapView::setMap(const MapInfo &info, const QImage &image)
 {
+    if (info_ && info_->mapId != info.mapId) {
+        setTrail({});
+        setPlan({});
+        setWaypoints({});
+        clearGoal();
+        robot_->setVisible(false);
+    }
     info_ = info;
     mapItem_->setPixmap(QPixmap::fromImage(image));
     mapItem_->setPos(0, 0);
@@ -109,6 +116,22 @@ void MapView::setMap(const MapInfo &info, const QImage &image)
     home_ = placeStation(scene_, home_, StationMarker::Kind::Home, homeLoc_, info_);
 
     fitMap();
+}
+
+void MapView::clearMap()
+{
+    setMode(MapMode::View);
+    setTrail({});
+    setPlan({});
+    setWaypoints({});
+    setTags({});
+    setDock({});
+    setHome({});
+    clearGoal();
+    robot_->setVisible(false);
+    info_.reset();
+    mapItem_->setPixmap(QPixmap{});
+    scene_->setSceneRect(QRectF{});
 }
 
 const MapInfo *MapView::mapInfo() const
@@ -183,6 +206,11 @@ void MapView::setWaypoints(const QList<QVariantMap> &waypoints)
                                  wp.value(QStringLiteral("y")).toDouble()));
         if (wp.contains(QStringLiteral("theta")))
             m->setHeading(wp.value(QStringLiteral("theta")).toDouble());
+        m->setToolTip(QStringLiteral("%1\nx %2 · y %3 · 방향 %4°")
+                          .arg(wp.value(QStringLiteral("name"), id).toString())
+                          .arg(wp.value(QStringLiteral("x")).toDouble(), 0, 'f', 2)
+                          .arg(wp.value(QStringLiteral("y")).toDouble(), 0, 'f', 2)
+                          .arg(qRadiansToDegrees(wp.value(QStringLiteral("theta")).toDouble()), 0, 'f', 1));
         scene_->addItem(m);
         waypoints_.insert(id, m);
     }
@@ -388,7 +416,6 @@ void MapView::mouseReleaseEvent(QMouseEvent *ev)
     }
 
     if (mode_ == MapMode::SetGoal) {
-        setGoal(wx, wy, theta);
         emit goalRequested(wx, wy, theta);
     } else if (mode_ == MapMode::EstimatePose) {
         emit poseEstimateRequested(wx, wy, theta);

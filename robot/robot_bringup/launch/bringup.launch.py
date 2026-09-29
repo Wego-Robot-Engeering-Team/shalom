@@ -3,11 +3,13 @@
 
 """Run the physical robot stack; it never starts MuJoCo or test sensors."""
 
+import json
 from pathlib import Path
 
 import yaml
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
+                            OpaqueFunction, SetLaunchConfiguration)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -22,6 +24,31 @@ def _robot_id_from_metadata():
     if not robot_id:
         raise RuntimeError(f"robot id is missing from {metadata_path}")
     return str(robot_id)
+
+
+def _resolve_default_map(context):
+    requested = LaunchConfiguration("map").perform(context)
+    if requested == "none":
+        return [SetLaunchConfiguration("map", "")]
+    if requested != "auto":
+        return []
+    maps_dir = Path(LaunchConfiguration("maps_dir").perform(context))
+    setting = maps_dir / "default_map.json"
+    if not setting.is_file():
+        return [SetLaunchConfiguration("map", "")]
+    try:
+        map_id = json.loads(setting.read_text(encoding="utf-8"))["map_id"]
+    except (OSError, KeyError, ValueError, TypeError) as exc:
+        raise RuntimeError(f"invalid default map setting: {setting}") from exc
+    if map_id == "":
+        return [SetLaunchConfiguration("map", "")]
+    if (not isinstance(map_id, str) or Path(map_id).name != map_id or
+            map_id in (".", "..") or ".." in map_id):
+        raise RuntimeError(f"invalid default map id in {setting}")
+    map_yaml = maps_dir / map_id / "map.yaml"
+    if not map_yaml.is_file():
+        raise RuntimeError(f"default map is missing: {map_yaml}")
+    return [SetLaunchConfiguration("map", str(map_yaml))]
 
 
 def generate_launch_description():
@@ -99,8 +126,9 @@ def generate_launch_description():
         DeclareLaunchArgument("aurora_ip", default_value="192.168.11.1"),
         DeclareLaunchArgument("maps_dir", default_value="/var/lib/shalom/maps",
                               description="로봇이 소유하는 지도 번들 디렉터리"),
-        DeclareLaunchArgument("map", default_value="",
-                              description="절대 경로의 map.yaml 또는 빈 값"),
+        DeclareLaunchArgument("map", default_value="auto",
+                              description="auto(기본 지도), none(SLAM), 절대 경로의 map.yaml"),
+        OpaqueFunction(function=_resolve_default_map),
         DeclareLaunchArgument("slam", default_value="true"),
         DeclareLaunchArgument("nav2", default_value="true"),
         DeclareLaunchArgument("bridge", default_value="true"),
