@@ -86,8 +86,8 @@ private:
     message.stopped = detector_.stopped(BaseStopDetector::Clock::now());
     message.source = "base_motion_monitor";
     message.detail = message.stopped
-      ? "fresh final command and measured base velocity are stably zero"
-      : "base is moving or command/odometry feedback is stale";
+      ? "no fresh nonzero command and measured base velocity is stably zero"
+      : "base is moving, a fresh nonzero command exists, or odometry is stale";
     stopped_pub_->publish(message);
   }
 

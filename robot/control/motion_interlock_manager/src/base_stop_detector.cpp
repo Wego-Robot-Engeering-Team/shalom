@@ -40,11 +40,10 @@ bool BaseStopDetector::stopped(TimePoint now) {
 }
 
 bool BaseStopDetector::stop_conditions_hold(TimePoint now) const {
-  if (!last_command_ || !last_odometry_ || !command_zero_) return false;
-  if (now - *last_command_ > config_.command_timeout ||
-      now - *last_odometry_ > config_.odometry_timeout) {
-    return false;
-  }
+  if (!last_command_ || !last_odometry_) return false;
+  const bool command_fresh = now - *last_command_ <= config_.command_timeout;
+  if (command_fresh && !command_zero_) return false;
+  if (now - *last_odometry_ > config_.odometry_timeout) return false;
   return linear_speed_ <= config_.linear_threshold &&
          angular_speed_ <= config_.angular_threshold;
 }

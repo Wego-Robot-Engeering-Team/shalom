@@ -14,7 +14,7 @@
 #include <unordered_set>
 #include <utility>
 
-#include "geometry_msgs/msg/twist.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -91,13 +91,17 @@ public:
   MissionManagerNode() : Node("mission_manager") {
     map_frame_ = declare_parameter<std::string>("map_frame", "map");
     odometry_topic_ = declare_parameter<std::string>("odometry_topic", "kiss/odometry");
-    safe_command_topic_ = declare_parameter<std::string>("safe_command_topic", "/cmd_vel");
-    stopped_feedback_timeout_ = std::chrono::milliseconds(
-      declare_parameter<int>("stopped_feedback_timeout_ms", 500));
+    const auto stopped_feedback_timeout_ms =
+      declare_parameter<int>("stopped_feedback_timeout_ms", 500);
+    const auto safety_state_timeout_ms =
+      declare_parameter<int>("safety_state_timeout_ms", 250);
     const auto authority_timeout_ms = declare_parameter<int>("authority_timeout_ms", 500);
-    if (authority_timeout_ms <= 0) {
-      throw std::invalid_argument("authority_timeout_ms must be positive");
+    if (stopped_feedback_timeout_ms <= 0 || safety_state_timeout_ms <= 0 ||
+        authority_timeout_ms <= 0) {
+      throw std::invalid_argument("mission dependency timeouts must be positive");
     }
+    stopped_feedback_timeout_ = std::chrono::milliseconds(stopped_feedback_timeout_ms);
+    safety_state_timeout_ = std::chrono::milliseconds(safety_state_timeout_ms);
     authority_timeout_ = std::chrono::milliseconds(authority_timeout_ms);
     for (const auto & capability : declare_parameter<std::vector<std::string>>(
            "available_capabilities", std::vector<std::string>{})) {
@@ -124,11 +128,8 @@ public:
     odometry_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       odometry_topic_, 20,
       std::bind(&MissionManagerNode::on_odometry, this, std::placeholders::_1));
-    safe_command_sub_ = create_subscription<geometry_msgs::msg::Twist>(
-      safe_command_topic_, 20,
-      std::bind(&MissionManagerNode::on_safe_command, this, std::placeholders::_1));
     stopped_sub_ = create_subscription<MotionStopped>(
-      "/motion/stopped", 20,
+      "/motion/stopped", rclcpp::QoS(1).reliable(),
       std::bind(&MissionManagerNode::on_motion_stopped, this, std::placeholders::_1));
 
     safety_client_ = create_client<SafetyCommand>("/safety/command");
@@ -438,24 +439,40 @@ private:
     // transition that occurred after the pending START was accepted.
     const bool safety_transition_after_start = start_safety_sequence_.has_value() &&
       message->sequence != *start_safety_sequence_;
+    const bool safety_transition_after_resume = recovery_safety_sequence_.has_value() &&
+      message->sequence != *recovery_safety_sequence_;
+    const bool safety_was_motion_ready = safety_state_ == SafetyState::NORMAL &&
+      safety_motion_permitted_;
     safety_state_ = message->state;
+    safety_motion_permitted_ = message->motion_permitted;
     safety_sequence_ = message->sequence;
     have_safety_state_ = true;
+    last_safety_state_ = std::chrono::steady_clock::now();
+    const bool safety_allows_motion = message->state == SafetyState::NORMAL &&
+      message->motion_permitted;
     using State = mission_manager::core::State;
     const auto state = fsm_.state();
     if (state == State::Ready && start_requested_) {
       if (message->state == SafetyState::E_STOP_LATCHED ||
           message->state == SafetyState::FAULT ||
-          (safety_transition_after_start && message->state != SafetyState::NORMAL)) {
+          (message->state == SafetyState::NORMAL && !message->motion_permitted) ||
+          (safety_transition_after_start && !safety_allows_motion)) {
         cancel_pending_start_by_safety(
           "a new operator start is required after the safety stop");
       } else if (!start_safety_sequence_.has_value()) {
         start_safety_sequence_ = message->sequence;
       }
     }
-    if (message->state != SafetyState::NORMAL &&
-        (state == State::Running || state == State::Returning || state == State::Recovering)) {
+    const bool new_recovery_stop = state == State::Recovering && !safety_allows_motion &&
+      (message->state == SafetyState::E_STOP_LATCHED ||
+       message->state == SafetyState::FAULT ||
+       (message->state == SafetyState::NORMAL && !message->motion_permitted) ||
+       safety_transition_after_resume || safety_was_motion_ready);
+    if ((!safety_allows_motion && (state == State::Running || state == State::Returning)) ||
+        new_recovery_stop) {
       dispatch(mission_manager::core::Event::SafetyStop, "MISSION_SAFETY_STOP");
+    } else if (state == State::Recovering && !recovery_safety_sequence_.has_value()) {
+      recovery_safety_sequence_ = message->sequence;
     }
   }
 
@@ -477,19 +494,28 @@ private:
     last_odometry_ = std::chrono::steady_clock::now();
   }
 
-  void on_safe_command(const geometry_msgs::msg::Twist::SharedPtr message) {
-    constexpr double epsilon = 1e-6;
-    safe_command_zero_ = std::abs(message->linear.x) <= epsilon &&
-      std::abs(message->linear.y) <= epsilon && std::abs(message->linear.z) <= epsilon &&
-      std::abs(message->angular.x) <= epsilon && std::abs(message->angular.y) <= epsilon &&
-      std::abs(message->angular.z) <= epsilon;
-    last_safe_command_ = std::chrono::steady_clock::now();
-  }
-
   void on_motion_stopped(const MotionStopped::SharedPtr message) {
     if (message->resource != MotionStopped::BASE) return;
+    const auto age = now() - rclcpp::Time(message->stamp);
+    const auto timeout_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+      stopped_feedback_timeout_).count();
+    if (age.nanoseconds() < 0 || age.nanoseconds() > timeout_ns || message->sequence == 0) {
+      base_stopped_ = false;
+      return;
+    }
+    const auto received_at = std::chrono::steady_clock::now();
+    const bool previous_feedback_fresh = last_stopped_feedback_.has_value() &&
+      received_at - *last_stopped_feedback_ <= stopped_feedback_timeout_;
+    if (previous_feedback_fresh && last_stopped_sequence_.has_value() &&
+        message->sequence <= *last_stopped_sequence_) {
+      // An out-of-order or restarted producer must not leave an earlier TRUE
+      // eligible to complete PAUSING while its feedback stream is uncertain.
+      base_stopped_ = false;
+      return;
+    }
     base_stopped_ = message->stopped;
-    last_stopped_feedback_ = std::chrono::steady_clock::now();
+    last_stopped_sequence_ = message->sequence;
+    last_stopped_feedback_ = received_at;
   }
 
   bool base_authority_ready() const {
@@ -498,27 +524,42 @@ private:
     return have_authority_ && authority_state_ == MotionAuthority::BASE_ACTIVE && authority_fresh;
   }
 
+  bool safety_state_fresh() const {
+    return last_safety_state_.has_value() &&
+      std::chrono::steady_clock::now() - *last_safety_state_ <= safety_state_timeout_;
+  }
+
+  bool safety_motion_ready() const {
+    return have_safety_state_ && safety_state_fresh() &&
+      safety_state_ == SafetyState::NORMAL && safety_motion_permitted_;
+  }
+
   bool motion_dependencies_ready() const {
     const bool odometry_fresh = last_odometry_.has_value() &&
       std::chrono::steady_clock::now() - *last_odometry_ <= 1s;
-    return have_safety_state_ && safety_state_ == SafetyState::NORMAL &&
-      base_authority_ready() && odometry_fresh;
+    return safety_motion_ready() && base_authority_ready() && odometry_fresh;
   }
 
   bool motion_quiesced() const {
     const auto now_steady = std::chrono::steady_clock::now();
-    const bool command_fresh = last_safe_command_.has_value() &&
-      now_steady - *last_safe_command_ <= 250ms;
     const bool stopped_feedback_fresh = last_stopped_feedback_.has_value() &&
       now_steady - *last_stopped_feedback_ <= stopped_feedback_timeout_;
-    return goal_phase_ != GoalPhase::Active && !nav_goal_ && command_fresh &&
-      safe_command_zero_ && stopped_feedback_fresh && base_stopped_;
+    return goal_phase_ != GoalPhase::Active && !nav_goal_ &&
+      stopped_feedback_fresh && base_stopped_;
   }
 
   bool dispatch(mission_manager::core::Event event, const std::string & reason_code) {
     const auto transition = fsm_.dispatch(event);
     detail_ = transition.reason;
     if (!transition.accepted) return false;
+    if (transition.to == mission_manager::core::State::Recovering &&
+        transition.from != transition.to) {
+      recovery_safety_sequence_ = have_safety_state_
+        ? std::optional<uint64_t>(safety_sequence_) : std::nullopt;
+    } else if (transition.from == mission_manager::core::State::Recovering &&
+               transition.to != transition.from) {
+      recovery_safety_sequence_.reset();
+    }
     reason_code_ = reason_code;
     if (transition.to == mission_manager::core::State::Pausing) {
       if (active_operation_.has_value()) {
@@ -556,7 +597,9 @@ private:
       safety_client_->async_send_request(request,
         [this, start_request_generation](rclcpp::Client<SafetyCommand>::SharedFuture future) {
           const auto response = future.get();
-          if (!response->accepted && response->state.state != SafetyState::NORMAL) {
+          if (!response->accepted &&
+              (response->state.state != SafetyState::NORMAL ||
+               !response->state.motion_permitted)) {
             RCLCPP_WARN(get_logger(), "Safety resume rejected: %s", response->detail.c_str());
             if (start_requested_ && start_request_generation == start_request_generation_) {
               cancel_pending_start_by_safety(
@@ -586,11 +629,21 @@ private:
     using Status = mission_manager::bt::Status;
     const auto state = fsm_.state();
     if ((state == State::Running || state == State::Returning) &&
+        !safety_motion_ready()) {
+      dispatch(Event::SafetyStop, "MISSION_SAFETY_STOP");
+      return;
+    }
+    if ((state == State::Running || state == State::Returning) &&
         !base_authority_ready()) {
       dispatch(Event::AuthorityLost, "MISSION_AUTHORITY_LOST");
       return;
     }
     if (state == State::Ready && start_requested_) {
+      if (have_safety_state_ && !safety_state_fresh()) {
+        cancel_pending_start_by_safety(
+          "safety state timed out; a new operator start is required");
+        return;
+      }
       if (motion_dependencies_ready()) {
         clear_pending_start();
         dispatch(Event::StartRequested, "MISSION_STARTED");
@@ -604,6 +657,10 @@ private:
       return;
     }
     if (state == State::Recovering) {
+      if (have_safety_state_ && !safety_state_fresh()) {
+        dispatch(Event::SafetyStop, "MISSION_SAFETY_STOP");
+        return;
+      }
       if (motion_dependencies_ready()) dispatch(Event::RecoveryReady, "MISSION_RECOVERY_READY");
       else request_dependencies();
       return;
@@ -725,22 +782,24 @@ private:
   std::string detail_{"waiting for mission configuration"};
   std::string map_frame_{"map"};
   std::string odometry_topic_;
-  std::string safe_command_topic_;
   std::unordered_set<std::string> available_capabilities_;
   std::chrono::milliseconds stopped_feedback_timeout_{500};
+  std::chrono::milliseconds safety_state_timeout_{250};
   std::chrono::milliseconds authority_timeout_{500};
   bool have_safety_state_{false};
   bool have_authority_{false};
+  bool safety_motion_permitted_{false};
   uint8_t safety_state_{SafetyState::INITIALIZING};
   uint8_t authority_state_{MotionAuthority::NONE};
   bool base_stopped_{false};
-  bool safe_command_zero_{true};
   std::optional<std::chrono::steady_clock::time_point> last_odometry_;
-  std::optional<std::chrono::steady_clock::time_point> last_safe_command_;
+  std::optional<std::chrono::steady_clock::time_point> last_safety_state_;
   std::optional<std::chrono::steady_clock::time_point> last_stopped_feedback_;
+  std::optional<uint64_t> last_stopped_sequence_;
   std::optional<std::chrono::steady_clock::time_point> last_authority_;
   std::optional<std::chrono::steady_clock::time_point> last_dependency_request_;
   std::optional<uint64_t> start_safety_sequence_;
+  std::optional<uint64_t> recovery_safety_sequence_;
   GoalPhase goal_phase_{GoalPhase::Idle};
   bool goal_unsendable_{false};
   std::optional<uint8_t> active_operation_;
@@ -757,7 +816,6 @@ private:
   rclcpp::Subscription<SafetyState>::SharedPtr safety_sub_;
   rclcpp::Subscription<MotionAuthority>::SharedPtr authority_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odometry_sub_;
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr safe_command_sub_;
   rclcpp::Subscription<MotionStopped>::SharedPtr stopped_sub_;
   rclcpp::Client<SafetyCommand>::SharedPtr safety_client_;
   rclcpp::Client<AuthorityRequest>::SharedPtr authority_client_;

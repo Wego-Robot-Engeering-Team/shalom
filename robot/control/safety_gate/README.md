@@ -1,8 +1,9 @@
 # safety_gate
 
 `safety_gate`는 motion command를 final driver topic으로 보내기 전 마지막으로
-검사한다. typed `/safety/state`가 `NORMAL`이고 typed `/motion/authority`가
-`BASE_ACTIVE`일 때만 base 명령을 통과시킨다. `CONTROLLED_STOP`과 `FAULT`에서는
+검사한다. typed `/safety/state`가 `NORMAL`이고 `motion_permitted=true`이며
+typed `/motion/authority`가 `BASE_ACTIVE`일 때만 base 명령을 통과시킨다.
+`NORMAL`이어도 permit이 false면 0 `Twist`를 발행한다. `CONTROLLED_STOP`과 `FAULT`에서는
 0 `Twist`를 발행하고, `E_STOP_LATCHED` 또는 safety 상태 timeout에서는 발행을
 차단해 B2 드라이버의 command timeout으로 정지시킨다. authority snapshot이 기본
 500 ms 안에 갱신되지 않아도 fail-closed로 0 `Twist`를 출력한다.

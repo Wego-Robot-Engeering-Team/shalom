@@ -228,14 +228,20 @@ FSM을 직접 동시에 호출하지 않는다.
 참이어야 `MOTION_QUIESCED`를 발생시킨다.
 
 - active BT leaf가 halt 완료됨
-- Safety Gate가 zero output 상태임
+- Safety Gate가 zero output 또는 명시적 block 상태임
 - B2 정지 피드백이 신선하고 정지 기준을 만족함
 
 `base_motion_monitor`가 Safety Gate의 최종 base 명령과 B2 odometry를 함께 관측해
 `/motion/stopped`를 발행한다. 시뮬레이션은 `/b2/odom_gt`, 실물은 B2 드라이버의
-`/b2/odom`을 사용한다. 명령 또는 odometry가 timeout되면 정지로 간주하지 않는다.
+`/b2/odom`을 사용한다. fresh nonzero 명령이 있거나 odometry가 timeout되면
+정지로 간주하지 않는다. Safety Gate가 명시적으로 출력을 block해 command가
+timeout된 경우에도 fresh odometry가 settling 시간 동안 정지를 확인해야 한다.
 `use_sim_time`은 메시지 timestamp와 ROS 구성요소의 공통 시간축을 맞추는 데 사용하고,
 명령/피드백 timeout 판정은 시뮬레이션 일시정지의 영향을 받지 않는 steady clock을 쓴다.
+Mission Manager는 `/motion/stopped`의 timestamp가 현재 ROS 시간에서 유효한지,
+sequence가 최신인지도 검사한다. `RECOVERING`에서는 RESUME 이전부터 존재하던
+`CONTROLLED_STOP` snapshot을 기다릴 수 있지만, RESUME 후 새 Safety 정지 전이나
+E-stop/fault는 recovery를 취소한다.
 
 Resume은 마지막으로 완료한 waypoint 다음이 아니라 **중단됐던 현재 waypoint를
 처음부터 다시 요청**한다. 완료된 waypoint checkpoint는 유지한다.
