@@ -26,8 +26,10 @@ public:
   void observe_command(bool zero, TimePoint now);
   void observe_odometry(double linear_speed, double angular_speed, TimePoint now);
 
-  // Returns true only after fresh zero command and fresh stopped feedback have
-  // both remained valid for the configured settling interval.
+  // Returns true only after fresh measured stop feedback has remained valid for
+  // the settling interval and no fresh nonzero command exists. A stale command
+  // is permitted because Safety Gate deliberately blocks all output for an
+  // E-Stop; stale odometry is never accepted as stopped.
   bool stopped(TimePoint now);
 
 private:

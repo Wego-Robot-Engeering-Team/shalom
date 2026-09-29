@@ -29,7 +29,7 @@ Detector make_detector() {
   return Detector(config);
 }
 
-void test_requires_fresh_command_and_odometry() {
+void test_requires_observed_command_and_fresh_odometry() {
   auto detector = make_detector();
   const Detector::TimePoint start{};
   expect(!detector.stopped(start), "startup without feedback must not report stopped");
@@ -58,20 +58,36 @@ void test_motion_or_nonzero_command_resets_settling() {
   expect(!detector.stopped(start + 360ms), "nonzero command must clear stopped state");
 }
 
-void test_stale_feedback_fails_closed() {
+void test_stale_odometry_fails_closed() {
   auto detector = make_detector();
   const Detector::TimePoint start{};
   detector.observe_command(true, start);
   detector.observe_odometry(0.0, 0.0, start);
   detector.stopped(start);
-  expect(!detector.stopped(start + 501ms), "stale feedback must never report stopped");
+  expect(!detector.stopped(start + 501ms), "stale odometry must never report stopped");
+}
+
+void test_blocked_command_can_confirm_measured_stop() {
+  auto detector = make_detector();
+  const Detector::TimePoint start{};
+  detector.observe_command(false, start);
+  detector.observe_odometry(0.0, 0.0, start);
+  expect(!detector.stopped(start + 200ms),
+         "a fresh nonzero command must prevent stopped confirmation");
+  detector.observe_odometry(0.0, 0.0, start + 251ms);
+  expect(!detector.stopped(start + 251ms),
+         "a blocked command must still observe the settling interval");
+  detector.observe_odometry(0.0, 0.0, start + 451ms);
+  expect(detector.stopped(start + 451ms),
+         "fresh stable odometry may confirm stop after command output is blocked");
 }
 
 }  // namespace
 
 int main() {
-  test_requires_fresh_command_and_odometry();
+  test_requires_observed_command_and_fresh_odometry();
   test_motion_or_nonzero_command_resets_settling();
-  test_stale_feedback_fails_closed();
+  test_stale_odometry_fails_closed();
+  test_blocked_command_can_confirm_measured_stop();
   return 0;
 }

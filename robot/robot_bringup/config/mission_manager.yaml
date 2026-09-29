@@ -7,3 +7,6 @@ mission_manager:
     # Motion authority snapshots arrive at 5 Hz. Missing more than two periods
     # pauses active motion and blocks START/recovery.
     authority_timeout_ms: 500
+    # Safety state is published at 20 Hz. A stale snapshot must not start or
+    # continue autonomous motion even when its last value was NORMAL.
+    safety_state_timeout_ms: 250

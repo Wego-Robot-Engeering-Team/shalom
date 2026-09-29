@@ -69,6 +69,7 @@ private:
 
   void on_safety(const shalom_interfaces::msg::SafetyState::SharedPtr message) {
     safety_state_ = message->state;
+    safety_motion_permitted_ = message->motion_permitted;
     last_state_ = std::chrono::steady_clock::now();
   }
 
@@ -79,7 +80,7 @@ private:
 
   /// What the safety state means for the output, per the control-plane design:
   ///
-  ///   normal           pass the command through
+  ///   normal           pass only when motion_permitted is true; otherwise zero
   ///   controlled_stop  publish zero -- a normal pause, the robot stays up
   ///   fault            publish zero -- same, it is not an emergency stop
   ///   e_stop_latched   publish nothing at all
@@ -95,7 +96,8 @@ private:
     if (std::chrono::steady_clock::now() - last_state_ > state_timeout_)
       return Output::kBlock;
     using SafetyState = shalom_interfaces::msg::SafetyState;
-    if (safety_state_ == SafetyState::NORMAL) return Output::kPass;
+    if (safety_state_ == SafetyState::NORMAL)
+      return safety_motion_permitted_ ? Output::kPass : Output::kZero;
     if (safety_state_ == SafetyState::E_STOP_LATCHED) return Output::kBlock;
     if (safety_state_ == SafetyState::INITIALIZING ||
         safety_state_ == SafetyState::CONTROLLED_STOP ||
@@ -132,6 +134,7 @@ private:
   }
 
   uint8_t safety_state_{shalom_interfaces::msg::SafetyState::INITIALIZING};
+  bool safety_motion_permitted_{false};
   bool arm_output_enabled_{false};
   uint8_t authority_{shalom_interfaces::msg::MotionAuthority::NONE};
   std::chrono::milliseconds command_timeout_{300};

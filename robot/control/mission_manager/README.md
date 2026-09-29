@@ -48,6 +48,14 @@ IDLE ─구성→ READY ─시작→ RUNNING ─점검 완료→ RETURNING(선�
 - Base authority snapshot이 500 ms 이상 갱신되지 않거나 `BASE_ACTIVE`를 벗어나면
   실행 중인 Mission을 `PAUSING`으로 전환한다. `RECOVERING`은 움직이지 않는 상태로
   유지하면서 fresh `BASE_ACTIVE`를 다시 획득할 때까지 기다린다.
+- Safety snapshot이 250 ms 이상 갱신되지 않거나 `motion_permitted=false`면
+  Mission을 시작·재개하지 않고, 실행 중이면 `PAUSING`으로 전환한다.
+- 명시적 RESUME 직후에는 기존 `CONTROLLED_STOP` snapshot을 기다리는 상태로
+  취급한다. RESUME 이후 새 Safety 정지 전이, E-stop 또는 fault가 발생하면
+  `RECOVERING`을 취소한다.
+- `PAUSING`의 정지 완료는 최종 명령과 odometry를 함께 검증한 typed
+  `/motion/stopped`의 fresh `BASE=true` feedback으로만 확정한다. 수신자는
+  메시지 timestamp와 sequence를 검증하고, 최근 결과 하나만 큐에 보관한다.
 - 상태는 `/mission/state`로 관제에 그대로 나간다.
 
 ## 아직 연결되지 않은 것
