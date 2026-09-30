@@ -206,7 +206,7 @@ void MissionPanel::refresh()
         current_->setText(QStringLiteral("미션 완료"));
         next_->setText(QStringLiteral("—"));
     } else if (failed) {
-        current_->setText(QStringLiteral("미션 실패 · 로그를 확인하십시오"));
+        current_->setText(QStringLiteral("미션 실패"));
         next_->setText(QStringLiteral("—"));
     } else if (returning) {
         current_->setText(QStringLiteral("충전소 복귀 중"));
@@ -215,7 +215,7 @@ void MissionPanel::refresh()
         current_->setText(QStringLiteral("%1. %2").arg(index_ + 1).arg(labelAt(index_)));
         next_->setText(index_ + 1 < total
                            ? QStringLiteral("%1. %2").arg(index_ + 2).arg(labelAt(index_ + 1))
-                           : QStringLiteral("마지막 단계입니다"));
+                           : QStringLiteral("마지막 단계"));
     } else {
         current_->setText(disconnected ? QStringLiteral("로봇 연결 필요")
                                   : active ? QStringLiteral("미션 준비 중")

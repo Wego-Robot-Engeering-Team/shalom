@@ -110,10 +110,8 @@ inline const std::array<double, kArmJointCount> kArmStow{
 ///
 /// The trunk dimensions come from the B2 base geometry (`base1_collision` is
 /// a 0.50 x 0.28 x 0.15 m box centred on the body origin). The arm mount is a
-/// Wego integration value, kept here so the pose check and 3D view agree.
-/// They live here because the pose check and the 3D view both need them and
-/// must agree - a warning that fires where the picture shows clearance teaches
-/// the operator to ignore warnings.
+/// Wego integration value used by the pose check. The HMI's compact 3D view
+/// draws only the arm in its own base frame, without the B2 platform.
 struct Box {
     double minX, maxX, minY, maxY, minZ, maxZ;   ///< m
 };

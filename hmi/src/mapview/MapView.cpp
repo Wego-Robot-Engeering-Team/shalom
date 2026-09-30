@@ -268,6 +268,16 @@ void MapView::setTags(const QList<QVariantMap> &tags)
     for (const auto &t : tags) {
         const int id = t.value(QStringLiteral("id")).toInt();
         auto *m = new AprilTagMarker(id);
+        if (t.contains(QStringLiteral("yaw")))
+            m->setHeading(t.value(QStringLiteral("yaw")).toDouble());
+        if (t.contains(QStringLiteral("z")) && t.contains(QStringLiteral("yaw")))
+            m->setToolTip(QStringLiteral("마커 #%1 · Z %2 m · 방향 %3°")
+                              .arg(id)
+                              .arg(t.value(QStringLiteral("z")).toDouble(), 0, 'f', 2)
+                              .arg(qRadiansToDegrees(t.value(QStringLiteral("yaw")).toDouble()),
+                                   0, 'f', 1));
+        else
+            m->setToolTip(QStringLiteral("마커 #%1 · 높이/방향 미설정").arg(id));
         m->setPos(info_->toScene(t.value(QStringLiteral("x")).toDouble(),
                                  t.value(QStringLiteral("y")).toDouble()));
         scene_->addItem(m);
@@ -422,8 +432,7 @@ void MapView::mouseReleaseEvent(QMouseEvent *ev)
     } else if (mode_ == MapMode::AddWaypoint) {
         emit waypointPlaced(wx, wy, theta);
     } else if (mode_ == MapMode::AddTag) {
-        // 마커는 벽에 붙는 물건이고 방향이 없다. 드래그해도 각을 버린다.
-        emit tagPlaced(wx, wy);
+        emit tagPlaced(wx, wy, theta, std::hypot(dx, dy) >= kHeadingDragThreshold);
     }
     setMode(MapMode::View);
 }
@@ -436,14 +445,14 @@ void MapView::drawForeground(QPainter *p, const QRectF &)
     p->resetTransform();   // 화면 좌표로 그린다
     p->setRenderHint(QPainter::Antialiasing);
 
-    // 맵이 없으면 빈 흰 판만 남아 고장처럼 보인다. 상태를 글로 알린다.
+    // 빈 화면이 고장으로 보이지 않도록 상태만 짧게 표시한다.
     if (!info_) {
         const Colors &C = colors();
         QFont f;
         p->setFont(f);
         p->setPen(QColor(C.textMute));
         p->drawText(viewport()->rect(), Qt::AlignCenter,
-                    QStringLiteral("지도가 없습니다\n로봇에서 지도를 받으면 표시됩니다"));
+                    QStringLiteral("지도 없음"));
         p->restore();
         return;
     }

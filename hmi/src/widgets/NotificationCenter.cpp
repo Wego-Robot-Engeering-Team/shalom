@@ -136,7 +136,7 @@ NotificationPopup::NotificationPopup(const QList<Notification> &items)
     lay->addWidget(head);
 
     if (items.isEmpty()) {
-        auto *empty = new QLabel(QStringLiteral("아직 지나간 알림이 없습니다."));
+        auto *empty = new QLabel(QStringLiteral("알림 없음"));
         empty->setObjectName(QStringLiteral("Hint"));
         empty->setWordWrap(true);
         lay->addWidget(empty);

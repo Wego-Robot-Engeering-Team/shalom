@@ -117,10 +117,10 @@ void MapCard::addModeButtons(QWidget *autoBtn, QWidget *manualBtn)
     auto *tb = qobject_cast<QHBoxLayout *>(toolbarRow_->layout());
     if (!tb)
         return;
-    // 맨 앞에 넣고 선으로 떼어 놓는다. 지도를 어떻게 볼지(목표 지정,
-    // 전체 보기)와 로봇이 어떻게 움직일지는 다른 이야기다.
-    tb->insertWidget(0, autoBtn);
-    tb->insertWidget(1, manualBtn);
+    // 맨 앞에 수동 → 자율 순서로 놓고 선으로 떼어 놓는다. 주행 모드와
+    // 지도 클릭 도구(목표 지정)는 다른 종류의 조작이다.
+    tb->insertWidget(0, manualBtn);
+    tb->insertWidget(1, autoBtn);
     tb->insertSpacing(2, metrics::s1);
     tb->insertWidget(3, new VLine(nullptr, metrics::s1));
     tb->insertSpacing(4, metrics::s1);

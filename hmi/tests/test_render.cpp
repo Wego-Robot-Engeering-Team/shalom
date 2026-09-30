@@ -18,15 +18,14 @@
 
 #include <QLabel>
 #include <QBuffer>
+#include <QDoubleSpinBox>
 #include <QImage>
 #include <QLineEdit>
 #include <QListWidget>
-#include <QPainter>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSignalSpy>
-#include <QStyleOptionViewItem>
 #include <QStackedWidget>
 #include <QTreeWidget>
 #include <QTcpServer>
@@ -52,11 +51,11 @@
 #include "views/SettingsDialog.h"
 #include "views/WelcomeDialog.h"
 #include "widgets/NotificationCenter.h"
+#include "widgets/CatalogRow.h"
 #include "widgets/IconButton.h"
 #include "widgets/MapCard.h"
 #include "widgets/Robot3DView.h"
 #include "widgets/ValueSlider.h"
-#include "widgets/WaypointDelegate.h"
 
 using namespace hmi;
 
@@ -135,6 +134,8 @@ private slots:
         }
         auto *trigger = panel.findChild<QPushButton *>(QStringLiteral("CaptureTriggerButton"));
         QVERIFY(trigger && trigger->isEnabled());
+        auto *captureHint = panel.findChild<QLabel *>(QStringLiteral("Hint"));
+        QVERIFY(captureHint && captureHint->isHidden());
         QSignalSpy requests(&panel, &ui::CapturePanel::captureRequested);
         trigger->click();
         QCOMPARE(requests.size(), 1);
@@ -191,6 +192,297 @@ private slots:
         QVERIFY(!send->isEnabled());
         arm.setExecutionAvailable(true);
         QVERIFY(send->isEnabled());
+    }
+
+    void armSavedPoseAppliesOnlyWhenRowButtonIsPressed()
+    {
+        ui::ArmPanel arm;
+        arm.resize(430, 700);
+        arm.show();
+        auto *sections = arm.findChild<QTabWidget *>(QStringLiteral("ArmSections"));
+        auto *saved = arm.findChild<QListWidget *>(QStringLiteral("SavedArmPosePresets"));
+        auto *joint = arm.findChild<ui::ValueSlider *>(QStringLiteral("Joint2"));
+        auto *view = arm.findChild<ui::Robot3DView *>();
+        QVERIFY(sections && saved && joint && view);
+        QCOMPARE(sections->tabText(0), QStringLiteral("운용"));
+        QCOMPARE(sections->tabText(1), QStringLiteral("자세 관리"));
+        arm.setControlsEnabled(true);
+        arm.setExecutionAvailable(true);
+        sections->setCurrentIndex(1);
+        QVERIFY(view->isVisible());
+        arm.setArmState({0.0, -0.785, 0.0, -2.356, 0.0, 1.571}, 0.09, 0.06);
+        QSignalSpy jointGoals(&arm, &ui::ArmPanel::jointGoal);
+        QSignalSpy eeGoals(&arm, &ui::ArmPanel::eeGoal);
+        const QVariantMap pose{{"id", QStringLiteral("inspect-left")},
+                               {"name", QStringLiteral("왼쪽 점검")},
+                               {"description", QStringLiteral("측면 촬영")},
+                               {"positions", QVariantList{0.0, -1.2, 0.0, -2.0, 0.0, 1.5}},
+                               {"revision", 1}};
+        arm.setPosePresets({pose});
+        QCOMPARE(saved->count(), 1);
+        saved->setCurrentRow(0);
+        QVERIFY(qAbs(joint->command() + 1.2) < 0.02); // 선택은 미리보기만 한다.
+        QCOMPARE(jointGoals.size(), 0);
+        auto *row = static_cast<ui::CatalogRow *>(saved->itemWidget(saved->item(0)));
+        QVERIFY(row && row->applyButton()->isEnabled());
+        row->applyButton()->click();
+        QCOMPARE(jointGoals.size(), 1);
+        QVERIFY(qAbs(joint->command() + 1.2) < 0.02);
+        auto *preview = arm.findChild<QLabel *>(QStringLiteral("ArmPreviewStatus"));
+        QCOMPARE(preview->text(), QStringLiteral("목표 미리보기"));
+        QCOMPARE(eeGoals.size(), 0);
+
+        // 로봇이 수정된 목록을 다시 보내도 운영자가 편집 중인 목표는 보존한다.
+        joint->setCommand(-1.4);
+        arm.setPosePresets({pose});
+        QVERIFY(qAbs(joint->command() + 1.4) < 0.02);
+        QVariantMap archivedPose = pose;
+        archivedPose[QStringLiteral("archived")] = true;
+        arm.setPosePresets({archivedPose});
+        QCOMPARE(saved->count(), 0);
+        QVERIFY(qAbs(joint->command() + 1.4) < 0.02);
+        sections->setCurrentIndex(0);
+        QVERIFY(view->isVisible());
+    }
+
+    void armHasNoBuiltInPoseChoices()
+    {
+        ui::ArmPanel arm;
+        arm.resize(430, 700);
+        arm.show();
+        auto *sections = arm.findChild<QTabWidget *>(QStringLiteral("ArmSections"));
+        auto *saved = arm.findChild<QListWidget *>(QStringLiteral("SavedArmPosePresets"));
+        auto *save = arm.findChild<QPushButton *>(QStringLiteral("ArmSaveCurrentPose"));
+        auto *previewSave = arm.findChild<QPushButton *>(QStringLiteral("ArmSavePreviewPose"));
+        QVERIFY(sections && saved && save && previewSave);
+        QCOMPARE(save->text(), QStringLiteral("현재 자세 저장"));
+        QCOMPARE(previewSave->text(), QStringLiteral("미리보기 저장"));
+        for (const QString &key : {QStringLiteral("home"), QStringLiteral("standby"),
+                                   QStringLiteral("stow")})
+            QVERIFY(!arm.findChild<QPushButton *>(QStringLiteral("ArmPreset_%1").arg(key)));
+        QVERIFY(saved->count() == 0);
+        sections->setCurrentIndex(1);
+        QVERIFY(!sections->widget(1)->findChild<QPushButton *>(
+            QStringLiteral("ArmSaveCurrentPose")));
+    }
+
+    void armCurrentPoseSavesImmediatelyAndEditsInItsRow()
+    {
+        ui::ArmPanel arm;
+        arm.resize(430, 800);
+        arm.show();
+        const QList<double> actual{0.0, -0.785, 0.0, -2.356, 0.0, 1.571};
+        arm.setControlsEnabled(true);
+        arm.setExecutionAvailable(true);
+        arm.setArmState(actual, 0.09, 0.06);
+        auto *joint = arm.findChild<ui::ValueSlider *>(QStringLiteral("Joint2"));
+        auto *button = arm.findChild<QPushButton *>(QStringLiteral("ArmSaveCurrentPose"));
+        auto *list = arm.findChild<QListWidget *>(QStringLiteral("SavedArmPosePresets"));
+        QVERIFY(joint && button && list);
+        joint->setCommand(-1.2); // 미전송 초안은 '현재 자세 저장'의 대상이 아니다.
+        QSignalSpy saves(&arm, &ui::ArmPanel::savePosePresetRequested);
+        button->click();
+        QCOMPARE(saves.size(), 1);
+        QCOMPARE(list->count(), 1);
+        const QVariantMap pending = saves.first().first().toMap();
+        QVERIFY(qAbs(pending.value(QStringLiteral("positions")).toList().at(1).toDouble()
+                     - actual.at(1)) < 1e-9);
+        auto *row = static_cast<ui::CatalogRow *>(list->itemWidget(list->item(0)));
+        QVERIFY(row);
+        QVERIFY(!row->editButton()->isEnabled());
+        QVERIFY(!row->applyButton()->isEnabled());
+
+        QVariantMap confirmed = pending;
+        confirmed[QStringLiteral("revision")] = 1;
+        arm.setPosePresets({confirmed});
+        QVERIFY(button->isEnabled());
+        row = static_cast<ui::CatalogRow *>(list->itemWidget(list->item(0)));
+        QVERIFY(row->editButton()->isEnabled());
+        const int collapsedHeight = list->item(0)->sizeHint().height();
+        row->editButton()->click();
+        QVERIFY(row->isEditing());
+        QVERIFY(list->item(0)->sizeHint().height() > collapsedHeight);
+        auto *name = row->findChild<QLineEdit *>(QStringLiteral("PoseRowName"));
+        auto *j2 = row->findChild<QDoubleSpinBox *>(QStringLiteral("PoseRowJoint2"));
+        auto *save = row->findChild<QPushButton *>(QStringLiteral("PoseRowSave"));
+        QVERIFY(name && j2 && save);
+        name->setText(QStringLiteral("검사 A"));
+        j2->setValue(-60.0);
+        QSignalSpy updates(&arm, &ui::ArmPanel::updatePosePresetRequested);
+        save->click();
+        QCOMPARE(updates.size(), 1);
+        const QVariantMap updated = updates.first().first().toMap();
+        QCOMPARE(updated.value(QStringLiteral("name")).toString(), QStringLiteral("검사 A"));
+        QVERIFY(qAbs(updated.value(QStringLiteral("positions")).toList().at(1).toDouble()
+                     + M_PI / 3) < 1e-5);
+
+        QVariantMap fromRobot = updated;
+        fromRobot[QStringLiteral("revision")] = 2;
+        arm.setPosePresets({fromRobot});
+        arm.setCommandResult(QStringLiteral("cmd/arm/pose_presets/update"), true, {}, {});
+        row = static_cast<ui::CatalogRow *>(list->itemWidget(list->item(0)));
+        QSignalSpy goals(&arm, &ui::ArmPanel::jointGoal);
+        row->applyButton()->click();
+        QCOMPARE(goals.size(), 1);
+        QVERIFY(qAbs(goals.first().first().value<QList<double>>().at(1) + M_PI / 3) < 1e-5);
+    }
+
+    void armWithoutTelemetryCanSaveAnEditedPose()
+    {
+        ui::ArmPanel arm;
+        arm.setControlsEnabled(true);
+        auto *button = arm.findChild<QPushButton *>(QStringLiteral("ArmSavePreviewPose"));
+        auto *measured = arm.findChild<QPushButton *>(QStringLiteral("ArmSaveCurrentPose"));
+        auto *joint = arm.findChild<ui::ValueSlider *>(QStringLiteral("Joint2"));
+        auto *eeX = arm.findChild<ui::ValueSlider *>(QStringLiteral("Ee_x"));
+        auto *view = arm.findChild<ui::Robot3DView *>();
+        QVERIFY(button && measured && joint && eeX && view);
+        QCOMPARE(view->height(), 210);
+        QCOMPARE(button->text(), QStringLiteral("미리보기 저장"));
+        QVERIFY(button->isEnabled());
+        QVERIFY(!measured->isEnabled());
+        for (int i = 0; i < robot::kArmJointCount; ++i) {
+            auto *slider = arm.findChild<ui::ValueSlider *>(QStringLiteral("Joint%1").arg(i + 1));
+            QVERIFY(slider);
+            QVERIFY(qAbs(slider->command() - robot::kArmHome.at(i)) < 0.01);
+        }
+        QList<double> initial;
+        for (int i = 0; i < robot::kArmJointCount; ++i)
+            initial << arm.findChild<ui::ValueSlider *>(
+                QStringLiteral("Joint%1").arg(i + 1))->command();
+        QVERIFY(qAbs(eeX->command() - robot::forwardKinematics(initial).x) < 0.01);
+
+        joint->setCommand(-1.2);
+        QVERIFY(button->isEnabled());
+        QSignalSpy saves(&arm, &ui::ArmPanel::savePosePresetRequested);
+        button->click();
+        QCOMPARE(saves.size(), 1);
+        const auto positions = saves.first().first().toMap()
+                                   .value(QStringLiteral("positions")).toList();
+        QCOMPARE(positions.size(), robot::kArmJointCount);
+        QVERIFY(qAbs(positions.at(1).toDouble() - joint->command()) < 1e-9);
+
+        QVariantMap confirmed = saves.first().first().toMap();
+        confirmed[QStringLiteral("revision")] = 1;
+        arm.setPosePresets({confirmed});
+        auto *list = arm.findChild<QListWidget *>(QStringLiteral("SavedArmPosePresets"));
+        QVERIFY(list && list->count() == 1);
+        auto *row = static_cast<ui::CatalogRow *>(list->itemWidget(list->item(0)));
+        QVERIFY(row && !row->applyButton()->isEnabled()); // 팔 실행기 없는 시뮬레이션
+        joint->setCommand(-1.4);
+        QSignalSpy moves(&arm, &ui::ArmPanel::jointGoal);
+        list->setCurrentRow(-1);
+        list->setCurrentRow(0);
+        QVERIFY(qAbs(joint->command() - positions.at(1).toDouble()) < 0.01);
+        QCOMPARE(moves.size(), 0);
+
+        arm.clearReportedState();
+        QVERIFY(button->isEnabled());
+        QVERIFY(!measured->isEnabled());
+        QVERIFY(qAbs(joint->command() - robot::kArmHome.at(1)) < 0.01);
+    }
+
+    void armPreviewSaveDoesNotUseMeasuredJoints()
+    {
+        ui::ArmPanel arm;
+        arm.setControlsEnabled(true);
+        const QList<double> measured{0.0, -0.785, 0.0, -2.356, 0.0, 1.571};
+        arm.setArmState(measured, 0.09, 0.06);
+        auto *joint = arm.findChild<ui::ValueSlider *>(QStringLiteral("Joint2"));
+        auto *save = arm.findChild<QPushButton *>(QStringLiteral("ArmSavePreviewPose"));
+        QVERIFY(joint && save && save->isEnabled());
+        joint->setCommand(-1.2);
+        QSignalSpy requests(&arm, &ui::ArmPanel::savePosePresetRequested);
+        save->click();
+        QCOMPARE(requests.size(), 1);
+        const auto values = requests.first().first().toMap()
+                                .value(QStringLiteral("positions")).toList();
+        QVERIFY(qAbs(values.at(1).toDouble() - joint->command()) < 1e-9);
+        QVERIFY(qAbs(values.at(1).toDouble() - measured.at(1)) > 0.3);
+    }
+
+    void armCommandEditorsUseCompactTabs()
+    {
+        ui::ArmPanel arm;
+        auto *sections = arm.findChild<QTabWidget *>(QStringLiteral("ArmSections"));
+        auto *tabs = arm.findChild<QTabWidget *>(QStringLiteral("ArmCommandTabs"));
+        auto *joint = arm.findChild<QWidget *>(QStringLiteral("ArmJointControls"));
+        auto *ee = arm.findChild<QWidget *>(QStringLiteral("ArmEeControls"));
+        auto *lastJoint = arm.findChild<ui::ValueSlider *>(
+            QStringLiteral("Joint%1").arg(robot::kArmJointCount));
+        auto *lastEe = arm.findChild<ui::ValueSlider *>(QStringLiteral("Ee_yaw"));
+        QVERIFY(sections && tabs && joint && ee && lastJoint && lastEe);
+        QVERIFY(sections->widget(0)->isAncestorOf(tabs));
+        QCOMPARE(tabs->count(), 2);
+        QCOMPARE(tabs->tabText(0), QStringLiteral("관절"));
+        QCOMPARE(tabs->tabText(1), QStringLiteral("끝단 위치"));
+        arm.resize(430, 800);
+        arm.show();
+        QCoreApplication::processEvents();
+        QVERIFY(joint->isVisible());
+        QVERIFY(!ee->isVisible());
+        QPushButton *jointSend = nullptr;
+        QPushButton *eeSend = nullptr;
+        for (auto *button : arm.findChildren<QPushButton *>()) {
+            if (button->text() == QStringLiteral("관절 목표 보내기"))
+                jointSend = button;
+            if (button->text() == QStringLiteral("끝단 목표 보내기"))
+                eeSend = button;
+        }
+        QVERIFY(jointSend && eeSend);
+        QVERIFY(jointSend->y() - lastJoint->geometry().bottom() <= 12);
+        const int jointBottom = jointSend->mapTo(tabs, QPoint(0, jointSend->height())).y();
+        QVERIFY2(tabs->height() - jointBottom < 48,
+                 qPrintable(QStringLiteral("관절 조작 아래 빈 공간: %1px (탭 %2px)")
+                                .arg(tabs->height() - jointBottom).arg(tabs->height())));
+        tabs->setCurrentIndex(1);
+        QCoreApplication::processEvents();
+        QVERIFY(!joint->isVisible());
+        QVERIFY(ee->isVisible());
+        QVERIFY(eeSend->y() - lastEe->geometry().bottom() <= 12);
+        const int eeBottom = eeSend->mapTo(tabs, QPoint(0, eeSend->height())).y();
+        QVERIFY2(tabs->height() - eeBottom < 48,
+                 qPrintable(QStringLiteral("끝단 조작 아래 빈 공간: %1px (탭 %2px)")
+                                .arg(tabs->height() - eeBottom).arg(tabs->height())));
+    }
+
+    void armPoseManagementDoesNotResizeTheSections()
+    {
+        ui::ArmPanel arm;
+        arm.resize(430, 800);
+        arm.show();
+        auto *sections = arm.findChild<QTabWidget *>(QStringLiteral("ArmSections"));
+        auto *view = arm.findChild<ui::Robot3DView *>();
+        QVERIFY(sections && view);
+        QCoreApplication::processEvents();
+        const int sectionHeight = sections->height();
+        const int previewHeight = view->height();
+        sections->setCurrentIndex(1);
+        QCoreApplication::processEvents();
+        QCOMPARE(sections->height(), sectionHeight);
+        QCOMPARE(view->height(), previewHeight);
+
+        QList<QVariantMap> poses;
+        for (int i = 0; i < 8; ++i)
+            poses << QVariantMap{{"id", QStringLiteral("pose-%1").arg(i)},
+                                 {"name", QStringLiteral("자세 %1").arg(i + 1)},
+                                 {"positions", QVariantList{0.0, -0.785, 0.0,
+                                                             -2.356, 0.0, 1.571}},
+                                 {"revision", 1}};
+        arm.setPosePresets(poses);
+        auto *list = arm.findChild<QListWidget *>(QStringLiteral("SavedArmPosePresets"));
+        QVERIFY(list && list->count() == 8);
+        QCoreApplication::processEvents();
+        QCOMPARE(sections->height(), sectionHeight);
+        QCOMPARE(view->height(), previewHeight);
+        arm.setControlsEnabled(true);
+        auto *row = static_cast<ui::CatalogRow *>(list->itemWidget(list->item(0)));
+        QVERIFY(row && row->editButton()->isEnabled());
+        row->editButton()->click();
+        QCoreApplication::processEvents();
+        QVERIFY(row->isEditing());
+        QCOMPARE(sections->height(), sectionHeight);
+        QCOMPARE(view->height(), previewHeight);
     }
 
     void initTestCase()
@@ -299,9 +591,12 @@ private slots:
         auto *view = arm.findChild<ui::Robot3DView *>();
         auto *j2 = arm.findChild<ui::ValueSlider *>(QStringLiteral("Joint2"));
         QVERIFY2(view && j2, "3D 뷰 또는 J2 슬라이더를 찾지 못했다");
+        auto *preview = arm.findChild<QLabel *>(QStringLiteral("ArmPreviewStatus"));
+        QVERIFY(preview && preview->text().isEmpty());
 
         const QImage before = view->grab().toImage();
         j2->setCommand(-1.2);
+        QCOMPARE(preview->text(), QStringLiteral("목표 미리보기"));
         QTest::qWait(300);  // 미리보기 보간 타이머(20 ms)가 목표에 닿을 시간
         const QImage after = view->grab().toImage();
 
@@ -357,7 +652,7 @@ private slots:
         QVERIFY(!status->isHidden());
         QVERIFY(status->text().contains(QStringLiteral("같은 이름")));
         emit robot->commandResult(QStringLiteral("cmd/arm/pose_presets/save"), true, {}, {});
-        QVERIFY(status->text().contains(QStringLiteral("저장했습니다")));
+        QCOMPARE(status->text(), QStringLiteral("자세 저장됨"));
     }
 
     void waypointsFollowRobotPublishedCatalog()
@@ -437,6 +732,14 @@ private slots:
         };
         reportMode("auto");
         QTRY_VERIFY(map->goalButton()->isEnabled());
+        window.showView(ui::NavItem::Arm);
+        QVERIFY(map->goalButton()->isEnabled()); // 지도 툴바는 다른 탭에서도 보인다.
+        window.showView(ui::NavItem::Drive);
+        auto *driveTabs = window.findChild<QTabWidget *>(QStringLiteral("DriveTabs"));
+        QVERIFY(driveTabs);
+        driveTabs->setCurrentIndex(1);
+        QVERIFY(map->goalButton()->isEnabled());
+        driveTabs->setCurrentIndex(0);
 
         window.setDriveMode(QStringLiteral("manual"));
         QVERIFY(!map->goalButton()->isEnabled());
@@ -450,7 +753,56 @@ private slots:
         QTRY_VERIFY(map->goalButton()->isEnabled());
     }
 
-    void waypointPanelShowsHeadingAndOffersEdit()
+    void goalButtonAcceptsLiveSlamMapWithoutSavedMapId()
+    {
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), server.serverPort());
+        ui::MainWindow window(link);
+        auto *map = window.findChild<ui::MapCard *>();
+        QVERIFY(map);
+        link->connectToBridge();
+        QTRY_VERIFY(server.hasPendingConnections());
+        auto *peer = server.nextPendingConnection();
+        QTRY_VERIFY(link->isConnected());
+
+        QImage image(8, 8, QImage::Format_RGB32);
+        image.fill(Qt::white);
+        QByteArray png;
+        QBuffer buffer(&png);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QVERIFY(image.save(&buffer, "PNG"));
+        emit link->activeMapReceived({});
+        emit link->mapReceived(png, {{QStringLiteral("width"), 8},
+                                     {QStringLiteral("height"), 8},
+                                     {QStringLiteral("resolution"), 0.1},
+                                     {QStringLiteral("map_id"), QString()}});
+        QVERIFY(!map->goalButton()->isEnabled());
+        const auto state = net::makePublish(QLatin1String(hmi::ch::kSafety),
+                                            {{QStringLiteral("mode"), QStringLiteral("auto")}});
+        peer->write(net::encodeFrame(state.toHeader(), state.payload));
+        peer->flush();
+        QTRY_VERIFY(map->goalButton()->isEnabled());
+    }
+
+    void driveModeButtonsRunFromManualToAuto()
+    {
+        auto *robot = new test::TestRobot;
+        ui::MainWindow window(robot);
+        window.resize(1400, 900);
+        window.show();
+        QCoreApplication::processEvents();
+        QPushButton *manual = nullptr;
+        QPushButton *autoMode = nullptr;
+        for (auto *button : window.findChildren<QPushButton *>()) {
+            if (button->text() == QStringLiteral("수동")) manual = button;
+            if (button->text() == QStringLiteral("자율")) autoMode = button;
+        }
+        QVERIFY(manual && autoMode);
+        QVERIFY(manual->mapToGlobal(QPoint()).x() < autoMode->mapToGlobal(QPoint()).x());
+    }
+
+    void waypointRowsEditAndApplyInPlace()
     {
         ui::WaypointPanel panel;
         panel.resize(420, 360);
@@ -461,33 +813,38 @@ private slots:
         panel.setWaypoints({point});
         panel.setEditingEnabled(true);
         auto *list = panel.findChild<QListWidget *>();
-        auto *edit = panel.findChild<QPushButton *>(QStringLiteral("WaypointEditButton"));
         QVERIFY(list);
-        QVERIFY(edit);
-        QVERIFY(!edit->isEnabled());
-
-        auto paintRow = [list] {
-            QImage image(420, ui::kWaypointRowHeight, QImage::Format_ARGB32);
-            image.fill(Qt::white);
-            QPainter painter(&image);
-            QStyleOptionViewItem option;
-            option.rect = image.rect();
-            ui::WaypointDelegate delegate;
-            delegate.paint(&painter, option, list->model()->index(0, 0));
-            return image;
-        };
-        const QImage east = paintRow();
+        auto *row = static_cast<ui::CatalogRow *>(list->itemWidget(list->item(0)));
+        QVERIFY(row);
+        QVERIFY(row->findChild<QLabel *>(QStringLiteral("CatalogRowDetails"))
+                    ->text().contains(QStringLiteral("yaw 0.0°")));
         point[QStringLiteral("theta")] = qDegreesToRadians(90.0);
         panel.setWaypoints({point});
-        const QImage north = paintRow();
-        QVERIFY(changedPixels(east, north) > 0);
-
-        list->setCurrentRow(0);
-        QVERIFY(edit->isEnabled());
-        QSignalSpy edits(&panel, &ui::WaypointPanel::editRequested);
-        edit->click();
-        QCOMPARE(edits.size(), 1);
-        QCOMPARE(edits.first().first().toString(), QStringLiteral("wp-1"));
+        row = static_cast<ui::CatalogRow *>(list->itemWidget(list->item(0)));
+        QVERIFY(row->findChild<QLabel *>(QStringLiteral("CatalogRowDetails"))
+                    ->text().contains(QStringLiteral("yaw 90.0°")));
+        row->editButton()->click();
+        auto *name = row->findChild<QLineEdit *>(QStringLiteral("WaypointRowName"));
+        auto *yaw = row->findChild<QDoubleSpinBox *>(QStringLiteral("WaypointRowYaw"));
+        auto *save = row->findChild<QPushButton *>(QStringLiteral("WaypointRowSave"));
+        QVERIFY(name && yaw && save);
+        name->setText(QStringLiteral("입구 A"));
+        yaw->setValue(45.0);
+        QSignalSpy updates(&panel, &ui::WaypointPanel::updateRequested);
+        save->click();
+        QCOMPARE(updates.size(), 1);
+        QCOMPARE(updates.first().at(0).toString(), QStringLiteral("wp-1"));
+        QCOMPARE(updates.first().at(1).toMap().value(QStringLiteral("name")).toString(),
+                 QStringLiteral("입구 A"));
+        QVERIFY(qAbs(updates.first().at(1).toMap().value(QStringLiteral("theta")).toDouble()
+                     - M_PI / 4) < 1e-6);
+        QSignalSpy goals(&panel, &ui::WaypointPanel::gotoRequested);
+        auto *cancel = row->findChild<QPushButton *>(QStringLiteral("WaypointRowCancel"));
+        QVERIFY(cancel);
+        cancel->click();
+        row->applyButton()->click();
+        QCOMPARE(goals.size(), 1);
+        QCOMPARE(goals.first().first().toString(), QStringLiteral("wp-1"));
     }
 
     /// 대화상자는 창 계층 밖이라 위 순회에 걸리지 않는다.
@@ -504,7 +861,8 @@ private slots:
         QString welcomeText;
         for (const auto *label : welcome.findChildren<QLabel *>())
             welcomeText += label->text();
-        QVERIFY(welcomeText.contains(QStringLiteral("로봇 연결 상태")));
+        QVERIFY(welcomeText.contains(QStringLiteral("하부점검 관제")));
+        QVERIFY(!welcomeText.contains(QStringLiteral("로봇 연결 상태")));
         QVERIFY(!welcomeText.contains(QStringLiteral("통신 규격")));
         QVERIFY(!welcomeText.contains(QStringLiteral("하드웨어 정지 버튼")));
 

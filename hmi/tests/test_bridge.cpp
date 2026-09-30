@@ -519,6 +519,25 @@ private slots:
         QCOMPARE(client_->waypoints().size(), 0);
     }
 
+    void missions_ignoreCatalogFromOtherMap()
+    {
+        connectPair();
+        QSignalSpy changes(client_, &hmi::robot::RobotLink::missionsChanged);
+        const QJsonArray one{QJsonObject{{"id", "mission-a"}}};
+        server_->send(pub(hmi::ch::kActiveMap, {{"id", "map-a"}}));
+        server_->send(pub(hmi::ch::kMissions, {{"map_id", "map-a"}, {"missions", one}}));
+        QVERIFY(waitFor([&changes] { return changes.size() == 1; }));
+
+        server_->send(pub(hmi::ch::kActiveMap, {{"id", "map-b"}}));
+        server_->send(pub(hmi::ch::kMissions, {{"map_id", "map-a"}, {"missions", one}}));
+        QTest::qWait(30);
+        QCOMPARE(changes.size(), 1);
+
+        server_->send(pub(hmi::ch::kMissions, {{"map_id", "map-b"}, {"missions", QJsonArray{}}}));
+        QVERIFY(waitFor([&changes] { return changes.size() == 2; }));
+        QCOMPARE(changes.last().at(0).value<QList<QVariantMap>>().size(), 0);
+    }
+
     void armPoseSave_resultAndPublishedListAreDistinct()
     {
         connectPair();
@@ -618,6 +637,24 @@ private slots:
             QCOMPARE(sent.value(QStringLiteral("name")).toString(), QStringLiteral("수정한 자세"));
             QCOMPARE(sent.value(QStringLiteral("description")).toString(),
                      QStringLiteral("왼쪽 하부 촬영"));
+        }
+    }
+
+    void armPoseArchive_sendsIdAndRevisionToRobot()
+    {
+        connectPair();
+        client_->archiveArmPosePreset(QStringLiteral("inspect-left"), 7);
+        QVERIFY(waitFor([this] {
+            for (const auto &e : server_->received)
+                if (e.ch == QLatin1String(hmi::ch::kCmdArmPosePresetsArchive))
+                    return true;
+            return false;
+        }));
+        for (const auto &e : server_->received) {
+            if (e.ch != QLatin1String(hmi::ch::kCmdArmPosePresetsArchive))
+                continue;
+            QCOMPARE(e.p.value(QStringLiteral("id")).toString(), QStringLiteral("inspect-left"));
+            QCOMPARE(e.p.value(QStringLiteral("expected_revision")).toInt(), 7);
         }
     }
 

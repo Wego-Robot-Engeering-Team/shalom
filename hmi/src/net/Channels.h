@@ -83,6 +83,7 @@ inline constexpr auto kCmdArmStop = "cmd/arm/stop";
 inline constexpr auto kCmdArmPosePresetsList = "cmd/arm/pose_presets/list";
 inline constexpr auto kCmdArmPosePresetsSave = "cmd/arm/pose_presets/save";
 inline constexpr auto kCmdArmPosePresetsUpdate = "cmd/arm/pose_presets/update";
+inline constexpr auto kCmdArmPosePresetsArchive = "cmd/arm/pose_presets/archive";
 
 /// Base posture. stand_up | stand_down | balance_stand | recovery_stand | damp.
 /// damp releases the joints, so the robot drops where it stands: the bridge

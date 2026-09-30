@@ -81,8 +81,6 @@ void WaypointDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
                       .arg(d.value(QStringLiteral("x")).toDouble(), 0, 'f', 2)
                       .arg(d.value(QStringLiteral("y")).toDouble(), 0, 'f', 2)
                       .arg(qRadiansToDegrees(d.value(QStringLiteral("theta")).toDouble()), 0, 'f', 1);
-    if (d.contains(QStringLiteral("tag_id")))
-        sub += QStringLiteral("   마커 %1").arg(d.value(QStringLiteral("tag_id")).toInt());
     p->drawText(r.adjusted(26, 0, -62, -3), Qt::AlignLeft | Qt::AlignBottom, sub);
 
     QFont fs;

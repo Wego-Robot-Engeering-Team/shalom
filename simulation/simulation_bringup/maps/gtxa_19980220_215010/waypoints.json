@@ -1,30 +1,28 @@
 {
-  "map_id": "gtxa_19980220_215010",
   "points": [
     {
-      "captured_from": "map",
       "id": "f51dece9-88ef-48d6-b48e-bb70007cb686",
       "name": "신규 포인트 1",
-      "theta": 0.2181661564992912,
       "x": -3.506,
-      "y": -4.407
+      "y": -4.407,
+      "theta": 0.2181661564992912,
+      "description": ""
     },
     {
-      "captured_from": "map",
       "id": "150d8762-722f-468c-b36c-4001ec6ff8d6",
       "name": "신규 포인트 2",
-      "theta": 0.006981317007977318,
       "x": -3.197,
-      "y": -2.677
+      "y": -2.677,
+      "theta": 0.006981317007977318,
+      "description": ""
     },
     {
-      "captured_from": "map",
       "id": "ae412f61-c7ab-4d1f-a403-4e8d865cb390",
       "name": "촬영 3",
-      "theta": -0.0890117918517108,
       "x": 3.884,
-      "y": -0.516
+      "y": -0.516,
+      "theta": -0.0890117918517108,
+      "description": ""
     }
-  ],
-  "schema_version": 1
+  ]
 }

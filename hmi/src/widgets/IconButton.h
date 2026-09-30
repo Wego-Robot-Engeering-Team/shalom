@@ -27,7 +27,7 @@ public:
         Sun,       ///< switch to the light theme
         Moon,      ///< switch to the dark theme
         Refresh,   ///< refresh a catalog
-        Edit,      ///< rename an item
+        Edit,      ///< edit an item
         Trash,     ///< archive an item
     };
 

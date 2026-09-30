@@ -97,6 +97,7 @@
 가진다. `id`와 `name`은 지도 폴더 이름이다. HMI는 로봇 파일 시스템을 직접 읽지 않고 이
 목록만 표시한다. 지도 전환이 성공하면 브릿지는 `state/active_map`과 선택된 지도 기준의 `map/occupancy`,
 `state/waypoints`, `state/locations`, `state/markers`, `state/missions`를 다시 보낸다.
+저장 파일별 필드와 미션 단계 유형은 [로봇 운용 데이터 형식](operation_data_format.md)에 정리했다.
 
 `state/waypoints`와 `cmd/waypoints/set`의 각 지점에는 안정적인 `id`, 조작자가 지정한
 `name`, 지도 좌표계의 `x`·`y`(m), `theta`(라디안, 도착 시 바라볼 yaw)를 사용한다.
@@ -104,13 +105,24 @@ HMI는 방향을 도(°)로 표시·편집하고 전송할 때 라디안으로 �
 `name` 또는 `theta`가 없는 지점은 다시 저장할 때 각각 ID와 0을 채운다.
 `status`는 저장 파일의 필드가 아니라 현재 미션에서 계산해 `state/waypoints`에만
 보내는 화면용 상태다. 브리지는 저장 요청에 포함된 `status`를 제거한다.
+`state/markers`와 `cmd/markers/set`의 각 AprilTag에는 태그 번호 `id`, 지도 좌표계의
+태그 중심 `x`·`y`·`z`(m), `yaw`(라디안)를 사용한다. 태그는 윗변이 위를 향하게
+수직 벽에 부착된 것으로 가정하며, `yaw`는 지도 +X에서 태그 **앞면의 바깥쪽 법선**까지
+반시계 방향으로 잰 각도다. 따라서 위치 추정용 로봇 방향이나 2D 초기 위치의
+`theta`와는 다른 값이다. HMI는 각도를 도(°)로 편집하고 라디안으로 저장한다.
+구형 `x`·`y` 전용 마커는 읽되 `z`와 `yaw`를 임의로 0으로 채우지 않는다.
+두 값이 없는 마커는 향후 3D 태그 기반 위치 보정에 사용할 수 없다. 현재 브리지는
+이 좌표를 저장·전송할 뿐이며, 카메라 검출 결과로 로봇 위치를 자동 보정하지 않는다.
+향후 보정에는 카메라-본체 외부 보정 `T_base_camera`와 태그 검출 자세
+`T_camera_tag`가 더 필요하다. 같은 태그 좌표계로 맞춘 뒤
+`T_map_base = T_map_tag · inverse(T_camera_tag) · inverse(T_base_camera)`로 계산한다.
 `state/trail`은 현재 이동 작업의 경로다. 새 개별 주행 목표가 Nav2에 수락되거나
 미션이 `RUNNING`으로 전환되면 `reset=true`와 빈 점 목록을 발행한다. 초기 위치
 지정 때도 경로를 지우고, 새 AMCL 위치가 TF에 반영된 뒤부터 다시 기록한다.
 미션 내부 단계·일시정지·재개·완료에서는 경로를 유지한다.
-지도 선택 전에 브리지는 `metadata.json`의 `schema_version` 1·2와
-`waypoints.json`·`locations.json`·`markers.json`·`missions.json`의 버전 1을 확인한다.
-지원하지 않는 버전이면 현재 지도를 유지하고 전환을 거부한다.
+지도 선택 전에 브리지는 `metadata.json`이 JSON 객체인지 확인하고,
+`waypoints.json`·`locations.json`·`markers.json`·`missions.json`의 목록 필드가
+배열인지 검사한다. 형식이 올바르지 않으면 현재 지도를 유지하고 전환을 거부한다.
 
 ### 2D 초기 위치 추정
 
@@ -125,7 +137,7 @@ AMCL 수렴 여부까지 보장하지는 않는다.
 ### 로봇 소유 미션 라이브러리
 
 `state/missions` 페이로드는 `{ "map_id": "…", "missions": [...] }`이며 각 미션은
-`id`, `name`, `map_id`, `revision`, `archived`, `steps`를 가진다. 미션 정의는 지도별
+`id`, `name`, `revision`, `archived`, `steps`를 가진다. 미션 정의는 지도별
 `missions.json`으로 로봇에 저장된다. 저장/보관 요청은 `expected_revision`을 비교하므로
 다른 HMI가 먼저 수정한 경우 오래된 편집본을 덮어쓰지 않고 거절한다. `0`은 새 미션 생성에만 쓴다.
 
@@ -143,14 +155,17 @@ executor가 연결되어 있지 않으면 미션 전체를 시작 전에 거절�
 수정은 `cmd/arm/pose_presets/update`에 `preset`과 `expected_revision`을 보내며,
 로봇이 저장에 성공한 뒤 다시 발행한 목록으로 HMI를 갱신한다. 다른 HMI가 먼저
 수정했다면 revision 불일치로 거절한다.
+삭제는 `cmd/arm/pose_presets/archive`에 `id`와 `expected_revision`을 보낸다.
+로봇은 해당 자세를 참조하는 미션이 어느 지도에든 있으면 거절하고, 그렇지 않으면
+`archived`로 표시해 일반 목록에서 숨긴다. 파일에서는 복구 가능하도록 보존한다.
 저장은 관절 수와 FR3 관절 한계를 로봇에서 다시 검사한다. HMI에서 프리셋을 불러오면
 목표값과 3D 미리보기만 바뀌며, 실제 동작은 별도의 관절 목표 전송으로 요청한다.
 
 ### 로봇 지도 목록
 
 `state/maps`는 로봇의 지도 디렉터리를 조회한 목록이며 각 항목의 `id`와 `name`은
-폴더 이름이다. `cmd/maps/rename`은 폴더를 실제로 바꾸고 지도별 JSON의 `map_id` 및
-미션의 지도 참조도 갱신한다. 팔 자세 프리셋은 지도 밖에 있어 영향받지 않는다.
+폴더 이름이다. `cmd/maps/rename`은 폴더와 `metadata.json`의 이름을 바꾸고,
+기본 지도였다면 `default_map.json`도 갱신한다. 팔 자세 프리셋은 지도 밖에 있어 영향받지 않는다.
 `cmd/maps/delete`는 사용 중이 아니고 시작 지도도 아닌 지도 폴더 전체를 로봇의
 `mapsDir/.trash`로 옮긴다. 폴더 안의 웨이포인트와 미션도 함께 보관되며 일반 목록에서는
 빠진다. `cmd/maps/select`가 성공하면 로봇이 새 지도의 웨이포인트·미션을 발행한다.
@@ -216,6 +231,7 @@ executor가 연결되어 있지 않으면 미션 전체를 시작 전에 거절�
 | `cmd/arm/pose_presets/list` | 로봇 팔 자세 프리셋 목록 요청 |
 | `cmd/arm/pose_presets/save` | 사용자 팔 자세 프리셋 추가 |
 | `cmd/arm/pose_presets/update` | 팔 자세 이름·설명·관절값 수정 (`expected_revision` 필요) |
+| `cmd/arm/pose_presets/archive` | 미션 참조 확인 후 팔 자세를 목록에서 삭제 (`id`, `expected_revision` 필요) |
 | `cmd/base/posture` | 본체 자세 전환 (앉기·일어서기) |
 | `cmd/capture/trigger` | 촬영 |
 

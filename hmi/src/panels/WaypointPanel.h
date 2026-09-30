@@ -32,7 +32,7 @@ public:
 signals:
     void addRequested();
     void captureFromRobotRequested();
-    void editRequested(const QString &id);
+    void updateRequested(const QString &id, const QVariantMap &point);
     void deleteRequested(const QString &id);
     void gotoRequested(const QString &id);
     void waypointSelected(const QString &id);
@@ -49,9 +49,6 @@ private:
     QListWidget *list_ = nullptr;
     QPushButton *add_ = nullptr;
     QPushButton *fromRobot_ = nullptr;
-    QPushButton *edit_ = nullptr;
-    QPushButton *delete_ = nullptr;
-    QPushButton *go_ = nullptr;
     QLabel *saveStatus_ = nullptr;
     bool editingEnabled_ = false;
     bool robotPoseAvailable_ = false;

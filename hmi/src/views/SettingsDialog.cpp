@@ -231,12 +231,6 @@ QWidget *SettingsDialog::buildAppearanceTab()
     row->addWidget(scaleValue_);
     lay->addLayout(row);
 
-    auto *hint = new QLabel(QStringLiteral(
-        "화면을 멀리 두고 보거나 글자가 작게 느껴지면 키우십시오."));
-    hint->setObjectName(QStringLiteral("Hint"));
-    hint->setWordWrap(true);
-    lay->addWidget(hint);
-
     // 값만 쓴다. 화면에 반영하는 것은 창을 띄운 쪽의 일이다 — 여기서 같이
     // 하면 순서에 따라 결과가 달라지고, 실제로 그것 때문에 테마 전환이
     // 한 번 조용히 죽었다.
@@ -314,6 +308,7 @@ QWidget *SettingsDialog::buildConnectionTab()
     name_ = new QLineEdit;
     name_->setObjectName(QStringLiteral("RobotAliasInput"));
     name_->setPlaceholderText(QStringLiteral("선택 사항 · 예: A검수선"));
+    name_->setToolTip(QStringLiteral("이 HMI에서만 쓰는 별칭입니다. 로봇 ID와는 별개입니다."));
     host_ = new QLineEdit;
     host_->setObjectName(QStringLiteral("RobotAddressInput"));
     host_->setPlaceholderText(QStringLiteral("예: 192.168.10.21"));
@@ -327,13 +322,6 @@ QWidget *SettingsDialog::buildConnectionTab()
     lay->addWidget(fieldRow(QStringLiteral("별칭"), name_, 96));
     lay->addWidget(fieldRow(QStringLiteral("IPv4 주소"), host_, 96));
     lay->addWidget(fieldRow(QStringLiteral("제어 포트"), port_, 96));
-
-    auto *hint = new QLabel(QStringLiteral(
-        "IPv4 주소로 연결합니다. 별칭은 이 HMI에서만 쓰는 이름이며 선택 사항입니다. "
-        "연결 후에는 로봇이 보낸 ID로 구분합니다."));
-    hint->setObjectName(QStringLiteral("Hint"));
-    hint->setWordWrap(true);
-    lay->addWidget(hint);
 
     connect(robotList_, &QTreeWidget::currentItemChanged, this,
             [this](QTreeWidgetItem *item, QTreeWidgetItem *) {
@@ -442,28 +430,18 @@ QWidget *SettingsDialog::buildOperationTab()
     linear_->setSingleStep(0.05);
     linear_->setDecimals(2);
     linear_->setSuffix(QStringLiteral(" m/s"));
+    linear_->setToolTip(QStringLiteral("수동 조작 초기 속도. 장애물 접근 시 로봇이 자동 감속합니다."));
 
     angular_ = new QDoubleSpinBox;
     angular_->setRange(qRadiansToDegrees(0.05), qRadiansToDegrees(robot::kWzMax));
     angular_->setSingleStep(5.0);
     angular_->setDecimals(0);
     angular_->setSuffix(QStringLiteral(" °/s"));
+    angular_->setToolTip(QStringLiteral("수동 조작 초기 회전 속도"));
 
     lay->addWidget(sectionLabel(QStringLiteral("수동 조작 기본 속도")));
     lay->addWidget(fieldRow(QStringLiteral("선속도"), linear_, 84));
     lay->addWidget(fieldRow(QStringLiteral("각속도"), angular_, 84));
-
-    auto *hint = new QLabel(QStringLiteral(
-        "수동 조작 화면을 열 때 처음 적용되는 속도입니다. "
-        "최대값은 로봇의 주행 한계(%1 m/s, %2 °/s)라 그 위로는 올릴 수 없습니다.\n\n"
-        "지도에 없는 장애물이 가까워지면 로봇이 스스로 %3 m/s 까지 늦춥니다. "
-        "이 설정과는 관계없이 동작합니다.")
-            .arg(robot::kVxMax, 0, 'f', 2)
-            .arg(qRadiansToDegrees(robot::kWzMax), 0, 'f', 0)
-            .arg(robot::kVxCaution, 0, 'f', 2));
-    hint->setObjectName(QStringLiteral("Hint"));
-    hint->setWordWrap(true);
-    lay->addWidget(hint);
 
     lay->addStretch(1);
     return page;
@@ -489,13 +467,8 @@ QWidget *SettingsDialog::buildPowerTab()
     lay->addWidget(fieldRow(QStringLiteral("출발 최소"), departPct_, 96));
 
     auto *hint = new QLabel(QStringLiteral(
-        "복귀 시작 — 점검 중 잔량이 이 값 아래로 내려가면 로봇이 점검을 멈추고 "
-        "충전 스테이션으로 돌아갑니다.\n\n"
-        "출발 최소 — 충전이 이 값에 이르기 전에는 점검을 시작하지 않습니다. "
-        "부족한 잔량으로 나갔다가 차량 아래에서 서면, 꺼내기 위해 열차를 "
-        "움직여야 합니다.\n\n"
-        "출발 최소는 복귀 시작보다 높아야 합니다. 낮으면 나가자마자 되돌아옵니다.\n\n"
-        "이 두 값은 로봇이 지킵니다. 관제 화면이 꺼져 있어도 그대로 동작합니다."));
+        "복귀 시작 이하: 점검 중단 후 충전소 복귀\n"
+        "출발 최소 미만: 점검 시작 불가"));
     hint->setObjectName(QStringLiteral("Hint"));
     hint->setWordWrap(true);
     lay->addWidget(hint);

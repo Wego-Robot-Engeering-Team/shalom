@@ -13,7 +13,7 @@
 namespace hmi::ui {
 
 /// Item data role holding the point's QVariantMap (id, name, x, y, status,
-/// theta (radians), optional tag_id).
+/// theta (radians)).
 inline constexpr int kWaypointRole = Qt::UserRole;
 
 /// Row height the delegate draws to; callers sizing a list can use it.
@@ -23,7 +23,7 @@ inline constexpr int kWaypointRowHeight = 40;
 /// anything else meaning pending).
 QString waypointStatusLabel(const QString &status);
 
-/// Draws one point: status dot, order and name, coordinates and marker, and
+/// Draws one point: status dot, order and name, coordinates, and
 /// the status word. Selection and hover are only painted when the view
 /// actually allows them, so a read-only list stays quiet.
 class WaypointDelegate : public QStyledItemDelegate {

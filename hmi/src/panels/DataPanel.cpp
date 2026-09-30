@@ -160,7 +160,7 @@ DataPanel::DataPanel(QWidget *parent) : QWidget(parent)
     outer->addWidget(detailCard);
 
     preview_ = new PreviewView(QStringLiteral("미리보기"));
-    preview_->setPlaceholder(QStringLiteral("항목을 선택하십시오"));
+    preview_->setPlaceholder(QStringLiteral("항목 선택"));
     preview_->setMinimumHeight(160);
     detailCard->body()->addWidget(preview_);
 

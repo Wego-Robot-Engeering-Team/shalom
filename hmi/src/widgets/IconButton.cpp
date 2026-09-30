@@ -83,14 +83,32 @@ void drawRefresh(QPainter &p, const QPointF &c, double r, const QColor &tone)
 
 void drawEdit(QPainter &p, const QPointF &c, double r, const QColor &tone)
 {
+    // 연필의 몸체·캡·깎인 심을 하나의 윤곽으로 그린다. 작은 버튼 안에
+    // 문서 테두리까지 겹치면 연필과 합쳐져 알아보기 어려워진다.
+    p.save();
+    p.translate(c);
+    p.scale(r / 9.0, r / 9.0);
     p.setPen(QPen(tone, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.setBrush(Qt::NoBrush);
-    p.drawLine(QPointF(c.x() - r * 0.65, c.y() + r * 0.60),
-               QPointF(c.x() + r * 0.45, c.y() - r * 0.50));
-    p.drawLine(QPointF(c.x() + r * 0.20, c.y() - r * 0.75),
-               QPointF(c.x() + r * 0.70, c.y() - r * 0.25));
-    p.drawLine(QPointF(c.x() - r * 0.70, c.y() + r * 0.70),
-               QPointF(c.x() - r * 0.20, c.y() + r * 0.58));
+    QPainterPath pencil;
+    pencil.moveTo(-7.0, 7.0);       // 심
+    pencil.lineTo(-6.0, 2.5);
+    pencil.lineTo(3.2, -6.7);
+    pencil.quadTo(4.0, -7.5, 4.8, -6.7);
+    pencil.lineTo(6.8, -4.7);
+    pencil.quadTo(7.6, -3.9, 6.8, -3.1);
+    pencil.lineTo(-2.5, 6.0);
+    pencil.closeSubpath();
+    p.drawPath(pencil);
+    p.drawLine(QPointF(-6.0, 2.5), QPointF(-2.5, 6.0));
+    p.drawLine(QPointF(2.1, -5.6), QPointF(5.7, -2.0));
+    QPainterPath tip;
+    tip.moveTo(-7.0, 7.0);
+    tip.lineTo(-5.7, 3.2);
+    tip.lineTo(-3.2, 5.7);
+    tip.closeSubpath();
+    p.fillPath(tip, tone);
+    p.restore();
 }
 
 void drawTrash(QPainter &p, const QPointF &c, double r, const QColor &tone)
@@ -137,7 +155,8 @@ void IconButton::paintEvent(QPaintEvent *ev)
 
     const QPointF c(width() / 2.0, height() / 2.0);
     const double r = kGlyph / 2.0;
-    const QColor tone(isDown() || underMouse() ? C.text : C.textDim);
+    const QColor tone(isDown() || underMouse() || glyph_ == Glyph::Edit
+                      ? C.text : C.textDim);
 
     switch (glyph_) {
     case Glyph::Sliders: drawSliders(p, c, r * 0.86, tone); break;

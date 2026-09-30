@@ -7,7 +7,7 @@
 //
 //   (1) end-effector target pose entry plus MoveIt2 execution
 //   (2) live joint angles with per-joint manual control
-//   (3) named postures (home, standby, stow)
+//   (3) operator-defined named postures
 //
 // How singularities are handled
 // -----------------------------
@@ -32,13 +32,14 @@
 // straining before it stops moving.
 
 #include <QWidget>
+#include <QHash>
 
 #include "robot/PoseCheck.h"
 
 class QLabel;
 class QPushButton;
 class QTabWidget;
-class QComboBox;
+class QListWidget;
 class QVBoxLayout;
 
 namespace hmi::ui {
@@ -47,6 +48,7 @@ class Badge;
 class Card;
 class ValueSlider;
 class Robot3DView;
+class CatalogRow;
 
 class ArmPanel : public QWidget {
     Q_OBJECT
@@ -61,30 +63,25 @@ public:
     void setCommandResult(const QString &channel, bool ok, const QString &code,
                           const QString &message);
 
-    /// Moves the sliders to a named posture without commanding the arm; the
-    /// operator still has to press send. Loading and sending in one step would
-    /// make a mis-click move the arm.
-    void applyPresetToSliders(const QString &name);
     void setPosePresets(const QList<QVariantMap> &presets);
-
 
 signals:
     void jointGoal(const QList<double> &positions);
     void eeGoal(const QVariantMap &pose);
-    void presetRequested(const QString &name);
     void stopRequested();
-    void savePosePresetRequested(const QString &name, const QString &description,
-                                 const QList<double> &positions);
+    void savePosePresetRequested(const QVariantMap &preset);
     void updatePosePresetRequested(const QVariantMap &preset, quint64 expectedRevision);
+    void archivePosePresetRequested(const QString &id, quint64 expectedRevision);
 
 private:
     void build3DSection();
-    void buildPresetSection();
-    /// The joint and end-effector controls, on tabs.
-    ///
-    /// Both were stacked before, which alone made the column taller than any
-    /// screen. They are also alternatives - a pose is commanded one way or the
-    /// other - so showing both at once buys nothing.
+    QWidget *buildPoseManagementTab();
+    void rebuildPoseList();
+    void updatePoseRows();
+    void previewSavedPose(const QString &id);
+    void applySavedPose(const QString &id);
+    void savePose(bool measured);
+    /// Keep the two command methods on separate tabs without changing the draft.
     void buildCommandTabs();
     QWidget *buildJointTab();
     QWidget *buildEeTab();
@@ -93,7 +90,7 @@ private:
     /// only - the arm is commanded by the send button, never by dragging.
     void refreshPreview();
 
-    /// Keeps the two tabs describing the same target.
+    /// Keeps the two editors describing the same target.
     ///
     /// Joint edits run forward kinematics into the pose fields; pose edits run
     /// inverse kinematics back into the joints, seeded from where the arm is.
@@ -103,7 +100,7 @@ private:
     void syncJointsFromEe();
 
     /// The same for the measured side. The robot reports joints, not a pose,
-    /// but the pose follows from the joints - so both tabs can show where the
+    /// but the pose follows from the joints - so both editors can show where the
     /// arm actually is instead of one of them showing the last thing sent.
     void syncEeActualFromJoints(const QList<double> &joints);
 
@@ -114,15 +111,16 @@ private:
     Card *card_ = nullptr;
     Badge *state_ = nullptr;
     Robot3DView *view3d_ = nullptr;
-    QTabWidget *tabs_ = nullptr;
+    QTabWidget *commandTabs_ = nullptr;
+    QTabWidget *sectionTabs_ = nullptr;
     QLabel *advice_ = nullptr;
     QLabel *poseWarning_ = nullptr;
     QLabel *previewStatus_ = nullptr;
     QLabel *commandStatus_ = nullptr;
     QVBoxLayout *controlsLayout_ = nullptr;
-    QComboBox *savedPresets_ = nullptr;
-    QPushButton *loadSavedPreset_ = nullptr;
-    QPushButton *editSavedPreset_ = nullptr;
+    QListWidget *savedPresets_ = nullptr;
+    QPushButton *savePose_ = nullptr;
+    QPushButton *savePreviewPose_ = nullptr;
     QPushButton *jointSend_ = nullptr;
     QPushButton *eeSend_ = nullptr;
 
@@ -131,13 +129,16 @@ private:
     QList<QPushButton *> commandButtons_;
     QList<double> actual_;
     QList<QVariantMap> posePresets_;
+    QVariantMap pendingPose_;
+    QString pendingPoseUpdateId_;
+    QHash<QString, CatalogRow *> poseRows_;
 
     /// Whether the robot has ever reported a pose. The command sliders snap to
     /// the first report: until then they sit on defaults, and showing that as
     /// an unsent edit would mean the screen opens claiming work in progress
     /// that nobody asked for.
     bool hadArmState_ = false;
-    /// True after the operator changes either command tab.  This is separate
+    /// True after the operator changes either command editor. This is separate
     /// from ValueSlider::diverged(): before the first telemetry arrives there
     /// is no measured value to diverge from, but the 3D preview must still
     /// show an operator's edit.

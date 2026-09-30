@@ -146,29 +146,6 @@ void appendTriangle(std::vector<Tri3> &tris, const QVector3D &a, const QVector3D
     tris.push_back({a, b, c, l, l, l, color});
 }
 
-void appendBox(std::vector<Tri3> &tris, const QMatrix4x4 &xf, const QVector3D &half,
-               const QColor &color, const QVector3D &light)
-{
-    const QVector3D local[8] = {
-        {-half.x(), -half.y(), -half.z()}, {half.x(), -half.y(), -half.z()},
-        {half.x(), half.y(), -half.z()},   {-half.x(), half.y(), -half.z()},
-        {-half.x(), -half.y(), half.z()},  {half.x(), -half.y(), half.z()},
-        {half.x(), half.y(), half.z()},    {-half.x(), half.y(), half.z()},
-    };
-    QVector3D p[8];
-    for (int i = 0; i < 8; ++i)
-        p[i] = xf.map(local[i]);
-
-    static constexpr int quads[6][4] = {
-        {0, 3, 2, 1}, {4, 5, 6, 7}, {0, 1, 5, 4},
-        {2, 3, 7, 6}, {1, 2, 6, 5}, {0, 4, 7, 3},
-    };
-    for (const auto &q : quads) {
-        appendTriangle(tris, p[q[0]], p[q[1]], p[q[2]], color, light);
-        appendTriangle(tris, p[q[0]], p[q[2]], p[q[3]], color, light);
-    }
-}
-
 // A low-poly tapered cylinder between two world-space points. This is
 // deliberately ordinary primitive geometry authored here, rather than a
 // conversion of a vendor CAD or mesh asset.
@@ -201,35 +178,6 @@ void appendCylinder(std::vector<Tri3> &tris, const QVector3D &from, const QVecto
         appendTriangle(tris, p0, q1, q0, color, light);
         appendTriangle(tris, from, p1, p0, color, light);
         appendTriangle(tris, to, q0, q1, color, light);
-    }
-}
-
-QMatrix4x4 translated(const QVector3D &p)
-{
-    QMatrix4x4 xf;
-    xf.translate(p);
-    return xf;
-}
-
-void appendMobileBase(std::vector<Tri3> &tris, const QColor &bodyColor,
-                      const QColor &legColor, const QVector3D &light)
-{
-    // This is an intentionally generic quadruped silhouette, not a model of
-    // a particular vendor robot. It frames the arm and makes ground contact
-    // readable in the operator view.
-    appendBox(tris, translated({0, 0, 0.49f}), {0.36f, 0.22f, 0.11f}, bodyColor, light);
-    appendBox(tris, translated({0, 0, 0.62f}), {0.25f, 0.15f, 0.035f}, bodyColor, light);
-
-    for (const float x : {-0.27f, 0.27f}) {
-        for (const float y : {-0.17f, 0.17f}) {
-            const QVector3D hip(x, y, 0.43f);
-            const QVector3D knee(x + (x < 0 ? -0.055f : 0.055f), y, 0.22f);
-            const QVector3D foot(x, y, 0.055f);
-            appendCylinder(tris, hip, knee, 0.034f, 0.029f, legColor, light, 10);
-            appendCylinder(tris, knee, foot, 0.029f, 0.022f, legColor, light, 10);
-            appendBox(tris, translated({foot.x(), foot.y(), 0.028f}),
-                      {0.07f, 0.048f, 0.022f}, legColor, light);
-        }
     }
 }
 
@@ -283,7 +231,7 @@ void appendArm(std::vector<Tri3> &tris, const QMatrix4x4 &armBase,
 
 Robot3DView::Robot3DView(QWidget *parent) : QWidget(parent)
 {
-    setMinimumHeight(240);
+    setMinimumHeight(190);
     setCursor(Qt::OpenHandCursor);
     joints_ = {robot::kArmHome.begin(), robot::kArmHome.end()};
     shown_ = joints_;
@@ -345,9 +293,9 @@ void Robot3DView::setStale(bool stale)
 void Robot3DView::resetCamera()
 {
     azimuth_ = -0.9;
-    elevation_ = 0.30;
-    distance_ = 3.2;
-    target_ = QVector3D(0, 0, 0.75);
+    elevation_ = 0.23;
+    distance_ = 1.5;
+    target_ = QVector3D(0, 0, 0.30);
     update();
 }
 
@@ -405,7 +353,7 @@ void Robot3DView::mouseMoveEvent(QMouseEvent *ev)
 
 void Robot3DView::wheelEvent(QWheelEvent *ev)
 {
-    distance_ = qBound(1.2, distance_ * (ev->angleDelta().y() > 0 ? 1 / 1.12 : 1.12), 6.0);
+    distance_ = qBound(0.85, distance_ * (ev->angleDelta().y() > 0 ? 1 / 1.12 : 1.12), 3.5);
     update();
 }
 
@@ -443,22 +391,8 @@ void Robot3DView::paintEvent(QPaintEvent *)
     projM.perspective(38.0f, float(width()) / float(qMax(1, height())), 0.05f, 60.0f);
 
     const QMatrix4x4 mvp = projM * viewM;
-    const auto project = [&](const QVector3D &v) {
-        const QVector3D n = mvp.map(v);
-        return QPointF((n.x() * 0.5 + 0.5) * width(), (1.0 - (n.y() * 0.5 + 0.5)) * height());
-    };
 
-    // ---- 바닥 격자 ----
-    p.setPen(QPen(QColor(C.border), 1));
-    for (int i = -3; i <= 3; ++i) {
-        const double g = i * 0.5;
-        p.drawLine(project({float(g), -1.5f, 0}), project({float(g), 1.5f, 0}));
-        p.drawLine(project({-1.5f, float(g), 0}), project({1.5f, float(g), 0}));
-    }
-
-    // ---- Wego 절차 생성 형상 ----
-    const QColor bodyColor(C.isDark() ? QColor(0x3A, 0x42, 0x4D) : QColor(0x9A, 0xA4, 0xB0));
-    const QColor legColor(C.isDark() ? QColor(0x2E, 0x35, 0x3E) : QColor(0x84, 0x8E, 0x9A));
+    // ---- 팔 형상만 표시 ----
     // 편집 중에는 보낼 자세를 그대로 그린다. 실제 자세 위에 반투명 팔을
     // 겹쳐 봤더니 로봇이 두 대로 보였다.
     const bool previewing = !preview_.isEmpty();
@@ -467,15 +401,12 @@ void Robot3DView::paintEvent(QPaintEvent *)
                                           : QColor(C.accent);
 
     QMatrix4x4 armBase;
-    armBase.translate(float(robot::kArmMountX), float(robot::kArmMountY),
-                      0.50f + float(robot::kArmMountZ));
     const auto frames = robot::jointFrames(shown_);
 
     std::vector<Tri3> tris;
     tris.reserve(1200);
 
     const QVector3D light = QVector3D(0.4f, -0.5f, 0.8f).normalized();
-    appendMobileBase(tris, bodyColor, legColor, light);
     const QColor jointColor(C.isDark() ? QColor(0x1D, 0x2A, 0x38)
                                        : QColor(0x3E, 0x5B, 0x70));
     appendArm(tris, armBase, frames, armColor, jointColor, light);

@@ -79,6 +79,7 @@ public:
     explicit AprilTagMarker(int tagId, double size = 9.0);
 
     void setSeen(bool seen);
+    void setHeading(double yaw);
 
     QRectF boundingRect() const override;
     void paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) override;
@@ -87,6 +88,8 @@ private:
     int id_;
     double s_;
     bool seen_ = false;
+    double yaw_ = 0.0;
+    bool hasHeading_ = false;
 };
 
 /// Charging station or start position.

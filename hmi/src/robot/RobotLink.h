@@ -139,6 +139,8 @@ public:
     virtual void saveArmPosePreset(const QVariantMap &preset) { Q_UNUSED(preset); }
     virtual void updateArmPosePreset(const QVariantMap &preset, quint64 expectedRevision)
     { Q_UNUSED(preset); Q_UNUSED(expectedRevision); }
+    virtual void archiveArmPosePreset(const QString &id, quint64 expectedRevision)
+    { Q_UNUSED(id); Q_UNUSED(expectedRevision); }
 
     // ---- link -----------------------------------------------------------
     virtual bool isConnected() const = 0;

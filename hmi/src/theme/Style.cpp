@@ -156,6 +156,15 @@ QMenu::indicator { width: 14px; height: 14px; left: 7px; }
 }
 #CardTitle { font-size: @fsMd; font-weight: 600; color: @text; }
 #SectionLabel { font-size: @fsSm; color: @textMute; }
+#CatalogRow { border-bottom: 1px solid @border; }
+#CatalogRowName { font-weight: 600; color: @text; }
+#CatalogRowDetails, #CatalogRowStatus { font-size: @fsSm; color: @textMute; }
+#MissionSavedRow, #MissionStepRow { border-bottom: 1px solid @border; }
+#MissionSavedName { font-weight: 600; color: @text; }
+#MissionSavedSummary, #MissionStepNumber, #MissionStepNoTarget {
+    font-size: @fsSm; color: @textMute;
+}
+#MissionEmpty { font-size: @fsSm; color: @textMute; }
 #Hint { color: @textMute; font-size: @fsSm; }
 #ArmPreviewStatus { color: @textMute; font-size: @fsSm; }
 #ArmCommandStatus { color: @accent; font-size: @fsSm; }
@@ -275,6 +284,13 @@ QTabWidget::pane {
     border: 1px solid @border;
     border-radius: @rLg;
     top: -1px;
+}
+/* 로봇팔의 관절/끝단 탭은 이미 운용 탭 안에 있다. 테두리를 한 번 더 그리지 않는다. */
+QTabWidget#ArmCommandTabs::pane {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    top: 0;
 }
 QTabBar {
     /* 가운데 정렬은 탭 수가 바뀔 때마다 위치가 흔들려 읽기 나쁘다. */

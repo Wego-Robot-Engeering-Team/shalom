@@ -97,8 +97,8 @@ signals:
     void poseEstimateRequested(double x, double y, double theta);
     void waypointPlaced(double x, double y, double theta);
     void waypointClicked(const QString &id);
-    /// A tag was placed by clicking the map in AddTag mode.
-    void tagPlaced(double x, double y);
+    /// Map-frame tag center and front-facing yaw. A click alone has no heading.
+    void tagPlaced(double x, double y, double yaw, bool headingProvided);
     void cursorMoved(double x, double y);
 
 protected:
