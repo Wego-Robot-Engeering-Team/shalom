@@ -77,17 +77,6 @@ WelcomeDialog::WelcomeDialog(QWidget *parent) : QDialog(parent)
     lay->addWidget(submit_);
     connect(submit_, &QPushButton::clicked, this, &WelcomeDialog::submit);
 
-    // 연결 정보는 로그인 화면이 아니라 실제 로봇을 고르는 관제 화면에 둔다.
-    lay->addSpacing(metrics::s3);
-    lay->addWidget(new HLine);
-    lay->addSpacing(metrics::s2);
-
-    auto *notice = new QLabel(QStringLiteral(
-        "로그인 후 관제 화면에서 로봇 연결 상태를 확인하고 작업을 시작하세요."));
-    notice->setObjectName(QStringLiteral("Hint"));
-    notice->setWordWrap(true);
-    lay->addWidget(notice);
-
     id_->setFocus();
 }
 

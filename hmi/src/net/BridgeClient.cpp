@@ -171,6 +171,7 @@ void BridgeClient::setEndpoint(const QString &host, quint16 port)
         ? quint16(port + kEstopPortOffset) : 0;
     robotId_.clear();
     robotName_.clear();
+    activeMapId_.clear();
     emit robotIdentity(QString(), QString());
 
     if (wanted)
@@ -687,6 +688,9 @@ void BridgeClient::handlePublish(const Envelope &env)
         waypoints_ = wps;
         emit waypointsChanged(wps);
     } else if (ch == QLatin1String(hmi::ch::kMissions)) {
+        const QString catalogMapId = p.value(QStringLiteral("map_id")).toString();
+        if (!activeMapId_.isEmpty() && catalogMapId != activeMapId_)
+            return;
         QList<QVariantMap> missions;
         const auto array = p.value(QStringLiteral("missions")).toArray();
         missions.reserve(array.size());
@@ -720,6 +724,7 @@ void BridgeClient::handlePublish(const Envelope &env)
             maps << v.toObject().toVariantMap();
         emit mapsReceived(maps);
     } else if (ch == QLatin1String(hmi::ch::kActiveMap)) {
+        activeMapId_ = p.value(QStringLiteral("id")).toString();
         emit activeMapReceived(p.toVariantMap());
     } else if (ch == QLatin1String(hmi::ch::kCaptureSpool)) {
         telemetry_.nasOnline = p.value(QStringLiteral("nas_online")).toBool();
@@ -846,6 +851,7 @@ void BridgeClient::setWaypoints(const QList<QVariantMap> &waypoints)
     for (const auto &w : waypoints) {
         QJsonObject point = QJsonObject::fromVariantMap(w);
         point.remove(QStringLiteral("status"));
+        point.remove(QStringLiteral("kind"));
         arr.append(point);
     }
     sendRequest(QLatin1String(hmi::ch::kCmdWaypointsSet), {{"points", arr}});
@@ -867,9 +873,7 @@ void BridgeClient::setLocations(const QList<QVariantMap> &locations)
 
 void BridgeClient::setMarkers(const QList<QVariantMap> &markers)
 {
-    // 화면 값을 먼저 갱신한다. 로봇이 되돌려 줄 때까지 기다리면 방금 찍은
-    // 마커가 잠깐 사라졌다 나타나 조작자가 실패한 줄 안다.
-    markers_ = markers;
+    // 로봇이 저장한 뒤 state/markers로 되돌려 준 목록만 확정값으로 둔다.
     QJsonArray arr;
     for (const auto &m : markers)
         arr.append(QJsonObject::fromVariantMap(m));
@@ -1010,6 +1014,12 @@ void BridgeClient::updateArmPosePreset(const QVariantMap &preset, quint64 expect
     sendRequest(QLatin1String(hmi::ch::kCmdArmPosePresetsUpdate),
                 {{"preset", QJsonObject::fromVariantMap(preset)},
                  {"expected_revision", qint64(expectedRevision)}});
+}
+
+void BridgeClient::archiveArmPosePreset(const QString &id, quint64 expectedRevision)
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdArmPosePresetsArchive),
+                {{"id", id}, {"expected_revision", qint64(expectedRevision)}});
 }
 
 }  // namespace hmi::net

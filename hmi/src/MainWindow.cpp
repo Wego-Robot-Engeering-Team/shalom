@@ -30,6 +30,7 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QShowEvent>
+#include <QSpinBox>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QTabWidget>
@@ -166,6 +167,90 @@ bool editWaypoint(QWidget *parent, QVariantMap &point, const QString &title)
     point[QStringLiteral("x")] = x->value();
     point[QStringLiteral("y")] = y->value();
     point[QStringLiteral("theta")] = qDegreesToRadians(yaw->value());
+    return true;
+}
+
+// 벽에 수직으로 설치한 태그: yaw는 지도 +X에서 태그 앞면 바깥쪽으로
+// 향하는 수평 법선의 각도다. 높이와 방향을 모르면 0으로 추정하지 않는다.
+bool editMarker(QWidget *parent, QVariantMap &marker, bool headingProvided = false)
+{
+    QDialog dialog(parent);
+    dialog.setObjectName(QStringLiteral("MarkerEditor"));
+    dialog.setWindowTitle(QStringLiteral("마커 등록"));
+    auto *form = new QFormLayout(&dialog);
+
+    auto *id = new QSpinBox(&dialog);
+    id->setObjectName(QStringLiteral("MarkerId"));
+    id->setRange(0, 100000);
+    id->setValue(marker.value(QStringLiteral("id")).toInt());
+    form->addRow(QStringLiteral("태그 ID"), id);
+
+    const auto coordinate = [&dialog](const QString &objectName, double value) {
+        auto *spin = new QDoubleSpinBox(&dialog);
+        spin->setObjectName(objectName);
+        spin->setRange(-1000000.0, 1000000.0);
+        spin->setDecimals(3);
+        spin->setSingleStep(0.1);
+        spin->setSuffix(QStringLiteral(" m"));
+        spin->setValue(value);
+        return spin;
+    };
+    auto *x = coordinate(QStringLiteral("MarkerX"), marker.value(QStringLiteral("x")).toDouble());
+    auto *y = coordinate(QStringLiteral("MarkerY"), marker.value(QStringLiteral("y")).toDouble());
+    form->addRow(QStringLiteral("지도 X"), x);
+    form->addRow(QStringLiteral("지도 Y"), y);
+
+    auto *z = new QDoubleSpinBox(&dialog);
+    z->setObjectName(QStringLiteral("MarkerZ"));
+    z->setRange(-1000001.0, 1000000.0);
+    z->setDecimals(3);
+    z->setSingleStep(0.1);
+    z->setSuffix(QStringLiteral(" m"));
+    z->setSpecialValueText(QStringLiteral("높이 입력"));
+    z->setValue(marker.contains(QStringLiteral("z"))
+                    ? marker.value(QStringLiteral("z")).toDouble() : z->minimum());
+    form->addRow(QStringLiteral("지도 Z (태그 중심)"), z);
+
+    auto *yaw = new QDoubleSpinBox(&dialog);
+    yaw->setObjectName(QStringLiteral("MarkerYaw"));
+    yaw->setRange(-181.0, 180.0);
+    yaw->setDecimals(1);
+    yaw->setSingleStep(5.0);
+    yaw->setSuffix(QStringLiteral("°"));
+    yaw->setSpecialValueText(QStringLiteral("방향 입력"));
+    yaw->setValue(marker.contains(QStringLiteral("yaw")) || headingProvided
+                      ? std::remainder(qRadiansToDegrees(
+                            marker.value(QStringLiteral("yaw")).toDouble()), 360.0)
+                      : yaw->minimum());
+    form->addRow(QStringLiteral("태그 앞면 방향"), yaw);
+
+    auto *hint = new QLabel(QStringLiteral("태그를 정면에서 볼 때 앞면이 향하는 지도 방향입니다."),
+                            &dialog);
+    hint->setWordWrap(true);
+    form->addRow(hint);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel,
+                                         &dialog);
+    buttons->button(QDialogButtonBox::Save)->setText(QStringLiteral("저장"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("취소"));
+    form->addRow(buttons);
+    const auto updateSave = [z, yaw, buttons] {
+        buttons->button(QDialogButtonBox::Save)->setEnabled(
+            z->value() > z->minimum() && yaw->value() > yaw->minimum());
+    };
+    QObject::connect(z, qOverload<double>(&QDoubleSpinBox::valueChanged), &dialog, updateSave);
+    QObject::connect(yaw, qOverload<double>(&QDoubleSpinBox::valueChanged), &dialog, updateSave);
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    updateSave();
+    if (dialog.exec() != QDialog::Accepted)
+        return false;
+
+    marker[QStringLiteral("id")] = id->value();
+    marker[QStringLiteral("x")] = x->value();
+    marker[QStringLiteral("y")] = y->value();
+    marker[QStringLiteral("z")] = z->value();
+    marker[QStringLiteral("yaw")] = qDegreesToRadians(yaw->value());
     return true;
 }
 
@@ -580,7 +665,7 @@ void MainWindow::openSettings()
             map_->poseEstimateButton()->setChecked(false);
             map_->poseEstimateButton()->setEnabled(false);
             waypoints_->setEditingEnabled(false);
-            map_->setMapLabel(QStringLiteral("지도 없음 — 로봇을 연결하십시오"), QString());
+            map_->setMapLabel(QStringLiteral("지도 없음"), QString());
             setLinkTone(QStringLiteral("danger"));
             headerBattery_->setUnavailable();
             arm_->setControlsEnabled(false);
@@ -673,9 +758,13 @@ void MainWindow::wireRobotSignals()
                                    QStringLiteral("지도 정보가 올바르지 않습니다"));
                         return;
                     }
+                    const bool liveFrame = info->mapId.isEmpty() ||
+                                           info->mapId == QLatin1String("live");
+                    const bool sameActiveMap = info->mapId == activeMapId_ ||
+                        (activeMapId_ == QLatin1String("live") && liveFrame);
                     if ((!requestedMapId_.isEmpty() && info->mapId != requestedMapId_) ||
                         (requestedMapId_.isEmpty() && !activeMapId_.isEmpty() &&
-                         info->mapId != activeMapId_))
+                         !sameActiveMap))
                         return;  // 지도 전환 중 도착한 이전 지도의 프레임
                     map_->view()->setMap(*info, img);
                     // 현재 화면 목록만 새 좌표계에 다시 놓는다. 지도 전환 중
@@ -684,14 +773,16 @@ void MainWindow::wireRobotSignals()
                     mapExtent_ = QStringLiteral("%1×%2 m")
                                      .arg(info->extentXMeters(), 0, 'f', 0)
                                      .arg(info->extentYMeters(), 0, 'f', 0);
-                    map_->setMapLabel(activeMapId_ == info->mapId && !activeMapName_.isEmpty()
-                                          ? activeMapName_ : info->mapId, mapExtent_);
-                    const bool ready = requestedMapId_.isEmpty() && activeMapId_ == info->mapId;
+                    map_->setMapLabel(sameActiveMap && !activeMapName_.isEmpty()
+                                          ? activeMapName_
+                                          : liveFrame ? QStringLiteral("live") : info->mapId,
+                                      mapExtent_);
+                    const bool ready = requestedMapId_.isEmpty() && sameActiveMap &&
+                                       !activeMapId_.isEmpty() &&
+                                       activeMapId_ != QLatin1String("live");
                     refreshGoalAvailability();
-                    map_->poseEstimateButton()->setEnabled(
-                        robot_->isConnected() && ready && activeMapId_ != QLatin1String("live"));
-                    waypoints_->setEditingEnabled(ready && activeMapId_ != QLatin1String("live") &&
-                                                  !waypointWritePending_);
+                    map_->poseEstimateButton()->setEnabled(robot_->isConnected() && ready);
+                    waypoints_->setEditingEnabled(ready && !waypointWritePending_);
                     log_->note(diag::Severity::Ok, QStringLiteral("지도 수신"),
                                QJsonObject{{"map_id", info->mapId}});
                 });
@@ -705,11 +796,15 @@ void MainWindow::wireRobotSignals()
                     const QString mapId = map.value(QStringLiteral("id")).toString();
                     const QString name = map.value(QStringLiteral("name")).toString();
                     const bool wasLive = activeMapId_ == QLatin1String("live");
+                    if (activeMapId_ != mapId) {
+                        missionDefinitions_.clear();
+                        refreshMissionProgress();
+                    }
                     activeMapId_ = mapId;
                     activeMapName_ = name.isEmpty() ? mapId : name;
                     if (mapId == QLatin1String("live")) {
                         waypoints_->setSaveStatus(QStringLiteral(
-                            "실시간 지도입니다. 웨이포인트를 저장하려면 저장된 지도를 선택하십시오."));
+                            "실시간 지도 · 웨이포인트 저장 불가"));
                     } else if (wasLive) {
                         waypoints_->setSaveStatus({});
                     }
@@ -719,12 +814,13 @@ void MainWindow::wireRobotSignals()
                         waypoints_->setWaypoints({});
                         map_->view()->setWaypoints({});
                     }
-                    const bool ready = requestedMapId_.isEmpty() && shown && shown->mapId == mapId;
+                    const bool ready = requestedMapId_.isEmpty() && shown &&
+                                       shown->mapId == mapId && !mapId.isEmpty() &&
+                                       mapId != QLatin1String("live");
                     map_->poseEstimateButton()->setEnabled(
-                        robot_->isConnected() && ready && mapId != QLatin1String("live"));
+                        robot_->isConnected() && ready);
                     refreshGoalAvailability();
-                    waypoints_->setEditingEnabled(ready && mapId != QLatin1String("live") &&
-                                                  !waypointWritePending_);
+                    waypoints_->setEditingEnabled(ready && !waypointWritePending_);
                     map_->setMapLabel(activeMapName_, shown && shown->mapId == mapId
                                                          ? mapExtent_ : QStringLiteral("불러오는 중"));
                     map_->setMapListEnabled(robot_->isConnected() && requestedMapId_.isEmpty());
@@ -780,7 +876,7 @@ void MainWindow::wireRobotSignals()
             map_->goalButton()->setEnabled(false);
             map_->poseEstimateButton()->setChecked(false);
             map_->poseEstimateButton()->setEnabled(false);
-            map_->setMapLabel(QStringLiteral("지도 없음 — 로봇을 연결하십시오"), {});
+            map_->setMapLabel(QStringLiteral("지도 없음"), {});
             headerBattery_->setUnavailable();
             nav_->setDiagnosticsAlerts(0);
             teleop_->setJogEnabled(false);
@@ -886,9 +982,9 @@ void MainWindow::wireRobotSignals()
                 waypoints_->setEditingEnabled(shown && shown->mapId == activeMapId_ &&
                                               activeMapId_ != QLatin1String("live") &&
                                               requestedMapId_.isEmpty());
-                waypoints_->setSaveStatus(saved ? QStringLiteral("웨이포인트를 저장했습니다.")
+                waypoints_->setSaveStatus(saved ? QStringLiteral("웨이포인트 저장됨")
                     : activeMapId_ == QLatin1String("live")
-                        ? QStringLiteral("실시간 지도입니다. 웨이포인트를 저장하려면 저장된 지도를 선택하십시오.")
+                        ? QStringLiteral("실시간 지도 · 웨이포인트 저장 불가")
                         : QString());
             });
     connect(robot_, &robot::RobotLink::commandResult, this,
@@ -902,6 +998,16 @@ void MainWindow::wireRobotSignals()
                                                   requestedMapId_.isEmpty());
                     waypoints_->setSaveStatus(
                         QStringLiteral("저장 실패 · %1 %2").arg(code, message), true);
+                }
+                if (channel == QLatin1String(hmi::ch::kCmdMarkersSet) && !ok) {
+                    log_->note(diag::Severity::Error,
+                               QStringLiteral("마커 저장 실패 · %1 %2").arg(code, message));
+                    if (auto *bridge = qobject_cast<net::BridgeClient *>(robot_))
+                        bridge->requestMapCatalog();
+                    else {
+                        locations_->setMarkers(robot_->markers());
+                        map_->view()->setTags(robot_->markers());
+                    }
                 }
             });
     connect(robot_, &robot::RobotLink::commandResult, this,
@@ -1040,8 +1146,7 @@ void MainWindow::wireMapSignals()
         pendingPlacementKind_.clear();
         map_->setPlacementHint({});
 
-        QVariantMap loc{{"x", x}, {"y", y}, {"theta", th},
-                        {"captured_from", QStringLiteral("map")}};
+        QVariantMap loc{{"x", x}, {"y", y}, {"theta", th}};
 
         if (kind == QLatin1String("dock") || kind == QLatin1String("home")) {
             loc[QStringLiteral("kind")] = kind;
@@ -1088,15 +1193,16 @@ void MainWindow::wireLocationSignals()
         map_->setPlacementHint(
             QStringLiteral("지도를 클릭해 위치를 지정하고, 드래그해 방향을 정하십시오"));
     });
-    // 마커 등록. 지도에서 자리를 찍고 ID 를 받는다. ID 는 현장에 붙인
-    // 태그에 인쇄된 번호라 조작자만 안다 — 자동으로 매길 수 없다.
+    // 지도에서 태그 중심을 찍고, 드래그 방향을 앞면의 수평 법선으로 쓴다.
+    // 클릭만 한 경우 방향은 비워 두고 등록 창에서 직접 입력받는다.
     connect(locations_, &LocationPanel::addMarkerFromMap, this, [this] {
         map_->goalButton()->setChecked(false);
         map_->view()->setMode(MapMode::AddTag);
         map_->setPlacementHint(
-            QStringLiteral("마커가 붙은 자리를 지도에서 클릭하십시오"));
+            QStringLiteral("마커 중심을 클릭하고 앞면 방향으로 드래그하십시오"));
     });
-    connect(map_->view(), &MapView::tagPlaced, this, [this](double x, double y) {
+    connect(map_->view(), &MapView::tagPlaced, this,
+            [this](double x, double y, double yaw, bool headingProvided) {
         map_->setPlacementHint({});
 
         QList<QVariantMap> ms = locations_->markers();
@@ -1104,14 +1210,14 @@ void MainWindow::wireLocationSignals()
         for (const auto &m : std::as_const(ms))
             suggested = qMax(suggested, m.value(QStringLiteral("id")).toInt() + 1);
 
-        bool ok = false;
-        const int id = QInputDialog::getInt(
-            this, QStringLiteral("마커 등록"),
-            QStringLiteral("이 자리에 붙은 마커의 ID 를 입력하십시오.\n"
-                           "태그에 인쇄된 번호와 같아야 합니다."),
-            suggested, 0, 100000, 1, &ok);
-        if (!ok)
+        QVariantMap marker{{QStringLiteral("id"), suggested},
+                           {QStringLiteral("x"), x}, {QStringLiteral("y"), y}};
+        if (headingProvided)
+            marker[QStringLiteral("yaw")] = yaw;
+        if (!editMarker(this, marker, headingProvided))
             return;
+
+        const int id = marker.value(QStringLiteral("id")).toInt();
 
         // 같은 번호가 이미 있으면 자리를 옮긴 것으로 본다. 같은 ID 를 둘
         // 두면 로봇이 어느 쪽으로 보정할지 알 수 없다.
@@ -1128,13 +1234,36 @@ void MainWindow::wireLocationSignals()
             break;
         }
 
-        ms << QVariantMap{{"id", id}, {"x", x}, {"y", y}};
+        ms << marker;
         locations_->setMarkers(ms);
         robot_->setMarkers(ms);
         map_->view()->setTags(ms);
         log_->note(diag::Severity::Info, QStringLiteral("마커 #%1 등록").arg(id),
                    QJsonObject{{"channel", QStringLiteral("cmd/markers/set")},
-                               {"x", x}, {"y", y}});
+                               {"x", marker.value(QStringLiteral("x")).toDouble()},
+                               {"y", marker.value(QStringLiteral("y")).toDouble()},
+                               {"z", marker.value(QStringLiteral("z")).toDouble()},
+                               {"yaw", marker.value(QStringLiteral("yaw")).toDouble()}});
+    });
+    connect(locations_, &LocationPanel::editMarkerRequested, this, [this](int row) {
+        QList<QVariantMap> ms = locations_->markers();
+        if (row < 0 || row >= ms.size())
+            return;
+        QVariantMap marker = ms.at(row);
+        if (!editMarker(this, marker))
+            return;
+        const int id = marker.value(QStringLiteral("id")).toInt();
+        for (int i = 0; i < ms.size(); ++i) {
+            if (i != row && ms.at(i).value(QStringLiteral("id")).toInt() == id) {
+                QMessageBox::warning(this, QStringLiteral("마커 ID 중복"),
+                                     QStringLiteral("마커 #%1이 이미 등록되어 있습니다.").arg(id));
+                return;
+            }
+        }
+        ms[row] = marker;
+        locations_->setMarkers(ms);
+        robot_->setMarkers(ms);
+        map_->view()->setTags(ms);
     });
     connect(locations_, &LocationPanel::markersChanged, this,
             [this](const QList<QVariantMap> &ms) {
@@ -1169,11 +1298,6 @@ void MainWindow::wirePanelSignals()
                 teleop_->setBasePosture(posture);
             });
 
-    connect(arm_, &ArmPanel::presetRequested, this, [this](const QString &name) {
-        arm_->applyPresetToSliders(name);
-        log_->note(diag::Severity::Info, QStringLiteral("팔 자세 목표를 불러왔습니다"),
-                   QJsonObject{{"preset", name}, {"sent", false}});
-    });
     connect(arm_, &ArmPanel::jointGoal, this, [this](const QList<double> &q) {
         robot_->setArmJointGoal(q);
         log_->note(diag::Severity::Info, QStringLiteral("관절 목표 전송"),
@@ -1193,22 +1317,12 @@ void MainWindow::wirePanelSignals()
         log_->note(diag::Severity::Warn, QStringLiteral("로봇팔 정지 요청"),
                    QJsonObject{{"channel", QStringLiteral("cmd/arm/stop")}});
     });
-    connect(arm_, &ArmPanel::savePosePresetRequested, this,
-            [this](const QString &name, const QString &description,
-                   const QList<double> &positions) {
-        QVariantList values;
-        for (double value : positions)
-            values << value;
-        robot_->saveArmPosePreset({
-            {QStringLiteral("id"), QUuid::createUuid().toString(QUuid::WithoutBraces)
-                                        .remove(QLatin1Char('-'))},
-            {QStringLiteral("name"), name},
-            {QStringLiteral("description"), description},
-            {QStringLiteral("positions"), values},
-        });
-    });
+    connect(arm_, &ArmPanel::savePosePresetRequested,
+            robot_, &robot::RobotLink::saveArmPosePreset);
     connect(arm_, &ArmPanel::updatePosePresetRequested,
             robot_, &robot::RobotLink::updateArmPosePreset);
+    connect(arm_, &ArmPanel::archivePosePresetRequested,
+            robot_, &robot::RobotLink::archiveArmPosePreset);
     connect(robot_, &robot::RobotLink::commandResult, arm_,
             &ArmPanel::setCommandResult);
 
@@ -1277,15 +1391,13 @@ void MainWindow::wireMissionSignals()
     });
     connect(waypoints_, &WaypointPanel::captureFromRobotRequested, this,
             [this] { captureLocation(QStringLiteral("inspection")); });
-    connect(waypoints_, &WaypointPanel::editRequested, this, [this](const QString &id) {
+    connect(waypoints_, &WaypointPanel::updateRequested, this,
+            [this](const QString &id, const QVariantMap &edited) {
         auto wps = waypoints_->waypoints();
         const auto it = std::find_if(wps.begin(), wps.end(), [&id](const QVariantMap &w) {
             return w.value(QStringLiteral("id")).toString() == id;
         });
         if (it == wps.end())
-            return;
-        QVariantMap edited = *it;
-        if (!editWaypoint(this, edited, QStringLiteral("웨이포인트 편집")))
             return;
         *it = edited;
         if (submitWaypoints(wps))
@@ -1491,9 +1603,6 @@ void MainWindow::showWaypointInfo(const QString &id, const QPoint &globalPos)
     lines << QStringLiteral("도착 방향  %1°")
                  .arg(qRadiansToDegrees(found.value(QStringLiteral("theta")).toDouble()),
                       0, 'f', 1);
-    if (found.contains(QStringLiteral("tag_id")))
-        lines << QStringLiteral("마커  %1").arg(found.value(QStringLiteral("tag_id")).toInt());
-
     if (forPoint.isEmpty()) {
         lines << QStringLiteral("<i>저장된 촬영 없음</i>");
     } else {
@@ -1544,13 +1653,16 @@ void MainWindow::showView(NavItem item)
 bool MainWindow::canPlaceGoal() const
 {
     const auto *shown = map_->view()->mapInfo();
+    // SLAM 중에는 저장 지도 ID가 없지만 지도 자체는 유효하다. 반대로
+    // 저장 지도 전환 중의 이전 프레임에는 목표를 찍으면 안 된다.
+    const bool matchingMap = shown &&
+        ((activeMapId_.isEmpty() || activeMapId_ == QLatin1String("live"))
+             ? (shown->mapId.isEmpty() || shown->mapId == QLatin1String("live"))
+             : shown->mapId == activeMapId_);
     return robot_->isConnected() && !estop_->isEngaged() &&
            driveModeConfirmed_ && !requestedDriveMode_ &&
-           robot_->mode() == DriveMode::Auto && shown &&
-           !activeMapId_.isEmpty() && shown->mapId == activeMapId_ &&
-           requestedMapId_.isEmpty() &&
-           context_->currentIndex() == int(NavItem::Drive) &&
-           driveTabs_->currentIndex() == 0;
+           robot_->mode() == DriveMode::Auto && matchingMap &&
+           requestedMapId_.isEmpty();
 }
 
 void MainWindow::refreshGoalAvailability()
@@ -1559,9 +1671,24 @@ void MainWindow::refreshGoalAvailability()
     if (!available)
         map_->goalButton()->setChecked(false);
     map_->goalButton()->setEnabled(available);
-    map_->goalButton()->setToolTip(available
-        ? QStringLiteral("켠 뒤 지도를 클릭해 목표를 지정합니다")
-        : QStringLiteral("자율 모드에서 지도를 불러온 뒤 목표를 지정할 수 있습니다"));
+    QString reason;
+    if (available)
+        reason = QStringLiteral("켠 뒤 지도를 클릭해 목표를 지정합니다");
+    else if (!robot_->isConnected())
+        reason = QStringLiteral("로봇 연결 후 사용할 수 있습니다");
+    else if (estop_->isEngaged())
+        reason = QStringLiteral("비상정지 해제 후 사용할 수 있습니다");
+    else if (!driveModeConfirmed_)
+        reason = QStringLiteral("로봇의 주행 모드를 확인하는 중입니다");
+    else if (requestedDriveMode_)
+        reason = QStringLiteral("주행 모드 전환을 기다리는 중입니다");
+    else if (robot_->mode() != DriveMode::Auto)
+        reason = QStringLiteral("자율 모드에서 사용할 수 있습니다");
+    else if (!requestedMapId_.isEmpty())
+        reason = QStringLiteral("지도 전환을 기다리는 중입니다");
+    else
+        reason = QStringLiteral("현재 지도를 불러오는 중입니다");
+    map_->goalButton()->setToolTip(reason);
 }
 
 void MainWindow::showReportedDriveMode()
@@ -1606,16 +1733,13 @@ void MainWindow::captureLocation(const QString &kind)
         {"x", snapshot_.x},
         {"y", snapshot_.y},
         {"theta", snapshot_.theta},
-        {"captured_from", QStringLiteral("robot")},
-        {"localization_ok", snapshot_.localizationOk},
     };
-    if (snapshot_.visibleTagId >= 0)
-        loc[QStringLiteral("tag_id")] = snapshot_.visibleTagId;
 
     if (kind == QLatin1String("dock") || kind == QLatin1String("home")) {
         (kind == QLatin1String("dock") ? dock_ : home_) = loc;
         applyFixedLocations();
     } else {
+        loc.remove(QStringLiteral("kind"));
         auto wps = waypoints_->waypoints();
         const int n = wps.size() + 1;
         loc[QStringLiteral("id")] = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -1951,6 +2075,7 @@ void MainWindow::showMapPicker()
         auto *rename = new IconButton(IconButton::Glyph::Edit, row);
         rename->setObjectName(QStringLiteral("MapRename_%1").arg(id));
         rename->setFixedSize(28, 28);
+        rename->setAccessibleName(QStringLiteral("%1 이름 변경").arg(label));
         rename->setToolTip(QStringLiteral("%1 이름 변경").arg(label));
         layout->addWidget(rename);
 
@@ -2241,7 +2366,7 @@ void MainWindow::startSession()
                               .arg(mapData_.info.extentXMeters(), 0, 'f', 0)
                               .arg(mapData_.info.extentYMeters(), 0, 'f', 0));
     } else {
-        map_->setMapLabel(QStringLiteral("지도 없음 — 로봇을 연결하십시오"), QString());
+        map_->setMapLabel(QStringLiteral("지도 없음"), QString());
     }
 
     const auto wps = robot_->waypoints();
@@ -2393,7 +2518,7 @@ void MainWindow::onTelemetry(const Telemetry &tm)
                                 : tm.estop ? QStringLiteral("비상정지가 걸려 있습니다.")
                                 : !tm.poseFresh
                                     ? QStringLiteral("위치 정보가 오래되었습니다.")
-                                    : QStringLiteral("로봇이 움직이는 중입니다. 멈춘 뒤에 촬영할 수 있습니다."));
+                                    : QStringLiteral("주행 중 · 정지 후 촬영 가능"));
 
     diagnostics_->setSystem(tm.cpu, tm.gpu, tm.mem, tm.cpuTemp, tm.gpuTemp);
     diagnostics_->setSensors(tm.sensors);

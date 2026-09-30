@@ -90,6 +90,9 @@ signals:
     /// Asks the map to enter click-to-place mode for a new AprilTag.
     void addMarkerFromMap();
 
+    /// Edits the surveyed position and facing direction of an existing tag.
+    void editMarkerRequested(int row);
+
     /// The list changed here and the robot needs the new one.
     void markersChanged(const QList<QVariantMap> &markers);
 
@@ -108,6 +111,7 @@ private:
     QHash<QString, QPushButton *> gotoButtons_;
 
     QListWidget *markerList_ = nullptr;
+    QPushButton *markerEdit_ = nullptr;
     QPushButton *markerDelete_ = nullptr;
     QLabel *markerCount_ = nullptr;
     QList<QVariantMap> markers_;

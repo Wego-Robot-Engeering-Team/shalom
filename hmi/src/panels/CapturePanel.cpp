@@ -53,6 +53,7 @@ CapturePanel::CapturePanel(QWidget *parent) : QWidget(parent)
     hint_->setObjectName(QStringLiteral("Hint"));
     hint_->setWordWrap(true);
     card_->body()->addWidget(hint_);
+    blockedReason_ = QStringLiteral("로봇 연결 필요");
 
     // ---- 미리보기 ----
     preview2d_ = new PreviewView(QStringLiteral("2D"));
@@ -141,7 +142,7 @@ void CapturePanel::resetCapture()
     capturePending_ = false;
     captureStored_ = false;
     captureAllowed_ = false;
-    blockedReason_ = QStringLiteral("로봇에 연결한 뒤 촬영할 수 있습니다.");
+    blockedReason_ = QStringLiteral("로봇 연결 필요");
     captureError_.clear();
     savedFileName_.clear();
     capturedAt_ = {};
@@ -184,31 +185,31 @@ void CapturePanel::refreshDerived()
     captureButton_->setEnabled(captureAllowed_ && !capturePending_ && missing.isEmpty());
     if (capturePending_) {
         state_->set(QStringLiteral("저장 중"), QStringLiteral("info"));
-        hint_->setText(QStringLiteral("로봇의 촬영 결과를 기다리는 중입니다."));
-        fileNamePreview_->setText(QStringLiteral("저장 결과 대기"));
+        hint_->clear();
+        fileNamePreview_->setText(QStringLiteral("—"));
     } else if (!captureError_.isEmpty()) {
         state_->set(QStringLiteral("촬영 실패"), QStringLiteral("danger"));
         hint_->setText(captureError_);
         fileNamePreview_->setText(QStringLiteral("저장된 파일 없음"));
     } else if (captureStored_) {
         state_->set(QStringLiteral("저장 완료"), QStringLiteral("ok"));
-        hint_->setText(QStringLiteral("로봇에 저장했습니다. 다시 촬영할 수 있습니다."));
+        hint_->clear();
         fileNamePreview_->setText(savedFileName_.isEmpty()
-            ? QStringLiteral("저장 완료 · 미리보기 대기") : savedFileName_);
+            ? QStringLiteral("—") : savedFileName_);
     } else if (!captureAllowed_) {
         state_->set(QStringLiteral("촬영 불가"), QStringLiteral("warn"));
-        hint_->setText(blockedReason_.isEmpty()
-            ? QStringLiteral("로봇이 멈춘 뒤에 촬영할 수 있습니다.") : blockedReason_);
-        fileNamePreview_->setText(QStringLiteral("촬영 후 표시"));
+        hint_->setText(blockedReason_);
+        fileNamePreview_->setText(QStringLiteral("—"));
     } else if (!missing.isEmpty()) {
         state_->set(QStringLiteral("정보 입력 필요"), QStringLiteral("warn"));
-        hint_->setText(QStringLiteral("%1을 입력하십시오.").arg(missing.join(QStringLiteral(", "))));
-        fileNamePreview_->setText(QStringLiteral("촬영 후 표시"));
+        hint_->setText(QStringLiteral("필수 정보: %1").arg(missing.join(QStringLiteral(", "))));
+        fileNamePreview_->setText(QStringLiteral("—"));
     } else {
         state_->set(QStringLiteral("촬영 가능"), QStringLiteral("ok"));
-        hint_->setText(QStringLiteral("촬영하면 로봇에 바로 저장됩니다."));
-        fileNamePreview_->setText(QStringLiteral("촬영 후 표시"));
+        hint_->clear();
+        fileNamePreview_->setText(QStringLiteral("—"));
     }
+    hint_->setVisible(!hint_->text().isEmpty());
 }
 
 }  // namespace hmi::ui

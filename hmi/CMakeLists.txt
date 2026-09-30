@@ -61,6 +61,7 @@ add_library(hmi_core STATIC
     src/diag/CodeCatalog.cpp
     src/diag/LogStore.cpp
     src/widgets/Primitives.cpp
+    src/widgets/CatalogRow.cpp
     src/widgets/BrandMark.cpp
     src/widgets/NavRail.cpp
     src/widgets/MapCard.cpp

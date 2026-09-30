@@ -3,10 +3,10 @@
 
 #pragma once
 
-// Live 3D pose view of the B2 and the FR3 arm.
+// Live 3D pose view of the FR3 arm.
 //
 // Purpose: let the operator see the arm's actual configuration rather than
-// reading seven numbers. In a train inspection pit the arm works in a confined
+// reading six numbers. In a train inspection pit the arm works in a confined
 // space, and "the elbow is about to swing into the underbody" is obvious in a
 // picture and invisible in a table of angles. It also lets a teach pose be
 // checked before it is saved.
@@ -22,9 +22,8 @@
 //     on-site support actually contain the view;
 //   - it needs no shader pipeline and no extra Qt module.
 //
-// The picture deliberately uses Wego-authored primitive geometry: a generic
-// mobile base made from boxes and legs, and a six-axis arm made from tapered
-// cylinders and joint hubs. It is a pose aid, not a CAD viewer, so no vendor
+// The picture deliberately uses Wego-authored primitive geometry: a six-axis
+// arm made from tapered cylinders and joint hubs. It is a pose aid, not a CAD viewer, so no vendor
 // mesh, URDF mesh, or converted derivative is embedded in the customer HMI.
 // The arm still follows robot::jointFrames(), which is the same kinematic
 // chain used by the pose readout and command preview.
@@ -53,11 +52,10 @@ public:
     /// presses send.
     void setPreviewJoints(const QList<double> &q);
 
-    /// Highlights the arm when it is close to a singular configuration, using
-    /// the same threshold as the manipulability gauge.
+    /// Highlights the arm when it is close to a singular configuration.
     void setSingularWarning(bool warn);
 
-    /// Draws the whole robot dimmed, for when the pose is stale.
+    /// Draws the arm dimmed, for when the pose is stale.
     void setStale(bool stale);
 
     void resetCamera();
@@ -91,14 +89,11 @@ private:
     // The camera looks at target_, which the operator can slide sideways. With
     // the pivot pinned to the base, zooming in on the gripper was impossible:
     // the interesting end of the arm swung off screen as soon as it reached.
-    // Framed for the real robot, not the block figure that stood here before:
-    // B2 is 1.1 m long and stands 0.54 m at the body, and the arm reaches
-    // another 0.6 m above that when it is up. Aiming at the deck and pulling
-    // back to 3.2 m keeps both the feet and a raised gripper on screen.
+    // Frame the arm base and flange without a surrounding mobile platform.
     double azimuth_ = -0.9;    ///< rad
-    double elevation_ = 0.30;  ///< rad
-    double distance_ = 3.2;    ///< m
-    QVector3D target_{0, 0, 0.75};
+    double elevation_ = 0.23;  ///< rad
+    double distance_ = 1.5;    ///< m
+    QVector3D target_{0, 0, 0.30};
     QPoint lastMouse_;
 };
 

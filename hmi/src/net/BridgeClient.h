@@ -109,6 +109,7 @@ public:
     void requestArmPosePresets() override;
     void saveArmPosePreset(const QVariantMap &preset) override;
     void updateArmPosePreset(const QVariantMap &preset, quint64 expectedRevision) override;
+    void archiveArmPosePreset(const QString &id, quint64 expectedRevision) override;
 
     bool isConnected() const override;
     QString describe() const override;
@@ -186,6 +187,7 @@ private:
     /// machine.
     QString robotId_;
     QString robotName_;
+    QString activeMapId_;
 
     /// Last battery policy given, resent on every (re)connect. Zero means the
     /// station has not been told one yet.

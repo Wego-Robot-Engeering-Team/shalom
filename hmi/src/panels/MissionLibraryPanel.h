@@ -10,8 +10,8 @@
 class QLabel;
 class QLineEdit;
 class QListWidget;
-class QTableWidget;
 class QPushButton;
+class QStackedWidget;
 
 namespace hmi::robot { enum class MissionState; }
 
@@ -38,36 +38,46 @@ signals:
     void runRequested(const QString &id);
 
 private:
-    void loadSelected();
-    void refreshList(const QString &keepId = {}, bool reloadEditor = true);
+    struct StepDraft {
+        QString id;
+        QString type;
+        QString reference;
+        QVariantMap original;
+    };
+
+    void startNew();
+    void startEdit(const QVariantMap &mission);
+    void closeEditor();
+    void refreshList();
+    void rebuildSteps();
+    void moveStep(int index, int delta);
+    void updateStepTarget(int index, const QString &type);
     void updateControls();
-    void moveStep(int delta);
-    void chooseStepTarget();
+    void setStatus(const QString &message);
     QVariantMap currentMission() const;
     QString runBlockReason(const QVariantMap &mission) const;
+    bool canEdit() const;
 
+    QStackedWidget *pages_ = nullptr;
     QListWidget *list_ = nullptr;
     QLineEdit *name_ = nullptr;
-    QLabel *id_ = nullptr;
-    QLabel *revision_ = nullptr;
+    QLabel *editorTitle_ = nullptr;
+    QLabel *empty_ = nullptr;
     QLabel *status_ = nullptr;
-    QTableWidget *steps_ = nullptr;
+    QListWidget *steps_ = nullptr;
     QPushButton *addStep_ = nullptr;
-    QPushButton *removeStep_ = nullptr;
-    QPushButton *stepUp_ = nullptr;
-    QPushButton *stepDown_ = nullptr;
-    QPushButton *chooseTarget_ = nullptr;
     QPushButton *new_ = nullptr;
     QPushButton *save_ = nullptr;
-    QPushButton *archive_ = nullptr;
-    QPushButton *run_ = nullptr;
+    QPushButton *cancel_ = nullptr;
     QList<QVariantMap> missions_;
     QList<QVariantMap> waypoints_;
     QList<QVariantMap> armPosePresets_;
+    QList<StepDraft> draftSteps_;
+    QVariantMap editingOriginal_;
     QString mapId_;
     QString editingId_;
+    QString pendingSaveId_;
     quint64 revisionValue_ = 0;
-    bool archived_ = false;
     bool editing_ = false;
     bool missionBusy_ = false;
 };

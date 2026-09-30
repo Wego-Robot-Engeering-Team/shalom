@@ -4,13 +4,23 @@
 #include "panels/WaypointPanel.h"
 
 #include <QHBoxLayout>
+#include <QDoubleSpinBox>
+#include <QFormLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
+#include <QMessageBox>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QVBoxLayout>
+#include <QtMath>
+
+#include <cmath>
 
 #include "theme/Tokens.h"
 #include "theme/Style.h"
+#include "widgets/CatalogRow.h"
+#include "widgets/IconButton.h"
 #include "widgets/Primitives.h"
 #include "widgets/WaypointDelegate.h"
 
@@ -41,7 +51,6 @@ WaypointPanel::WaypointPanel(QWidget *parent) : QWidget(parent)
     outer->addWidget(card_);
 
     list_ = new QListWidget;
-    list_->setItemDelegate(new WaypointDelegate(list_));
     list_->setDragDropMode(QAbstractItemView::NoDragDrop);
     list_->setSelectionMode(QAbstractItemView::SingleSelection);
     list_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
@@ -50,7 +59,6 @@ WaypointPanel::WaypointPanel(QWidget *parent) : QWidget(parent)
 
     connect(list_, &QListWidget::currentItemChanged, this,
             [this](QListWidgetItem *cur) {
-                updateActionButtons();
                 if (cur)
                     emit waypointSelected(
                         cur->data(kWaypointRole).toMap().value(QStringLiteral("id")).toString());
@@ -70,19 +78,8 @@ WaypointPanel::WaypointPanel(QWidget *parent) : QWidget(parent)
     addRow->addWidget(add_, 1);
     card_->body()->addLayout(addRow);
 
-    // ---- 목록 편집 및 이동 ----
-    auto *edit = new QHBoxLayout;
-    edit->setSpacing(metrics::s2);
-    edit_ = makeButton(QStringLiteral("편집"));
-    edit_->setObjectName(QStringLiteral("WaypointEditButton"));
-    delete_ = makeButton(QStringLiteral("삭제"));
-    go_ = makeButton(QStringLiteral("선택 위치로 이동"));
-    for (auto *b : {fromRobot_, add_, edit_, delete_, go_})
+    for (auto *b : {fromRobot_, add_})
         b->setProperty("size", "sm");
-    edit->addWidget(edit_, 1);
-    edit->addWidget(delete_, 1);
-    edit->addWidget(go_, 2);
-    card_->body()->addLayout(edit);
 
     saveStatus_ = new QLabel;
     saveStatus_->setObjectName(QStringLiteral("WaypointSaveStatus"));
@@ -93,26 +90,6 @@ WaypointPanel::WaypointPanel(QWidget *parent) : QWidget(parent)
     connect(add_, &QPushButton::clicked, this, &WaypointPanel::addRequested);
     connect(fromRobot_, &QPushButton::clicked, this,
             &WaypointPanel::captureFromRobotRequested);
-    connect(edit_, &QPushButton::clicked, this, [this] {
-        if (const auto *it = list_->currentItem())
-            emit editRequested(it->data(kWaypointRole).toMap()
-                                   .value(QStringLiteral("id")).toString());
-    });
-    connect(list_, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem *it) {
-        if (edit_->isEnabled())
-            emit editRequested(it->data(kWaypointRole).toMap()
-                                   .value(QStringLiteral("id")).toString());
-    });
-    connect(delete_, &QPushButton::clicked, this, [this] {
-        if (auto *it = list_->currentItem())
-            emit deleteRequested(it->data(kWaypointRole).toMap()
-                                     .value(QStringLiteral("id")).toString());
-    });
-    connect(go_, &QPushButton::clicked, this, [this] {
-        if (const auto *it = list_->currentItem())
-            emit gotoRequested(it->data(kWaypointRole).toMap()
-                                   .value(QStringLiteral("id")).toString());
-    });
     updateActionButtons();
 }
 
@@ -134,10 +111,14 @@ void WaypointPanel::updateActionButtons()
 {
     add_->setEnabled(editingEnabled_);
     fromRobot_->setEnabled(editingEnabled_ && robotPoseAvailable_);
-    const bool selected = editingEnabled_ && list_->currentItem();
-    edit_->setEnabled(selected);
-    delete_->setEnabled(selected);
-    go_->setEnabled(selected);
+    for (int i = 0; i < list_->count(); ++i) {
+        auto *row = static_cast<CatalogRow *>(list_->itemWidget(list_->item(i)));
+        if (!row)
+            continue;
+        row->setPending(!editingEnabled_);
+        row->setEditEnabled(editingEnabled_);
+        row->setApplyEnabled(editingEnabled_);
+    }
 }
 
 void WaypointPanel::setSaveStatus(const QString &message, bool error)
@@ -150,12 +131,151 @@ void WaypointPanel::setSaveStatus(const QString &message, bool error)
 
 void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
 {
+    QString editingId;
+    QVariantMap draft;
+    if (editingEnabled_)
+        for (int i = 0; i < list_->count(); ++i) {
+            auto *item = list_->item(i);
+            auto *row = static_cast<CatalogRow *>(list_->itemWidget(item));
+            if (!row || !row->isEditing())
+                continue;
+            editingId = item->data(kWaypointRole).toMap()
+                            .value(QStringLiteral("id")).toString();
+            draft = {{QStringLiteral("name"), row->findChild<QLineEdit *>(
+                          QStringLiteral("WaypointRowName"))->text()},
+                     {QStringLiteral("x"), row->findChild<QDoubleSpinBox *>(
+                          QStringLiteral("WaypointRowX"))->value()},
+                     {QStringLiteral("y"), row->findChild<QDoubleSpinBox *>(
+                          QStringLiteral("WaypointRowY"))->value()},
+                     {QStringLiteral("yaw"), row->findChild<QDoubleSpinBox *>(
+                          QStringLiteral("WaypointRowYaw"))->value()}};
+            break;
+        }
+    const QString selectedId = list_->currentItem()
+        ? list_->currentItem()->data(kWaypointRole).toMap()
+              .value(QStringLiteral("id")).toString() : QString{};
     const QSignalBlocker blocker(list_);
     list_->clear();
     for (const auto &wp : waypoints) {
-        auto *it = new QListWidgetItem;
+        const QString id = wp.value(QStringLiteral("id")).toString();
+        auto *it = new QListWidgetItem(list_);
         it->setData(kWaypointRole, wp);
-        list_->addItem(it);
+        auto *row = new CatalogRow(list_);
+        row->setName(wp.value(QStringLiteral("name"), id).toString());
+        row->setDetails(QStringLiteral("X %1  ·  Y %2  ·  yaw %3°")
+            .arg(wp.value(QStringLiteral("x")).toDouble(), 0, 'f', 2)
+            .arg(wp.value(QStringLiteral("y")).toDouble(), 0, 'f', 2)
+            .arg(qRadiansToDegrees(wp.value(QStringLiteral("theta")).toDouble()), 0, 'f', 1));
+        row->setStatus(waypointStatusLabel(wp.value(QStringLiteral("status")).toString()));
+        row->onSelected([this, it] { list_->setCurrentItem(it); });
+        list_->setItemWidget(it, row);
+
+        auto *form = new QFormLayout;
+        auto *name = new QLineEdit(wp.value(QStringLiteral("name"), id).toString());
+        name->setObjectName(QStringLiteral("WaypointRowName"));
+        name->setMaxLength(120);
+        form->addRow(QStringLiteral("이름"), name);
+        const auto coordinate = [](const QString &objectName, double value) {
+            auto *spin = new QDoubleSpinBox;
+            spin->setObjectName(objectName);
+            spin->setRange(-1000000.0, 1000000.0);
+            spin->setDecimals(3);
+            spin->setSingleStep(0.1);
+            spin->setSuffix(QStringLiteral(" m"));
+            spin->setValue(value);
+            return spin;
+        };
+        auto *x = coordinate(QStringLiteral("WaypointRowX"),
+                             wp.value(QStringLiteral("x")).toDouble());
+        auto *y = coordinate(QStringLiteral("WaypointRowY"),
+                             wp.value(QStringLiteral("y")).toDouble());
+        form->addRow(QStringLiteral("X"), x);
+        form->addRow(QStringLiteral("Y"), y);
+        auto *yaw = new QDoubleSpinBox;
+        yaw->setObjectName(QStringLiteral("WaypointRowYaw"));
+        yaw->setRange(-180.0, 180.0);
+        yaw->setDecimals(1);
+        yaw->setSingleStep(5.0);
+        yaw->setSuffix(QStringLiteral("°"));
+        yaw->setValue(std::remainder(qRadiansToDegrees(
+            wp.value(QStringLiteral("theta")).toDouble()), 360.0));
+        form->addRow(QStringLiteral("도착 방향 (yaw)"), yaw);
+        row->editorLayout()->addLayout(form);
+
+        auto *actions = new QHBoxLayout;
+        auto *save = new QPushButton(QStringLiteral("저장"));
+        save->setObjectName(QStringLiteral("WaypointRowSave"));
+        save->setProperty("variant", "primary");
+        auto *remove = new QPushButton(QStringLiteral("삭제"));
+        remove->setObjectName(QStringLiteral("WaypointRowDelete"));
+        auto *cancel = new QPushButton(QStringLiteral("취소"));
+        cancel->setObjectName(QStringLiteral("WaypointRowCancel"));
+        for (auto *button : {save, remove, cancel})
+            button->setProperty("size", "sm");
+        actions->addWidget(save, 1);
+        actions->addWidget(remove);
+        actions->addWidget(cancel);
+        row->editorLayout()->addLayout(actions);
+        const auto resizeItem = [this, it, row] {
+            row->layout()->activate();
+            it->setSizeHint(QSize(0, row->sizeHint().height()));
+            list_->doItemsLayout();
+        };
+        connect(row->editButton(), &QPushButton::clicked, this, [this, row, resizeItem] {
+            for (int i = 0; i < list_->count(); ++i) {
+                auto *otherItem = list_->item(i);
+                auto *other = static_cast<CatalogRow *>(list_->itemWidget(otherItem));
+                if (other && other != row && other->isEditing()) {
+                    other->setEditing(false);
+                    otherItem->setSizeHint(QSize(0, other->sizeHint().height()));
+                }
+            }
+            row->setEditing(true);
+            resizeItem();
+        });
+        connect(cancel, &QPushButton::clicked, this, [row, resizeItem] {
+            row->setEditing(false);
+            resizeItem();
+        });
+        connect(save, &QPushButton::clicked, this, [this, id, wp, name, x, y, yaw] {
+            if (!editingEnabled_)
+                return;
+            const QString newName = name->text().trimmed();
+            if (newName.isEmpty() || newName.toUtf8().size() > 120) {
+                setSaveStatus(QStringLiteral("웨이포인트 이름을 확인하십시오."), true);
+                return;
+            }
+            QVariantMap updated = wp;
+            updated[QStringLiteral("name")] = newName;
+            updated[QStringLiteral("x")] = x->value();
+            updated[QStringLiteral("y")] = y->value();
+            updated[QStringLiteral("theta")] = qDegreesToRadians(yaw->value());
+            emit updateRequested(id, updated);
+        });
+        connect(remove, &QPushButton::clicked, this, [this, id, wp] {
+            if (!editingEnabled_ || QMessageBox::question(
+                this, QStringLiteral("웨이포인트 삭제"),
+                QStringLiteral("'%1' 웨이포인트를 삭제하시겠습니까?")
+                    .arg(wp.value(QStringLiteral("name"), id).toString()),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
+                return;
+            emit deleteRequested(id);
+        });
+        connect(row->applyButton(), &QPushButton::clicked, this, [this, id] {
+            if (editingEnabled_)
+                emit gotoRequested(id);
+        });
+        it->setSizeHint(QSize(0, row->sizeHint().height()));
+        if (id == editingId) {
+            name->setText(draft.value(QStringLiteral("name")).toString());
+            x->setValue(draft.value(QStringLiteral("x")).toDouble());
+            y->setValue(draft.value(QStringLiteral("y")).toDouble());
+            yaw->setValue(draft.value(QStringLiteral("yaw")).toDouble());
+            row->setEditing(true);
+            it->setSizeHint(QSize(0, row->sizeHint().height()));
+        }
+        if (id == selectedId)
+            list_->setCurrentItem(it);
     }
     count_->setText(QString::number(waypoints.size()));
     updateActionButtons();
@@ -182,7 +302,8 @@ void WaypointPanel::setStatus(const QString &id, const QString &status)
             return;                       // 불필요한 갱신은 건너뛴다
         d[QStringLiteral("status")] = status;
         it->setData(kWaypointRole, d);
-        list_->update(list_->indexFromItem(it));
+        if (auto *row = static_cast<CatalogRow *>(list_->itemWidget(it)))
+            row->setStatus(waypointStatusLabel(status));
         emit waypointsChanged(waypoints());
         return;
     }

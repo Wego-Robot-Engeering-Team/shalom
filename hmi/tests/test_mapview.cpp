@@ -3,8 +3,10 @@
 
 // 지도 오버레이. 조작자가 지도에서 무엇을 짚을 수 있는지가 여기 걸려 있다.
 
+#include <cmath>
 #include <QGraphicsScene>
 #include <QGraphicsPathItem>
+#include <QSignalSpy>
 #include <QTest>
 
 #include "mapview/MapItems.h"
@@ -49,6 +51,48 @@ class TestMapView : public QObject {
     Q_OBJECT
 
 private slots:
+
+    void tagPlacementKeepsFacingDirection()
+    {
+        MapView v;
+        v.resize(640, 360);
+        v.setMap(testMap(), testImage());
+        v.show();
+        QTest::qWait(1);
+        QSignalSpy placed(&v, &MapView::tagPlaced);
+        const QPoint start = v.viewport()->rect().center();
+
+        v.setMode(MapMode::AddTag);
+        QTest::mousePress(v.viewport(), Qt::LeftButton, Qt::NoModifier, start);
+        QTest::mouseMove(v.viewport(), start + QPoint(40, 0));
+        QTest::mouseRelease(v.viewport(), Qt::LeftButton, Qt::NoModifier,
+                            start + QPoint(40, 0));
+        QCOMPARE(placed.size(), 1);
+        QVERIFY(placed.at(0).at(3).toBool());
+        QVERIFY(std::abs(placed.at(0).at(2).toDouble()) < 0.01);
+
+        v.setMode(MapMode::AddTag);
+        QTest::mouseClick(v.viewport(), Qt::LeftButton, Qt::NoModifier, start);
+        QCOMPARE(placed.size(), 2);
+        QVERIFY(!placed.at(1).at(3).toBool());
+    }
+
+    void tagOverlayShowsHeightAndFacingDirection()
+    {
+        MapView v;
+        v.setMap(testMap(), testImage());
+        v.setTags({QVariantMap{{"id", 5}, {"x", 1.0}, {"y", 1.0},
+                               {"z", 1.2}, {"yaw", 1.57}}});
+        bool found = false;
+        for (auto *item : v.scene()->items()) {
+            if (auto *tag = dynamic_cast<AprilTagMarker *>(item)) {
+                found = true;
+                QVERIFY(tag->toolTip().contains(QStringLiteral("1.20 m")));
+                QVERIFY(tag->toolTip().contains(QStringLiteral("방향")));
+            }
+        }
+        QVERIFY(found);
+    }
 
     /// 충전소와 시작 위치가 지도에 떠야 한다. 순회 목록 밖이라 웨이포인트
     /// 오버레이로는 그려지지 않는 자리다.

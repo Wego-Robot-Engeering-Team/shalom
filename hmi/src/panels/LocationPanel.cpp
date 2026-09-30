@@ -10,6 +10,7 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QtMath>
+#include <utility>
 
 #include "theme/Tokens.h"
 #include "widgets/Primitives.h"
@@ -121,18 +122,28 @@ QWidget *LocationPanel::buildMarkerSection()
 
     auto *row = new QHBoxLayout;
     row->setSpacing(metrics::s2);
-    auto *add = new QPushButton(QStringLiteral("마커 위치 지정"));
+    auto *add = new QPushButton(QStringLiteral("마커 추가"));
     add->setProperty("size", "sm");
+    markerEdit_ = new QPushButton(QStringLiteral("수정"));
+    markerEdit_->setProperty("size", "sm");
+    markerEdit_->setEnabled(false);
     markerDelete_ = new QPushButton(QStringLiteral("삭제"));
     markerDelete_->setProperty("size", "sm");
     markerDelete_->setEnabled(false);
     row->addWidget(add, 2);
+    row->addWidget(markerEdit_, 1);
     row->addWidget(markerDelete_, 1);
     lay->addLayout(row);
 
     connect(add, &QPushButton::clicked, this, &LocationPanel::addMarkerFromMap);
     connect(markerList_, &QListWidget::currentRowChanged, this, [this](int row) {
+        markerEdit_->setEnabled(row >= 0 && row < markers_.size());
         markerDelete_->setEnabled(row >= 0 && row < markers_.size());
+    });
+    connect(markerEdit_, &QPushButton::clicked, this, [this] {
+        const int row = markerList_->currentRow();
+        if (row >= 0 && row < markers_.size())
+            emit editMarkerRequested(row);
     });
     connect(markerDelete_, &QPushButton::clicked, this, [this] {
         const int row = markerList_->currentRow();
@@ -160,15 +171,24 @@ void LocationPanel::refreshMarkerList()
     const int keep = markerList_->currentRow();
     markerList_->clear();
     for (const auto &m : std::as_const(markers_)) {
-        markerList_->addItem(QStringLiteral("#%1    %2, %3")
+        const QString z = m.contains(QStringLiteral("z"))
+            ? QString::number(m.value(QStringLiteral("z")).toDouble(), 'f', 2)
+            : QStringLiteral("미설정");
+        const QString yaw = m.contains(QStringLiteral("yaw"))
+            ? QStringLiteral("%1°").arg(qRadiansToDegrees(
+                  m.value(QStringLiteral("yaw")).toDouble()), 0, 'f', 1)
+            : QStringLiteral("미설정");
+        markerList_->addItem(QStringLiteral("#%1  X %2  Y %3  Z %4  방향 %5")
                                  .arg(m.value(QStringLiteral("id")).toInt())
                                  .arg(m.value(QStringLiteral("x")).toDouble(), 0, 'f', 2)
-                                 .arg(m.value(QStringLiteral("y")).toDouble(), 0, 'f', 2));
+                                 .arg(m.value(QStringLiteral("y")).toDouble(), 0, 'f', 2)
+                                 .arg(z, yaw));
     }
     markerCount_->setText(markers_.isEmpty() ? QStringLiteral("없음")
                                              : QStringLiteral("%1개").arg(markers_.size()));
     if (keep >= 0 && keep < markers_.size())
         markerList_->setCurrentRow(keep);
+    markerEdit_->setEnabled(markerList_->currentRow() >= 0);
     markerDelete_->setEnabled(markerList_->currentRow() >= 0);
 }
 

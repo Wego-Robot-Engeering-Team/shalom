@@ -3,6 +3,7 @@
 
 #include "mapview/MapItems.h"
 
+#include <cmath>
 #include <QFont>
 #include <QGraphicsSceneHoverEvent>
 #include <QPainter>
@@ -205,6 +206,13 @@ void AprilTagMarker::setSeen(bool seen)
     update();
 }
 
+void AprilTagMarker::setHeading(double yaw)
+{
+    yaw_ = yaw;
+    hasHeading_ = true;
+    update();
+}
+
 QRectF AprilTagMarker::boundingRect() const
 {
     const double e = s_ * 2.2;
@@ -228,6 +236,18 @@ void AprilTagMarker::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidge
     p->setPen(QPen(col, 1.5));
     p->setBrush(seen_ ? QBrush(col) : QBrush(QColor(C.surface)));
     p->drawRect(QRectF(-s_, -s_, s_ * 2, s_ * 2));
+
+    if (hasHeading_) {
+        // 태그 앞면의 바깥쪽 법선 방향. 숫자까지 회전시키지 않는다.
+        const QPointF direction(std::cos(yaw_), -std::sin(yaw_));
+        const QPointF side(-direction.y(), direction.x());
+        const QPointF tip = direction * (s_ * 2.0);
+        p->setPen(QPen(col, 1.5));
+        p->drawLine(direction * (s_ * 1.1), tip);
+        p->setBrush(col);
+        p->drawPolygon(QPolygonF{tip, tip - direction * 4.0 + side * 2.5,
+                                 tip - direction * 4.0 - side * 2.5});
+    }
 
     QFont f;
     f.setPointSize(7);

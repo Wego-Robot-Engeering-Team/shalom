@@ -3,18 +3,21 @@
 
 #include <QAbstractItemView>
 #include <QApplication>
-#include <QInputDialog>
+#include <QComboBox>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QSignalSpy>
-#include <QTableWidget>
+#include <QStackedWidget>
 #include <QTest>
 #include <QTimer>
 
 #include "panels/MissionLibraryPanel.h"
 #include "panels/MissionPanel.h"
 #include "panels/WaypointPanel.h"
+#include "widgets/CatalogRow.h"
 
 using namespace hmi::ui;
 
@@ -30,7 +33,7 @@ QPushButton *button(QWidget &panel, const QString &text)
 QVariantMap mission(const QVariantList &steps)
 {
     return {{"id", "inspection-1"}, {"name", "정기 점검"},
-            {"map_id", "map-1"}, {"revision", 1}, {"archived", false},
+            {"revision", 1}, {"archived", false},
             {"steps", steps}};
 }
 }
@@ -38,13 +41,26 @@ QVariantMap mission(const QVariantList &steps)
 class MissionTest : public QObject {
     Q_OBJECT
 private slots:
+    void mapSwitchClearsPreviousMissionList()
+    {
+        MissionLibraryPanel panel;
+        panel.setMapId(QStringLiteral("map-1"));
+        panel.setMissions({mission({QVariantMap{{"id", "move-1"}, {"type", "navigate"},
+                                         {"location_id", "wp-1"}}})});
+        auto *list = panel.findChild<QListWidget *>(QStringLiteral("MissionList"));
+        QVERIFY(list);
+        QCOMPARE(list->count(), 1);
+        panel.setMapId(QStringLiteral("map-2"));
+        QCOMPARE(list->count(), 0);
+    }
+
     void storedNavigateMissionRuns()
     {
         MissionLibraryPanel panel;
         panel.setMapId(QStringLiteral("map-1"));
         panel.setMissions({mission({QVariantMap{{"id", "move-1"}, {"type", "navigate"},
                                          {"location_id", "wp-1"}}})});
-        auto *run = button(panel, QStringLiteral("선택 미션 실행"));
+        auto *run = panel.findChild<QPushButton *>(QStringLiteral("MissionRun_inspection-1"));
         QVERIFY(run);
         QVERIFY2(run->isEnabled(), qPrintable(run->toolTip()));
         QSignalSpy spy(&panel, &MissionLibraryPanel::runRequested);
@@ -61,11 +77,13 @@ private slots:
                                          {"location_id", "wp-1"}},
                                     QVariantMap{{"id", "photo-1"}, {"type", "capture"},
                                                 {"preset", "detail"}}})});
-        auto *run = button(panel, QStringLiteral("선택 미션 실행"));
+        auto *run = panel.findChild<QPushButton *>(QStringLiteral("MissionRun_inspection-1"));
+        auto *edit = panel.findChild<QPushButton *>(QStringLiteral("MissionEdit_inspection-1"));
         auto *save = button(panel, QStringLiteral("저장"));
-        QVERIFY(run && save);
+        QVERIFY(run && edit && save);
         QVERIFY(!run->isEnabled());
         QVERIFY(run->toolTip().contains(QStringLiteral("실행기")));
+        edit->click();
         QVERIFY(save->isEnabled());
         QSignalSpy spy(&panel, &MissionLibraryPanel::saveRequested);
         save->click();
@@ -82,8 +100,10 @@ private slots:
         panel.setMapId(QStringLiteral("map-1"));
         panel.setMissions({mission({QVariantMap{{"id", "arm-1"}, {"type", "arm_move"},
                                          {"pose", "inspection-a"}}})});
+        auto *edit = panel.findChild<QPushButton *>(QStringLiteral("MissionEdit_inspection-1"));
         auto *save = button(panel, QStringLiteral("저장"));
-        QVERIFY(save);
+        QVERIFY(edit && save);
+        edit->click();
         QSignalSpy spy(&panel, &MissionLibraryPanel::saveRequested);
         save->click();
         QCOMPARE(spy.size(), 1);
@@ -102,10 +122,12 @@ private slots:
                                                 {"requires", QStringList{QStringLiteral("nav")}}}});
         stored[QStringLiteral("description")] = QStringLiteral("차량 하부 점검");
         panel.setMissions({stored});
-        auto *run = button(panel, QStringLiteral("선택 미션 실행"));
+        auto *run = panel.findChild<QPushButton *>(QStringLiteral("MissionRun_inspection-1"));
+        auto *edit = panel.findChild<QPushButton *>(QStringLiteral("MissionEdit_inspection-1"));
         auto *save = button(panel, QStringLiteral("저장"));
-        QVERIFY(run && save);
+        QVERIFY(run && edit && save);
         QVERIFY(run->isEnabled());
+        edit->click();
         QSignalSpy spy(&panel, &MissionLibraryPanel::saveRequested);
         save->click();
         QCOMPARE(spy.size(), 1);
@@ -123,12 +145,12 @@ private slots:
         panel.setWaypoints({QVariantMap{{"id", "wp-1"}, {"name", "입구"},
                                        {"x", 1.0}, {"y", 2.0}}});
         auto *list = panel.findChild<QListWidget *>();
-        auto *go = button(panel, QStringLiteral("선택 위치로 이동"));
+        auto *go = list ? static_cast<CatalogRow *>(list->itemWidget(list->item(0)))
+                            ->applyButton() : nullptr;
         QVERIFY(list && go);
         QCOMPARE(list->dragDropMode(), QAbstractItemView::NoDragDrop);
         QSignalSpy spy(&panel, &WaypointPanel::gotoRequested);
         panel.setEditingEnabled(true);
-        list->setCurrentRow(0);
         go->click();
         QCOMPARE(spy.size(), 1);
         QCOMPARE(spy.first().at(0).toString(), QStringLiteral("wp-1"));
@@ -142,14 +164,14 @@ private slots:
                                          {"location_id", "wp-1"}},
                                     QVariantMap{{"id", "second"}, {"type", "navigate"},
                                                 {"location_id", "wp-2"}}})});
-        auto *steps = panel.findChild<QTableWidget *>(QStringLiteral("MissionSteps"));
-        auto *up = button(panel, QStringLiteral("위로"));
+        auto *edit = panel.findChild<QPushButton *>(QStringLiteral("MissionEdit_inspection-1"));
+        QVERIFY(edit);
+        edit->click();
+        auto *steps = panel.findChild<QListWidget *>(QStringLiteral("MissionSteps"));
+        auto *up = panel.findChild<QPushButton *>(QStringLiteral("MissionStepUp_1"));
         auto *save = button(panel, QStringLiteral("저장"));
         QVERIFY(steps && up && save);
-        steps->selectRow(1);
         up->click();
-        QCOMPARE(steps->item(0, 0)->text(), QStringLiteral("second"));
-        QCOMPARE(steps->item(0, 2)->text(), QStringLiteral("wp-2"));
         QSignalSpy spy(&panel, &MissionLibraryPanel::saveRequested);
         save->click();
         QCOMPARE(spy.size(), 1);
@@ -165,7 +187,10 @@ private slots:
         const QVariantMap stored = mission({QVariantMap{{"id", "move-1"},
             {"type", "navigate"}, {"location_id", "wp-1"}}});
         panel.setMissions({stored});
-        auto *name = panel.findChild<QLineEdit *>();
+        auto *edit = panel.findChild<QPushButton *>(QStringLiteral("MissionEdit_inspection-1"));
+        QVERIFY(edit);
+        edit->click();
+        auto *name = panel.findChild<QLineEdit *>(QStringLiteral("MissionName"));
         auto *save = button(panel, QStringLiteral("저장"));
         QVERIFY(name && save);
         name->setText(QStringLiteral("수정 중인 이름"));
@@ -181,6 +206,15 @@ private slots:
         updated[QStringLiteral("name")] = QStringLiteral("수정 중인 이름");
         updated[QStringLiteral("revision")] = 2;
         panel.setMissions({updated});
+        auto *pages = panel.findChild<QStackedWidget *>(QStringLiteral("MissionLibraryPages"));
+        QVERIFY(pages);
+        QCOMPARE(pages->currentIndex(), 0);
+        auto *list = panel.findChild<QListWidget *>(QStringLiteral("MissionList"));
+        edit = list && list->count()
+            ? list->itemWidget(list->item(0))->findChild<QPushButton *>(
+                  QStringLiteral("MissionEdit_inspection-1")) : nullptr;
+        QVERIFY(edit);
+        edit->click();
         QCOMPARE(name->text(), QStringLiteral("수정 중인 이름"));
         save->click();
         QCOMPARE(saves.size(), 2);
@@ -195,19 +229,141 @@ private slots:
                             QVariantMap{{"id", "wp-2"}, {"name", "후면"}}});
         button(panel, QStringLiteral("새 미션"))->click();
         button(panel, QStringLiteral("단계 추가"))->click();
-        auto *steps = panel.findChild<QTableWidget *>(QStringLiteral("MissionSteps"));
-        auto *choose = button(panel, QStringLiteral("대상 선택"));
-        QVERIFY(steps && choose);
-        steps->selectRow(0);
-        QVERIFY(choose->isEnabled());
-        QTimer::singleShot(0, [] {
-            auto *dialog = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
-            QVERIFY(dialog);
-            dialog->setTextValue(QStringLiteral("후면  (wp-2)"));
-            dialog->accept();
+        auto *steps = panel.findChild<QListWidget *>(QStringLiteral("MissionSteps"));
+        auto *target = steps && steps->count()
+            ? steps->itemWidget(steps->item(0))->findChild<QComboBox *>(
+                  QStringLiteral("MissionStepTarget")) : nullptr;
+        QVERIFY(steps && target);
+        const int selected = target->findData(QStringLiteral("wp-2"));
+        QVERIFY(selected > 0);
+        QCOMPARE(target->itemText(selected), QStringLiteral("후면"));
+        target->setCurrentIndex(selected);
+        auto *name = panel.findChild<QLineEdit *>(QStringLiteral("MissionName"));
+        name->setText(QStringLiteral("점검"));
+        QSignalSpy saves(&panel, &MissionLibraryPanel::saveRequested);
+        button(panel, QStringLiteral("저장"))->click();
+        QCOMPARE(saves.size(), 1);
+        QCOMPARE(saves.first().first().toMap().value(QStringLiteral("steps")).toList()
+                     .first().toMap().value(QStringLiteral("location_id")).toString(),
+                 QStringLiteral("wp-2"));
+    }
+
+    void savedMissionActionsAreOnEachRowAndEditingIsSeparate()
+    {
+        MissionLibraryPanel panel;
+        panel.setMapId(QStringLiteral("map-1"));
+        QVariantMap first = mission({QVariantMap{{"id", "move-1"}, {"type", "navigate"},
+                                                 {"location_id", "wp-1"}}});
+        QVariantMap second = first;
+        second[QStringLiteral("id")] = QStringLiteral("inspection-2");
+        second[QStringLiteral("name")] = QStringLiteral("추가 점검");
+        panel.setMissions({first, second});
+        auto *pages = panel.findChild<QStackedWidget *>(QStringLiteral("MissionLibraryPages"));
+        auto *list = panel.findChild<QListWidget *>(QStringLiteral("MissionList"));
+        QVERIFY(pages && list);
+        QCOMPARE(pages->currentIndex(), 0);
+        QCOMPARE(list->count(), 2);
+        auto *row = list->itemWidget(list->item(1));
+        QVERIFY(row->findChild<QPushButton *>(QStringLiteral("MissionEdit_inspection-2")));
+        QVERIFY(row->findChild<QPushButton *>(QStringLiteral("MissionRun_inspection-2")));
+        QVERIFY(row->findChild<QPushButton *>(QStringLiteral("MissionDelete_inspection-2")));
+        QVERIFY(!button(panel, QStringLiteral("선택 미션 실행")));
+        row->findChild<QPushButton *>(QStringLiteral("MissionEdit_inspection-2"))->click();
+        QCOMPARE(pages->currentIndex(), 1);
+        QCOMPARE(panel.findChild<QLineEdit *>(QStringLiteral("MissionName"))->text(),
+                 QStringLiteral("추가 점검"));
+        button(panel, QStringLiteral("취소"))->click();
+        QCOMPARE(pages->currentIndex(), 0);
+        QSignalSpy archives(&panel, &MissionLibraryPanel::archiveRequested);
+        bool dialogShown = false;
+        QTimer::singleShot(0, [&dialogShown] {
+            for (auto *widget : QApplication::topLevelWidgets()) {
+                if (auto *dialog = qobject_cast<QMessageBox *>(widget)) {
+                    dialogShown = true;
+                    dialog->button(QMessageBox::Yes)->click();
+                    return;
+                }
+            }
         });
-        choose->click();
-        QCOMPARE(steps->item(0, 2)->text(), QStringLiteral("wp-2"));
+        row->findChild<QPushButton *>(QStringLiteral("MissionDelete_inspection-2"))->click();
+        QVERIFY(dialogShown);
+        QCOMPARE(archives.size(), 1);
+        QCOMPARE(archives.first().at(0).toString(), QStringLiteral("inspection-2"));
+        QCOMPARE(archives.first().at(1).toULongLong(), 1ULL);
+    }
+
+    void stepTargetsUseNamedCatalogsWithoutIdDialog()
+    {
+        MissionLibraryPanel panel;
+        panel.setMapId(QStringLiteral("map-1"));
+        panel.setWaypoints({QVariantMap{{"id", "wp-1"}, {"name", "차량 앞쪽"}}});
+        panel.setArmPosePresets({QVariantMap{{"id", "pose-1"}, {"name", "왼쪽 점검"}}});
+        button(panel, QStringLiteral("새 미션"))->click();
+        auto *name = panel.findChild<QLineEdit *>(QStringLiteral("MissionName"));
+        auto *steps = panel.findChild<QListWidget *>(QStringLiteral("MissionSteps"));
+        QVERIFY(name && steps);
+        name->setText(QStringLiteral("점검 미션"));
+        const auto targetAt = [steps](int index) {
+            return steps->itemWidget(steps->item(index))
+                ->findChild<QComboBox *>(QStringLiteral("MissionStepTarget"));
+        };
+        button(panel, QStringLiteral("단계 추가"))->click();
+        auto *target = targetAt(0);
+        QCOMPARE(target->itemText(target->findData(QStringLiteral("wp-1"))),
+                 QStringLiteral("차량 앞쪽"));
+        target->setCurrentIndex(target->findData(QStringLiteral("wp-1")));
+
+        button(panel, QStringLiteral("단계 추가"))->click();
+        auto *type = panel.findChild<QComboBox *>(QStringLiteral("MissionStepType_1"));
+        QVERIFY(type);
+        type->setCurrentIndex(type->findData(QStringLiteral("arm_move")));
+        target = targetAt(1);
+        QCOMPARE(target->itemText(target->findData(QStringLiteral("pose-1"))),
+                 QStringLiteral("왼쪽 점검"));
+        target->setCurrentIndex(target->findData(QStringLiteral("pose-1")));
+
+        button(panel, QStringLiteral("단계 추가"))->click();
+        type = panel.findChild<QComboBox *>(QStringLiteral("MissionStepType_2"));
+        type->setCurrentIndex(type->findData(QStringLiteral("capture")));
+        target = targetAt(2);
+        QVERIFY(target->isEditable());
+        target->setEditText(QStringLiteral("detail"));
+
+        QSignalSpy saves(&panel, &MissionLibraryPanel::saveRequested);
+        button(panel, QStringLiteral("저장"))->click();
+        QCOMPARE(saves.size(), 1);
+        const auto savedSteps = saves.first().first().toMap()
+                                    .value(QStringLiteral("steps")).toList();
+        QCOMPARE(savedSteps.at(0).toMap().value(QStringLiteral("location_id")).toString(),
+                 QStringLiteral("wp-1"));
+        QCOMPARE(savedSteps.at(1).toMap().value(QStringLiteral("pose")).toString(),
+                 QStringLiteral("pose-1"));
+        QCOMPARE(savedSteps.at(2).toMap().value(QStringLiteral("preset")).toString(),
+                 QStringLiteral("detail"));
+    }
+
+    void rejectedSaveKeepsTheDraftEditable()
+    {
+        MissionLibraryPanel panel;
+        panel.setMapId(QStringLiteral("map-1"));
+        panel.setWaypoints({QVariantMap{{"id", "wp-1"}, {"name", "입구"}}});
+        button(panel, QStringLiteral("새 미션"))->click();
+        panel.findChild<QLineEdit *>(QStringLiteral("MissionName"))
+            ->setText(QStringLiteral("다시 저장할 미션"));
+        button(panel, QStringLiteral("단계 추가"))->click();
+        auto *steps = panel.findChild<QListWidget *>(QStringLiteral("MissionSteps"));
+        auto *target = steps->itemWidget(steps->item(0))
+                           ->findChild<QComboBox *>(QStringLiteral("MissionStepTarget"));
+        target->setCurrentIndex(target->findData(QStringLiteral("wp-1")));
+        auto *save = button(panel, QStringLiteral("저장"));
+        save->click();
+        QVERIFY(!save->isEnabled());
+        panel.handleCommandResult(QStringLiteral("cmd/missions/save"), false,
+                                  QStringLiteral("BUSY"), QStringLiteral("재시도"));
+        QVERIFY(save->isEnabled());
+        QCOMPARE(panel.findChild<QStackedWidget *>(QStringLiteral("MissionLibraryPages"))
+                     ->currentIndex(), 1);
+        QCOMPARE(target->currentData().toString(), QStringLiteral("wp-1"));
     }
 
     void missionLibraryFitsNarrowContextColumn()
@@ -217,6 +373,7 @@ private slots:
         auto *newMission = button(panel, QStringLiteral("새 미션"));
         QVERIFY(newMission);
         newMission->click();
+        button(panel, QStringLiteral("단계 추가"))->click();
         panel.resize(360, 800);
         panel.show();
         QCoreApplication::processEvents();
@@ -224,6 +381,8 @@ private slots:
         QVERIFY2(panel.minimumSizeHint().width() <= 360,
                  "미션 라이브러리가 주행·미션 패널 너비보다 넓습니다.");
         for (auto *control : panel.findChildren<QPushButton *>()) {
+            if (!control->isVisible())
+                continue;
             const QPoint right = control->mapTo(&panel, control->rect().topRight());
             QVERIFY2(right.x() < panel.width(), qPrintable(control->text()));
         }

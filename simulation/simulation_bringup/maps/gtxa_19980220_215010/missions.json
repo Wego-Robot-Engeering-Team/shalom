@@ -1,12 +1,11 @@
 {
-  "map_id": "gtxa_19980220_215010",
   "missions": [
     {
       "archived": false,
+      "description": "",
       "id": "7f6fbd86128f4a65a5b0fa64d9cd51fd",
-      "map_id": "gtxa_19980220_215010",
       "name": "juno1",
-      "revision": 1,
+      "revision": 4,
       "steps": [
         {
           "id": "step-1",
@@ -15,16 +14,19 @@
         },
         {
           "id": "step-2",
-          "location_id": "f51dece9-88ef-48d6-b48e-bb70007cb686",
-          "type": "navigate"
+          "preset": "underbody_left",
+          "type": "capture"
         },
         {
           "id": "step-3",
-          "location_id": "150d8762-722f-468c-b36c-4001ec6ff8d6",
-          "type": "navigate"
+          "pose": "inspection_a",
+          "type": "arm_move"
+        },
+        {
+          "id": "step-4",
+          "type": "dock"
         }
       ]
     }
-  ],
-  "schema_version": 1
+  ]
 }
