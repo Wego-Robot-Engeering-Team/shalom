@@ -43,12 +43,16 @@
 #include <std_srvs/srv/trigger.hpp>
 #include <shalom_interfaces/msg/mission_plan.hpp>
 #include <shalom_interfaces/msg/mission_state.hpp>
+#include <shalom_interfaces/msg/base_source_state.hpp>
+#include <shalom_interfaces/msg/motion_stopped.hpp>
 #include <shalom_interfaces/msg/motion_authority.hpp>
 #include <shalom_interfaces/msg/safety_state.hpp>
 #include <shalom_interfaces/srv/authority_request.hpp>
 #include <shalom_interfaces/srv/configure_mission.hpp>
 #include <shalom_interfaces/srv/mission_control.hpp>
 #include <shalom_interfaces/srv/safety_command.hpp>
+#include <shalom_interfaces/srv/select_base_source.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
@@ -157,6 +161,13 @@ private:
     // says, because a second opinion on whether a goal is reachable is one the
     // operator has no way to adjudicate.
     void startNavigation(const Envelope &request);
+    void selectNavigationSource();
+    void sendNavigationGoal(const Envelope &request);
+    void onBaseSourceState(const shalom_interfaces::msg::BaseSourceState::SharedPtr message);
+    void tickNavigationSource();
+    [[nodiscard]] bool baseSourceFresh() const;
+    [[nodiscard]] bool directNavigationSourceActive() const;
+    void releaseNavigationSource();
 
     /// Asks Nav2 to abandon the current goal. Safe to call when there is none.
     ///
@@ -252,7 +263,7 @@ private:
         const json *mission = nullptr, std::string *error = nullptr);
     void configureAndStartMission(const Envelope &request);
     void sendMissionControl(const Envelope &request, uint8_t operation);
-    void pauseMissionForManualTakeover();
+    bool pauseMissionForManualTakeover();
     void onMissionState(const shalom_interfaces::msg::MissionState::SharedPtr message);
     /// 등록된 위치에서 충전 스테이션을 찾는다. 없으면 -1.
     int findDock() const;
@@ -312,6 +323,21 @@ private:
     bool estopEngaged_ = false;
     std::string safetyState_{"unknown"};
     bool manualMode_ = false;
+    bool manualReady_ = false;
+    bool manualPauseAcknowledged_ = false;
+    bool navGoalAcceptPending_ = false;
+    bool navCancelRequested_ = false;
+    bool navCancelAllPending_ = false;
+    bool navCancelAllAccepted_ = true;
+    bool baseStopped_ = false;
+    std::optional<Envelope> pendingManualMode_;
+    uint64_t manualRequestGeneration_ = 0;
+    std::chrono::steady_clock::time_point manualRequestAt_{};
+    std::chrono::steady_clock::time_point baseStoppedAt_{};
+    std::chrono::steady_clock::time_point autoReleaseAt_{};
+    std::optional<rclcpp::Time> startupSourceLockStamp_;
+    bool startupSourceSynchronized_ = false;
+    std::optional<uint64_t> lastBaseStoppedSequence_;
     std::int64_t seq_ = 0;
 
     // ---- navigation state ------------------------------------------------
@@ -324,6 +350,28 @@ private:
     /// would be left watching a robot that never moves with nothing to read.
     std::optional<Envelope> pendingGoto_;
     rclcpp::Time pendingGotoAt_;
+    shalom_interfaces::msg::BaseSourceState baseSourceState_;
+    std::chrono::steady_clock::time_point baseSourceReceivedAt_{};
+    std::chrono::steady_clock::time_point safetyStateReceivedAt_{};
+    std::chrono::steady_clock::time_point motionAuthorityReceivedAt_{};
+    std::chrono::steady_clock::time_point navSourceRequestAt_{};
+    std::chrono::steady_clock::time_point navSourceReplyAt_{};
+    std::chrono::steady_clock::time_point navSourceDependencyRequestAt_{};
+    std::chrono::steady_clock::time_point navSourceNextRetryAt_{};
+    uint64_t navSourceReplySequence_ = 0;
+    uint64_t navSourceRequestGeneration_ = 0;
+    uint64_t navGoalGeneration_ = 0;
+    const std::string navSourceRequestPrefix_{
+        "hmi-direct-" +
+        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())};
+    bool haveBaseSourceState_ = false;
+    bool safetyMotionPermitted_ = false;
+    bool navSourcePreparing_ = false;
+    bool navSourceSelectPending_ = false;
+    bool navSourceAwaitingActive_ = false;
+    bool navSourceOwned_ = false;
+    bool navSourceReleasePending_ = false;
+    bool navSourceCancelPending_ = false;
 
     std::vector<Sensor> sensors_;
 
@@ -429,6 +477,9 @@ private:
     /// keeps twist_mux from falling through to Nav2 while the operator has
     /// taken manual control. The arm has the same source in joint_mux.
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr baseHoldPub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr baseInhibitPub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr manualAutonomyLockPub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr manualReadyPub_;
 
     rclcpp_action::Client<NavigateToPose>::SharedPtr navClient_;
     rclcpp::Client<nav2_msgs::srv::LoadMap>::SharedPtr mapLoadClient_;
@@ -438,6 +489,7 @@ private:
     rclcpp::Client<shalom_interfaces::srv::MissionControl>::SharedPtr missionControlClient_;
     rclcpp::Client<shalom_interfaces::srv::SafetyCommand>::SharedPtr safetyCommandClient_;
     rclcpp::Client<shalom_interfaces::srv::AuthorityRequest>::SharedPtr authorityRequestClient_;
+    rclcpp::Client<shalom_interfaces::srv::SelectBaseSource>::SharedPtr baseSourceClient_;
 
     rclcpp::Subscription<sensor_msgs::msg::BatteryState>::SharedPtr batterySub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr jointSub_;
@@ -446,6 +498,8 @@ private:
     rclcpp::Subscription<shalom_interfaces::msg::SafetyState>::SharedPtr safetyStateSub_;
     rclcpp::Subscription<shalom_interfaces::msg::MotionAuthority>::SharedPtr authoritySub_;
     rclcpp::Subscription<shalom_interfaces::msg::MissionState>::SharedPtr missionStateSub_;
+    rclcpp::Subscription<shalom_interfaces::msg::BaseSourceState>::SharedPtr baseSourceSub_;
+    rclcpp::Subscription<shalom_interfaces::msg::MotionStopped>::SharedPtr baseStoppedSub_;
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr amclPoseSub_;
 
     std::unique_ptr<tf2_ros::Buffer> tfBuffer_;

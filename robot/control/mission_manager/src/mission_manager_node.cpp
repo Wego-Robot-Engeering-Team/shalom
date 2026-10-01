@@ -21,6 +21,7 @@
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "shalom_interfaces/msg/mission_plan.hpp"
 #include "shalom_interfaces/msg/mission_state.hpp"
+#include "shalom_interfaces/msg/base_source_state.hpp"
 #include "shalom_interfaces/msg/motion_authority.hpp"
 #include "shalom_interfaces/msg/motion_stopped.hpp"
 #include "shalom_interfaces/msg/safety_state.hpp"
@@ -28,6 +29,7 @@
 #include "shalom_interfaces/srv/configure_mission.hpp"
 #include "shalom_interfaces/srv/mission_control.hpp"
 #include "shalom_interfaces/srv/safety_command.hpp"
+#include "shalom_interfaces/srv/select_base_source.hpp"
 
 #include "mission_manager/bt/nav2_bt.hpp"
 #include "mission_manager/mission_state_machine.hpp"
@@ -42,11 +44,13 @@ namespace
   using MissionPlan = shalom_interfaces::msg::MissionPlan;
   using MissionState = shalom_interfaces::msg::MissionState;
   using MissionWaypoint = shalom_interfaces::msg::MissionWaypoint;
+  using BaseSourceState = shalom_interfaces::msg::BaseSourceState;
   using MotionAuthority = shalom_interfaces::msg::MotionAuthority;
   using MotionStopped = shalom_interfaces::msg::MotionStopped;
   using SafetyState = shalom_interfaces::msg::SafetyState;
   using AuthorityRequest = shalom_interfaces::srv::AuthorityRequest;
   using SafetyCommand = shalom_interfaces::srv::SafetyCommand;
+  using SelectBaseSource = shalom_interfaces::srv::SelectBaseSource;
   using NavigateToPose = nav2_msgs::action::NavigateToPose;
   using NavGoalHandle = rclcpp_action::ClientGoalHandle<NavigateToPose>;
 
@@ -113,14 +117,16 @@ namespace
       const auto safety_state_timeout_ms =
           declare_parameter<int>("safety_state_timeout_ms", 250);
       const auto authority_timeout_ms = declare_parameter<int>("authority_timeout_ms", 500);
+      const auto base_source_timeout_ms = declare_parameter<int>("base_source_timeout_ms", 250);
       if (stopped_feedback_timeout_ms <= 0 || safety_state_timeout_ms <= 0 ||
-          authority_timeout_ms <= 0)
+          authority_timeout_ms <= 0 || base_source_timeout_ms <= 0)
       {
         throw std::invalid_argument("mission dependency timeouts must be positive");
       }
       stopped_feedback_timeout_ = std::chrono::milliseconds(stopped_feedback_timeout_ms);
       safety_state_timeout_ = std::chrono::milliseconds(safety_state_timeout_ms);
       authority_timeout_ = std::chrono::milliseconds(authority_timeout_ms);
+      base_source_timeout_ = std::chrono::milliseconds(base_source_timeout_ms);
       for (const auto &capability : declare_parameter<std::vector<std::string>>(
                "available_capabilities", std::vector<std::string>{}))
       {
@@ -144,6 +150,9 @@ namespace
       authority_sub_ = create_subscription<MotionAuthority>(
           "/motion/authority", rclcpp::QoS(1).reliable().transient_local(),
           std::bind(&MissionManagerNode::on_authority, this, std::placeholders::_1));
+      base_source_sub_ = create_subscription<BaseSourceState>(
+          "/motion/base_source/state", rclcpp::QoS(1).reliable().transient_local(),
+          std::bind(&MissionManagerNode::on_base_source, this, std::placeholders::_1));
       odometry_sub_ = create_subscription<nav_msgs::msg::Odometry>(
           odometry_topic_, 20,
           std::bind(&MissionManagerNode::on_odometry, this, std::placeholders::_1));
@@ -153,6 +162,7 @@ namespace
 
       safety_client_ = create_client<SafetyCommand>("/safety/command");
       authority_client_ = create_client<AuthorityRequest>("/motion/authority/request");
+      base_source_client_ = create_client<SelectBaseSource>("/motion/base_source/select");
       nav_client_ = rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose");
       register_operation_executors();
       timer_ = create_wall_timer(100ms, std::bind(&MissionManagerNode::tick, this));
@@ -349,6 +359,7 @@ namespace
       if (!start_requested_ || fsm_.state() != mission_manager::core::State::Ready)
         return;
       clear_pending_start();
+      select_base_source(BaseSourceState::NONE);
       reason_code_ = "MISSION_START_CANCELLED_BY_SAFETY";
       detail_ = detail;
       publish_state();
@@ -392,6 +403,8 @@ namespace
       {
         // A START authorizes only the plan that was current when it was received.
         // A replacement plan always requires a new explicit START.
+        if (start_requested_)
+          select_base_source(BaseSourceState::NONE);
         clear_pending_start();
         if (state == mission_manager::core::State::Ready)
         {
@@ -473,6 +486,7 @@ namespace
         }
         else
         {
+          new_source_claim();
           start_requested_ = true;
           ++start_request_generation_;
           if (have_safety_state_)
@@ -488,7 +502,25 @@ namespace
       }
       else if (request->operation == MissionControl::Request::PAUSE)
       {
-        accepted = dispatch(Event::PauseRequested, "MISSION_PAUSE_REQUESTED");
+        if (fsm_.state() == mission_manager::core::State::Ready)
+        {
+          if (start_requested_)
+          {
+            clear_pending_start();
+            select_base_source(BaseSourceState::NONE);
+            reason_code_ = "MISSION_START_CANCELLED_BY_PAUSE";
+            detail_ = "pending start cancelled; mission remains ready";
+            publish_state();
+          }
+          else
+          {
+            reason_code_ = "MISSION_ALREADY_READY";
+            detail_ = "mission is configured but not running";
+          }
+          accepted = true;
+        }
+        else
+          accepted = dispatch(Event::PauseRequested, "MISSION_PAUSE_REQUESTED");
         if (!accepted)
           rejected_detail = detail_;
       }
@@ -496,7 +528,10 @@ namespace
       {
         accepted = dispatch(Event::ResumeRequested, "MISSION_RESUME_REQUESTED");
         if (accepted)
+        {
+          new_source_claim();
           request_dependencies();
+        }
         else
           rejected_detail = detail_;
       }
@@ -595,6 +630,14 @@ namespace
       }
     }
 
+    void on_base_source(const BaseSourceState::SharedPtr message)
+    {
+      base_source_phase_ = message->phase;
+      active_base_source_ = message->active_source;
+      base_source_owner_ = message->owner_requester;
+      last_base_source_ = std::chrono::steady_clock::now();
+    }
+
     void on_odometry(const nav_msgs::msg::Odometry::SharedPtr message)
     {
       (void)message;
@@ -649,11 +692,21 @@ namespace
              safety_state_ == SafetyState::NORMAL && safety_motion_permitted_;
     }
 
+    bool navigation_source_ready() const
+    {
+      return last_base_source_.has_value() &&
+             std::chrono::steady_clock::now() - *last_base_source_ <= base_source_timeout_ &&
+             base_source_phase_ == BaseSourceState::ACTIVE &&
+             active_base_source_ == BaseSourceState::NAV &&
+             base_source_owner_ == source_requester_;
+    }
+
     bool motion_dependencies_ready() const
     {
       const bool odometry_fresh = last_odometry_.has_value() &&
                                   std::chrono::steady_clock::now() - *last_odometry_ <= 1s;
-      return safety_motion_ready() && base_authority_ready() && odometry_fresh;
+      return safety_motion_ready() && base_authority_ready() && odometry_fresh &&
+             navigation_source_ready();
     }
 
     bool motion_quiesced() const
@@ -686,6 +739,8 @@ namespace
       reason_code_ = reason_code;
       if (transition.to == mission_manager::core::State::Pausing)
       {
+        if (transition.from != transition.to)
+          select_base_source(BaseSourceState::NONE);
         if (active_operation_.has_value())
         {
           if (const auto *executor = operation_registry_.find(*active_operation_))
@@ -702,11 +757,94 @@ namespace
         mission_index_ = 0;
         clear_pending_start();
       }
+      if (transition.from != transition.to &&
+          (transition.to == mission_manager::core::State::Idle ||
+           transition.to == mission_manager::core::State::Completed ||
+           transition.to == mission_manager::core::State::Failed))
+      {
+        select_base_source(BaseSourceState::NONE);
+      }
       RCLCPP_INFO(get_logger(), "Mission %s -> %s: %s",
                   mission_manager::core::to_string(transition.from),
                   mission_manager::core::to_string(transition.to), transition.reason);
       publish_state();
       return true;
+    }
+
+    void new_source_claim()
+    {
+      // A new START or RESUME must not mistake an ACTIVE state from an older
+      // mission attempt for its own permission to move.
+      source_requester_ = source_requester_prefix_ + "-" +
+                          std::to_string(++source_claim_sequence_);
+    }
+
+    void select_base_source(uint8_t source)
+    {
+      if (!base_source_client_->service_is_ready())
+        return;
+      auto request = std::make_shared<SelectBaseSource::Request>();
+      request->request_id = source_requester_prefix_ + "-source-" +
+                            std::to_string(++dependency_sequence_);
+      request->requester = source_requester_;
+      request->source = source;
+      const auto start_request_generation = start_request_generation_;
+      const auto requester = source_requester_;
+      base_source_client_->async_send_request(
+          request, [this, source, start_request_generation, requester](
+                       rclcpp::Client<SelectBaseSource>::SharedFuture future)
+          {
+            try
+            {
+              const auto response = future.get();
+              if (response->accepted)
+              {
+                // A delayed NAV acknowledgement after a cancelled START must
+                // not leave a newly granted source running without a mission.
+                const auto state = fsm_.state();
+                if (source == BaseSourceState::NAV &&
+                    requester == source_requester_ &&
+                    start_request_generation == start_request_generation_ &&
+                    !start_requested_ &&
+                    state != mission_manager::core::State::Running &&
+                    state != mission_manager::core::State::Returning &&
+                    state != mission_manager::core::State::Recovering)
+                  select_base_source(BaseSourceState::NONE);
+                return;
+              }
+              RCLCPP_WARN(get_logger(), "Base source %u rejected: %s",
+                          static_cast<unsigned>(source), response->detail.c_str());
+              // A START must not begin later merely because a different owner
+              // eventually releases the base. Use the typed owner field rather
+              // than parsing a human-readable rejection string.
+              const bool external_owner =
+                  !response->state.owner_requester.empty() &&
+                  response->state.owner_requester != requester &&
+                  response->state.owner_requester.rfind("mission_manager-", 0) != 0;
+              if (source == BaseSourceState::NAV && requester == source_requester_ &&
+                  external_owner && start_requested_ &&
+                  start_request_generation == start_request_generation_ &&
+                  fsm_.state() == mission_manager::core::State::Ready)
+              {
+                clear_pending_start();
+                reason_code_ = "MISSION_START_CANCELLED_BY_SOURCE_BUSY";
+                detail_ = "another requester owns the base; a new operator start is required";
+                publish_state();
+              }
+              else if (source == BaseSourceState::NAV && requester == source_requester_ &&
+                       external_owner &&
+                       fsm_.state() == mission_manager::core::State::Recovering)
+              {
+                dispatch(mission_manager::core::Event::PauseRequested,
+                         "MISSION_RECOVERY_SOURCE_BUSY");
+              }
+            }
+            catch (const std::exception &error)
+            {
+              RCLCPP_ERROR(get_logger(), "Base source %u request failed: %s",
+                           static_cast<unsigned>(source), error.what());
+            }
+          });
     }
 
     void request_dependencies()
@@ -758,6 +896,8 @@ namespace
                                                 }
                                               });
       }
+      if (!navigation_source_ready())
+        select_base_source(BaseSourceState::NAV);
     }
 
     void tick()
@@ -766,6 +906,12 @@ namespace
       using State = mission_manager::core::State;
       using Status = mission_manager::bt::Status;
       const auto state = fsm_.state();
+      if ((state == State::Running || state == State::Returning) &&
+          !navigation_source_ready())
+      {
+        dispatch(Event::AuthorityLost, "MISSION_SOURCE_LOST");
+        return;
+      }
       if ((state == State::Running || state == State::Returning) &&
           !safety_motion_ready())
       {
@@ -967,7 +1113,12 @@ namespace
     uint64_t dependency_sequence_{0};
     uint64_t safety_sequence_{0};
     uint64_t start_request_generation_{0};
+    uint64_t source_claim_sequence_{0};
     uint64_t goal_generation_{0};
+    const std::string source_requester_prefix_{
+        "mission_manager-" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count())};
+    std::string source_requester_;
     std::string reason_code_{"MISSION_IDLE"};
     std::string detail_{"waiting for mission configuration"};
     std::string map_frame_{"map"};
@@ -976,17 +1127,22 @@ namespace
     std::chrono::milliseconds stopped_feedback_timeout_{500};
     std::chrono::milliseconds safety_state_timeout_{250};
     std::chrono::milliseconds authority_timeout_{500};
+    std::chrono::milliseconds base_source_timeout_{250};
     bool have_safety_state_{false};
     bool have_authority_{false};
     bool safety_motion_permitted_{false};
     uint8_t safety_state_{SafetyState::INITIALIZING};
     uint8_t authority_state_{MotionAuthority::NONE};
+    uint8_t base_source_phase_{BaseSourceState::INACTIVE};
+    uint8_t active_base_source_{BaseSourceState::NONE};
+    std::string base_source_owner_;
     bool base_stopped_{false};
     std::optional<std::chrono::steady_clock::time_point> last_odometry_;
     std::optional<std::chrono::steady_clock::time_point> last_safety_state_;
     std::optional<std::chrono::steady_clock::time_point> last_stopped_feedback_;
     std::optional<uint64_t> last_stopped_sequence_;
     std::optional<std::chrono::steady_clock::time_point> last_authority_;
+    std::optional<std::chrono::steady_clock::time_point> last_base_source_;
     std::optional<std::chrono::steady_clock::time_point> last_dependency_request_;
     std::optional<uint64_t> start_safety_sequence_;
     std::optional<uint64_t> recovery_safety_sequence_;
@@ -1005,10 +1161,12 @@ namespace
     rclcpp::Service<MissionControl>::SharedPtr control_service_;
     rclcpp::Subscription<SafetyState>::SharedPtr safety_sub_;
     rclcpp::Subscription<MotionAuthority>::SharedPtr authority_sub_;
+    rclcpp::Subscription<BaseSourceState>::SharedPtr base_source_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odometry_sub_;
     rclcpp::Subscription<MotionStopped>::SharedPtr stopped_sub_;
     rclcpp::Client<SafetyCommand>::SharedPtr safety_client_;
     rclcpp::Client<AuthorityRequest>::SharedPtr authority_client_;
+    rclcpp::Client<SelectBaseSource>::SharedPtr base_source_client_;
     rclcpp_action::Client<NavigateToPose>::SharedPtr nav_client_;
     rclcpp::TimerBase::SharedPtr timer_;
   };

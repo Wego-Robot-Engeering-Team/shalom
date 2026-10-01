@@ -15,4 +15,10 @@ install(DIRECTORY
   ${CMAKE_CURRENT_SOURCE_DIR}/../navigation/rviz
   DESTINATION share/${PROJECT_NAME}/navigation)
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_base_source_handoff
+    test/test_base_source_handoff.py TIMEOUT 90)
+endif()
+
 ament_package()

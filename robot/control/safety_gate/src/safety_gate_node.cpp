@@ -11,6 +11,7 @@
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "shalom_interfaces/msg/motion_authority.hpp"
 #include "shalom_interfaces/msg/safety_state.hpp"
+#include "std_msgs/msg/bool.hpp"
 
 namespace {
 
@@ -27,14 +28,16 @@ public:
     const auto command_timeout_ms = declare_parameter<int>("command_timeout_ms", 300);
     const auto state_timeout_ms = declare_parameter<int>("safety_state_timeout_ms", 250);
     const auto authority_timeout_ms = declare_parameter<int>("authority_timeout_ms", 500);
+    const auto inhibit_timeout_ms = declare_parameter<int>("base_inhibit_timeout_ms", 250);
     const auto output_hz = declare_parameter<double>("output_hz", 20.0);
-    if (authority_timeout_ms <= 0) {
-      throw std::invalid_argument("authority_timeout_ms must be positive");
+    if (authority_timeout_ms <= 0 || inhibit_timeout_ms <= 0) {
+      throw std::invalid_argument("authority and base inhibit timeouts must be positive");
     }
     arm_output_enabled_ = declare_parameter<bool>("arm_output_enabled", false);
     command_timeout_ = std::chrono::milliseconds(command_timeout_ms);
     state_timeout_ = std::chrono::milliseconds(state_timeout_ms);
     authority_timeout_ = std::chrono::milliseconds(authority_timeout_ms);
+    inhibit_timeout_ = std::chrono::milliseconds(inhibit_timeout_ms);
 
     base_pub_ = create_publisher<geometry_msgs::msg::Twist>(output_base_topic, 20);
     arm_pub_ = create_publisher<sensor_msgs::msg::JointState>(output_arm_topic, 20);
@@ -48,6 +51,12 @@ public:
     authority_sub_ = create_subscription<shalom_interfaces::msg::MotionAuthority>(
       "/motion/authority", rclcpp::QoS(1).reliable().transient_local(),
       std::bind(&SafetyGateNode::on_authority, this, std::placeholders::_1));
+    inhibit_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/motion/base/inhibit", 10,
+      std::bind(&SafetyGateNode::on_base_inhibit, this, std::placeholders::_1));
+    source_inhibit_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/motion/base_source/inhibit", 10,
+      std::bind(&SafetyGateNode::on_source_inhibit, this, std::placeholders::_1));
 
     const auto period = std::chrono::duration<double>(1.0 / output_hz);
     timer_ = create_wall_timer(std::chrono::duration_cast<std::chrono::milliseconds>(period),
@@ -76,6 +85,31 @@ private:
   void on_authority(const shalom_interfaces::msg::MotionAuthority::SharedPtr message) {
     authority_ = message->state;
     last_authority_ = std::chrono::steady_clock::now();
+  }
+
+  void on_base_inhibit(const std_msgs::msg::Bool::SharedPtr message) {
+    const auto now = std::chrono::steady_clock::now();
+    reset_base_command_on_inhibit_transition(base_inhibit_, last_inhibit_, message->data, now);
+    base_inhibit_ = message->data;
+    last_inhibit_ = now;
+  }
+
+  void on_source_inhibit(const std_msgs::msg::Bool::SharedPtr message) {
+    const auto now = std::chrono::steady_clock::now();
+    reset_base_command_on_inhibit_transition(
+      source_inhibit_, last_source_inhibit_, message->data, now);
+    source_inhibit_ = message->data;
+    last_source_inhibit_ = now;
+  }
+
+  void reset_base_command_on_inhibit_transition(
+      bool previous, SteadyTime last_update, bool incoming, SteadyTime now) {
+    // A transition or heartbeat recovery on either independent inhibit must
+    // not replay a Twist cached before it. Require a new mux output.
+    if (previous != incoming || now - last_update > inhibit_timeout_) {
+      base_command_ = geometry_msgs::msg::Twist{};
+      last_base_command_ = SteadyTime{};
+    }
   }
 
   /// What the safety state means for the output, per the control-plane design:
@@ -116,6 +150,8 @@ private:
     const bool authority_fresh = now - last_authority_ <= authority_timeout_;
     geometry_msgs::msg::Twist output{};  // zero is the only fail-closed base command.
     if (decision == Output::kPass &&
+        !base_inhibit_ && now - last_inhibit_ <= inhibit_timeout_ &&
+        !source_inhibit_ && now - last_source_inhibit_ <= inhibit_timeout_ &&
         authority_fresh &&
         authority_ == shalom_interfaces::msg::MotionAuthority::BASE_ACTIVE &&
         now - last_base_command_ <= command_timeout_) {
@@ -136,12 +172,17 @@ private:
   uint8_t safety_state_{shalom_interfaces::msg::SafetyState::INITIALIZING};
   bool safety_motion_permitted_{false};
   bool arm_output_enabled_{false};
+  bool base_inhibit_{true};
+  bool source_inhibit_{true};
   uint8_t authority_{shalom_interfaces::msg::MotionAuthority::NONE};
   std::chrono::milliseconds command_timeout_{300};
   std::chrono::milliseconds state_timeout_{250};
   std::chrono::milliseconds authority_timeout_{500};
+  std::chrono::milliseconds inhibit_timeout_{250};
   SteadyTime last_state_{};
   SteadyTime last_authority_{};
+  SteadyTime last_inhibit_{};
+  SteadyTime last_source_inhibit_{};
   SteadyTime last_base_command_{};
   SteadyTime last_arm_command_{};
   geometry_msgs::msg::Twist base_command_{};
@@ -152,6 +193,8 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr arm_sub_;
   rclcpp::Subscription<shalom_interfaces::msg::SafetyState>::SharedPtr safety_sub_;
   rclcpp::Subscription<shalom_interfaces::msg::MotionAuthority>::SharedPtr authority_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr inhibit_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr source_inhibit_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

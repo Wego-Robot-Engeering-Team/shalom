@@ -7,6 +7,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/BaseSourceState.msg"
   "msg/MissionPlan.msg"
   "msg/MissionState.msg"
   "msg/MissionWaypoint.msg"
@@ -19,6 +20,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/ConfigureMission.srv"
   "srv/MissionControl.srv"
   "srv/SafetyCommand.srv"
+  "srv/SelectBaseSource.srv"
   DEPENDENCIES builtin_interfaces geometry_msgs
 )
 

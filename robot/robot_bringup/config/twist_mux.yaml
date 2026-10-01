@@ -5,7 +5,9 @@ twist_mux:
     use_stamped: false
 
     # A source must continuously renew its 300 ms lease. Higher numeric values
-    # win; equal priorities are intentionally avoided.
+    # win; equal priorities are intentionally avoided. Autonomous producers are
+    # admitted by base_source_manager first: the mux must never fall back from
+    # one autonomous source to another merely because a command times out.
     topics:
       teleop:
         topic: /motion/teleop/cmd_vel
@@ -15,19 +17,15 @@ twist_mux:
         topic: /motion/manual_hold/cmd_vel
         timeout: 0.3
         priority: 90
-      mission:
-        topic: /motion/mission/cmd_vel
+      autonomy:
+        topic: /motion/autonomy/cmd_vel
         timeout: 0.3
         priority: 80
-      stair:
-        topic: /motion/stair/cmd_vel
+    # A missing lock heartbeat is locked (fail-closed). Priority 90 blocks
+    # autonomous sources below it while leaving teleop (100) available once
+    # safety_gate releases its transition inhibit.
+    locks:
+      manual_autonomy:
+        topic: /motion/manual_autonomy_lock
         timeout: 0.3
-        priority: 40
-      dock:
-        topic: /motion/dock/cmd_vel
-        timeout: 0.3
-        priority: 30
-      navigation:
-        topic: /motion/nav/cmd_vel
-        timeout: 0.3
-        priority: 20
+        priority: 90

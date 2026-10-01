@@ -22,6 +22,7 @@
 #include <string_view>
 #include <string>
 #include <stdexcept>
+#include <type_traits>
 #include <unordered_set>
 
 // 점유격자를 PNG 로 눌러 관제에 보낸다 (encodeGridPng).
@@ -60,6 +61,9 @@ constexpr auto kChActiveMap = "state/active_map";
 /// request is answered with a failure. Goal acceptance is a planner-side
 /// decision that normally lands in milliseconds; two seconds means it is wedged.
 constexpr std::chrono::seconds kGoalAcceptTimeout{2};
+constexpr std::chrono::seconds kBaseSourceSelectTimeout{5};
+constexpr std::chrono::milliseconds kBaseSourceStateLease{500};
+constexpr auto kDirectNavRequester = "hmi_direct";
 constexpr auto kChLog = "evt/log";
 
 constexpr auto kCmdEstop = "cmd/estop";
@@ -381,6 +385,8 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
         "/safety/command");
     authorityRequestClient_ = create_client<shalom_interfaces::srv::AuthorityRequest>(
         "/motion/authority/request");
+    baseSourceClient_ = create_client<shalom_interfaces::srv::SelectBaseSource>(
+        "/motion/base_source/select");
     missionConfigureClient_ = create_client<shalom_interfaces::srv::ConfigureMission>(
         "/mission/configure");
     missionControlClient_ = create_client<shalom_interfaces::srv::MissionControl>(
@@ -499,6 +505,7 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     authoritySub_ = create_subscription<shalom_interfaces::msg::MotionAuthority>(
         "/motion/authority", rclcpp::QoS(1).transient_local(),
         [this](const shalom_interfaces::msg::MotionAuthority::SharedPtr msg) {
+            motionAuthorityReceivedAt_ = std::chrono::steady_clock::now();
             const std::string next = authorityName(msg->state);
             if (motionAuthority_ == next)
                 return;
@@ -513,6 +520,8 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     safetyStateSub_ = create_subscription<shalom_interfaces::msg::SafetyState>(
         "/safety/state", rclcpp::QoS(1).transient_local(),
         [this](const shalom_interfaces::msg::SafetyState::SharedPtr msg) {
+            safetyStateReceivedAt_ = std::chrono::steady_clock::now();
+            safetyMotionPermitted_ = msg->motion_permitted;
             const std::string next = safetyStateName(msg->state);
             const bool estop_active = msg->software_estop_active || msg->physical_estop_active;
             const bool changed = safetyState_ != next || estopEngaged_ != estop_active;
@@ -525,6 +534,29 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     missionStateSub_ = create_subscription<shalom_interfaces::msg::MissionState>(
         "/mission/state", rclcpp::QoS(1).transient_local(),
         std::bind(&BridgeNode::onMissionState, this, std::placeholders::_1));
+    baseSourceSub_ = create_subscription<shalom_interfaces::msg::BaseSourceState>(
+        "/motion/base_source/state", rclcpp::QoS(1).reliable().transient_local(),
+        std::bind(&BridgeNode::onBaseSourceState, this, std::placeholders::_1));
+    baseStoppedSub_ = create_subscription<shalom_interfaces::msg::MotionStopped>(
+        "/motion/stopped", rclcpp::QoS(10),
+        [this](const shalom_interfaces::msg::MotionStopped::SharedPtr msg) {
+            if (msg->resource != shalom_interfaces::msg::MotionStopped::BASE)
+                return;
+            const auto age = now() - rclcpp::Time(msg->stamp);
+            if (msg->sequence == 0 || age.nanoseconds() < 0 ||
+                age.nanoseconds() > std::chrono::duration_cast<std::chrono::nanoseconds>(500ms).count()) {
+                baseStopped_ = false;
+                return;
+            }
+            if (lastBaseStoppedSequence_ && msg->sequence <= *lastBaseStoppedSequence_ &&
+                std::chrono::steady_clock::now() - baseStoppedAt_ <= 500ms) {
+                baseStopped_ = false;
+                return;
+            }
+            lastBaseStoppedSequence_ = msg->sequence;
+            baseStopped_ = msg->stopped;
+            baseStoppedAt_ = std::chrono::steady_clock::now();
+        });
     amclPoseSub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
         "/amcl_pose", rclcpp::QoS(10), [this](
             const geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr &message) {
@@ -568,6 +600,23 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     // 바꿔도 mux 가 nav(20) 로 내려가 로봇이 목표를 향해 계속 간다.
     baseHoldPub_ = create_publisher<geometry_msgs::msg::Twist>(
         "/motion/manual_hold/cmd_vel", 10);
+    baseInhibitPub_ = create_publisher<std_msgs::msg::Bool>(
+        "/motion/base/inhibit", 10);
+    manualAutonomyLockPub_ = create_publisher<std_msgs::msg::Bool>(
+        "/motion/manual_autonomy_lock", 10);
+    manualReadyPub_ = create_publisher<std_msgs::msg::Bool>(
+        "/motion/manual_ready", 10);
+    // A bridge restart must not reopen the gate on a goal that survived the
+    // previous process. Force an initial lock until the source manager has
+    // observed it and reported an unowned state.
+    autoReleaseAt_ = std::chrono::steady_clock::now();
+    startupSourceLockStamp_ = now();
+    std_msgs::msg::Bool startup_block;
+    startup_block.data = true;
+    baseInhibitPub_->publish(startup_block);
+    manualAutonomyLockPub_->publish(startup_block);
+    startup_block.data = false;
+    manualReadyPub_->publish(startup_block);
 
     // ---- 촬영 -------------------------------------------------------------
     captureEnabled_ = declare_parameter("capture.enabled", false);
@@ -773,17 +822,63 @@ void BridgeNode::handleRequest(const Envelope &request)
         return;
 
     if (request.ch == kCmdMode) {
-        manualMode_ = request.p.value("mode", std::string("auto")) == "manual";
-        if (manualMode_) {
-            pauseMissionForManualTakeover();
-            // Entering manual mode is an explicit operator motion request.
-            // Heartbeat and E-Stop guards remain enforced by safety_manager;
-            // without this request, startup/link-recovery stays in controlled
-            // stop forever and teleop velocity can never reach the base.
+        const auto mode = request.p.value("mode", std::string{});
+        if (mode != "manual" && mode != "auto") {
+            respond(request, false, err::kBadPayload, "mode는 manual 또는 auto여야 합니다");
+            return;
+        }
+        if (pendingManualMode_) {
+            respond(request, false, err::kBusy, "수동 전환이 진행 중입니다");
+            return;
+        }
+        if (mode == "manual") {
+            manualMode_ = true;
+            manualReady_ = false;
+            manualPauseAcknowledged_ = false;
+            pendingManualMode_ = request;
+            ++manualRequestGeneration_;
+            manualRequestAt_ = std::chrono::steady_clock::now();
+            tickSafety(); // Inhibit the final gate before asynchronous cancellation.
+            cancelNavigation("수동 전환");
+            navCancelAllPending_ = false;
+            navCancelAllAccepted_ = true;
+            if (navClient_->action_server_is_ready()) {
+                navCancelAllPending_ = true;
+                const auto generation = manualRequestGeneration_;
+                navClient_->async_cancel_all_goals([this, generation](auto response) {
+                    if (generation != manualRequestGeneration_ || !manualMode_)
+                        return;
+                    using Response = std::remove_reference_t<decltype(*response)>;
+                    navCancelAllAccepted_ =
+                        response->return_code == Response::ERROR_NONE;
+                    navCancelAllPending_ = false;
+                    if (!navCancelAllAccepted_)
+                        RCLCPP_ERROR(get_logger(), "Nav2 전체 목표 취소가 거절되었습니다");
+                });
+            }
+            if (!haveMissionState_ || !pauseMissionForManualTakeover()) {
+                respond(request, false, err::kUnreachable,
+                        "Mission Manager 일시정지를 확인할 수 없습니다; 수동 구동은 차단합니다");
+                pendingManualMode_.reset();
+                return;
+            }
             requestSafetyResume();
             requestBaseAuthority();
+            RCLCPP_INFO(get_logger(), "수동 전환 대기: 미션·Nav2·Base 정지 확인 중");
+            return; // tickSafety responds after all guards have passed.
         }
-        RCLCPP_INFO(get_logger(), "주행 모드: %s", manualMode_ ? "수동" : "자율");
+        // Returning to auto never resumes a paused mission or recreates a
+        // canceled Nav2 goal. A new operator command is required for motion.
+        if (manualMode_ && !manualReady_) {
+            respond(request, false, err::kMode,
+                    "수동 전환이 완료되지 않아 자동 입력 차단을 해제할 수 없습니다");
+            return;
+        }
+        manualMode_ = false;
+        manualReady_ = false;
+        autoReleaseAt_ = std::chrono::steady_clock::now();
+        tickSafety();
+        RCLCPP_INFO(get_logger(), "주행 모드: 자율 (미션 자동 재개 없음)");
         respond(request, true);
         return;
     }
@@ -1566,6 +1661,10 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdMissionStart) {
+        if (manualMode_) {
+            respond(request, false, err::kMode, "수동 모드에서는 미션을 시작할 수 없습니다");
+            return;
+        }
         configureAndStartMission(request);
         return;
     }
@@ -1576,6 +1675,10 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdMissionResume) {
+        if (manualMode_) {
+            respond(request, false, err::kMode, "수동 모드에서는 미션을 재개할 수 없습니다");
+            return;
+        }
         if (estopActive()) {
             respond(request, false, err::kMode,
                     "비상정지 상태입니다. 해제한 뒤 재개하십시오");
@@ -1664,8 +1767,6 @@ void BridgeNode::handleRequest(const Envelope &request)
             respond(request, false, err::kBusy, "미션이 끝난 뒤 개별 목표를 지정하십시오");
             return;
         }
-        requestSafetyResume();
-        requestBaseAuthority();
         startNavigation(request);
         return;
     }
@@ -2669,22 +2770,37 @@ void BridgeNode::sendMissionControl(const Envelope &request, uint8_t operation)
         });
 }
 
-void BridgeNode::pauseMissionForManualTakeover()
+bool BridgeNode::pauseMissionForManualTakeover()
 {
-    if (!haveMissionState_ ||
-        (missionState_.state != shalom_interfaces::msg::MissionState::RUNNING &&
-         missionState_.state != shalom_interfaces::msg::MissionState::RETURNING))
-        return;
+    using State = shalom_interfaces::msg::MissionState;
+    if (!haveMissionState_)
+        return false;
+    if (missionState_.state == State::IDLE || missionState_.state == State::PAUSED ||
+        missionState_.state == State::COMPLETED || missionState_.state == State::FAILED) {
+        manualPauseAcknowledged_ = true;
+        return true;
+    }
     if (!missionControlClient_->service_is_ready()) {
         RCLCPP_ERROR(get_logger(), "수동 전환 중 Mission Manager에 일시정지를 요청하지 못했습니다");
-        return;
+        return false;
     }
     auto control = std::make_shared<shalom_interfaces::srv::MissionControl::Request>();
     control->request_id = "hmi-manual-" + std::to_string(++rosRequestSequence_);
     control->operator_id = "hmi_manual_takeover";
     control->mission_id = missionState_.mission_id;
     control->operation = shalom_interfaces::srv::MissionControl::Request::PAUSE;
-    missionControlClient_->async_send_request(control);
+    const auto generation = manualRequestGeneration_;
+    missionControlClient_->async_send_request(control,
+        [this, generation](rclcpp::Client<shalom_interfaces::srv::MissionControl>::SharedFuture future) {
+            const auto response = future.get();
+            if (generation != manualRequestGeneration_ || !manualMode_)
+                return;
+            manualPauseAcknowledged_ = response->accepted;
+            if (!response->accepted)
+                RCLCPP_ERROR(get_logger(), "수동 전환 일시정지 거절: %s",
+                             response->detail.c_str());
+        });
+    return true;
 }
 
 void BridgeNode::onMissionState(
@@ -2700,6 +2816,15 @@ void BridgeNode::onMissionState(
         resetTrail();
     missionState_ = *message;
     haveMissionState_ = true;
+    if (manualMode_ && manualReady_ &&
+        (message->state == shalom_interfaces::msg::MissionState::RUNNING ||
+         message->state == shalom_interfaces::msg::MissionState::RETURNING ||
+         message->state == shalom_interfaces::msg::MissionState::RECOVERING)) {
+        manualReady_ = false;
+        tickSafety();
+        RCLCPP_ERROR(get_logger(), "수동 모드 중 자율 미션 활성화 감지: 구동 차단");
+        pauseMissionForManualTakeover();
+    }
     const bool terminal = message->state == shalom_interfaces::msg::MissionState::IDLE ||
                           message->state == shalom_interfaces::msg::MissionState::COMPLETED ||
                           message->state == shalom_interfaces::msg::MissionState::FAILED;
@@ -2970,17 +3095,203 @@ std::string BridgeNode::encodeGridPng(const nav_msgs::msg::OccupancyGrid &grid)
 
 // ================= 자율주행 =================
 
+bool BridgeNode::baseSourceFresh() const
+{
+    if (!haveBaseSourceState_ || baseSourceState_.sequence == 0)
+        return false;
+    const auto received_age = std::chrono::steady_clock::now() - baseSourceReceivedAt_;
+    const auto stamped_age = now() - rclcpp::Time(baseSourceState_.stamp);
+    return received_age >= std::chrono::steady_clock::duration::zero() &&
+        received_age <= kBaseSourceStateLease && stamped_age.nanoseconds() >= 0 &&
+        stamped_age.nanoseconds() <=
+            std::chrono::duration_cast<std::chrono::nanoseconds>(kBaseSourceStateLease).count();
+}
+
+bool BridgeNode::directNavigationSourceActive() const
+{
+    using Source = shalom_interfaces::msg::BaseSourceState;
+    return baseSourceFresh() && baseSourceState_.phase == Source::ACTIVE &&
+        baseSourceState_.active_source == Source::NAV &&
+        baseSourceState_.owner_requester == kDirectNavRequester;
+}
+
+void BridgeNode::onBaseSourceState(
+    const shalom_interfaces::msg::BaseSourceState::SharedPtr message)
+{
+    baseSourceState_ = *message;
+    baseSourceReceivedAt_ = std::chrono::steady_clock::now();
+    haveBaseSourceState_ = true;
+    if (!startupSourceSynchronized_ && startupSourceLockStamp_ &&
+        rclcpp::Time(message->stamp) > *startupSourceLockStamp_ &&
+        message->phase == shalom_interfaces::msg::BaseSourceState::INACTIVE &&
+        message->active_source == shalom_interfaces::msg::BaseSourceState::NONE &&
+        message->owner_requester.empty() && baseSourceFresh()) {
+        startupSourceSynchronized_ = true;
+    }
+
+    if (navSourceAwaitingActive_) {
+        // The service response can overtake an older transient-local sample.
+        // Only a state observed after that response completes the handoff.
+        if (baseSourceReceivedAt_ < navSourceReplyAt_ ||
+            message->sequence < navSourceReplySequence_)
+            return;
+        if (directNavigationSourceActive()) {
+            navSourceAwaitingActive_ = false;
+            if (pendingGoto_ && !navSourceCancelPending_ && !manualMode_) {
+                requestSafetyResume();
+                requestBaseAuthority();
+                sendNavigationGoal(*pendingGoto_);
+            } else {
+                releaseNavigationSource();
+            }
+            return;
+        }
+        if (message->sequence > navSourceReplySequence_ &&
+            (message->phase == shalom_interfaces::msg::BaseSourceState::FAULT ||
+             message->phase == shalom_interfaces::msg::BaseSourceState::INACTIVE ||
+             message->owner_requester != kDirectNavRequester)) {
+            navSourceAwaitingActive_ = false;
+            navStatus_ = "failed";
+            clearPlan();
+            settleGoto(false, err::kUnreachable,
+                       "자율주행 제어권 전환에 실패했습니다: " + message->detail);
+            releaseNavigationSource();
+        }
+        return;
+    }
+
+    if (navSourceOwned_ &&
+        (navGoal_ || navGoalAcceptPending_ || pendingGoto_) &&
+        !directNavigationSourceActive()) {
+        cancelNavigation("자율주행 제어권을 잃어 목표를 취소했습니다");
+    }
+}
+
+void BridgeNode::releaseNavigationSource()
+{
+    navSourceAwaitingActive_ = false;
+    if (!navSourceOwned_)
+        return;
+    navSourceOwned_ = false;
+    if (!baseSourceClient_->service_is_ready()) {
+        RCLCPP_ERROR(get_logger(), "HMI NAV 제어권을 반납하지 못했습니다: 소스 관리자가 응답하지 않습니다");
+        return;
+    }
+    auto release = std::make_shared<shalom_interfaces::srv::SelectBaseSource::Request>();
+    release->requester = kDirectNavRequester;
+    release->request_id = navSourceRequestPrefix_ + "-release-" +
+        std::to_string(++rosRequestSequence_);
+    release->source = shalom_interfaces::msg::BaseSourceState::NONE;
+    navSourceReleasePending_ = true;
+    try {
+        baseSourceClient_->async_send_request(release, [this](
+            rclcpp::Client<shalom_interfaces::srv::SelectBaseSource>::SharedFuture future) {
+            navSourceReleasePending_ = false;
+            try {
+                const auto response = future.get();
+                if (!response || !response->accepted)
+                    RCLCPP_WARN(get_logger(), "HMI NAV 제어권 반납 거절: %s",
+                                response ? response->detail.c_str() : "빈 응답");
+            } catch (const std::exception &e) {
+                RCLCPP_ERROR(get_logger(), "HMI NAV 제어권 반납 응답 오류: %s", e.what());
+            }
+        });
+    } catch (const std::exception &e) {
+        navSourceReleasePending_ = false;
+        RCLCPP_ERROR(get_logger(), "HMI NAV 제어권 반납 요청 오류: %s", e.what());
+    }
+}
+
+void BridgeNode::tickNavigationSource()
+{
+    if ((navSourcePreparing_ || navSourceSelectPending_ || navSourceAwaitingActive_) &&
+        std::chrono::steady_clock::now() - navSourceRequestAt_ >
+            kBaseSourceSelectTimeout) {
+        navSourcePreparing_ = false;
+        // A delayed service reply must never start a goal after this timeout.
+        if (navSourceSelectPending_) {
+            navSourceSelectPending_ = false;
+            ++navSourceRequestGeneration_;
+            // The request may already have been accepted even when its reply
+            // was lost. An owner-scoped NONE is safe in either case.
+            navSourceOwned_ = true;
+        }
+        navSourceAwaitingActive_ = false;
+        navSourceCancelPending_ = true;
+        navStatus_ = "failed";
+        clearPlan();
+        settleGoto(false, err::kUnreachable,
+                   "자율주행 제어권 전환을 시간 내에 확인하지 못했습니다");
+        releaseNavigationSource();
+    }
+    if (navSourcePreparing_) {
+        const auto steady_now = std::chrono::steady_clock::now();
+        const bool safety_ready = safetyState_ == "normal" && safetyMotionPermitted_ &&
+            steady_now - safetyStateReceivedAt_ <= std::chrono::milliseconds(250);
+        const bool authority_ready = motionAuthority_ == "base_active" &&
+            steady_now - motionAuthorityReceivedAt_ <= std::chrono::milliseconds(500);
+        if ((!safety_ready || !authority_ready) &&
+            steady_now - navSourceDependencyRequestAt_ >= std::chrono::milliseconds(500)) {
+            requestSafetyResume();
+            requestBaseAuthority();
+            navSourceDependencyRequestAt_ = steady_now;
+        }
+        if (manualMode_ || !pendingGoto_) {
+            navSourcePreparing_ = false;
+        } else if (baseSourceFresh() &&
+                   (baseSourceState_.phase !=
+                        shalom_interfaces::msg::BaseSourceState::INACTIVE ||
+                    baseSourceState_.active_source !=
+                        shalom_interfaces::msg::BaseSourceState::NONE ||
+                    !baseSourceState_.owner_requester.empty())) {
+            navSourcePreparing_ = false;
+            navStatus_ = "failed";
+            settleGoto(false, err::kBusy,
+                       "다른 주행 제어권이 먼저 선택되어 목표를 시작하지 못했습니다");
+        } else if (steady_now >= navSourceNextRetryAt_ &&
+                   safety_ready && authority_ready && baseSourceFresh() &&
+                   baseSourceClient_->service_is_ready()) {
+            navSourcePreparing_ = false;
+            selectNavigationSource();
+        }
+    }
+    if (navSourceOwned_ && !navSourceAwaitingActive_ &&
+        (navGoal_ || navGoalAcceptPending_ || pendingGoto_) &&
+        !directNavigationSourceActive()) {
+        cancelNavigation("자율주행 제어권 상태가 끊겨 목표를 취소했습니다");
+    }
+}
+
 void BridgeNode::startNavigation(const Envelope &request)
 {
+    if (!startupSourceSynchronized_) {
+        respond(request, false, err::kUnreachable,
+                "주행 제어권 관리자의 시작 동기화가 끝나지 않았습니다");
+        return;
+    }
+    if (manualMode_) {
+        respond(request, false, err::kMode,
+                "수동 모드에서는 개별 자율주행 목표를 시작할 수 없습니다");
+        return;
+    }
     if (!request.p.contains("x") || !request.p.contains("y")
         || !request.p["x"].is_number() || !request.p["y"].is_number()) {
         respond(request, false, err::kBadPayload, "x, y 가 필요합니다");
         return;
     }
+    const double x = request.p["x"].get<double>();
+    const double y = request.p["y"].get<double>();
+    const double theta = request.p.value("theta", 0.0);
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(theta)) {
+        respond(request, false, err::kBadPayload, "목표 좌표가 올바르지 않습니다");
+        return;
+    }
 
     // 앞선 요청이 아직 Nav2 의 답을 기다리는 중이면 새 요청을 받지 않는다.
     // 둘 다 진행시키면 어느 쪽 응답이 어느 요청의 것인지 알 수 없다.
-    if (pendingGoto_) {
+    if (pendingGoto_ || navSourcePreparing_ || navSourceSelectPending_ ||
+        navSourceAwaitingActive_ ||
+        navSourceReleasePending_) {
         respond(request, false, err::kBusy, "직전 목표를 아직 처리 중입니다");
         return;
     }
@@ -2988,6 +3299,145 @@ void BridgeNode::startNavigation(const Envelope &request)
     if (!navClient_->action_server_is_ready()) {
         respond(request, false, err::kUnreachable,
                 "자율주행이 준비되지 않았습니다 (Nav2 응답 없음)");
+        return;
+    }
+
+    if (navSourceOwned_ && !directNavigationSourceActive()) {
+        respond(request, false, err::kBusy, "자율주행 제어권 상태가 확인되지 않습니다");
+        return;
+    }
+    if (!navSourceOwned_) {
+        if (navGoal_ || navGoalAcceptPending_) {
+            respond(request, false, err::kBusy, "직전 목표 취소가 아직 끝나지 않았습니다");
+            return;
+        }
+        if (!baseSourceClient_->service_is_ready() || !baseSourceFresh()) {
+            respond(request, false, err::kUnreachable,
+                    "자율주행 제어권 관리자가 준비되지 않았습니다");
+            return;
+        }
+        using Source = shalom_interfaces::msg::BaseSourceState;
+        if (baseSourceState_.phase != Source::INACTIVE ||
+            baseSourceState_.active_source != Source::NONE ||
+            !baseSourceState_.owner_requester.empty()) {
+            respond(request, false, err::kBusy,
+                    "다른 주행 제어권의 전환 또는 동작이 끝나야 개별 목표를 지정할 수 있습니다");
+            return;
+        }
+    }
+
+    navCancelRequested_ = false;
+    navSourceCancelPending_ = false;
+    pendingGoto_ = request;
+    navGoalPoint_ = json{{"x", x}, {"y", y}, {"theta", theta}};
+    navStatus_ = "accepting";
+    navDistance_ = 0.0;
+    navEta_ = nullptr;
+
+    if (navSourceOwned_) {
+        sendNavigationGoal(request);
+        return;
+    }
+
+    // The source manager requires fresh NORMAL safety and BASE_ACTIVE authority
+    // before it will start the handoff. These requests are asynchronous; wait
+    // for their observed states before selecting NAV.
+    requestSafetyResume();
+    requestBaseAuthority();
+    navSourceRequestAt_ = std::chrono::steady_clock::now();
+    navSourceDependencyRequestAt_ = navSourceRequestAt_;
+    navSourceNextRetryAt_ = navSourceRequestAt_;
+    navSourcePreparing_ = true;
+    tickNavigationSource();
+}
+
+void BridgeNode::selectNavigationSource()
+{
+    if (!pendingGoto_ || manualMode_)
+        return;
+
+    auto select = std::make_shared<shalom_interfaces::srv::SelectBaseSource::Request>();
+    select->requester = kDirectNavRequester;
+    select->request_id = navSourceRequestPrefix_ + "-select-" +
+        std::to_string(++rosRequestSequence_);
+    select->source = shalom_interfaces::msg::BaseSourceState::NAV;
+    navSourceSelectPending_ = true;
+    const auto generation = ++navSourceRequestGeneration_;
+    try {
+        baseSourceClient_->async_send_request(select, [this, generation](
+            rclcpp::Client<shalom_interfaces::srv::SelectBaseSource>::SharedFuture future) {
+            shalom_interfaces::srv::SelectBaseSource::Response::SharedPtr response;
+            try {
+                response = future.get();
+            } catch (const std::exception &e) {
+                if (generation == navSourceRequestGeneration_) {
+                    navSourceSelectPending_ = false;
+                    navStatus_ = "failed";
+                    settleGoto(false, err::kUnreachable,
+                               "자율주행 제어권 요청 오류: " + std::string(e.what()));
+                }
+                return;
+            }
+            if (generation != navSourceRequestGeneration_) {
+                if (response && response->accepted && !navSourceSelectPending_ &&
+                    !navSourceAwaitingActive_ && !navSourceOwned_) {
+                    navSourceOwned_ = true;
+                    releaseNavigationSource();
+                }
+                return;
+            }
+            navSourceSelectPending_ = false;
+            if (!response || !response->accepted) {
+                if (response && pendingGoto_ && !manualMode_ &&
+                    std::chrono::steady_clock::now() - navSourceRequestAt_ <
+                        kBaseSourceSelectTimeout &&
+                    response->result_code ==
+                        shalom_interfaces::srv::SelectBaseSource::Response::NOT_READY) {
+                    navSourcePreparing_ = true;
+                    navSourceNextRetryAt_ = std::chrono::steady_clock::now() +
+                        std::chrono::milliseconds(150);
+                    return;
+                }
+                navStatus_ = "failed";
+                clearPlan();
+                settleGoto(false, err::kBusy,
+                           "자율주행 제어권을 얻지 못했습니다: " +
+                               (response ? response->detail : std::string("빈 응답")));
+                return;
+            }
+            navSourceOwned_ = true;
+            if (response->state.owner_requester != kDirectNavRequester ||
+                response->state.requested_source !=
+                    shalom_interfaces::msg::BaseSourceState::NAV) {
+                navStatus_ = "failed";
+                settleGoto(false, err::kUnreachable,
+                           "자율주행 제어권 응답이 요청과 일치하지 않습니다");
+                releaseNavigationSource();
+                return;
+            }
+            if (navSourceCancelPending_ || !pendingGoto_ || manualMode_) {
+                releaseNavigationSource();
+                return;
+            }
+            navSourceReplySequence_ = response->state.sequence;
+            navSourceReplyAt_ = std::chrono::steady_clock::now();
+            navSourceAwaitingActive_ = true;
+        });
+    } catch (const std::exception &e) {
+        navSourceSelectPending_ = false;
+        navStatus_ = "failed";
+        settleGoto(false, err::kUnreachable,
+                   "자율주행 제어권 요청을 보내지 못했습니다: " + std::string(e.what()));
+    }
+}
+
+void BridgeNode::sendNavigationGoal(const Envelope &request)
+{
+    if (!pendingGoto_ || !navSourceOwned_ || !directNavigationSourceActive()) {
+        navStatus_ = "failed";
+        settleGoto(false, err::kUnreachable,
+                   "NAV 제어권 활성화를 확인하지 못했습니다");
+        releaseNavigationSource();
         return;
     }
 
@@ -3005,24 +3455,43 @@ void BridgeNode::startNavigation(const Envelope &request)
     goal.pose.pose.orientation.w = q.w();
 
     rclcpp_action::Client<NavigateToPose>::SendGoalOptions opts;
+    const auto generation = ++navGoalGeneration_;
 
-    opts.goal_response_callback = [this](NavGoalHandle::SharedPtr handle) {
+    opts.goal_response_callback = [this, generation](NavGoalHandle::SharedPtr handle) {
+        if (generation != navGoalGeneration_) {
+            if (handle)
+                navClient_->async_cancel_goal(handle);
+            return;
+        }
+        navGoalAcceptPending_ = false;
         if (!handle) {
             navStatus_ = "rejected";
             clearPlan();
             settleGoto(false, err::kUnreachable, "자율주행이 목표를 거부했습니다");
+            if (navGoal_)
+                navClient_->async_cancel_goal(navGoal_);
+            navGoal_.reset();
+            releaseNavigationSource();
             return;
         }
         navGoal_ = handle;
         navGoalId_ = handle->get_goal_id();
+        if (navCancelRequested_ || manualMode_ || !navSourceOwned_ ||
+            !directNavigationSourceActive()) {
+            navClient_->async_cancel_goal(handle);
+            navStatus_ = "canceled";
+            settleGoto(false, err::kMode, "제어권 전환 중 수락된 목표를 취소했습니다");
+            releaseNavigationSource();
+            return;
+        }
         navStatus_ = "navigating";
         resetTrail();
         settleGoto(true);
     };
 
-    opts.feedback_callback = [this](NavGoalHandle::SharedPtr handle,
+    opts.feedback_callback = [this, generation](NavGoalHandle::SharedPtr handle,
                                     const std::shared_ptr<const NavigateToPose::Feedback> fb) {
-        if (!handle || handle->get_goal_id() != navGoalId_)
+        if (generation != navGoalGeneration_ || !handle || handle->get_goal_id() != navGoalId_)
             return;   // a goal we have already replaced
         navDistance_ = fb->distance_remaining;
 
@@ -3036,8 +3505,8 @@ void BridgeNode::startNavigation(const Envelope &request)
         navEta_ = eta > 0.0 ? json(eta) : json(nullptr);
     };
 
-    opts.result_callback = [this](const NavGoalHandle::WrappedResult &result) {
-        if (result.goal_id != navGoalId_)
+    opts.result_callback = [this, generation](const NavGoalHandle::WrappedResult &result) {
+        if (generation != navGoalGeneration_ || result.goal_id != navGoalId_)
             return;   // the goal this belongs to was preempted; its outcome is moot
         switch (result.code) {
         case rclcpp_action::ResultCode::SUCCEEDED: navStatus_ = "succeeded"; break;
@@ -3048,6 +3517,7 @@ void BridgeNode::startNavigation(const Envelope &request)
         navDistance_ = 0.0;
         navEta_ = nullptr;
         clearPlan();
+        releaseNavigationSource();
         // 목표가 끝났다는 사실은 이벤트로도 한 번 보낸다. state/nav 는 손실을
         // 허용하는 스트림이라, 마지막 상태 한 프레임이 떨어지면 관제 화면에
         // 주행이 영영 끝나지 않은 것처럼 남는다.
@@ -3055,23 +3525,32 @@ void BridgeNode::startNavigation(const Envelope &request)
                                             {"goal", navGoalPoint_}}));
     };
 
-    navGoalPoint_ = json{{"x", goal.pose.pose.position.x},
-                         {"y", goal.pose.pose.position.y},
-                         {"theta", request.p.value("theta", 0.0)}};
-    navStatus_ = "accepting";
-    navDistance_ = 0.0;
-    navEta_ = nullptr;
-    pendingGoto_ = request;
     pendingGotoAt_ = now();
-    navClient_->async_send_goal(goal, opts);
+    navGoalAcceptPending_ = true;
+    try {
+        navClient_->async_send_goal(goal, opts);
+    } catch (const std::exception &e) {
+        navGoalAcceptPending_ = false;
+        navStatus_ = "failed";
+        settleGoto(false, err::kUnreachable,
+                   "자율주행 목표 전송 오류: " + std::string(e.what()));
+        releaseNavigationSource();
+    }
 }
 
 void BridgeNode::cancelNavigation(const char *reason)
 {
-    if (!navGoal_ && !pendingGoto_)
+    if (!navGoal_ && !navGoalAcceptPending_ && !pendingGoto_ &&
+        !navSourcePreparing_ &&
+        !navSourceSelectPending_ && !navSourceAwaitingActive_ && !navSourceOwned_)
         return;
+    navCancelRequested_ = true;
+    navSourceCancelPending_ = true;
+    navSourcePreparing_ = false;
     if (navGoal_)
         navClient_->async_cancel_goal(navGoal_);
+    if (!navSourceSelectPending_)
+        releaseNavigationSource();
     // 취소를 요청한 쪽이 이유를 알고 있으므로, 아직 답하지 않은 요청은
     // 여기서 닫는다. 그러지 않으면 관제는 목표가 살아 있다고 믿는다.
     settleGoto(false, err::kMode, reason);
@@ -3090,16 +3569,24 @@ void BridgeNode::settleGoto(bool ok, const std::string &code, const std::string 
 
 void BridgeNode::publishNav()
 {
-    if (!server_.isConnected())
-        return;
-
     // Nav2 가 목표 수락 여부를 끝내 답하지 않으면 요청을 닫아 준다. 열어 둔
     // 채 두면 관제는 다음 목표를 보낼 수 없고 (위의 E_BUSY), 이유도 모른다.
-    if (pendingGoto_ && (now() - pendingGotoAt_) > rclcpp::Duration(kGoalAcceptTimeout)) {
+    if (pendingGoto_ && navGoalAcceptPending_ &&
+        (now() - pendingGotoAt_) > rclcpp::Duration(kGoalAcceptTimeout)) {
+        navCancelRequested_ = true;
+        navGoalAcceptPending_ = false;
+        ++navGoalGeneration_; // A late acceptance callback only cancels its handle.
+        if (navGoal_)
+            navClient_->async_cancel_goal(navGoal_);
+        navGoal_.reset();
         navStatus_ = "failed";
         clearPlan();
         settleGoto(false, err::kUnreachable, "자율주행이 목표에 응답하지 않습니다");
+        releaseNavigationSource();
     }
+
+    if (!server_.isConnected())
+        return;
 
     sendEnvelope(makePublish(kChNav,
                              json{{"status", navStatus_},
@@ -3117,17 +3604,70 @@ void BridgeNode::publishNav()
 
 void BridgeNode::tickSafety()
 {
-    // 수동 모드인 동안 제자리 명령을 계속 내보낸다. 두 가지를 한꺼번에 한다 —
-    // 로봇을 세워 두고, mux 에서 자율 출력이 선택되지 못하게 한다.
-    //
-    // 관제가 아니라 여기서 내보내는 이유는 링크다. 관제가 0 을 스트림하게
-    // 하면 링크가 끊긴 순간 lease 가 만료되고, 수동 모드인데도 Nav2 가 로봇을
-    // 몰기 시작한다. 모드를 아는 것은 이 노드이므로 여기서 잡는다.
-    //
-    // E-Stop 중에도 내보낸다. 멈추는 것은 안전 게이트가 하지만, 그 사이에
-    // 자율 출력이 mux 에서 선택되어 있을 이유는 없다.
-    if (manualMode_ || estopEngaged_)
+    tickNavigationSource();
+    const auto steady_now = std::chrono::steady_clock::now();
+    // Keep the previous teleop lease drained during a quick auto -> manual
+    // reversal; manual_ready must not be announced while the final gate is held.
+    const bool auto_release_grace =
+        autoReleaseAt_ != std::chrono::steady_clock::time_point{} &&
+        steady_now - autoReleaseAt_ < std::chrono::milliseconds(700);
+    if (manualMode_ && manualReady_ &&
+        (estopActive() || safetyState_ != "normal" || motionAuthority_ != "base_active")) {
+        manualReady_ = false; // A fresh operator request is needed after an inhibit.
+        RCLCPP_WARN(get_logger(), "수동 조작 허가 취소: 안전 또는 Base 권한 상실");
+    }
+
+    if (pendingManualMode_) {
+        using State = shalom_interfaces::msg::MissionState;
+        const auto state = missionState_.state;
+        const bool mission_settled = haveMissionState_ &&
+            (state == State::IDLE || state == State::READY || state == State::PAUSED ||
+             state == State::COMPLETED || state == State::FAILED);
+        const bool stopped_fresh = baseStopped_ && baseStoppedAt_ >= manualRequestAt_ &&
+            steady_now - baseStoppedAt_ <= std::chrono::milliseconds(500);
+        // Do not release the final gate before the previous auto-mode mux
+        // lock lease (300 ms) can expire, even if the base stops sooner.
+        const bool lock_settled =
+            steady_now - manualRequestAt_ >= std::chrono::milliseconds(350);
+        if (startupSourceSynchronized_ && manualPauseAcknowledged_ && lock_settled &&
+            mission_settled && !navGoal_ &&
+            !navGoalAcceptPending_ && !navCancelAllPending_ && navCancelAllAccepted_ &&
+            stopped_fresh && !auto_release_grace && !estopActive() &&
+            safetyState_ == "normal" && motionAuthority_ == "base_active") {
+            manualReady_ = true;
+            respond(*pendingManualMode_, true);
+            pendingManualMode_.reset();
+            RCLCPP_INFO(get_logger(), "수동 전환 완료: 미션·Nav2·Base 정지 확인");
+        } else if (steady_now - manualRequestAt_ >= std::chrono::seconds(2)) {
+            respond(*pendingManualMode_, false, err::kUnreachable,
+                    "수동 전환 시간 초과: 미션·Nav2·Base 정지/안전 조건을 확인하지 못했습니다");
+            pendingManualMode_.reset();
+            RCLCPP_ERROR(get_logger(), "수동 전환 실패: 자동 입력 차단과 정지 유지");
+        }
+    }
+
+    // The final gate must hold zero throughout a takeover, not just once.
+    // Returning to auto retains the inhibit for the old 400 ms grace plus
+    // the mux's 300 ms source lease, so stale teleop cannot leak through.
+    std_msgs::msg::Bool inhibit;
+    inhibit.data = !startupSourceSynchronized_ ||
+        (manualMode_ && !manualReady_) || estopActive() || auto_release_grace;
+    baseInhibitPub_->publish(inhibit);
+
+    // A lock masks lower-priority autonomous inputs. If this publisher dies,
+    // twist_mux's finite lock lease expires to the *locked* state.
+    std_msgs::msg::Bool lock;
+    lock.data = !startupSourceSynchronized_ || manualMode_ ||
+        estopActive() || auto_release_grace;
+    manualAutonomyLockPub_->publish(lock);
+
+    if (manualMode_ || estopActive())
         baseHoldPub_->publish(geometry_msgs::msg::Twist{});
+
+    std_msgs::msg::Bool ready;
+    ready.data = startupSourceSynchronized_ && manualMode_ && manualReady_ &&
+        !estopActive();
+    manualReadyPub_->publish(ready);
 }
 
 bool BridgeNode::estopActive() const
@@ -3161,7 +3701,7 @@ void BridgeNode::publishSafety()
 {
     sendEnvelope(makePublish(kChSafety,
                              json{{"estop", estopActive()},
-                                  {"mode", manualMode_ ? "manual" : "auto"},
+                                  {"mode", manualMode_ ? (manualReady_ ? "manual" : "transitioning") : "auto"},
                                   {"state", safetyState_}}));
 }
 

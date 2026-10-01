@@ -16,7 +16,10 @@
 - FSM은 우선 명시적인 C++ 상태·이벤트 구현을 유지한다. Boost.SML은 도입하지 않는다.
 - Mission FSM은 `IDLE`, `READY`, `RUNNING`, `PAUSING`, `PAUSED`,
   `RECOVERING`, `RETURNING`, `COMPLETED`, `FAILED`를 사용한다.
-- 수동 전환은 실행 중인 Nav2 goal을 취소하고 Mission을 `PAUSED`로 만든다.
+- 수동 전환은 실행 중인 Nav2 goal을 취소하고 활성 Mission을 `PAUSED`로 만든다.
+  `READY`에서 대기 중인 START는 취소하고 계획은 `READY`로 유지한다.
+  수동 조작은 취소·정지 피드백이 확인된 뒤에만 허용하며, 자동 전환만으로
+  미션이나 Nav2 goal을 재개하지 않는다.
 - 재개할 때 완료된 waypoint는 유지하고, 중단된 waypoint는 처음부터 다시 실행한다.
 - 도크 접근은 미션별 선택 사항이다. 접근 위치 도달을 물리 도킹이나 충전 성공으로
   간주하지 않는다.
@@ -36,11 +39,13 @@ HMI ─TCP→ hmi_bridge ─request→ mission_manager ─intent→ Nav2 / motio
                                                                     │
 mission_manager ─request→ motion_interlock_manager ─ authority ─────┼→ safety_gate → B2
                                                                     │
-motion sources ───────────────────→ twist_mux ─ selected command ───┘
+Nav2/dock/stair/mission ─→ base_source_manager ─→ twist_mux ────────┘
+HMI teleop/manual hold ───────────────────────────────→ twist_mux
 ```
 
 Safety Manager와 Motion Interlock Manager는 직렬 관계가 아니다. Safety Gate가
-`motion_permitted`, authority, command freshness를 독립적으로 검사한다.
+`motion_permitted`, authority, command freshness와 HMI·source 관리자 전환 차단
+신호를 독립적으로 검사한다.
 
 | 구성요소 | 소유하는 것 | 소유하지 않는 것 |
 |---|---|---|
@@ -48,8 +53,9 @@ Safety Manager와 Motion Interlock Manager는 직렬 관계가 아니다. Safety
 | `mission_manager` | Mission FSM, Mission BT, 단계 checkpoint | 최종 actuator 명령, E-Stop latch |
 | `safety_manager` | Safety FSM, motion permit | base/arm 선택, 물리 E-Stop 회로 |
 | `motion_interlock_manager` | base/arm 배타적 authority | 안전 상태, Mission 진행 |
-| `twist_mux` | fresh command source 선택 | 안전 판단, 운용 모드 |
-| `safety_gate` | 최종 ROS 명령 통과 또는 차단 | Mission 정책, 물리 안전정지 |
+| `base_source_manager` | 자율 base source 단일 소유권, 전환/정지 확인, 명령 유실 차단 | 수동 모드 결정, 안전 상태의 원본 |
+| `twist_mux` | 승인된 자율 입력과 수동 입력의 우선순위 | 자율 source 간 자동 전환, 안전 판단 |
+| `safety_gate` | 최종 ROS 명령 통과 또는 차단, 수동 전환 중 base 출력 억제 | Mission 정책, 물리 안전정지 |
 | HMI | 요청과 상태 표시 | 로봇 상태의 원본 |
 
 Safety Gate는 다음 조건이 모두 참일 때만 base command를 통과시킨다.
@@ -58,11 +64,22 @@ Safety Gate는 다음 조건이 모두 참일 때만 base command를 통과시�
 fresh(motion_permitted == true)
 AND fresh(authority == BASE_ACTIVE)
 AND fresh(selected_command)
+AND fresh(base_inhibit == false)
+AND fresh(base_source_inhibit == false)
 AND driver_ready
 ```
 
 하나라도 거짓이거나 알 수 없으면 zero command를 출력한다. Safety Gate만 B2 최종
 command topic을 발행할 수 있어야 한다.
+
+자율 입력 NAV/DOCK/STAIR/MISSION은 개별 mux 우선순위로 경쟁하지 않는다.
+`base_source_manager`가 명시적 소유자 하나만 선택한다. 소유권 변경 시 최종
+출력을 먼저 차단하고, 이전 action 취소 응답과 그 이후의 신선한 BASE 정지
+피드백을 확인한 뒤 새 source를 허용한다. 선택 source의 300 ms 명령 lease가
+만료되면 0 출력과 fault를 유지하며 다른 자율 입력으로 자동 복귀하지 않는다.
+HMI 수동 전환은 기존 `/motion/base/inhibit`와 `manual_ready` 절차를 별도로
+지키며, source 관리자의 차단 신호와 서로 덮어쓰지 않는다. 현재 미션의
+`dock_approach`는 NavigateToPose 접근이며 DockRobot 제어권 연결을 뜻하지 않는다.
 
 ## 시간 계약
 
