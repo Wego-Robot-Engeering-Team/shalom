@@ -151,7 +151,8 @@ if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
       robot/third_party/b2_simulation/README.md \
       robot/third_party/frcobot_ros2/README.md \
       robot/third_party/aurora_ros/README.md \
-      robot/third_party/hesai_lidar_ros2/README.md; do
+      robot/third_party/hesai_lidar_ros2/README.md \
+      robot/third_party/vectornav/README.md; do
       if [ ! -f "$REPO_ROOT/$required_source" ]; then
         echo "서브모듈 소스가 없음: $required_source" >&2
         echo "git submodule update --init --recursive 를 실행해야 한다." >&2
@@ -204,6 +205,9 @@ if [ "$ROLE" = dev ] || [ "$ROLE" = robot ]; then
   # HesaiLidar_ROS_2.0가 직접 찾는 시스템 라이브러리다. 공식 드라이버는
   # third_party의 고정 서브모듈로 제공하고, 로봇 전용 설정은 pandar_xt32가 갖는다.
   apt_install libboost-all-dev libyaml-cpp-dev
+
+  say "VectorNav VN-100 드라이버"
+  apt_install libspdlog-dev
 
 fi
 

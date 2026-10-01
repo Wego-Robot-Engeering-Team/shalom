@@ -55,6 +55,7 @@ def generate_launch_description():
     pkg = FindPackageShare("robot_bringup")
     bridge = FindPackageShare("hmi_bridge")
     pandar_xt32 = FindPackageShare("pandar_xt32")
+    vectornav_vn100 = FindPackageShare("vectornav_vn100")
 
     platform = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([pkg, "launch", "platform.launch.py"])),
@@ -62,7 +63,8 @@ def generate_launch_description():
             name: LaunchConfiguration(name)
             for name in ("domain_id", "network_interface", "pointcloud_topic", "lidar",
                          "xt32_config_file", "xt32_x", "xt32_y", "xt32_z", "xt32_roll",
-                         "xt32_pitch", "xt32_yaw", "aurora", "aurora_ip")
+                         "xt32_pitch", "xt32_yaw", "aurora", "aurora_ip", "vn100",
+                         "vn100_config_file", "vn100_port")
         }.items(),
     )
     navigation = IncludeLaunchDescription(
@@ -124,6 +126,11 @@ def generate_launch_description():
         DeclareLaunchArgument("xt32_yaw", default_value="0.0"),
         DeclareLaunchArgument("aurora", default_value="false"),
         DeclareLaunchArgument("aurora_ip", default_value="192.168.11.1"),
+        DeclareLaunchArgument("vn100", default_value="false"),
+        DeclareLaunchArgument(
+            "vn100_config_file",
+            default_value=PathJoinSubstitution([vectornav_vn100, "config", "vn100.yaml"])),
+        DeclareLaunchArgument("vn100_port", default_value="/dev/ttyUSB_VN100"),
         DeclareLaunchArgument("maps_dir", default_value="/var/lib/shalom/maps",
                               description="로봇이 소유하는 지도 번들 디렉터리"),
         DeclareLaunchArgument("map", default_value="auto",

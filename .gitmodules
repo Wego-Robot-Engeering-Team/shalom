@@ -26,3 +26,6 @@
 	path = robot/third_party/hesai_lidar_ros2
 	url = https://github.com/HesaiTechnology/HesaiLidar_ROS_2.0.git
 	branch = master
+[submodule "robot/third_party/vectornav"]
+	path = robot/third_party/vectornav
+	url = https://github.com/ntnu-arl/vectornav.git

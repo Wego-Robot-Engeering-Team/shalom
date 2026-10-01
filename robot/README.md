@@ -36,6 +36,12 @@ ros2 launch robot_bringup bringup.launch.py \
 시작한다. 지도를 직접 지정할 때는 절대 경로의 `map.yaml`을 사용한다.
 지도 번들은 로봇의 `/var/lib/shalom/maps/`에 두며 브리지가 쓸 수 있어야 한다.
 
+VN-100은 기본적으로 실행하지 않는다. 센서를 연결한 뒤 `vn100:=true`와
+`vn100_port:=<시리얼 장치>`를 지정하면 raw 가속도·각속도가
+`/vn100/imu/data_ned`로 발행된다. 기존 B2 IMU와 내비게이션 입력은 변경하지
+않는다. 장치 설정과 좌표계 주의사항은
+[VN-100 래퍼](sensors/vectornav_vn100/README.md)를 참고한다.
+
 촬영 기능을 사용할 때는 로봇과 HMI에 동일한 NAS 공유 폴더를 `/mnt/nas`로
 마운트한다. 브리지는 `/mnt/nas/inspection`에 PNG와 JSON을 직접 저장하며,
 NAS 마운트가 없으면 촬영 요청을 거절한다. 경로를 바꾼다면
@@ -66,6 +72,8 @@ HMI에서 해당 지도 이름을 바꾼 후 다음 실행 때 경로도 수정�
 | `lidar` | `xt32` | `xt32` 또는 `none` |
 | `aurora` | `false` | Aurora S 드라이버 실행 여부 |
 | `aurora_ip` | `192.168.11.1` | Aurora S 주소 |
+| `vn100` | `false` | VN-100 드라이버 실행 여부 |
+| `vn100_port` | `/dev/ttyUSB_VN100` | VN-100 시리얼 장치 |
 | `map` | `auto` | 기본 지도, 절대 경로의 `map.yaml`, 또는 `none`(SLAM) |
 | `maps_dir` | `/var/lib/shalom/maps` | 로봇 소유 지도 번들 경로 |
 | `rviz` | `false` | RViz 실행 여부 |
@@ -84,6 +92,7 @@ ros2 launch simulation_bringup bringup.launch.py
 cd ~/shalom_ws
 source /opt/ros/jazzy/setup.bash
 colcon build --base-paths src/shalom --symlink-install \
-  --packages-select shalom_interfaces robot_bringup simulation_bringup hmi_bridge
+  --packages-select shalom_interfaces vectornav_driver vectornav_vn100 \
+  robot_bringup simulation_bringup hmi_bridge
 source install/setup.bash
 ```

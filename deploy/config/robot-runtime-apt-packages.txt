@@ -14,3 +14,4 @@ ros-jazzy-cv-bridge
 ros-jazzy-twist-mux
 libboost-all-dev
 libyaml-cpp-dev
+libspdlog-dev

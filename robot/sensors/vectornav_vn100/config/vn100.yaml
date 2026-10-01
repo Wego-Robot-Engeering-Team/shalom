@@ -1,0 +1,16 @@
+/vn100/vectornav_driver_node:
+  ros__parameters:
+    sensor_family: 1
+    port: /dev/ttyUSB_VN100
+    baud_rate: 921600
+    async_mode: 1
+    async_rate_divisor: 4
+    adjust_timestamp: false
+    frame_id: vn100_link_ned
+    set_reference_frame: false
+    write_to_flash: false
+    factory_reset_before_start: false
+    log_directory: /tmp/
+    log_level.logger: 2
+    log_level.file: 6
+    log_level.console: 2

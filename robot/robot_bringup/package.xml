@@ -26,6 +26,7 @@
   <exec_depend>lidar_slam</exec_depend>
   <!-- Hesai Pandar XT32 adapter (lidar:=xt32). -->
   <exec_depend>pandar_xt32</exec_depend>
+  <exec_depend>vectornav_vn100</exec_depend>
   <exec_depend>slamtec_aurora</exec_depend>
   <exec_depend>kiss_icp</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>

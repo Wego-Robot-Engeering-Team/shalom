@@ -18,6 +18,7 @@ def generate_launch_description():
     pkg = FindPackageShare("robot_bringup")
     pandar_xt32 = FindPackageShare("pandar_xt32")
     slamtec_aurora = FindPackageShare("slamtec_aurora")
+    vectornav_vn100 = FindPackageShare("vectornav_vn100")
 
     real_robot = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -49,6 +50,16 @@ def generate_launch_description():
         condition=LaunchConfigurationEquals("lidar", "xt32"),
     )
 
+    vn100_driver = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([vectornav_vn100, "launch", "vn100.launch.py"])),
+        launch_arguments={
+            "config_file": LaunchConfiguration("vn100_config_file"),
+            "port": LaunchConfiguration("vn100_port"),
+        }.items(),
+        condition=LaunchConfigurationEquals("vn100", "true"),
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument("domain_id", default_value="0"),
         SetEnvironmentVariable("ROS_DOMAIN_ID", LaunchConfiguration("domain_id")),
@@ -73,5 +84,10 @@ def generate_launch_description():
         DeclareLaunchArgument("xt32_yaw", default_value="0.0"),
         DeclareLaunchArgument("aurora", default_value="false"),
         DeclareLaunchArgument("aurora_ip", default_value="192.168.11.1"),
-        real_robot, aurora_driver, xt32,
+        DeclareLaunchArgument("vn100", default_value="false"),
+        DeclareLaunchArgument(
+            "vn100_config_file",
+            default_value=PathJoinSubstitution([vectornav_vn100, "config", "vn100.yaml"])),
+        DeclareLaunchArgument("vn100_port", default_value="/dev/ttyUSB_VN100"),
+        real_robot, aurora_driver, xt32, vn100_driver,
     ])
