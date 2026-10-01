@@ -17,6 +17,7 @@
 `default_map.json`이 가리키는 지도로 시작한다.
 지도별 `waypoints.json`·`markers.json`·`locations.json`·`missions.json`에는
 `map_id`를 반복 저장하지 않는다. `default_map.json`에만 선택할 지도 ID를 기록한다.
+로봇팔 자세는 지도와 별도의 `robot_data_dir/arm_pose_presets.json`에 저장한다.
 
 `metadata.json`의 `name`은 폴더와 함께 파일을 복사해도 지도 이름을 알 수 있게
 두며, 폴더 이름과 같은 값으로 유지한다. HMI는 폴더 이름을 기준으로 표시한다.

@@ -34,7 +34,9 @@ ros2 launch robot_bringup bringup.launch.py \
 `map`을 생략하면 `/var/lib/shalom/maps/default_map.json`의 지도를 사용한다. 이 파일이
 없거나 `map_id`가 빈 문자열이면 SLAM으로 시작한다. `map:=none`을 명시해도 SLAM으로
 시작한다. 지도를 직접 지정할 때는 절대 경로의 `map.yaml`을 사용한다.
-지도 번들은 로봇의 `/var/lib/shalom/maps/`에 두며 브리지가 쓸 수 있어야 한다.
+지도 번들은 로봇의 `/var/lib/shalom/maps/`에 둔다. 로봇팔 자세는 지도와 별도로
+`/var/lib/shalom/arm_pose_presets.json`에 저장한다. 로봇 서비스가 두 경로에
+쓸 수 있어야 한다.
 
 VN-100은 기본적으로 실행하지 않는다. 센서를 연결한 뒤 `vn100:=true`와
 `vn100_port:=<시리얼 장치>`를 지정하면 raw 가속도·각속도가
@@ -49,15 +51,17 @@ NAS 마운트가 없으면 촬영 요청을 거절한다. 경로를 바꾼다면
 HMI 설정의 촬영 데이터 경로를 함께 바꾼다. 오프라인 업로드 대기열은 없다.
 
 ```text
-/var/lib/shalom/maps/
-├── default_map.json
-└── inspection_a/
-    ├── map.yaml
-    ├── map.pgm
-    ├── metadata.json
-    ├── waypoints.json
-    ├── locations.json
-    └── markers.json
+/var/lib/shalom/
+├── arm_pose_presets.json
+└── maps/
+    ├── default_map.json
+    └── inspection_a/
+        ├── map.yaml
+        ├── map.pgm
+        ├── metadata.json
+        ├── waypoints.json
+        ├── locations.json
+        └── markers.json
 ```
 
 폴더 이름이 HMI에 표시되는 지도 이름이다. HMI에서 기본 지도를 지정하면
@@ -76,6 +80,7 @@ HMI에서 해당 지도 이름을 바꾼 후 다음 실행 때 경로도 수정�
 | `vn100_port` | `/dev/serial/by-id/usb-FTDI_USB-RS232-WE_AV0LFM92-if00-port0` | VN-100 시리얼 장치 |
 | `map` | `auto` | 기본 지도, 절대 경로의 `map.yaml`, 또는 `none`(SLAM) |
 | `maps_dir` | `/var/lib/shalom/maps` | 로봇 소유 지도 번들 경로 |
+| `robot_data_dir` | `/var/lib/shalom` | 지도와 무관한 팔 자세 저장 경로 |
 | `rviz` | `false` | RViz 실행 여부 |
 
 ## 시뮬레이터 실행

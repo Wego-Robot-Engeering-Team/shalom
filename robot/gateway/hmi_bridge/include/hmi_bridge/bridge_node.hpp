@@ -347,6 +347,7 @@ private:
     std::string pendingMapId_;
     bool pendingMapPublication_ = false;
     std::string mapsDir_ = "/var/lib/shalom/maps";
+    std::string robotDataDir_ = "/var/lib/shalom";
 
     json waypoints_ = json::array();
     json missions_ = json::array();

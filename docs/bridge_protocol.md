@@ -149,8 +149,8 @@ executor가 연결되어 있지 않으면 미션 전체를 시작 전에 거절�
 ### 로봇 소유 팔 자세 프리셋
 
 `state/arm_pose_presets`는 `{ "presets": [...] }`를 보내며 각 항목은 `id`, `name`,
-`description`, `positions`(FR3 6축 라디안), `revision`, `archived`를 가진다. 로봇의 `mapsDir` 아래
-`arm_pose_presets.json`에 저장하며 지도와 무관하다. `cmd/arm/pose_presets/list`로
+`description`, `positions`(FR3 6축 라디안), `revision`, `archived`를 가진다. 로봇의
+`robot_data_dir/arm_pose_presets.json`에 저장하며 지도와 무관하다. `cmd/arm/pose_presets/list`로
 목록을 요청하고 `cmd/arm/pose_presets/save`에 `{ "preset": { … } }`를 보내 추가한다.
 수정은 `cmd/arm/pose_presets/update`에 `preset`과 `expected_revision`을 보내며,
 로봇이 저장에 성공한 뒤 다시 발행한 목록으로 HMI를 갱신한다. 다른 HMI가 먼저

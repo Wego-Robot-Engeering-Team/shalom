@@ -317,16 +317,32 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     mapFrame_ = declare_parameter("map_frame", mapFrame_);
     baseFrame_ = declare_parameter("base_frame", baseFrame_);
     mapsDir_ = declare_parameter("maps_dir", mapsDir_);
+    robotDataDir_ = declare_parameter("robot_data_dir", robotDataDir_);
+    if (robotDataDir_.empty())
+        throw std::invalid_argument("robot_data_dir must not be empty");
     armExecutionEnabled_ = declare_parameter("arm.execution_enabled", false);
     {
-        std::ifstream in(std::filesystem::path(mapsDir_) / "arm_pose_presets.json");
+        const auto current = std::filesystem::path(robotDataDir_) / "arm_pose_presets.json";
+        const auto legacy = std::filesystem::path(mapsDir_) / "arm_pose_presets.json";
+        std::error_code ec;
+        const bool useLegacy = !std::filesystem::is_regular_file(current, ec) &&
+                               std::filesystem::is_regular_file(legacy, ec);
+        std::ifstream in(useLegacy ? legacy : current);
         if (in) {
             try {
                 json document;
                 in >> document;
                 const auto presets = document.value("presets", json::array());
-                if (presets.is_array())
+                if (presets.is_array()) {
                     armPosePresets_ = presets;
+                    if (useLegacy) {
+                        std::string error;
+                        if (saveArmPosePresets(&error))
+                            RCLCPP_INFO(get_logger(), "팔 자세 프리셋을 %s로 이전했습니다", current.c_str());
+                        else
+                            RCLCPP_WARN(get_logger(), "팔 자세 프리셋 이전 실패: %s", error.c_str());
+                    }
+                }
             } catch (const json::exception &e) {
                 RCLCPP_WARN(get_logger(), "팔 자세 프리셋을 읽지 못했습니다: %s", e.what());
             }
@@ -2195,7 +2211,7 @@ bool BridgeNode::saveMissions(std::string *error)
 
 bool BridgeNode::saveArmPosePresets(std::string *error)
 {
-    const std::filesystem::path root(mapsDir_);
+    const std::filesystem::path root(robotDataDir_);
     std::error_code ec;
     std::filesystem::create_directories(root, ec);
     if (ec) {
