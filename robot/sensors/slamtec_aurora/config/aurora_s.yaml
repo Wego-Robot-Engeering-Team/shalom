@@ -32,3 +32,24 @@
     point_cloud_pub_period: 0.0
     raw_image_on: false
     no_preview_image: true
+
+# 전용 사람 분할 + 깊이 점군 테스트. Aurora SDK에 별도 세션으로 연결한다.
+/aurora_person_cloud:
+  ros__parameters:
+    ip_address: "192.168.11.1"
+    person_label_id: 1           # 현재 Aurora coco80 모델의 person 라벨
+    min_depth_m: 0.2
+    max_depth_m: 10.0
+    max_planar_range_m: 3.0    # 카메라 기준 전방·좌우 평면 거리(m)
+    mask_erosion_pixels: 2    # 깊이 영상 기준 가장자리 2픽셀 제외, 0이면 해제
+    max_local_depth_jump_m: 0.25 # 5x5 주변보다 뒤로 튀는 깊이 허용치(m), 0이면 해제
+    pixel_stride: 1              # 1이면 사람의 유효 깊이 픽셀 전체 사용
+    min_person_points: 1         # 한 프레임의 최소 유효 포인트 수
+    sync_tolerance_ms: 100       # semantic/depth 장치 타임스탬프 허용 차이
+    max_publish_rate_hz: 10.0
+    reconnect_wait_ms: 3000
+    frame_id: "aurora_depth_local"
+    points3d_topic: "/aurora/person/points3d"
+    points2d_topic: "/aurora/person/points2d"
+    camera_image_topic: "/aurora/person/camera_image"
+    overlay_image_topic: "/aurora/person/overlay_image"

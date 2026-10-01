@@ -3,7 +3,8 @@
 현재 HMI와 `hmi_bridge`가 사용하는 JSON 형식이다. 아래 `path`는 로봇의
 `/var/lib/shalom/`을 기준으로 적었다. 이 경로는 소스 저장소 `shalom/` 밖에
 있다. `<map_id>`는 지도 폴더 이름이며 지도별 JSON에는 다시 기록하지 않는다.
-실행 시 `maps_dir`로 저장 경로를 변경할 수 있다.
+지도 데이터는 `maps_dir`, 지도와 무관한 팔 자세는 `robot_data_dir`에 저장한다.
+두 경로 모두 실행 인자로 변경할 수 있다.
 저장 파일에서 `map_id`가 필요한 곳은 기본 지도를 지정하는
 `maps/default_map.json`이다.
 좌표는 ROS `map` 좌표계의 미터, 각도는 라디안으로 저장한다.
@@ -70,7 +71,10 @@ path: `maps/<map_id>/markers.json`
 
 ## 로봇팔 관절 자세
 
-path: `maps/arm_pose_presets.json`
+path: `arm_pose_presets.json`
+
+시뮬레이션 기본 경로는 `simulation/simulation_bringup/robot_data/arm_pose_presets.json`이다.
+기존 `maps_dir/arm_pose_presets.json`이 있으면 브리지 시작 시 새 경로로 복사한다.
 
 ```json
 {
@@ -81,7 +85,7 @@ path: `maps/arm_pose_presets.json`
       "positions": [0.0, -0.4, 0.5, -1.2, 0.0, 0.4],
       "revision": 1,
       "archived": false,
-      "description": "",
+      "description": ""
     }
   ]
 }
@@ -195,8 +199,10 @@ path: `maps/<map_id>/locations.json`
 ## 저장과 동기화
 
 - HMI는 로봇 브리지에 명령을 보내고, 저장 성공 후 로봇이 다시 발행한 목록을
-  표시한다. 데이터의 원본은 연결된 로봇 또는 시뮬레이션의 `<maps_dir>`이다.
+  표시한다. 지도별 데이터의 원본은 `<maps_dir>`, 팔 자세의 원본은
+  `<robot_data_dir>`이다.
 - 미션과 팔 자세를 HMI에서 수정할 때는 마지막으로 받은 `revision`을
   `expected_revision`으로 보낸다. 다른 화면이 먼저 바꿨다면 저장이 거절된다.
-- JSON 파일을 직접 수정한 뒤에는 브리지를 재시작하거나 지도를 다시 불러온다.
+- 지도별 JSON 파일을 직접 수정한 뒤에는 지도를 다시 불러오거나 브리지를
+  재시작한다. 팔 자세 파일을 직접 수정한 뒤에는 브리지를 재시작한다.
 - 웨이포인트·마커·미션의 `description`은 현재 JSON 파일에서 직접 편집한다.

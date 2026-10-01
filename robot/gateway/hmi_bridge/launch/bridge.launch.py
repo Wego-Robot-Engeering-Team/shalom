@@ -64,6 +64,9 @@ def generate_launch_description():
     maps_dir_arg = DeclareLaunchArgument(
         "maps_dir", default_value="/var/lib/shalom/maps",
         description="지도 번들과 지도별 상태가 있는 로봇 로컬 디렉터리")
+    robot_data_dir_arg = DeclareLaunchArgument(
+        "robot_data_dir", default_value="/var/lib/shalom",
+        description="지도와 무관한 로봇 운용 데이터 디렉터리")
     initial_map_arg = DeclareLaunchArgument(
         "initial_map", default_value="",
         description="시작 지도 map.yaml 절대 경로 또는 빈 값. map_server와 같은 지도를 사용해야 한다.")
@@ -89,6 +92,7 @@ def generate_launch_description():
                      "robot_id": LaunchConfiguration("robot_id"),
                      "robot_name": LaunchConfiguration("robot_name"),
                      "maps_dir": LaunchConfiguration("maps_dir"),
+                     "robot_data_dir": LaunchConfiguration("robot_data_dir"),
                      "initial_map": LaunchConfiguration("initial_map")}],
         # 브릿지가 죽으면 생존 신호가 끊기고 안전 노드가 로봇을 정지시킨다.
         # 그 뒤 자동으로 다시 올라와 관제가 재연결할 수 있게 한다.
@@ -113,4 +117,4 @@ def generate_launch_description():
 
     return LaunchDescription(
         [config_arg, estop_port_arg, sim_time_arg, robot_id_arg, robot_name_arg,
-         maps_dir_arg, initial_map_arg, estop_bridge, bridge])
+         maps_dir_arg, robot_data_dir_arg, initial_map_arg, estop_bridge, bridge])

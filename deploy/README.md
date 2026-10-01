@@ -124,7 +124,7 @@ ELF 의존성 검사 결과로 생성한다. 현재 제어 경로에는 다음�
 |---|---|---|---|
 | `/opt/shalom/releases/<version>/` | Wego | 실행 파일, launch, 내부 기본값 | 런타임 버전 교체 |
 | `/etc/shalom/` | 현장·운영자 | 센서 주소, 보정, 안전 운용값, gateway 정책 | 기존 값을 덮어쓰지 않음 |
-| `/var/lib/shalom/` | 로봇 | 지도, waypoint, location, marker, 촬영 spool | 런타임 패키지와 분리 보존 |
+| `/var/lib/shalom/` | 로봇 | 지도 번들, 지도와 무관한 로봇팔 자세 | 런타임 패키지와 분리 보존 |
 | `/var/log/shalom/` | 로봇 | 서비스 로그·진단 로그 | 보존·순환 정책 적용 |
 
 `site-config/`는 설치 시 `/etc/shalom/`에 최초 복사한다. 이후 업그레이드는

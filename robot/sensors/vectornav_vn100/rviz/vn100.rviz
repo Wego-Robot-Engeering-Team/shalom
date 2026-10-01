@@ -1,0 +1,51 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded: ~
+    Tree Height: 700
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Background Color: 0; 0; 0
+    Fixed Frame: vn100_visualization
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Level plane
+      Enabled: false
+      Cell Size: 0.5
+      Plane Cell Count: 10
+      Color: 75; 75; 85
+    - Class: rviz_default_plugins/Axes
+      Name: Reference axes
+      Enabled: true
+      Length: 0.35
+      Radius: 0.03
+    - Class: rviz_default_plugins/MarkerArray
+      Name: VN-100 tilt
+      Enabled: true
+      Topic:
+        Value: /vn100/attitude_markers
+        Depth: 5
+        Durability Policy: Volatile
+        Reliability Policy: Reliable
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Current View
+      Distance: 4.2
+      Pitch: 0.65
+      Yaw: 0.75
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0
+Window Geometry:
+  Height: 850
+  Width: 1200

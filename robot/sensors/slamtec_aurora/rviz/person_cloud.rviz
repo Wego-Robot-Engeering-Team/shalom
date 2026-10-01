@@ -1,0 +1,76 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded: ~
+    Tree Height: 700
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Background Color: 40; 44; 52
+    Fixed Frame: aurora_depth_local
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Image
+      Name: Left camera
+      Enabled: true
+      Topic:
+        Value: /aurora/person/camera_image
+        Depth: 5
+        Durability Policy: Volatile
+        Reliability Policy: Best Effort
+    - Class: rviz_default_plugins/Image
+      Name: Person segmentation overlay
+      Enabled: true
+      Topic:
+        Value: /aurora/person/overlay_image
+        Depth: 5
+        Durability Policy: Volatile
+        Reliability Policy: Best Effort
+    - Class: rviz_default_plugins/Grid
+      Name: Local XY plane
+      Cell Size: 1
+      Plane Cell Count: 20
+      Color: 80; 80; 90
+      Enabled: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Person 3D
+      Enabled: true
+      Topic:
+        Value: /aurora/person/points3d
+        Depth: 5
+        Durability Policy: Volatile
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 3
+      Color Transformer: RGB8
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Person 2D projection
+      Enabled: true
+      Topic:
+        Value: /aurora/person/points2d
+        Depth: 5
+        Durability Policy: Volatile
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 4
+      Color Transformer: RGB8
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Current View
+      Distance: 6
+      Pitch: 0.8
+      Yaw: 0.5
+      Focal Point:
+        X: 2
+        Y: 0
+        Z: 0
+Window Geometry:
+  Height: 900
+  Width: 1400

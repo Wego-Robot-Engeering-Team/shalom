@@ -24,6 +24,10 @@ def _writable_maps_dir():
     return str(readme.resolve().parent)
 
 
+def _writable_robot_data_dir():
+    return str(Path(_writable_maps_dir()).parent / "robot_data")
+
+
 def _resolve_default_map(context):
     requested = LaunchConfiguration("map").perform(context)
     if requested == "none":
@@ -91,6 +95,7 @@ def generate_launch_description():
             "robot_id": LaunchConfiguration("robot_id"),
             "robot_name": LaunchConfiguration("robot_name"),
             "maps_dir": LaunchConfiguration("maps_dir"),
+            "robot_data_dir": LaunchConfiguration("robot_data_dir"),
             "initial_map": LaunchConfiguration("map"),
         }.items(),
     )
@@ -131,6 +136,9 @@ def generate_launch_description():
         DeclareLaunchArgument("maps_dir",
                               default_value=_writable_maps_dir(),
                               description="Simulator-owned map bundle directory"),
+        DeclareLaunchArgument("robot_data_dir",
+                              default_value=_writable_robot_data_dir(),
+                              description="Map-independent robot data directory"),
         DeclareLaunchArgument(
             "map",
             default_value="auto",
