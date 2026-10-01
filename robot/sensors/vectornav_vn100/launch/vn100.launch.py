@@ -16,7 +16,9 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("config_file", default_value=config_file),
-        DeclareLaunchArgument("port", default_value="/dev/ttyUSB_VN100"),
+        DeclareLaunchArgument(
+            "port",
+            default_value="/dev/serial/by-id/usb-FTDI_USB-RS232-WE_AV0LFM92-if00-port0"),
         Node(
             package="vectornav_driver",
             executable="vectornav_driver_node",

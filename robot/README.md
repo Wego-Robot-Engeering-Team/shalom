@@ -73,7 +73,7 @@ HMI에서 해당 지도 이름을 바꾼 후 다음 실행 때 경로도 수정�
 | `aurora` | `false` | Aurora S 드라이버 실행 여부 |
 | `aurora_ip` | `192.168.11.1` | Aurora S 주소 |
 | `vn100` | `false` | VN-100 드라이버 실행 여부 |
-| `vn100_port` | `/dev/ttyUSB_VN100` | VN-100 시리얼 장치 |
+| `vn100_port` | `/dev/serial/by-id/usb-FTDI_USB-RS232-WE_AV0LFM92-if00-port0` | VN-100 시리얼 장치 |
 | `map` | `auto` | 기본 지도, 절대 경로의 `map.yaml`, 또는 `none`(SLAM) |
 | `maps_dir` | `/var/lib/shalom/maps` | 로봇 소유 지도 번들 경로 |
 | `rviz` | `false` | RViz 실행 여부 |

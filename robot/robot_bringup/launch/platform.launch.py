@@ -88,6 +88,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "vn100_config_file",
             default_value=PathJoinSubstitution([vectornav_vn100, "config", "vn100.yaml"])),
-        DeclareLaunchArgument("vn100_port", default_value="/dev/ttyUSB_VN100"),
+        DeclareLaunchArgument(
+            "vn100_port",
+            default_value="/dev/serial/by-id/usb-FTDI_USB-RS232-WE_AV0LFM92-if00-port0"),
         real_robot, aurora_driver, xt32, vn100_driver,
     ])

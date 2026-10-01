@@ -1,7 +1,7 @@
 /vn100/vectornav_driver_node:
   ros__parameters:
     sensor_family: 1
-    port: /dev/ttyUSB_VN100
+    port: /dev/serial/by-id/usb-FTDI_USB-RS232-WE_AV0LFM92-if00-port0
     baud_rate: 921600
     async_mode: 1
     async_rate_divisor: 4

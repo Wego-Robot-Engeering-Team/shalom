@@ -130,7 +130,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "vn100_config_file",
             default_value=PathJoinSubstitution([vectornav_vn100, "config", "vn100.yaml"])),
-        DeclareLaunchArgument("vn100_port", default_value="/dev/ttyUSB_VN100"),
+        DeclareLaunchArgument(
+            "vn100_port",
+            default_value="/dev/serial/by-id/usb-FTDI_USB-RS232-WE_AV0LFM92-if00-port0"),
         DeclareLaunchArgument("maps_dir", default_value="/var/lib/shalom/maps",
                               description="로봇이 소유하는 지도 번들 디렉터리"),
         DeclareLaunchArgument("map", default_value="auto",
