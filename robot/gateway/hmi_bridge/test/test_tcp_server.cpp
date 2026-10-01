@@ -107,11 +107,25 @@ private:
     int fd_ = -1;
 };
 
-/// 테스트마다 다른 포트를 써서, 앞선 테스트의 소켓이 남아 있어도 충돌하지 않게 한다.
+/// 커널이 고른 빈 포트를 사용한다. 고정 테스트 포트는 다른 프로세스의
+/// outbound TCP 임시 포트와도 충돌할 수 있다.
 std::uint16_t nextPort()
 {
-    static std::uint16_t port = 45210;
-    return port++;
+    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0)
+        return 0;
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_ANY);
+    address.sin_port = 0;
+    if (::bind(fd, reinterpret_cast<sockaddr *>(&address), sizeof(address)) != 0) {
+        ::close(fd);
+        return 0;
+    }
+    socklen_t length = sizeof(address);
+    const bool ok = ::getsockname(fd, reinterpret_cast<sockaddr *>(&address), &length) == 0;
+    ::close(fd);
+    return ok ? ntohs(address.sin_port) : 0;
 }
 
 void run(const char *name, void (*body)(std::uint16_t))

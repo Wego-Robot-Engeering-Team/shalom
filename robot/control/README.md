@@ -9,12 +9,10 @@
 현재 구현 상태이며 목표 계약과 다른 부분은 계약의 구현 순서에 따라 변경한다.
 
 ```text
-mission_manager ── action/intent ─────────────────────┐
-HMI UDP ─ teleop_bridge ───────────────────────┐        │
-HMI TCP ─ manual_hold ─────────────────────────┤        │
-Nav2 / mission / dock / stair ─────────────────┼─ twist_mux ─ safety_gate ─ B2 driver
-                                                │                         ↑
-motion_interlock_manager ─ authority ──────────┘                  safety_manager
+Nav2 / mission / dock / stair ─ base_source_manager ─┐
+HMI UDP ─ teleop_bridge ──────────────────────────────┼─ twist_mux ─ safety_gate ─ B2 driver
+HMI TCP ─ manual_hold / manual_autonomy_lock ─────────┘                  ↑
+                                        safety_manager / motion_interlock_manager
 
 HMI arm / FR3 BT ─ joint_mux ─ safety_gate ─ FR3 driver
 ```
@@ -23,13 +21,14 @@ HMI arm / FR3 BT ─ joint_mux ─ safety_gate ─ FR3 driver
 |---|---|---|
 | `mission_manager` | Mission FSM and BT ordering | final actuator commands |
 | `teleop_bridge` | deadman and input lease | hardware command topic |
-| `twist_mux` | fresh base command source priority | safety state |
+| `base_source_manager` | 하나의 자율 base source 소유권과 전환 시 정지 확인 | HMI 수동 모드 정책 |
+| `twist_mux` | 승인된 자율 입력과 teleop의 priority | 자율 source 간 전환, safety state |
 | `joint_mux` | fresh arm command source priority | FR3 stop/mode control |
 | `motion_interlock_manager` | base/arm operational authority and stopped feedback validation | E-stop or fault state |
 | `safety_manager` | software safety state and motion permit | physical E-stop circuit |
 | `safety_gate` | final ROS command permission | physical safe stop |
 
-`robot_bringup/control.launch.py` connects `twist_mux → safety_gate` and accepts
+`robot_bringup/control.launch.py` connects `base_source_manager → twist_mux → safety_gate` and accepts
 the final driver topic as `base_output_topic`. Physical and B2 simulation
 bringup both set it to `/cmd_vel`, so Safety Gate is the only publisher on the
 driver command topic. FR3 is intentionally blocked until its vendor stop/mode
@@ -37,21 +36,48 @@ interface is integrated.
 
 ## 현재 주행 경로
 
-표준 ROS 2 `twist_mux`와 `safety_gate`까지가 실기 base command 경로이며,
-gate만 `/cmd_vel`을 발행한다. 각 입력의 lease는 300 ms이고 우선순위는 다음과 같다.
+`base_source_manager`는 NAV/DOCK/STAIR/MISSION 중 명시적으로 선택된 자율 입력만
+`/motion/autonomy/cmd_vel`로 전달한다. `twist_mux`는 이 단일 자율 입력과 수동 입력을
+중재하며, `safety_gate`만 `/cmd_vel`을 발행한다. mux 입력 lease는 300 ms이다.
 
 | 우선순위 | source | topic | 누가 |
 |---|---|---|---|
 | 100 | teleop | `/motion/teleop/cmd_vel` | teleop_bridge (HMI UDP) |
 | 90 | manual_hold | `/motion/manual_hold/cmd_vel` | hmi_bridge, 수동 모드 동안 0 |
-| 80 | mission | `/motion/mission/cmd_vel` | Mission 동작 source |
-| 40 | stair | `/motion/stair/cmd_vel` | Stair BT |
-| 30 | dock | `/motion/dock/cmd_vel` | Dock BT/Nav2 docking server |
-| 20 | nav | `/motion/nav/cmd_vel` | Nav2 collision monitor |
+| 80 | autonomy | `/motion/autonomy/cmd_vel` | base_source_manager가 선택한 단일 source |
 
-`manual_hold`는 수동 전환 직후 조작 입력이 없어도 자율 source가 로봇에 도달하지
-않게 한다. 동시에 Mission Manager에 manual takeover를 전달해 현재 BT를 안전하게
-pause한다. teleop deadman 또는 lease가 끝나면 teleop source는 만료된다.
+자율 source 전환 요청은 `/motion/base_source/select`로 한다. 관리자는 먼저 별도의
+`/motion/base_source/inhibit=true`로 최종 출력을 차단하고 이전 Nav2/DockRobot
+action 취소 응답 및 취소 이후의 신선한 BASE 정지 피드백을 기다린다. 안전 상태와
+BASE 권한이 유효할 때만 새 source를 `ACTIVE`로 만든다. 취소/정지 확인 실패나
+선택된 source의 명령 유실은 `FAULT` 및 0 출력으로 처리한다. 이때 다른 자율
+source로 자동 강등하지 않는다. Mission은 START/RESUME 시도마다 새 requester를
+사용하므로 이전 시도의 `ACTIVE` 상태를 새 실행 허가로 오인하지 않는다.
+HMI의 전환 차단 `/motion/base/inhibit`와
+source 관리자의 차단은 `safety_gate`에서 각각 검사하며, 둘 중 하나라도
+유효하지 않거나 true이면 통과시키지 않는다. 선택 상태는
+`/motion/base_source/state`에서 확인한다. 현재 미션의 `dock_approach`는
+여전히 NavigateToPose 접근 단계이며, 물리 DockRobot action의 source 선택은
+이 인터페이스를 사용할 별도 실행기에서 맡아야 한다.
+
+수동 전환 요청 직후 HMI bridge가 `/motion/base/inhibit=true`를 보내고,
+`safety_gate`는 전환 완료까지 20 Hz로 0을 출력해 teleop까지 차단한다.
+이 신호가 250 ms 동안 끊겨도 gate는 0을 유지하고, 전환 해제 시 이전 명령을
+재사용하지 않는다. 자동 복귀 후에는 이전 teleop의 300 ms mux lease가
+만료되도록 700 ms 동안 차단을 유지한다.
+HMI bridge 재시작 시에도 초기 lock/inhibit를 유지하고, source 관리자가
+이전 소유권을 비운 `INACTIVE` 상태를 새로 발행한 뒤에만 차단을 해제한다.
+`manual_autonomy_lock`(우선순위 90, Bool, 300 ms lease)이 낮은 자율 source를
+차단한다. Lock publisher가 죽어 lease가 만료되어도 잠긴 상태로 처리한다.
+`manual_hold` 0은 lock만으로는 새 0 명령을 발행하지 않는 특성을 보완한다.
+진행 중인 Nav2 goal 취소, Mission PAUSED(또는 READY의 pending START 취소),
+신선한 `/motion/stopped` BASE 정지 피드백, Safety NORMAL·BASE 권한을 확인한
+뒤에도 기존 mux lock lease를 비우기 위해 최소 350 ms가 지난 후에만
+`/motion/manual_ready=true`를 발행한다. `teleop_bridge`는 이 신호가
+150 ms 안에 갱신되지 않으면 명령을 차단한다. 확인 실패 시 2초 내 HMI 요청을
+실패로 돌려주고 정지·lock은 유지한다. 자동 복귀는 Mission을 재개하지 않는다.
+HMI에는 확인 전 또는 허가 철회 시 `state/safety.mode=transitioning`을 보고해
+확정된 수동 모드로 표시하지 않는다.
 
 `safety_manager`·`motion_interlock_manager`·`safety_gate`·`teleop_bridge`도
 `control.launch.py`에서 함께 기동한다. Mission과 Safety 런타임은 각 패키지의

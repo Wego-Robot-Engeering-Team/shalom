@@ -453,17 +453,18 @@ collision_monitor:
       # obstacle stream for a physical robot.
       enabled: False
 
-# controller_server -> /cmd_vel_nav -> velocity_smoother -> /cmd_vel, so this is
-# the last gate before the policy runner.  It had no section here, which meant
+# controller_server -> /cmd_vel_nav -> velocity_smoother -> /cmd_vel_smoothed
+# -> collision_monitor -> /motion/nav/cmd_vel -> base_source_manager
+# -> twist_mux -> safety_gate -> /cmd_vel. The smoother is a speed limit,
+# not the final permission gate. It had no section here, which meant
 # Nav2's default ceiling of 0.5 m/s -- desired_linear_vel was being clipped
 # before it ever reached the robot.  Anything set upstream must fit inside this.
 #
 #   0.6 / 0.8 : kVxMax / kWzMax from the statement of work
 #   1.5       : linear accel, enough to reach 0.6 m/s in well under a stride
 #
-# This is the last thing between Nav2 and the robot, so it is also the last
-# place a mis-set velocity upstream can be caught. Keeping it at the contract
-# figure rather than the policy's makes that catch meaningful.
+# Keeping its limit at the contract figure instead of the policy limit
+# bounds Nav2's requested speed before downstream source and safety checks.
 #
 # Lateral (y) is zero: RPP never commands a strafe, though the policy can do one.
 velocity_smoother:
