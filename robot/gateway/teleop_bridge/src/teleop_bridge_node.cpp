@@ -56,6 +56,24 @@ public:
     deadman_sub_ = create_subscription<std_msgs::msg::Bool>(
       "/teleop/input/deadman", 20,
       std::bind(&TeleopBridgeNode::onRosDeadman, this, std::placeholders::_1));
+    manual_ready_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/motion/manual_ready", 20,
+      [this](const std_msgs::msg::Bool::SharedPtr message) {
+        const auto received_at = std::chrono::steady_clock::now();
+        if (message->data != manual_ready_ || received_at - last_manual_ready_ > 150ms) {
+          if (!message->data && publishing_motion_)
+            output_pub_->publish(geometry_msgs::msg::Twist{});
+          // A command/deadman received before readiness must never become
+          // the first command after readiness is restored.
+          publishing_motion_ = false;
+          udp_deadman_ = false;
+          ros_deadman_ = false;
+          command_ = geometry_msgs::msg::Twist{};
+          last_command_ = {};
+        }
+        manual_ready_ = message->data;
+        last_manual_ready_ = received_at;
+      });
 
     openUdpSocket();
     const auto period = std::chrono::duration<double>(1.0 / output_hz);
@@ -172,10 +190,22 @@ private:
   {
     drainUdp();
     const auto now = std::chrono::steady_clock::now();
-    if ((udp_deadman_ || ros_deadman_) && now - last_command_ <= command_timeout_) {
-      output_pub_->publish(command_);
+    if (!manual_ready_ || now - last_manual_ready_ > 150ms) {
+      if (publishing_motion_)
+        output_pub_->publish(geometry_msgs::msg::Twist{});
+      publishing_motion_ = false;
+      udp_deadman_ = false;
+      ros_deadman_ = false;
+      command_ = geometry_msgs::msg::Twist{};
+      last_command_ = {};
       return;
     }
+    if ((udp_deadman_ || ros_deadman_) && now - last_command_ <= command_timeout_) {
+      output_pub_->publish(command_);
+      publishing_motion_ = true;
+      return;
+    }
+    publishing_motion_ = false;
     // mux는 fresh source만 선택한다. zero를 계속 발행해 teleop 우선권을
     // 붙잡지 않고 lease가 끝나면 자동/미션 입력이 다시 선택되게 한다.
     udp_deadman_ = false;
@@ -192,13 +222,17 @@ private:
   double max_angular_z_ = 0.80;
   bool udp_deadman_ = false;
   bool ros_deadman_ = false;
+  bool manual_ready_ = false;
+  bool publishing_motion_ = false;
   std::int64_t last_udp_sequence_ = -1;
   std::chrono::milliseconds command_timeout_{300};
   std::chrono::steady_clock::time_point last_command_{};
+  std::chrono::steady_clock::time_point last_manual_ready_{};
   geometry_msgs::msg::Twist command_{};
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr output_pub_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr command_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr deadman_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr manual_ready_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

@@ -114,6 +114,18 @@ void test_safety_hold_cancels_recovery() {
   expect(fsm.state() == State::Paused, "safety hold must cancel recovery");
 }
 
+void test_manual_pause_cancels_recovery() {
+  StateMachine fsm;
+  configure_and_start(fsm);
+  fsm.dispatch(Event::PauseRequested);
+  fsm.dispatch(Event::MotionQuiesced);
+  fsm.dispatch(Event::ResumeRequested);
+  expect(fsm.state() == State::Recovering, "resume must enter RECOVERING");
+  expect(fsm.dispatch(Event::PauseRequested).accepted,
+         "manual pause must cancel recovery");
+  expect(fsm.state() == State::Paused, "cancelled recovery must remain PAUSED");
+}
+
 void test_authority_loss_halts_active_motion_but_recovery_can_wait() {
   StateMachine fsm;
   configure_and_start(fsm);
@@ -212,6 +224,7 @@ bool expected_acceptance(State state, Event event) {
              event == Event::StopRequested || event == Event::ResumeRequested;
     case State::Recovering:
       return event == Event::LinkLost || event == Event::SafetyStop ||
+             event == Event::PauseRequested || event == Event::ManualTakeover ||
              event == Event::StopRequested || event == Event::RecoveryReady;
     case State::Returning:
       return event == Event::PauseRequested || event == Event::ManualTakeover ||
@@ -261,6 +274,7 @@ int main() {
   test_stop_and_failure_share_the_quiescence_barrier();
   test_stop_priority_is_preserved_while_pausing();
   test_safety_hold_cancels_recovery();
+  test_manual_pause_cancels_recovery();
   test_authority_loss_halts_active_motion_but_recovery_can_wait();
   test_completion_respects_return_policy();
   test_invalid_events_do_not_change_state();

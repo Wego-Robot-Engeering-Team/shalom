@@ -19,6 +19,7 @@
   <exec_depend>safety_manager</exec_depend>
   <exec_depend>mission_manager</exec_depend>
   <exec_depend>motion_interlock_manager</exec_depend>
+  <exec_depend>base_source_manager</exec_depend>
   <exec_depend>teleop_bridge</exec_depend>
   <exec_depend>twist_mux</exec_depend>
   <exec_depend>safety_gate</exec_depend>

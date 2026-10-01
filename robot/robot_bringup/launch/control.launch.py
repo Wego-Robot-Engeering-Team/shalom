@@ -3,8 +3,9 @@
 
 """Bring up the sole base-command safety path.
 
-Every command source enters twist_mux, then safety_gate is the only publisher
-to the B2 driver's `/cmd_vel`. E-Stop therefore blocks teleop and Nav2 alike.
+Autonomous sources first pass through an explicit source owner. twist_mux then
+arbitrates authorized autonomy against teleop and manual hold; safety_gate is
+the only publisher to the B2 driver's `/cmd_vel`.
 """
 
 from pathlib import Path
@@ -99,6 +100,11 @@ def generate_launch_description():
                 "robot_id": LaunchConfiguration("robot_id"),
                 "output_topic": "/motion/teleop/cmd_vel",
             }],
+        ),
+        Node(
+            package="base_source_manager", executable="base_source_manager_node",
+            name="base_source_manager", output="screen",
+            parameters=[{"use_sim_time": use_sim_time}],
         ),
         Node(
             package="twist_mux", executable="twist_mux",
