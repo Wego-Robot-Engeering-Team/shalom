@@ -1,0 +1,60 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded: ~
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Background Color: 28; 31; 38
+    Fixed Frame: velodyne
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid (1 m)
+      Enabled: true
+      Cell Size: 1
+      Plane Cell Count: 40
+      Color: 65; 70; 80
+    - Class: rviz_default_plugins/Axes
+      Name: Sensor axes
+      Enabled: true
+      Reference Frame: <Fixed Frame>
+      Length: 1
+      Radius: 0.03
+    - Class: rviz_default_plugins/PointCloud2
+      Name: VLP-16 points
+      Enabled: true
+      Topic:
+        Value: /b2/points
+        Depth: 5
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+      Position Transformer: XYZ
+      Color Transformer: Intensity
+      Channel Name: intensity
+      Autocompute Intensity Bounds: true
+      Use rainbow: true
+      Style: Points
+      Size (Pixels): 2
+      Decay Time: 0
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/Measure
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Current View
+      Distance: 18
+      Pitch: 0.65
+      Yaw: 0.75
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0
+Window Geometry:
+  Width: 1280
+  Height: 900
