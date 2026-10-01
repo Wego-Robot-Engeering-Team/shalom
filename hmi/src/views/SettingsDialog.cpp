@@ -32,6 +32,7 @@
 #include "BuildInfo.h"
 #include "Config.h"
 #include "RobotDef.h"
+#include "panels/NavigationSpeedPanel.h"
 #include "theme/Tokens.h"
 #include "widgets/Primitives.h"
 
@@ -104,14 +105,16 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QWidget(parent, Qt::Window)
     tabs->tabBar()->setExpanding(false);
     tabs->addTab(buildAppearanceTab(), QStringLiteral("표시"));
     tabs->addTab(buildConnectionTab(), QStringLiteral("연결"));
-    tabs->addTab(buildOperationTab(), QStringLiteral("조작"));
+    tabs->addTab(buildOperationTab(), QStringLiteral("주행"));
     tabs->addTab(buildPowerTab(), QStringLiteral("전원"));
     tabs->addTab(buildStorageTab(), QStringLiteral("저장"));
     tabs->addTab(buildSafetyTab(), QStringLiteral("안전"));
     tabs->addTab(buildAboutTab(), QStringLiteral("정보"));
     lay->addWidget(tabs, 1);
 
-    auto *buttons = new QHBoxLayout;
+    auto *localActions = new QWidget;
+    auto *buttons = new QHBoxLayout(localActions);
+    buttons->setContentsMargins(0, 0, 0, 0);
     auto *reset = new QPushButton(QStringLiteral("기본값으로"));
     auto *save = new QPushButton(QStringLiteral("저장"));
     save->setProperty("variant", "primary");
@@ -120,7 +123,9 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QWidget(parent, Qt::Window)
     buttons->addStretch(1);
     buttons->addWidget(cancel);
     buttons->addWidget(save);
-    lay->addLayout(buttons);
+    lay->addWidget(localActions);
+    connect(tabs, &QTabWidget::currentChanged, localActions,
+            [localActions](int index) { localActions->setVisible(index != 2); });
 
     connect(save, &QPushButton::clicked, this, &SettingsDialog::save);
     connect(cancel, &QPushButton::clicked, this, &QWidget::close);
@@ -425,23 +430,10 @@ QWidget *SettingsDialog::buildOperationTab()
     lay->setContentsMargins(metrics::s3, metrics::s4, metrics::s3, metrics::s3);
     lay->setSpacing(metrics::s3);
 
-    linear_ = new QDoubleSpinBox;
-    linear_->setRange(0.05, robot::kVxMax);
-    linear_->setSingleStep(0.05);
-    linear_->setDecimals(2);
-    linear_->setSuffix(QStringLiteral(" m/s"));
-    linear_->setToolTip(QStringLiteral("수동 조작 초기 속도. 장애물 접근 시 로봇이 자동 감속합니다."));
-
-    angular_ = new QDoubleSpinBox;
-    angular_->setRange(qRadiansToDegrees(0.05), qRadiansToDegrees(robot::kWzMax));
-    angular_->setSingleStep(5.0);
-    angular_->setDecimals(0);
-    angular_->setSuffix(QStringLiteral(" °/s"));
-    angular_->setToolTip(QStringLiteral("수동 조작 초기 회전 속도"));
-
-    lay->addWidget(sectionLabel(QStringLiteral("수동 조작 기본 속도")));
-    lay->addWidget(fieldRow(QStringLiteral("선속도"), linear_, 84));
-    lay->addWidget(fieldRow(QStringLiteral("각속도"), angular_, 84));
+    navigationSpeed_ = new NavigationSpeedPanel(nullptr, true);
+    lay->addWidget(navigationSpeed_);
+    connect(navigationSpeed_, &NavigationSpeedPanel::speedRangesRequested,
+            this, &SettingsDialog::navigationSpeedRangesRequested);
 
     lay->addStretch(1);
     return page;
@@ -756,7 +748,7 @@ void SettingsDialog::load()
     loading_ = true;
     const QSignalBlocker b1(scale_), b2(name_), b3(host_), b4(port_);
     const QSignalBlocker bp1(returnPct_), bp2(departPct_);
-    const QSignalBlocker b5(linear_), b6(angular_), b7(logDir_), b8(retention_), b9(nasPath_);
+    const QSignalBlocker b7(logDir_), b8(retention_), b9(nasPath_);
 
     pendingRobots_ = cfg.robots();
     pendingCurrentRobot_ = cfg.currentRobot();
@@ -770,8 +762,6 @@ void SettingsDialog::load()
     reloadRobotList();
     returnPct_->setValue(int(cfg.batteryReturnPercent()));
     departPct_->setValue(int(cfg.batteryDeparturePercent()));
-    linear_->setValue(cfg.defaultLinearSpeed());
-    angular_->setValue(qRadiansToDegrees(cfg.defaultAngularSpeed()));
     logDir_->setText(cfg.logDirectory());
     retention_->setValue(cfg.logRetentionDays());
     nasPath_->setText(cfg.nasMountPath());
@@ -788,6 +778,26 @@ void SettingsDialog::load()
 void SettingsDialog::reload()
 {
     load();
+    navigationSpeed_->discardDraft();
+}
+
+void SettingsDialog::setNavigationSpeedState(double linear, double minimum, double maximum,
+                                             double angular, double angularMinimum, double angularMaximum,
+                                             bool autonomousApplied)
+{
+    navigationSpeed_->setReportedLimits(linear, minimum, maximum, angular,
+                                       angularMinimum, angularMaximum, autonomousApplied);
+}
+
+void SettingsDialog::resetNavigationSpeed()
+{
+    navigationSpeed_->reset();
+}
+
+void SettingsDialog::handleCommandResult(const QString &channel, bool ok, const QString &code,
+                                        const QString &message)
+{
+    navigationSpeed_->handleCommandResult(channel, ok, code, message);
 }
 
 void SettingsDialog::previewAppearance()
@@ -805,8 +815,6 @@ void SettingsDialog::save()
     emit robotProfilesChanged();
     cfg.setUiScale(scale_->value() / 100.0);
     cfg.setTheme(darkBtn_->isChecked() ? QStringLiteral("dark") : QStringLiteral("light"));
-    cfg.setDefaultLinearSpeed(linear_->value());
-    cfg.setDefaultAngularSpeed(qDegreesToRadians(angular_->value()));
     cfg.setBatteryReturnPercent(returnPct_->value());
     cfg.setBatteryDeparturePercent(departPct_->value());
     cfg.setLogDirectory(logDir_->text().trimmed());
@@ -822,6 +830,7 @@ void SettingsDialog::save()
 void SettingsDialog::discardChanges()
 {
     load();
+    navigationSpeed_->discardDraft();
     // 화면 전용 미리보기도 영구 설정으로 되돌린다.
     previewAppearance();
 }
@@ -831,7 +840,7 @@ void SettingsDialog::loadDefaults()
     loading_ = true;
     const QSignalBlocker b1(scale_), b2(name_), b3(host_), b4(port_);
     const QSignalBlocker bp1(returnPct_), bp2(departPct_);
-    const QSignalBlocker b5(linear_), b6(angular_), b7(logDir_), b8(retention_), b9(nasPath_);
+    const QSignalBlocker b7(logDir_), b8(retention_), b9(nasPath_);
 
     pendingRobots_.clear();
     pendingCurrentRobot_ = -1;
@@ -842,8 +851,6 @@ void SettingsDialog::loadDefaults()
     addRobotButton_->setEnabled(false);
     scale_->setValue(100);
     scaleValue_->setText(QStringLiteral("100%"));
-    linear_->setValue(0.30);
-    angular_->setValue(qRadiansToDegrees(0.50));
     returnPct_->setValue(25);
     departPct_->setValue(60);
     logDir_->setText(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)

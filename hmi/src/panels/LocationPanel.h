@@ -17,10 +17,8 @@
 // Capturing from the robot is the primary method for fixed locations; map
 // clicks allow those locations to be designated before the robot is on site.
 //
-// Before a capture is accepted the current pose is validated. A pose recorded
-// while the robot was moving, or from a stale link, produces a waypoint that
-// looks fine on screen and only reveals itself during the acceptance run - at
-// which point fixing it means putting the robot back in the pit.
+// Captures require a fresh pose. Waypoints can record that pose during motion;
+// fixed locations additionally require the robot to be stationary.
 
 #include <QVariantMap>
 #include <QWidget>

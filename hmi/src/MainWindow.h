@@ -26,6 +26,7 @@
 
 #include <QHash>
 #include <QMainWindow>
+#include <array>
 #include <optional>
 
 #include "robot/RobotLink.h"
@@ -70,6 +71,7 @@ class MissionPanel;
 class MissionLibraryPanel;
 class StatusPanel;
 class TeleopPanel;
+class NavigationSpeedPanel;
 class WaypointPanel;
 
 class MainWindow : public QMainWindow {
@@ -207,6 +209,7 @@ private:
     QStackedWidget *context_ = nullptr;
     QTabWidget *driveTabs_ = nullptr;
     MapCard *map_ = nullptr;
+    QString navigationStatus_;
 
     BatteryPill *headerBattery_ = nullptr;
     NotificationBell *bell_ = nullptr;
@@ -214,6 +217,9 @@ private:
     MissionPanel *mission_ = nullptr;
     MissionLibraryPanel *missionLibrary_ = nullptr;
     TeleopPanel *teleop_ = nullptr;
+    NavigationSpeedPanel *navigationSpeed_ = nullptr;
+    std::optional<std::array<double, 6>> navigationSpeedLimits_;
+    bool navigationSpeedApplied_ = false;
     EventLogPanel *events_ = nullptr;
     WaypointPanel *waypoints_ = nullptr;
     ArmPanel *arm_ = nullptr;
@@ -251,6 +257,10 @@ private:
     /// What the map click should produce once placed: empty means a goal pose.
     QString pendingPlacementKind_;
     bool waypointWritePending_ = false;
+    bool waypointWriteAccepted_ = false;
+    QList<QVariantMap> pendingWaypoints_;
+    quint64 waypointWriteGeneration_ = 0;
+    void applyWaypointCatalog(const QList<QVariantMap> &points);
 
     RobotSnapshot snapshot_;
     /// Last reported charge. Kept out of RobotSnapshot, which exists to judge

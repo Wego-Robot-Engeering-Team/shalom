@@ -16,6 +16,18 @@
     maps_dir: "/var/lib/shalom/maps"
     robot_data_dir: "/var/lib/shalom"
 
+    # Initial manual/autonomous settings; HMI changes persist in robot_data_dir.
+    # Editable ranges remain within 0.10-0.60 m/s and 0.05-0.80 rad/s.
+    navigation.speed_limit_topic: "/speed_limit"
+    navigation.min_speed_mps: 0.10
+    navigation.max_speed_mps: 0.60
+    navigation.default_speed_mps: 0.30
+    navigation.min_angular_speed_rps: 0.05
+    navigation.max_angular_speed_rps: 0.80
+    navigation.default_angular_speed_rps: 0.50
+    navigation.controller_node: "/controller_server"
+    navigation.controller_id: "FollowPath"
+
     # FR3 실행기, safety_gate의 arm_output_enabled, ARM_ACTIVE 권한 요청이
     # 실제로 연결·검증된 배포에서만 true로 바꾼다. 기본값은 명확히 거절한다.
     arm.execution_enabled: false

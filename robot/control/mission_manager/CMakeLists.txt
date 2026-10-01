@@ -31,6 +31,10 @@ ament_target_dependencies(mission_manager_node
 
 if(BUILD_TESTING)
   enable_testing()
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME authority_heartbeat COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_authority_heartbeat.py $<TARGET_FILE:mission_manager_node>)
+  set_tests_properties(authority_heartbeat PROPERTIES TIMEOUT 25)
   add_executable(test_behavior_trees test/test_behavior_trees.cpp)
   target_link_libraries(test_behavior_trees mission_logic)
   target_compile_features(test_behavior_trees PRIVATE cxx_std_17)

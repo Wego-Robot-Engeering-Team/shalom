@@ -46,6 +46,7 @@ constexpr auto kChPlan = "state/plan";
 constexpr auto kChMap = "map/occupancy";
 constexpr auto kChHealth = "state/health";
 constexpr auto kChNav = "state/nav";
+constexpr auto kChNavigationSpeed = "state/navigation_speed";
 constexpr auto kChSystem = "state/system";
 constexpr auto kChTrail = "state/trail";
 constexpr auto kChWaypoints = "state/waypoints";
@@ -68,6 +69,10 @@ constexpr auto kCmdMode = "cmd/mode";
 constexpr auto kCmdGoto = "cmd/goto";
 constexpr auto kCmdInitialPose = "cmd/localization/initial_pose";
 constexpr auto kCmdNavCancel = "cmd/nav_cancel";
+constexpr auto kCmdNavPause = "cmd/nav_pause";
+constexpr auto kCmdNavResume = "cmd/nav_resume";
+constexpr auto kCmdNavigationSpeedLimit = "cmd/navigation/speed_limit";
+constexpr auto kCmdNavigationSpeedSettings = "cmd/navigation/speed_settings";
 constexpr auto kCmdWaypointsSet = "cmd/waypoints/set";
 constexpr auto kCmdMissionsList = "cmd/missions/list";
 constexpr auto kCmdMissionsSave = "cmd/missions/save";
@@ -91,6 +96,7 @@ constexpr auto kCmdMissionStart = "cmd/mission/start";
 constexpr auto kCmdMissionPause = "cmd/mission/pause";
 constexpr auto kCmdMissionResume = "cmd/mission/resume";
 constexpr auto kCmdMissionStop = "cmd/mission/stop";
+constexpr auto kCmdMissionReturnDock = "cmd/mission/return_dock";
 constexpr auto kCmdPowerPolicy = "cmd/power/policy";
 constexpr auto kCmdArmPreset = "cmd/arm/preset";
 constexpr auto kCmdArmJointGoal = "cmd/arm/joint_goal";
@@ -320,6 +326,57 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     robotDataDir_ = declare_parameter("robot_data_dir", robotDataDir_);
     if (robotDataDir_.empty())
         throw std::invalid_argument("robot_data_dir must not be empty");
+    navigationMinSpeed_ = declare_parameter("navigation.min_speed_mps", navigationMinSpeed_);
+    navigationMaxSpeed_ = declare_parameter("navigation.max_speed_mps", navigationMaxSpeed_);
+    navigationSpeed_ = declare_parameter("navigation.default_speed_mps", navigationSpeed_);
+    if (!std::isfinite(navigationMinSpeed_) || !std::isfinite(navigationMaxSpeed_) ||
+        !std::isfinite(navigationSpeed_) || navigationMinSpeed_ < 0.10 ||
+        navigationMaxSpeed_ > 0.60 || navigationMinSpeed_ > navigationMaxSpeed_ ||
+        navigationSpeed_ < navigationMinSpeed_ || navigationSpeed_ > navigationMaxSpeed_)
+        throw std::invalid_argument("navigation speeds must satisfy 0.10 <= min <= default <= max <= 0.60");
+    navigationMinAngularSpeed_ = declare_parameter("navigation.min_angular_speed_rps", navigationMinAngularSpeed_);
+    navigationMaxAngularSpeed_ = declare_parameter("navigation.max_angular_speed_rps", navigationMaxAngularSpeed_);
+    navigationAngularSpeed_ = declare_parameter("navigation.default_angular_speed_rps", navigationAngularSpeed_);
+    if (!std::isfinite(navigationMinAngularSpeed_) || !std::isfinite(navigationMaxAngularSpeed_) ||
+        !std::isfinite(navigationAngularSpeed_) || navigationMinAngularSpeed_ < 0.05 ||
+        navigationMaxAngularSpeed_ > 0.80 || navigationMinAngularSpeed_ > navigationMaxAngularSpeed_ ||
+        navigationAngularSpeed_ < navigationMinAngularSpeed_ ||
+        navigationAngularSpeed_ > navigationMaxAngularSpeed_)
+        throw std::invalid_argument("angular speeds must satisfy 0.05 <= min <= default <= max <= 0.80");
+    {
+        std::ifstream in(std::filesystem::path(robotDataDir_) / "navigation_settings.json");
+        if (in) {
+            try {
+                json document;
+                in >> document;
+                json settings;
+                std::string error;
+                if (!readNavigationSpeed(document, false, &settings, &error))
+                    throw std::invalid_argument(error);
+                navigationSpeed_ = settings.at("speed_limit_mps").get<double>();
+                navigationAngularSpeed_ = settings.at("angular_speed_limit_rps").get<double>();
+                navigationMinSpeed_ = settings.at("min_speed_mps").get<double>();
+                navigationMaxSpeed_ = settings.at("max_speed_mps").get<double>();
+                navigationMinAngularSpeed_ = settings.at("min_angular_speed_rps").get<double>();
+                navigationMaxAngularSpeed_ = settings.at("max_angular_speed_rps").get<double>();
+            } catch (const std::exception &e) {
+                RCLCPP_WARN(get_logger(), "주행 속도 설정을 읽지 못했습니다: %s", e.what());
+            }
+        }
+    }
+    speedLimitPub_ = create_publisher<nav2_msgs::msg::SpeedLimit>(
+        declare_parameter("navigation.speed_limit_topic", std::string("/speed_limit")),
+        rclcpp::QoS(1).reliable().transient_local());
+    publishSpeedLimit();
+    auto controllerNode = declare_parameter("navigation.controller_node", std::string("/controller_server"));
+    navigationControllerId_ = declare_parameter("navigation.controller_id", navigationControllerId_);
+    if (controllerNode.empty() || navigationControllerId_.empty())
+        throw std::invalid_argument("navigation controller node and ID must not be empty");
+    if (controllerNode.back() != '/') controllerNode += '/';
+    navigationSpeedGetClient_ = create_client<rcl_interfaces::srv::GetParameters>(controllerNode + "get_parameters");
+    navigationSpeedStateClient_ = create_client<lifecycle_msgs::srv::GetState>(controllerNode + "get_state");
+    navigationSpeedSetClient_ = create_client<rcl_interfaces::srv::SetParametersAtomically>(
+        controllerNode + "set_parameters_atomically");
     armExecutionEnabled_ = declare_parameter("arm.execution_enabled", false);
     {
         const auto current = std::filesystem::path(robotDataDir_) / "arm_pose_presets.json";
@@ -418,7 +475,13 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
                 if (index < msg->velocity.size())
                     velocities.push_back(msg->velocity[index]);
             }
+            if (std::any_of(ordered.begin(), ordered.end(), [](double value) { return !std::isfinite(value); })) {
+                lastArmPositions_.clear();
+                lastArmReceived_ = {};
+                return;
+            }
             lastArmPositions_ = ordered;
+            lastArmReceived_ = std::chrono::steady_clock::now();
             // TODO(integration): 조작성 지수는 야코비안에서 계산해 함께 실어야 한다.
             // 관제는 표시만 하며 스스로 계산하지 않는다 (프로토콜 §4).
             sendEnvelope(makePublish(kChArm, json{{"positions", ordered},
@@ -544,12 +607,19 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     poseTimer_ = create_wall_timer(100ms, [this] { publishPose(); });     // 10 Hz
     safetyTimer_ = create_wall_timer(50ms, [this] {
         tickSafety();
+        tickArmGoal();
         publishSafety();
     });                                                                    // 20 Hz
     healthTimer_ = create_wall_timer(1s, [this] { publishHealth(); });
-    navTimer_ = create_wall_timer(200ms, [this] { publishNav(); });       // 5 Hz
+    navTimer_ = create_wall_timer(200ms, [this] {
+        publishNav();
+        // Nav2 uses a volatile subscription; reapply after lifecycle restarts.
+        publishSpeedLimit();
+        syncNavigationSpeed();
+    });                                                               // 5 Hz
     systemTimer_ = create_wall_timer(1s, [this] {
         publishSystem();
+        publishNavigationSpeed();
         publishCaptureSpool();
     });
     trailTimer_ = create_wall_timer(500ms, [this] { publishTrail(); });   // 2 Hz
@@ -769,8 +839,68 @@ void BridgeNode::handleRequest(const Envelope &request)
                 "E-Stop은 estop_bridge 전용 TCP 포트로 보내야 합니다");
         return;
     }
+    // Stop requests remain available while the safety controller holds motion.
+    if (request.ch == kCmdNavPause || request.ch == kCmdNavCancel) {
+        if (request.ch == kCmdNavPause && !navigationBusy()) {
+            respond(request, false, err::kMode, "일시정지할 목표 주행이 없습니다");
+            return;
+        }
+        if (request.ch == kCmdNavPause && navStatus_ == "canceling") {
+            respond(request, false, err::kBusy, "목표 주행을 취소 중입니다");
+            return;
+        }
+        stopNavigation(request.ch == kCmdNavPause);
+        respond(request, true);
+        publishNav();
+        return;
+    }
     if (!commandsAllowed(request))
         return;
+
+    if (request.ch == kCmdNavigationSpeedLimit || request.ch == kCmdNavigationSpeedSettings) {
+        json settings;
+        std::string error;
+        if (!readNavigationSpeed(request.p, request.ch == kCmdNavigationSpeedSettings, &settings, &error)) {
+            respond(request, false, err::kBadPayload, error);
+            return;
+        }
+        if (!saveNavigationSpeed(settings, &error)) {
+            respond(request, false, err::kUnreachable, error);
+            return;
+        }
+        const bool valuesChanged = navigationSpeed_ != settings.at("speed_limit_mps").get<double>() ||
+                                   navigationAngularSpeed_ != settings.at("angular_speed_limit_rps").get<double>();
+        navigationSpeed_ = settings.at("speed_limit_mps").get<double>();
+        navigationAngularSpeed_ = settings.at("angular_speed_limit_rps").get<double>();
+        navigationMinSpeed_ = settings.at("min_speed_mps").get<double>();
+        navigationMaxSpeed_ = settings.at("max_speed_mps").get<double>();
+        navigationMinAngularSpeed_ = settings.at("min_angular_speed_rps").get<double>();
+        navigationMaxAngularSpeed_ = settings.at("max_angular_speed_rps").get<double>();
+        if (!valuesChanged) {
+            respond(request, true);
+            publishNavigationSpeed();
+            return;
+        }
+        navigationSpeedApplied_ = false;
+        // Cancel obsolete callbacks; an old response must not confirm the new limits.
+        ++navigationSpeedGeneration_;
+        if (navigationSpeedStateId_)
+            navigationSpeedStateClient_->remove_pending_request(*navigationSpeedStateId_);
+        if (navigationSpeedGetId_)
+            navigationSpeedGetClient_->remove_pending_request(*navigationSpeedGetId_);
+        if (navigationSpeedSetId_)
+            navigationSpeedSetClient_->remove_pending_request(*navigationSpeedSetId_);
+        navigationSpeedGetId_.reset();
+        navigationSpeedStateId_.reset();
+        navigationSpeedSetId_.reset();
+        navigationSpeedSyncPending_ = false;
+        navigationSpeedSyncAt_ = {};
+        publishSpeedLimit();
+        syncNavigationSpeed();
+        respond(request, true);
+        publishNavigationSpeed();
+        return;
+    }
 
     if (request.ch == kCmdMode) {
         manualMode_ = request.p.value("mode", std::string("auto")) == "manual";
@@ -785,15 +915,7 @@ void BridgeNode::handleRequest(const Envelope &request)
         }
         RCLCPP_INFO(get_logger(), "주행 모드: %s", manualMode_ ? "수동" : "자율");
         respond(request, true);
-        return;
-    }
-
-    if (request.ch == kCmdNavCancel) {
-        // E-Stop 을 치지 않고 자율주행만 멈추는 유일한 길이다. 이것이 없으면
-        // 조작자는 비상정지를 누르거나 수동 모드로 넘기는 수밖에 없고, 둘 다
-        // 그냥 "여기서 서라" 보다 훨씬 큰 조치다.
-        cancelNavigation("관제 취소 요청");
-        respond(request, true);
+        publishSafety();
         return;
     }
 
@@ -803,6 +925,8 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdArmStop) {
+        if (pendingArmGoal_)
+            finishArmGoal(false, err::kBusy, "로봇팔 정지 요청으로 목표를 취소했습니다");
         if (!armExecutionEnabled_) {
             respond(request, false, err::kUnreachable,
                     "로봇팔 실행기가 연결되지 않았습니다");
@@ -814,8 +938,12 @@ void BridgeNode::handleRequest(const Envelope &request)
         hold.header.stamp = now();
         hold.name = kArmJointNames;
         hold.position = lastArmPositions_;
-        if (hold.position.size() == kArmJointNames.size())
-            armCmdPub_->publish(hold);
+        if (hold.position.size() != kArmJointNames.size() ||
+            std::chrono::steady_clock::now() - lastArmReceived_ > std::chrono::seconds(1)) {
+            respond(request, false, err::kUnreachable, "로봇팔 관절 피드백이 끊겼습니다");
+            return;
+        }
+        armCmdPub_->publish(hold);
         respond(request, true);
         return;
     }
@@ -832,6 +960,10 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdArmJointGoal) {
+        if (!request.p.contains("positions") || !validArmPresetPositions(request.p["positions"])) {
+            respond(request, false, err::kBadPayload, "관절 목표가 올바르지 않습니다");
+            return;
+        }
         std::vector<double> q;
         for (const auto &v : request.p.value("positions", json::array())) {
             if (!v.is_number()) {
@@ -866,6 +998,13 @@ void BridgeNode::handleRequest(const Envelope &request)
         }
         if (mapId_ == "live") {
             respond(request, false, err::kMode, "저장된 지도를 선택한 뒤 웨이포인트를 등록하십시오");
+            return;
+        }
+        if (!request.p.contains("map_id") || !request.p["map_id"].is_string() ||
+            request.p["map_id"].get<std::string>() != mapId_ ||
+            !request.p.contains("expected_points") || request.p["expected_points"] != waypoints_) {
+            respond(request, false, err::kBusy, "지도 또는 웨이포인트 목록이 변경되었습니다. 최신 목록에서 다시 편집하십시오");
+            publishWaypoints();
             return;
         }
         json points = request.p.value("points", json::array());
@@ -908,6 +1047,18 @@ void BridgeNode::handleRequest(const Envelope &request)
             point.erase("localization_ok");
             point.erase("tag_id");
             point.erase("kind");
+        }
+        for (const auto &mission : missions_) {
+            if (!mission.is_object() || mission.value("archived", false))
+                continue;
+            for (const auto &step : mission.value("steps", json::array())) {
+                if (step.is_object() && step.value("type", std::string{}) == "navigate" &&
+                    !ids.count(step.value("location_id", std::string{}))) {
+                    respond(request, false, err::kBusy,
+                            "미션에서 사용하는 웨이포인트는 삭제할 수 없습니다: " + mission.value("name", std::string{}));
+                    return;
+                }
+            }
         }
         if (!saveMapState("waypoints.json", points)) {
             respond(request, false, err::kHardware, "웨이포인트 파일을 저장하지 못했습니다");
@@ -1069,7 +1220,7 @@ void BridgeNode::handleRequest(const Envelope &request)
             respond(request, false, err::kMode, "저장된 지도를 선택한 뒤 미션을 저장하십시오");
             return;
         }
-        if (navGoal_ || (haveMissionState_ &&
+        if (navigationBusy() || (haveMissionState_ &&
             missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
             missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
             missionState_.state != shalom_interfaces::msg::MissionState::FAILED)) {
@@ -1158,7 +1309,7 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdMissionsArchive) {
-        if (mapId_ == "live" || !pendingMapId_.empty() || navGoal_ || (haveMissionState_ &&
+        if (mapId_ == "live" || !pendingMapId_.empty() || navigationBusy() || (haveMissionState_ &&
             missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
             missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
             missionState_.state != shalom_interfaces::msg::MissionState::FAILED)) {
@@ -1195,15 +1346,39 @@ void BridgeNode::handleRequest(const Envelope &request)
             respond(request, false, err::kBusy, "미션이 끝난 뒤 위치를 변경하십시오");
             return;
         }
-        locations_ = request.p.value("locations", json::array());
-        for (auto &location : locations_)
+        auto locations = request.p.value("locations", json{});
+        if (!locations.is_array()) {
+            respond(request, false, err::kBadPayload, "위치 목록이 올바르지 않습니다");
+            return;
+        }
+        std::unordered_set<std::string> kinds;
+        for (auto &location : locations) {
+            if (!location.is_object() || !location.contains("kind") || !location["kind"].is_string()) {
+                respond(request, false, err::kBadPayload, "위치 종류가 올바르지 않습니다");
+                return;
+            }
+            const auto kind = location["kind"].get<std::string>();
+            if ((kind != "home" && kind != "dock") || !kinds.insert(kind).second) {
+                respond(request, false, err::kBadPayload, "위치 종류가 중복되었거나 올바르지 않습니다");
+                return;
+            }
+            for (const auto *field : {"x", "y", "theta"})
+                if (!location.contains(field) || !location[field].is_number() || !std::isfinite(location[field].get<double>())) {
+                    respond(request, false, err::kBadPayload, "위치 좌표가 올바르지 않습니다");
+                    return;
+                }
             if (location.is_object()) {
                 location.erase("captured_from");
                 location.erase("localization_ok");
                 location.erase("tag_id");
             }
+        }
+        if (!saveMapState("locations.json", locations)) {
+            respond(request, false, err::kHardware, "시작·충전 위치 파일을 저장하지 못했습니다");
+            return;
+        }
+        locations_ = locations;
         ++missionPlanRevision_;
-        saveMapState("locations.json", locations_);
         respond(request, true);
         publishLocations();
         return;
@@ -1293,7 +1468,7 @@ void BridgeNode::handleRequest(const Envelope &request)
     if (request.ch == kCmdMapsSelect) {
         const std::string id = request.p.value("id", std::string{});
         if (!haveMissionState_ || missionState_.state != shalom_interfaces::msg::MissionState::IDLE ||
-            navGoal_ || pendingGoto_ || !pendingMapId_.empty()) {
+            navigationBusy() || !pendingMapId_.empty()) {
             respond(request, false, err::kBusy,
                     "주행 또는 점검이 끝난 뒤에 지도를 전환하십시오");
             return;
@@ -1320,7 +1495,7 @@ void BridgeNode::handleRequest(const Envelope &request)
         const std::string id = request.p.value("id", std::string{});
         const std::string name = request.p.value("name", std::string{});
         if (!haveMissionState_ || missionState_.state != shalom_interfaces::msg::MissionState::IDLE ||
-            navGoal_ || pendingGoto_ || !pendingMapId_.empty()) {
+            navigationBusy() || !pendingMapId_.empty()) {
             respond(request, false, err::kBusy,
                     "주행 또는 점검이 끝난 뒤에 지도 이름을 바꾸십시오");
             return;
@@ -1516,7 +1691,7 @@ void BridgeNode::handleRequest(const Envelope &request)
     if (request.ch == kCmdMapsDelete) {
         const std::string id = request.p.value("id", std::string{});
         if (!haveMissionState_ || missionState_.state != shalom_interfaces::msg::MissionState::IDLE ||
-            navGoal_ || pendingGoto_ || !pendingMapId_.empty()) {
+            navigationBusy() || !pendingMapId_.empty()) {
             respond(request, false, err::kBusy, "주행과 미션이 끝난 뒤 지도를 삭제하십시오");
             return;
         }
@@ -1572,6 +1747,28 @@ void BridgeNode::handleRequest(const Envelope &request)
 
     if (request.ch == kCmdMissionPause) {
         sendMissionControl(request, shalom_interfaces::srv::MissionControl::Request::PAUSE);
+        return;
+    }
+
+    if (request.ch == kCmdMissionReturnDock) {
+        if (manualMode_ || !pendingMapId_.empty()) {
+            respond(request, false, err::kMode, "지도 전환 완료 후 자율 모드에서 충전소로 복귀하십시오");
+            return;
+        }
+        if (haveMissionState_ && missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
+            missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
+            missionState_.state != shalom_interfaces::msg::MissionState::FAILED) {
+            sendMissionControl(request, shalom_interfaces::srv::MissionControl::Request::RETURN_DOCK);
+            return;
+        }
+        const int dock = findDock();
+        if (dock < 0 || manualMode_) {
+            respond(request, false, err::kMode, "자율 모드에서 등록된 충전 위치로 복귀할 수 있습니다");
+            return;
+        }
+        Envelope goal = request;
+        goal.p = locations_[dock];
+        startNavigation(goal);
         return;
     }
 
@@ -1648,7 +1845,7 @@ void BridgeNode::handleRequest(const Envelope &request)
         return;
     }
 
-    if (request.ch == kCmdGoto) {
+    if (request.ch == kCmdGoto || request.ch == kCmdNavResume) {
         if (!pendingMapId_.empty()) {
             respond(request, false, err::kBusy, "지도 전환이 끝난 뒤 목표를 지정하십시오");
             return;
@@ -1664,9 +1861,15 @@ void BridgeNode::handleRequest(const Envelope &request)
             respond(request, false, err::kBusy, "미션이 끝난 뒤 개별 목표를 지정하십시오");
             return;
         }
-        requestSafetyResume();
-        requestBaseAuthority();
-        startNavigation(request);
+        const bool resume = request.ch == kCmdNavResume;
+        if (resume && navStatus_ != "paused") {
+            respond(request, false, err::kMode, "일시정지된 목표 주행이 없습니다");
+            return;
+        }
+        Envelope goal = request;
+        if (resume)
+            goal.p = navGoalPoint_;
+        startNavigation(goal, resume);
         return;
     }
 
@@ -1757,7 +1960,9 @@ void BridgeNode::publishSystem()
                                   {"net_rtt_ms", nullptr},
                                   {"net_rssi", nullptr},
                                   {"capture_enabled", captureEnabled_},
-                                  {"arm_execution_enabled", armExecutionEnabled_},
+                                  {"arm_execution_enabled", armExecutionEnabled_ &&
+                                    authorityRequestClient_->service_is_ready() && safetyCommandClient_->service_is_ready() &&
+                                    armCmdPub_->get_subscription_count() > 0 && count_subscribers("/motion/safe/arm/joint_command") > 0},
                                   {"robot_id", robotId_},
                                   {"robot_name", robotName_}}),
                  true);
@@ -1783,28 +1988,97 @@ bool BridgeNode::applyArmGoal(const Envelope &request, const std::vector<double>
                 "로봇팔 실행기가 연결되지 않았습니다. 목표는 전송되지 않았습니다");
         return false;
     }
-    if (motionAuthority_ != "arm_active" || safetyState_ != "normal") {
-        respond(request, false, err::kBusy,
-                "로봇팔 제어 권한 또는 안전 상태가 준비되지 않았습니다");
+    if (pendingArmGoal_) {
+        respond(request, false, err::kBusy, "이전 로봇팔 명령을 처리 중입니다");
         return false;
     }
-    if (count_subscribers("/motion/safe/arm/joint_command") == 0) {
+    if (count_subscribers("/motion/safe/arm/joint_command") == 0 ||
+        armCmdPub_->get_subscription_count() == 0 || !authorityRequestClient_->service_is_ready() ||
+        !safetyCommandClient_->service_is_ready()) {
         respond(request, false, err::kUnreachable,
                 "로봇팔 안전 출력에 실행기가 연결되지 않았습니다");
         return false;
     }
-    if (positions.size() != kArmJointNames.size()) {
+    if (!validArmPresetPositions(json(positions))) {
         respond(request, false, err::kBadPayload,
-                "관절 수가 맞지 않습니다: " + std::to_string(positions.size()));
+                "관절 수 또는 관절 범위가 올바르지 않습니다");
         return false;
+    }
+    if (lastArmPositions_.size() != kArmJointNames.size() ||
+        std::chrono::steady_clock::now() - lastArmReceived_ > std::chrono::seconds(1)) {
+        respond(request, false, err::kUnreachable, "로봇팔 관절 피드백이 끊겼습니다");
+        return false;
+    }
+    if (haveMissionState_ && (missionState_.state == shalom_interfaces::msg::MissionState::RUNNING ||
+                             missionState_.state == shalom_interfaces::msg::MissionState::RETURNING ||
+                             missionState_.state == shalom_interfaces::msg::MissionState::RECOVERING ||
+                             missionState_.state == shalom_interfaces::msg::MissionState::PAUSING)) {
+        respond(request, false, err::kBusy, "미션을 일시정지한 뒤 로봇팔을 조작하십시오");
+        return false;
+    }
+    pendingArmGoal_ = request;
+    pendingArmPositions_ = positions;
+    armGoalRequestedAt_ = std::chrono::steady_clock::now();
+    armAuthorityAccepted_ = false;
+    auto authority = std::make_shared<shalom_interfaces::srv::AuthorityRequest::Request>();
+    authority->request_id = "hmi-arm-" + request.id;
+    authority->requester = "hmi_bridge";
+    authority->operation = shalom_interfaces::srv::AuthorityRequest::Request::REQUEST_ARM;
+    const auto pending = authorityRequestClient_->async_send_request(authority,
+        [this, id = request.id](rclcpp::Client<shalom_interfaces::srv::AuthorityRequest>::SharedFuture future) {
+            if (!pendingArmGoal_ || pendingArmGoal_->id != id)
+                return;
+            const auto result = future.get();
+            if (!result->accepted) {
+                finishArmGoal(false, err::kBusy, result->detail);
+                return;
+            }
+            armAuthorityAccepted_ = true;
+            requestSafetyResume();
+        });
+    armAuthorityRequestId_ = pending.request_id;
+    return true;
+}
+
+void BridgeNode::finishArmGoal(bool ok, const std::string &code, const std::string &message)
+{
+    if (!pendingArmGoal_)
+        return;
+    const auto request = *pendingArmGoal_;
+    pendingArmGoal_.reset();
+    pendingArmPositions_.clear();
+    if (armAuthorityRequestId_) {
+        authorityRequestClient_->remove_pending_request(*armAuthorityRequestId_);
+        armAuthorityRequestId_.reset();
+    }
+    respond(request, ok, code, message);
+}
+
+void BridgeNode::tickArmGoal()
+{
+    if (!pendingArmGoal_)
+        return;
+    if (!server_.isConnected() || estopActive() ||
+        std::chrono::steady_clock::now() - lastArmReceived_ > std::chrono::seconds(1)) {
+        finishArmGoal(false, err::kBusy, "연결·안전 상태·팔 피드백을 확인하십시오");
+        return;
+    }
+    if (std::chrono::steady_clock::now() - armGoalRequestedAt_ > std::chrono::seconds(2)) {
+        finishArmGoal(false, err::kBusy, "로봇팔 제어 권한 또는 안전 상태 응답이 없습니다");
+        return;
+    }
+    if (!armAuthorityAccepted_ || motionAuthority_ != "arm_active" || safetyState_ != "normal")
+        return;
+    if (armCmdPub_->get_subscription_count() == 0 || count_subscribers("/motion/safe/arm/joint_command") == 0) {
+        finishArmGoal(false, err::kUnreachable, "로봇팔 실행기 연결이 끊겼습니다");
+        return;
     }
     sensor_msgs::msg::JointState msg;
     msg.header.stamp = now();
     msg.name = kArmJointNames;
-    msg.position = positions;
+    msg.position = pendingArmPositions_;
     armCmdPub_->publish(msg);
-    respond(request, true);
-    return true;
+    finishArmGoal(true);
 }
 
 void BridgeNode::publishWaypoints()
@@ -1815,7 +2089,8 @@ void BridgeNode::publishWaypoints()
         if (point.is_object()) point["status"] = "todo";
     if (haveMissionState_ && missionState_.state != shalom_interfaces::msg::MissionState::IDLE) {
         const bool completed = missionState_.state == shalom_interfaces::msg::MissionState::COMPLETED ||
-                               missionState_.state == shalom_interfaces::msg::MissionState::RETURNING;
+                               (missionState_.state == shalom_interfaces::msg::MissionState::RETURNING &&
+                                missionState_.current_step < 0);
         const auto mission = std::find_if(missions_.begin(), missions_.end(), [this](const json &item) {
             return item.is_object() &&
                    item.value("id", std::string{}) == missionState_.mission_id;
@@ -2209,6 +2484,59 @@ bool BridgeNode::saveMissions(std::string *error)
     return true;
 }
 
+void BridgeNode::publishSpeedLimit()
+{
+    nav2_msgs::msg::SpeedLimit message;
+    message.header.stamp = now();
+    message.percentage = false;
+    message.speed_limit = navigationSpeed_;
+    speedLimitPub_->publish(message);
+}
+
+void BridgeNode::publishNavigationSpeed()
+{
+    if (server_.isConnected()) {
+        auto settings = navigationSpeedSettings();
+        settings["autonomous_applied"] = navigationSpeedApplied_;
+        sendEnvelope(makePublish(kChNavigationSpeed, settings));
+    }
+}
+
+bool BridgeNode::saveNavigationSpeed(const json &settings, std::string *error)
+{
+    const std::filesystem::path root(robotDataDir_);
+    std::error_code ec;
+    std::filesystem::create_directories(root, ec);
+    if (ec) {
+        *error = "주행 속도 저장 경로를 만들 수 없습니다: " + ec.message();
+        return false;
+    }
+    const auto destination = root / "navigation_settings.json";
+    const auto temporary = root / ".navigation_settings.json.tmp";
+    {
+        std::ofstream out(temporary, std::ios::trunc);
+        if (!out) {
+            *error = "주행 속도 설정 파일을 쓸 수 없습니다";
+            return false;
+        }
+        out << settings.dump(2) << '\n';
+        out.close();
+        if (!out) {
+            std::filesystem::remove(temporary, ec);
+            *error = "주행 속도 설정 저장에 실패했습니다";
+            return false;
+        }
+    }
+    std::filesystem::rename(temporary, destination, ec);
+    if (ec) {
+        std::error_code cleanupError;
+        std::filesystem::remove(temporary, cleanupError);
+        *error = "주행 속도 설정 파일을 교체하지 못했습니다: " + ec.message();
+        return false;
+    }
+    return true;
+}
+
 bool BridgeNode::saveArmPosePresets(std::string *error)
 {
     const std::filesystem::path root(robotDataDir_);
@@ -2554,7 +2882,7 @@ std::optional<shalom_interfaces::msg::MissionPlan> BridgeNode::makeMissionPlan(
 
     const int dock = findDock();
     plan.return_to_dock = mission ? explicitDock : dock >= 0;
-    plan.has_dock_approach = plan.return_to_dock && dock >= 0;
+    plan.has_dock_approach = dock >= 0;
     if (dock >= 0) {
         const auto &location = locations_[std::size_t(dock)];
         if (!location.contains("x") || !location.contains("y") ||
@@ -2580,6 +2908,11 @@ std::optional<shalom_interfaces::msg::MissionPlan> BridgeNode::makeMissionPlan(
 
 void BridgeNode::configureAndStartMission(const Envelope &request)
 {
+    publishSpeedLimit();
+    if (!navigationSpeedApplied_) {
+        respond(request, false, err::kBusy, "자율주행 속도 설정을 적용 중입니다");
+        return;
+    }
     if (estopActive()) {
         respond(request, false, err::kMode, "비상정지 상태입니다. 해제한 뒤 시작하십시오");
         return;
@@ -2589,7 +2922,7 @@ void BridgeNode::configureAndStartMission(const Envelope &request)
         respond(request, false, err::kUnreachable, "Mission Manager가 준비되지 않았습니다");
         return;
     }
-    if (navGoal_ || pendingGoto_) {
+    if (navigationBusy()) {
         respond(request, false, err::kBusy, "개별 자율주행 목표가 끝난 뒤 미션을 시작하십시오");
         return;
     }
@@ -2970,24 +3303,38 @@ std::string BridgeNode::encodeGridPng(const nav_msgs::msg::OccupancyGrid &grid)
 
 // ================= 자율주행 =================
 
-void BridgeNode::startNavigation(const Envelope &request)
+bool BridgeNode::navigationBusy() const
 {
+    return navGoal_ || navGoalPending_ || navStatus_ == "paused" ||
+           navStatus_ == "pausing" || navStatus_ == "canceling";
+}
+
+void BridgeNode::startNavigation(const Envelope &request, bool resume)
+{
+    publishSpeedLimit();
     if (!request.p.contains("x") || !request.p.contains("y")
-        || !request.p["x"].is_number() || !request.p["y"].is_number()) {
-        respond(request, false, err::kBadPayload, "x, y 가 필요합니다");
+        || !request.p["x"].is_number() || !request.p["y"].is_number()
+        || (request.p.contains("theta") && !request.p["theta"].is_number())
+        || !std::isfinite(request.p["x"].get<double>())
+        || !std::isfinite(request.p["y"].get<double>())
+        || !std::isfinite(request.p.value("theta", 0.0))) {
+        respond(request, false, err::kBadPayload, "목표 좌표가 올바르지 않습니다");
         return;
     }
 
-    // 앞선 요청이 아직 Nav2 의 답을 기다리는 중이면 새 요청을 받지 않는다.
-    // 둘 다 진행시키면 어느 쪽 응답이 어느 요청의 것인지 알 수 없다.
-    if (pendingGoto_) {
-        respond(request, false, err::kBusy, "직전 목표를 아직 처리 중입니다");
+    // Paused goals reserve their map and destination until resumed or canceled.
+    if (navigationBusy() && !(resume && navStatus_ == "paused")) {
+        respond(request, false, err::kBusy, "현재 목표 주행을 취소한 뒤 새 목표를 지정하십시오");
         return;
     }
 
     if (!navClient_->action_server_is_ready()) {
         respond(request, false, err::kUnreachable,
                 "자율주행이 준비되지 않았습니다 (Nav2 응답 없음)");
+        return;
+    }
+    if (!navigationSpeedApplied_) {
+        respond(request, false, err::kBusy, "자율주행 속도 설정을 적용 중입니다");
         return;
     }
 
@@ -3004,26 +3351,47 @@ void BridgeNode::startNavigation(const Envelope &request)
     goal.pose.pose.orientation.z = q.z();
     goal.pose.pose.orientation.w = q.w();
 
+    requestSafetyResume();
+    requestBaseAuthority();
+    const auto generation = ++navGeneration_;
     rclcpp_action::Client<NavigateToPose>::SendGoalOptions opts;
 
-    opts.goal_response_callback = [this](NavGoalHandle::SharedPtr handle) {
+    opts.goal_response_callback = [this, generation, resume](NavGoalHandle::SharedPtr handle) {
+        if (generation != navGeneration_) {
+            if (handle)
+                navClient_->async_cancel_goal(handle);
+            return;
+        }
+        navGoalPending_ = false;
         if (!handle) {
-            navStatus_ = "rejected";
+            navStatus_ = navStatus_ == "pausing" ? "paused" :
+                         navStatus_ == "canceling" ? "canceled" :
+                         resume ? "paused" : "rejected";
+            if (navStatus_ != "paused")
+                navGoalPoint_ = nullptr;
             clearPlan();
             settleGoto(false, err::kUnreachable, "자율주행이 목표를 거부했습니다");
+            publishNav();
             return;
         }
         navGoal_ = handle;
         navGoalId_ = handle->get_goal_id();
+        if (navStatus_ == "pausing" || navStatus_ == "canceling") {
+            requestNavigationCancel();
+            return;
+        }
         navStatus_ = "navigating";
-        resetTrail();
+        if (!resume)
+            resetTrail();
         settleGoto(true);
+        publishNav();
     };
 
-    opts.feedback_callback = [this](NavGoalHandle::SharedPtr handle,
+    opts.feedback_callback = [this, generation](NavGoalHandle::SharedPtr handle,
                                     const std::shared_ptr<const NavigateToPose::Feedback> fb) {
-        if (!handle || handle->get_goal_id() != navGoalId_)
-            return;   // a goal we have already replaced
+        if (generation != navGeneration_ || navStatus_ != "navigating" ||
+            !handle || handle->get_goal_id() != navGoalId_)
+            return;
         navDistance_ = fb->distance_remaining;
 
         // Nav2 leaves estimated_time_remaining at zero with the controllers we
@@ -3036,12 +3404,14 @@ void BridgeNode::startNavigation(const Envelope &request)
         navEta_ = eta > 0.0 ? json(eta) : json(nullptr);
     };
 
-    opts.result_callback = [this](const NavGoalHandle::WrappedResult &result) {
-        if (result.goal_id != navGoalId_)
-            return;   // the goal this belongs to was preempted; its outcome is moot
+    opts.result_callback = [this, generation](const NavGoalHandle::WrappedResult &result) {
+        if (generation != navGeneration_ || result.goal_id != navGoalId_)
+            return;
         switch (result.code) {
         case rclcpp_action::ResultCode::SUCCEEDED: navStatus_ = "succeeded"; break;
-        case rclcpp_action::ResultCode::CANCELED: navStatus_ = "canceled"; break;
+        case rclcpp_action::ResultCode::CANCELED:
+            navStatus_ = navStatus_ == "pausing" ? "paused" : "canceled";
+            break;
         default: navStatus_ = "failed"; break;
         }
         navGoal_.reset();
@@ -3051,8 +3421,11 @@ void BridgeNode::startNavigation(const Envelope &request)
         // 목표가 끝났다는 사실은 이벤트로도 한 번 보낸다. state/nav 는 손실을
         // 허용하는 스트림이라, 마지막 상태 한 프레임이 떨어지면 관제 화면에
         // 주행이 영영 끝나지 않은 것처럼 남는다.
-        sendEnvelope(makeEvent(kChLog, json{{"code", navResultCode(navStatus_)},
+        sendEnvelope(makeEvent(kChLog, json{{"code", navStatus_ == "paused" ? "NAV_PAUSED" : navResultCode(navStatus_)},
                                             {"goal", navGoalPoint_}}));
+        if (navStatus_ != "paused")
+            navGoalPoint_ = nullptr;
+        publishNav();
     };
 
     navGoalPoint_ = json{{"x", goal.pose.pose.position.x},
@@ -3062,22 +3435,41 @@ void BridgeNode::startNavigation(const Envelope &request)
     navDistance_ = 0.0;
     navEta_ = nullptr;
     pendingGoto_ = request;
-    pendingGotoAt_ = now();
+    pendingGotoAt_ = std::chrono::steady_clock::now();
+    navGoalPending_ = true;
     navClient_->async_send_goal(goal, opts);
 }
 
-void BridgeNode::cancelNavigation(const char *reason)
+void BridgeNode::stopNavigation(bool pause)
 {
-    if (!navGoal_ && !pendingGoto_)
+    if (!navigationBusy())
         return;
-    if (navGoal_)
-        navClient_->async_cancel_goal(navGoal_);
-    // 취소를 요청한 쪽이 이유를 알고 있으므로, 아직 답하지 않은 요청은
-    // 여기서 닫는다. 그러지 않으면 관제는 목표가 살아 있다고 믿는다.
-    settleGoto(false, err::kMode, reason);
-    navStatus_ = "canceled";
+    navStatus_ = pause ? "pausing" : "canceling";
+    baseHoldPub_->publish(geometry_msgs::msg::Twist{});
+    settleGoto(false, err::kMode, pause ? "목표 주행 일시정지 요청" : "목표 주행 취소 요청");
     clearPlan();
-    RCLCPP_INFO(get_logger(), "자율주행 취소: %s", reason);
+    if (navGoal_) {
+        requestNavigationCancel();
+    } else if (!navGoalPending_) {
+        navStatus_ = pause ? "paused" : "canceled";
+        if (!pause)
+            navGoalPoint_ = nullptr;
+    }
+}
+
+void BridgeNode::requestNavigationCancel()
+{
+    // A cancel ACK is not an action result. Keep holding zero until Nav2 has
+    // terminated this particular goal; never cancel a mission's action goal.
+    const auto generation = navGeneration_;
+    navClient_->async_cancel_goal(navGoal_, [this, generation](auto response) {
+        if (generation != navGeneration_ || !navGoal_)
+            return;
+        if (response->return_code != 0 || response->goals_canceling.empty()) {
+            sendEnvelope(makeEvent(kChLog, json{{"code", "NAV_CANCEL_REJECTED"},
+                {"level", "error"}, {"message", "주행 정지 확인 실패. 정지 상태를 유지합니다."}}));
+        }
+    });
 }
 
 void BridgeNode::settleGoto(bool ok, const std::string &code, const std::string &message)
@@ -3090,16 +3482,15 @@ void BridgeNode::settleGoto(bool ok, const std::string &code, const std::string 
 
 void BridgeNode::publishNav()
 {
+    // Goal acceptance must also time out when the simulation clock is paused.
+    if (pendingGoto_ && std::chrono::steady_clock::now() - pendingGotoAt_ > kGoalAcceptTimeout) {
+        settleGoto(false, err::kUnreachable, "자율주행이 목표에 응답하지 않습니다");
+        // A delayed acceptance must be canceled before any other motion is allowed.
+        stopNavigation(false);
+    }
+
     if (!server_.isConnected())
         return;
-
-    // Nav2 가 목표 수락 여부를 끝내 답하지 않으면 요청을 닫아 준다. 열어 둔
-    // 채 두면 관제는 다음 목표를 보낼 수 없고 (위의 E_BUSY), 이유도 모른다.
-    if (pendingGoto_ && (now() - pendingGotoAt_) > rclcpp::Duration(kGoalAcceptTimeout)) {
-        navStatus_ = "failed";
-        clearPlan();
-        settleGoto(false, err::kUnreachable, "자율주행이 목표에 응답하지 않습니다");
-    }
 
     sendEnvelope(makePublish(kChNav,
                              json{{"status", navStatus_},
@@ -3126,7 +3517,8 @@ void BridgeNode::tickSafety()
     //
     // E-Stop 중에도 내보낸다. 멈추는 것은 안전 게이트가 하지만, 그 사이에
     // 자율 출력이 mux 에서 선택되어 있을 이유는 없다.
-    if (manualMode_ || estopEngaged_)
+    if (manualMode_ || estopEngaged_ || navStatus_ == "pausing" ||
+        navStatus_ == "paused" || navStatus_ == "canceling")
         baseHoldPub_->publish(geometry_msgs::msg::Twist{});
 }
 
@@ -3425,6 +3817,7 @@ void BridgeNode::publishHealth()
     // 마커도 없는 빈 지도가 떴다 — 로봇은 알고 있는데 화면만 몰랐다.
     const bool connected = server_.isConnected();
     if (connected && !wasConnected_) {
+        publishNavigationSpeed();
         publishMapCatalog();
         publishActiveMap();
         publishWaypoints();

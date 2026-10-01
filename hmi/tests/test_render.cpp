@@ -20,6 +20,7 @@
 #include <QBuffer>
 #include <QDoubleSpinBox>
 #include <QImage>
+#include <QJsonArray>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
@@ -43,6 +44,8 @@
 #include "panels/LocationPanel.h"
 #include "panels/MissionPanel.h"
 #include "panels/StatusPanel.h"
+#include "panels/NavigationSpeedPanel.h"
+#include "panels/TeleopPanel.h"
 #include "panels/WaypointPanel.h"
 #include "robot/Kinematics.h"
 #include "TestRobot.h"
@@ -60,6 +63,40 @@
 using namespace hmi;
 
 namespace {
+
+class CatalogBridge : public QObject {
+public:
+    CatalogBridge()
+    {
+        server.listen(QHostAddress::LocalHost);
+        connect(&server, &QTcpServer::newConnection, this, [this] {
+            peer = server.nextPendingConnection();
+            connect(peer, &QTcpSocket::readyRead, this, [this] {
+                decoder.append(peer->readAll());
+                net::Frame frame;
+                while (decoder.next(frame) == net::FrameDecoder::Status::Ok)
+                    if (const auto envelope = net::Envelope::fromHeader(frame.header))
+                        received << *envelope;
+            });
+        });
+    }
+    net::Envelope lastRequest(const char *channel) const
+    {
+        for (auto it = received.crbegin(); it != received.crend(); ++it)
+            if (it->t == QLatin1String(net::mtype::kReq) && it->ch == QLatin1String(channel))
+                return *it;
+        return {};
+    }
+    void send(const net::Envelope &envelope)
+    {
+        peer->write(net::encodeFrame(envelope.toHeader(), envelope.payload));
+        peer->flush();
+    }
+    QTcpServer server;
+    QTcpSocket *peer = nullptr;
+    net::FrameDecoder decoder;
+    QList<net::Envelope> received;
+};
 
 /// 창을 만들어 한 화면씩 그려 본다. 테마마다 색을 다시 계산하는 위젯이
 /// 있어 두 테마 모두 돌린다.
@@ -117,6 +154,490 @@ class TestRender : public QObject {
     Q_OBJECT
 
 private slots:
+    void mapSwitchRestoresCatalogPublishedBeforeAcknowledgement()
+    {
+        CatalogBridge bridge;
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), bridge.server.serverPort());
+        ui::MainWindow window(link);
+        link->connectToBridge();
+        QTRY_VERIFY(bridge.peer && link->isConnected());
+        bridge.send(net::makePublish(QLatin1String(ch::kMaps),
+            {{"maps", QJsonArray{QJsonObject{{"id", "map-2"}, {"name", "map-2"}}}}}));
+        QTRY_VERIFY(window.findChild<ui::MapCard *>()->mapButton()->isEnabled());
+        QTest::qWait(40);
+        window.findChild<ui::MapCard *>()->mapButton()->click();
+        auto *select = window.findChild<QPushButton *>(QStringLiteral("MapSelect_map-2"));
+        QVERIFY(select);
+        select->click();
+        QTRY_VERIFY(!bridge.lastRequest(ch::kCmdMapsSelect).id.isEmpty());
+        const auto request = bridge.lastRequest(ch::kCmdMapsSelect);
+        bridge.send(net::makePublish(QLatin1String(ch::kActiveMap), {{"id", "map-2"}, {"name", "map-2"}}));
+        bridge.send(net::makePublish(QLatin1String(ch::kWaypoints),
+            {{"map_id", "map-2"}, {"points", QJsonArray{QJsonObject{{"id", "wp-2"},
+                {"name", "입구"}, {"x", 1.0}, {"y", 2.0}, {"theta", 0.5}}}}}));
+        QTRY_COMPARE(link->waypoints().size(), 1);
+        auto *panel = window.findChild<ui::WaypointPanel *>();
+        QCOMPARE(panel->waypoints().size(), 0);
+        bridge.send(net::makeResponse(request, true));
+        QTRY_COMPARE(panel->waypoints().size(), 1);
+        QCOMPARE(panel->waypoints().first().value("id").toString(), QStringLiteral("wp-2"));
+    }
+
+    void waypointWriteWaitsForAcknowledgementAndKeepsFailedDraft()
+    {
+        CatalogBridge bridge;
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), bridge.server.serverPort());
+        ui::MainWindow window(link);
+        link->connectToBridge();
+        QTRY_VERIFY(bridge.peer && link->isConnected());
+        bridge.send(net::makePublish(QLatin1String(ch::kActiveMap), {{"id", "map-1"}, {"name", "map-1"}}));
+        const QJsonObject point{{"id", "wp-1"}, {"name", "원본"}, {"x", 1.0}, {"y", 2.0}, {"theta", 0.0}};
+        const auto catalog = net::makePublish(QLatin1String(ch::kWaypoints),
+            {{"map_id", "map-1"}, {"points", QJsonArray{point}}});
+        bridge.send(catalog);
+        auto *panel = window.findChild<ui::WaypointPanel *>();
+        QTRY_COMPARE(panel->waypoints().size(), 1);
+        QImage image(8, 8, QImage::Format_RGB32);
+        image.fill(Qt::white);
+        QByteArray png;
+        QBuffer buffer(&png);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QVERIFY(image.save(&buffer, "PNG"));
+        emit link->mapReceived(png, {{"width", 8}, {"height", 8}, {"resolution", 0.1}, {"map_id", "map-1"}});
+        panel->setEditingEnabled(true);
+        auto *list = panel->findChild<QListWidget *>();
+        auto *row = static_cast<ui::CatalogRow *>(list->itemWidget(list->item(0)));
+        row->editButton()->click();
+        row->findChild<QLineEdit *>(QStringLiteral("WaypointRowName"))->setText(QStringLiteral("수정"));
+        row->findChild<QPushButton *>(QStringLiteral("WaypointRowSave"))->click();
+        QTRY_VERIFY(!bridge.lastRequest(ch::kCmdWaypointsSet).id.isEmpty());
+        const auto request = bridge.lastRequest(ch::kCmdWaypointsSet);
+        bridge.send(catalog);
+        QTest::qWait(50);
+        auto *status = panel->findChild<QLabel *>(QStringLiteral("WaypointSaveStatus"));
+        QVERIFY(!status->text().contains(QStringLiteral("저장됨")));
+        QVERIFY(!row->editButton()->isEnabled());
+        bridge.send(net::makeResponse(request, false, QStringLiteral("E_BUSY"), QStringLiteral("conflict")));
+        QTRY_VERIFY(status->text().contains(QStringLiteral("저장 실패")));
+        row = static_cast<ui::CatalogRow *>(list->itemWidget(list->item(0)));
+        QCOMPARE(row->findChild<QLineEdit *>(QStringLiteral("WaypointRowName"))->text(), QStringLiteral("수정"));
+        panel->setEditingEnabled(true);
+        row->findChild<QPushButton *>(QStringLiteral("WaypointRowSave"))->click();
+        QTRY_VERIFY(bridge.lastRequest(ch::kCmdWaypointsSet).id != request.id);
+        bridge.send(net::makeResponse(bridge.lastRequest(ch::kCmdWaypointsSet), true));
+        QTRY_COMPARE(panel->waypoints().first().value("name").toString(), QStringLiteral("수정"));
+        QVERIFY(status->text().contains(QStringLiteral("저장됨")));
+    }
+
+    void goalNavigationPauseResumeCancel()
+    {
+        CatalogBridge bridge;
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), bridge.server.serverPort());
+        ui::MainWindow window(link);
+        link->connectToBridge();
+        QTRY_VERIFY(bridge.peer && link->isConnected());
+        auto *card = window.findChild<ui::MapCard *>();
+        auto *pause = card->navPauseButton();
+        auto *cancel = card->navCancelButton();
+        QVERIFY(!pause->isEnabled());
+        QVERIFY(!cancel->isEnabled());
+        bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}}));
+        const QJsonObject goal{{"x", 1.0}, {"y", 2.0}, {"theta", 0.5}};
+        auto report = [&](const char *status) {
+            bridge.send(net::makePublish(QLatin1String(ch::kNav), {{"status", status}, {"goal", goal}}));
+        };
+        report("navigating");
+        QTRY_VERIFY(pause->isEnabled());
+        QVERIFY(cancel->isEnabled());
+        QVERIFY(!card->goalButton()->isEnabled());
+        pause->click();
+        QTRY_VERIFY(!bridge.lastRequest(ch::kCmdNavPause).id.isEmpty());
+        report("pausing");
+        QTRY_VERIFY(!pause->isEnabled());
+        report("paused");
+        QTRY_COMPARE(pause->text(), QStringLiteral("재개"));
+        QVERIFY(pause->isEnabled());
+        pause->click();
+        QTRY_VERIFY(!bridge.lastRequest(ch::kCmdNavResume).id.isEmpty());
+        report("navigating");
+        QTRY_COMPARE(pause->text(), QStringLiteral("정지"));
+        cancel->click();
+        QTRY_VERIFY(!bridge.lastRequest(ch::kCmdNavCancel).id.isEmpty());
+        report("canceled");
+        QTRY_VERIFY(!cancel->isEnabled());
+        QVERIFY(!pause->isEnabled());
+        report("paused");
+        QTRY_VERIFY(pause->isEnabled());
+        link->disconnectFromBridge();
+        QTRY_VERIFY(!pause->isEnabled());
+        QVERIFY(!cancel->isEnabled());
+    }
+
+    void rapidModeRequestsUnlockGoalWithUnchangedFinalReport()
+    {
+        CatalogBridge bridge;
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), bridge.server.serverPort());
+        ui::MainWindow window(link);
+        link->connectToBridge();
+        QTRY_VERIFY(bridge.peer && link->isConnected());
+        QImage image(8, 8, QImage::Format_RGB32);
+        image.fill(Qt::white);
+        QByteArray png;
+        QBuffer buffer(&png);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QVERIFY(image.save(&buffer, "PNG"));
+        emit link->activeMapReceived({{"id", "map-1"}, {"name", "map-1"}});
+        emit link->mapReceived(png, {{"width", 8}, {"height", 8}, {"resolution", 0.1}, {"map_id", "map-1"}});
+        const auto automatic = net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}});
+        bridge.send(automatic);
+        auto *goal = window.findChild<ui::MapCard *>()->goalButton();
+        QTRY_VERIFY(goal->isEnabled());
+        window.setDriveMode(QStringLiteral("manual"));
+        window.setDriveMode(QStringLiteral("auto"));
+        QTRY_VERIFY(!bridge.lastRequest(ch::kCmdMode).id.isEmpty());
+        const auto first = bridge.lastRequest(ch::kCmdMode);
+        QCOMPARE(first.p.value("mode").toString(), QStringLiteral("manual"));
+        bridge.send(automatic);
+        bridge.send(net::makeResponse(first, true));
+        QTRY_VERIFY(bridge.lastRequest(ch::kCmdMode).id != first.id);
+        QVERIFY(!goal->isEnabled());
+        const auto last = bridge.lastRequest(ch::kCmdMode);
+        QCOMPARE(last.p.value("mode").toString(), QStringLiteral("auto"));
+        bridge.send(automatic);
+        bridge.send(net::makeResponse(last, true));
+        QTRY_VERIFY(goal->isEnabled());
+        QVERIFY(!link->modeChangePending());
+    }
+
+    void armDraftRevisionAndOtherRowsSurviveMutationResults()
+    {
+        ui::ArmPanel panel;
+        panel.setControlsEnabled(true);
+        const QVariantList positions{0.0, -0.4, 0.5, -1.2, 0.0, 0.4};
+        QVariantMap a{{"id", "a"}, {"name", "A"}, {"positions", positions}, {"revision", 1}};
+        const QVariantMap b{{"id", "b"}, {"name", "B"}, {"positions", positions}, {"revision", 1}};
+        panel.setPosePresets({a, b});
+        auto *list = panel.findChild<QListWidget *>(QStringLiteral("SavedArmPosePresets"));
+        auto getRow = [list](int i) { return static_cast<ui::CatalogRow *>(list->itemWidget(list->item(i))); };
+        getRow(0)->editButton()->click();
+        getRow(0)->findChild<QLineEdit *>(QStringLiteral("PoseRowName"))->setText(QStringLiteral("A 초안"));
+        auto *joint = panel.findChild<ui::ValueSlider *>(QStringLiteral("Joint1"));
+        getRow(0)->findChild<QDoubleSpinBox *>(QStringLiteral("PoseRowJoint1"))->setValue(30.0);
+        QVERIFY(qAbs(joint->command() - M_PI / 6) < 0.004);
+        a["revision"] = 2;
+        panel.setPosePresets({a, b});
+        QSignalSpy writes(&panel, &ui::ArmPanel::updatePosePresetRequested);
+        getRow(0)->findChild<QPushButton *>(QStringLiteral("PoseRowSave"))->click();
+        QCOMPARE(writes.size(), 1);
+        QCOMPARE(writes.first().at(1).toULongLong(), quint64{1});
+        getRow(1)->editButton()->click();
+        getRow(1)->findChild<QLineEdit *>(QStringLiteral("PoseRowName"))->setText(QStringLiteral("B 초안"));
+        panel.setCommandResult(QStringLiteral("cmd/arm/pose_presets/update"), true, {}, {});
+        QCOMPARE(getRow(1)->findChild<QLineEdit *>(QStringLiteral("PoseRowName"))->text(), QStringLiteral("B 초안"));
+        QVERIFY(getRow(1)->isEditing());
+        getRow(1)->findChild<QPushButton *>(QStringLiteral("PoseRowCancel"))->click();
+        getRow(1)->editButton()->click();
+        QCOMPARE(getRow(1)->findChild<QLineEdit *>(QStringLiteral("PoseRowName"))->text(), QStringLiteral("B"));
+        getRow(1)->findChild<QLineEdit *>(QStringLiteral("PoseRowName"))->setText(QStringLiteral("B 새 초안"));
+        panel.findChild<QPushButton *>(QStringLiteral("ArmSavePreviewPose"))->click();
+        panel.setCommandResult(QStringLiteral("cmd/arm/pose_presets/save"), false, QStringLiteral("E_BUSY"), {});
+        QCOMPARE(getRow(1)->findChild<QLineEdit *>(QStringLiteral("PoseRowName"))->text(), QStringLiteral("B 새 초안"));
+    }
+
+    void waypointCancelRestoresFieldsAndPreservesDraftAcrossReports()
+    {
+        ui::WaypointPanel panel;
+        const QVariantMap original{{"id", "a"}, {"name", "A"}, {"x", 1.0}, {"y", 2.0}, {"theta", 0.0}};
+        panel.setWaypoints({original});
+        panel.setEditingEnabled(true);
+        auto *list = panel.findChild<QListWidget *>();
+        auto getRow = [list] { return static_cast<ui::CatalogRow *>(list->itemWidget(list->item(0))); };
+        getRow()->editButton()->click();
+        getRow()->findChild<QLineEdit *>(QStringLiteral("WaypointRowName"))->setText(QStringLiteral("초안"));
+        getRow()->findChild<QDoubleSpinBox *>(QStringLiteral("WaypointRowX"))->setValue(8.0);
+        panel.setWaypoints({original});
+        QCOMPARE(getRow()->findChild<QLineEdit *>(QStringLiteral("WaypointRowName"))->text(), QStringLiteral("초안"));
+        getRow()->findChild<QPushButton *>(QStringLiteral("WaypointRowCancel"))->click();
+        getRow()->editButton()->click();
+        QCOMPARE(getRow()->findChild<QLineEdit *>(QStringLiteral("WaypointRowName"))->text(), QStringLiteral("A"));
+        QCOMPARE(getRow()->findChild<QDoubleSpinBox *>(QStringLiteral("WaypointRowX"))->value(), 1.0);
+    }
+
+    void staleArmFeedbackDisablesExecutionButKeepsPreviewSaving()
+    {
+        ui::ArmPanel panel;
+        panel.setControlsEnabled(true);
+        panel.setExecutionAvailable(true);
+        panel.setArmState({0.0, -0.4, 0.5, -1.2, 0.0, 0.4}, 0.1, 0.1);
+        auto *save = panel.findChild<QPushButton *>(QStringLiteral("ArmSaveCurrentPose"));
+        QVERIFY(save->isEnabled());
+        panel.setFeedbackFresh(false);
+        QVERIFY(!save->isEnabled());
+        QVERIFY(panel.findChild<QPushButton *>(QStringLiteral("ArmSavePreviewPose"))->isEnabled());
+        QSignalSpy goals(&panel, &ui::ArmPanel::jointGoal);
+        for (auto *button : panel.findChildren<QPushButton *>())
+            if (button->text().contains(QStringLiteral("전송")))
+                QVERIFY(!button->isEnabled());
+        QCOMPARE(goals.size(), 0);
+    }
+
+    void sharedSpeedPreservesDraftAndWaitsForConfirmation()
+    {
+        ui::NavigationSpeedPanel panel;
+        auto *value = panel.findChild<QDoubleSpinBox *>(QStringLiteral("NavigationSpeedValue"));
+        auto *angular = panel.findChild<QDoubleSpinBox *>(QStringLiteral("NavigationAngularSpeedValue"));
+        auto *apply = panel.findChild<QPushButton *>(QStringLiteral("NavigationSpeedApply"));
+        QVERIFY(value && angular && apply);
+        QVERIFY(!value->isEnabled());
+        QVERIFY(!angular->isEnabled());
+        panel.setReportedLimits(0.30, 0.10, 0.60, 0.50, 0.05, 0.80, true);
+        QCOMPARE(value->value(), 0.30);
+        QCOMPARE(angular->value(), 0.50);
+        QVERIFY(!apply->isEnabled());
+        value->setValue(0.40);
+        angular->setValue(0.65);
+        panel.setReportedLimits(0.30, 0.10, 0.60, 0.50, 0.05, 0.80, true);
+        QCOMPARE(value->value(), 0.40);
+        QCOMPARE(angular->value(), 0.65);
+        QSignalSpy requests(&panel, &ui::NavigationSpeedPanel::speedLimitsRequested);
+        apply->click();
+        QCOMPARE(requests.size(), 1);
+        QCOMPARE(requests.first().first().toDouble(), 0.40);
+        QCOMPARE(requests.first().at(1).toDouble(), 0.65);
+        QVERIFY(!value->isEnabled());
+        QVERIFY(!angular->isEnabled());
+        panel.setReportedLimits(0.30, 0.10, 0.60, 0.50, 0.05, 0.80, true);
+        QCOMPARE(value->value(), 0.40);
+        QCOMPARE(angular->value(), 0.65);
+        panel.handleCommandResult(QLatin1String(ch::kCmdNavigationSpeedLimit), false,
+                                  QStringLiteral("E_UNREACHABLE"), QStringLiteral("저장 실패"));
+        QVERIFY(value->isEnabled());
+        QVERIFY(apply->isEnabled());
+        QCOMPARE(value->value(), 0.40);
+        apply->click();
+        panel.handleCommandResult(QLatin1String(ch::kCmdNavigationSpeedLimit), true, {}, {});
+        panel.setReportedLimits(0.40, 0.10, 0.60, 0.65, 0.05, 0.80, false);
+        QVERIFY(!apply->isEnabled());
+        QCOMPARE(value->value(), 0.40);
+        auto *reported = panel.findChild<QLabel *>(QStringLiteral("NavigationSpeedReported"));
+        QVERIFY(reported->text().contains(QStringLiteral("적용 대기")));
+        panel.setReportedLimits(0.40, 0.10, 0.60, 0.65, 0.05, 0.80, true);
+        QVERIFY(!reported->text().contains(QStringLiteral("적용 대기")));
+        // Changing only rotation does not alter the linear draft.
+        angular->setValue(0.45);
+        apply->click();
+        QCOMPARE(requests.last().at(0).toDouble(), 0.40);
+        QCOMPARE(requests.last().at(1).toDouble(), 0.45);
+        panel.reset();
+        QVERIFY(!value->isEnabled());
+        panel.setReportedLimits(0.20, 0.10, 0.40, 0.30, 0.10, 0.50, true);
+        QCOMPARE(value->value(), 0.20);
+        QCOMPARE(value->maximum(), 0.40);
+        QCOMPARE(angular->value(), 0.30);
+        QCOMPARE(angular->maximum(), 0.50);
+    }
+
+    void speedSettingsValidateBothRangesAndPreserveDrafts()
+    {
+        ui::NavigationSpeedPanel panel(nullptr, true);
+        auto *minimum = panel.findChild<QDoubleSpinBox *>(QStringLiteral("NavigationSpeedSettingsMinimum"));
+        auto *maximum = panel.findChild<QDoubleSpinBox *>(QStringLiteral("NavigationSpeedSettingsMaximum"));
+        auto *angularMinimum = panel.findChild<QDoubleSpinBox *>(QStringLiteral("NavigationAngularSpeedSettingsMinimum"));
+        auto *angularMaximum = panel.findChild<QDoubleSpinBox *>(QStringLiteral("NavigationAngularSpeedSettingsMaximum"));
+        auto *apply = panel.findChild<QPushButton *>(QStringLiteral("NavigationSpeedSettingsApply"));
+        QVERIFY(minimum && maximum && angularMinimum && angularMaximum && apply);
+        QCOMPARE(panel.findChildren<QDoubleSpinBox *>().size(), 4);
+        QVERIFY(panel.findChildren<QSlider *>().isEmpty());
+        QVERIFY(!minimum->isEnabled());
+        panel.setReportedLimits(0.30, 0.10, 0.60, 0.50, 0.05, 0.80, true);
+        minimum->setValue(0.40);
+        QVERIFY(apply->isEnabled());
+        auto *adjustment = panel.findChild<QLabel *>(QStringLiteral("NavigationSpeedSettingsAdjustment"));
+        QVERIFY(!adjustment->isHidden());
+        QVERIFY(adjustment->text().contains(QStringLiteral("0.40 m/s")));
+        maximum->setValue(0.35);
+        QVERIFY(!apply->isEnabled());
+        minimum->setValue(0.20);
+        maximum->setValue(0.45);
+        angularMinimum->setValue(0.10);
+        angularMaximum->setValue(0.70);
+        QVERIFY(apply->isEnabled());
+        QVERIFY(adjustment->isHidden());
+        panel.setReportedLimits(0.30, 0.10, 0.60, 0.50, 0.05, 0.80, true);
+        QCOMPARE(minimum->value(), 0.20);
+        QCOMPARE(maximum->value(), 0.45);
+        // A speed change from the driving tab must not overwrite this range draft.
+        panel.setReportedLimits(0.50, 0.10, 0.60, 0.50, 0.05, 0.80, true);
+        QCOMPARE(maximum->value(), 0.45);
+        QVERIFY(adjustment->text().contains(QStringLiteral("0.45 m/s")));
+        QSignalSpy requests(&panel, &ui::NavigationSpeedPanel::speedRangesRequested);
+        apply->click();
+        QCOMPARE(requests.size(), 1);
+        QCOMPARE(requests.first(), QList<QVariant>({0.20, 0.45, 0.10, 0.70}));
+        QVERIFY(!minimum->isEnabled());
+        panel.handleCommandResult(QLatin1String(ch::kCmdNavigationSpeedLimit), true, {}, {});
+        QVERIFY(!minimum->isEnabled()); // Responses from the driving card are independent.
+        panel.handleCommandResult(QLatin1String(ch::kCmdNavigationSpeedSettings), false, {}, QStringLiteral("저장 실패"));
+        QVERIFY(apply->isEnabled());
+        QCOMPARE(maximum->value(), 0.45);
+        panel.discardDraft();
+        QCOMPARE(minimum->value(), 0.10);
+        QCOMPARE(maximum->value(), 0.60);
+        QCOMPARE(angularMaximum->value(), 0.80);
+        QVERIFY(adjustment->isHidden());
+        QVERIFY(!apply->isEnabled());
+        panel.reset();
+        QVERIFY(!minimum->isEnabled());
+        QVERIFY(!apply->isEnabled());
+    }
+
+    void settingsSpeedUsesRobotStateAndDiscardsUnsavedEdits()
+    {
+        ui::SettingsDialog dialog;
+        dialog.setCurrentTab(2);
+        auto *minimum = dialog.findChild<QDoubleSpinBox *>(QStringLiteral("NavigationSpeedSettingsMinimum"));
+        auto *maximum = dialog.findChild<QDoubleSpinBox *>(QStringLiteral("NavigationSpeedSettingsMaximum"));
+        auto *apply = dialog.findChild<QPushButton *>(QStringLiteral("NavigationSpeedSettingsApply"));
+        QVERIFY(minimum && maximum && apply);
+        QVERIFY(!minimum->isEnabled());
+        QVERIFY(!dialog.findChild<QDoubleSpinBox *>(QStringLiteral("NavigationSpeedSettingsValue")));
+        dialog.setNavigationSpeedState(0.35, 0.20, 0.50, 0.45, 0.10, 0.70, true);
+        QCOMPARE(minimum->value(), 0.20);
+        QCOMPARE(maximum->value(), 0.50);
+        maximum->setValue(0.30);
+        QSignalSpy requests(&dialog, &ui::SettingsDialog::navigationSpeedRangesRequested);
+        apply->click();
+        QCOMPARE(requests.size(), 1);
+        dialog.handleCommandResult(QLatin1String(ch::kCmdNavigationSpeedSettings), true, {}, {});
+        dialog.setNavigationSpeedState(0.30, 0.20, 0.30, 0.45, 0.10, 0.70, true);
+        QVERIFY(!apply->isEnabled());
+        maximum->setValue(0.60);
+        dialog.reload();
+        QCOMPARE(maximum->value(), 0.30);
+        dialog.resetNavigationSpeed();
+        QVERIFY(!minimum->isEnabled());
+    }
+
+    void speedRangeChangeUpdatesDrivingSliders()
+    {
+        ui::NavigationSpeedPanel panel;
+        panel.setReportedLimits(0.30, 0.10, 0.60, 0.50, 0.05, 0.80, true);
+        auto *value = panel.findChild<QDoubleSpinBox *>(QStringLiteral("NavigationSpeedValue"));
+        auto *angular = panel.findChild<QDoubleSpinBox *>(QStringLiteral("NavigationAngularSpeedValue"));
+        auto *slider = panel.findChild<QSlider *>(QStringLiteral("NavigationSpeedSlider"));
+        auto *angularSlider = panel.findChild<QSlider *>(QStringLiteral("NavigationAngularSpeedSlider"));
+        value->setValue(0.55);
+        angular->setValue(0.75);
+        panel.setReportedLimits(0.40, 0.20, 0.40, 0.60, 0.10, 0.60, true);
+        QCOMPARE(value->minimum(), 0.20);
+        QCOMPARE(value->maximum(), 0.40);
+        QCOMPARE(value->value(), 0.40);
+        QCOMPARE(slider->minimum(), 20);
+        QCOMPARE(slider->maximum(), 40);
+        QCOMPARE(angular->minimum(), 0.10);
+        QCOMPARE(angular->maximum(), 0.60);
+        QCOMPARE(angular->value(), 0.60);
+        QCOMPARE(angularSlider->minimum(), 10);
+        QCOMPARE(angularSlider->maximum(), 60);
+    }
+
+    void settingsSpeedConnectsToTheSelectedRobot()
+    {
+        CatalogBridge bridge;
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), bridge.server.serverPort());
+        ui::MainWindow window(link);
+        link->connectToBridge();
+        QTRY_VERIFY(bridge.peer && link->isConnected());
+        QJsonObject settings{{"speed_limit_mps", 0.35}, {"min_speed_mps", 0.20}, {"max_speed_mps", 0.50},
+                             {"angular_speed_limit_rps", 0.45}, {"min_angular_speed_rps", 0.10},
+                             {"max_angular_speed_rps", 0.70}, {"autonomous_applied", true}};
+        bridge.send(net::makePublish(QLatin1String(ch::kNavigationSpeed), settings));
+        auto *drive = window.findChild<QDoubleSpinBox *>(QStringLiteral("NavigationSpeedValue"));
+        QTRY_COMPARE(drive->value(), 0.35);
+        QPushButton *settingsButton = nullptr;
+        for (auto *button : window.findChildren<QPushButton *>())
+            if (button->toolTip() == QStringLiteral("설정")) settingsButton = button;
+        QVERIFY(settingsButton);
+        settingsButton->click(); // Received state must populate a lazily created settings window.
+        auto *dialog = window.findChild<ui::SettingsDialog *>();
+        QVERIFY(dialog);
+        dialog->setCurrentTab(2);
+        auto *maximum = dialog->findChild<QDoubleSpinBox *>(QStringLiteral("NavigationSpeedSettingsMaximum"));
+        auto *apply = dialog->findChild<QPushButton *>(QStringLiteral("NavigationSpeedSettingsApply"));
+        QVERIFY(!dialog->findChild<QDoubleSpinBox *>(QStringLiteral("NavigationSpeedSettingsValue")));
+        QCOMPARE(maximum->value(), 0.50);
+        maximum->setValue(0.40);
+        apply->click();
+        QTRY_VERIFY(!bridge.lastRequest(ch::kCmdNavigationSpeedSettings).id.isEmpty());
+        const auto request = bridge.lastRequest(ch::kCmdNavigationSpeedSettings);
+        QCOMPARE(request.p.size(), 4);
+        QVERIFY(!request.p.contains(QStringLiteral("speed_limit_mps")));
+        QVERIFY(!request.p.contains(QStringLiteral("angular_speed_limit_rps")));
+        QCOMPARE(request.p.value(QStringLiteral("max_speed_mps")).toDouble(), 0.40);
+        bridge.send(net::makeResponse(request, true));
+        settings[QStringLiteral("max_speed_mps")] = 0.40;
+        bridge.send(net::makePublish(QLatin1String(ch::kNavigationSpeed), settings));
+        QTRY_COMPARE(drive->maximum(), 0.40);
+        QTRY_VERIFY(!apply->isEnabled());
+        dialog->show();
+        QCoreApplication::processEvents();
+        QVERIFY(!dialog->grab().isNull());
+        const int width = dialog->width();
+        for (auto *input : dialog->findChildren<QDoubleSpinBox *>()) {
+            if (!input->isVisible()) continue;
+            const int right = input->mapTo(dialog, QPoint(input->width(), 0)).x();
+            QVERIFY2(right <= width, qPrintable(QStringLiteral("속도 입력란이 설정 창 폭을 넘었습니다: %1/%2")
+                                               .arg(right).arg(width)));
+        }
+        emit link->connectionChanged(false);
+        QVERIFY(!maximum->isEnabled());
+        dialog->close();
+        settingsButton->click();
+        QVERIFY(!maximum->isEnabled());
+        emit link->navigationSpeedLimitsChanged(0.25, 0.10, 0.35, 0.30, 0.05, 0.50, true);
+        QVERIFY(maximum->isEnabled());
+        QCOMPARE(maximum->value(), 0.35);
+    }
+
+    void robotReportedSpeedAlsoUpdatesAnActiveManualJog()
+    {
+        auto *robot = new test::TestRobot;
+        ui::MainWindow window(robot);
+        window.showView(ui::NavItem::Drive);
+        auto *teleop = window.findChild<ui::TeleopPanel *>();
+        QVERIFY(teleop);
+        teleop->setJogEnabled(true);
+        emit robot->navigationSpeedLimitsChanged(0.20, 0.10, 0.60, 0.30, 0.05, 0.80, true);
+        QSignalSpy commands(teleop, &ui::TeleopPanel::cmdVel);
+        QPushButton *forward = nullptr;
+        for (auto *button : teleop->findChildren<QPushButton *>())
+            if (button->text() == QStringLiteral("▲"))
+                forward = button;
+        QVERIFY(forward);
+        // Invoke the same momentary signals without relying on screen geometry.
+        QVERIFY(QMetaObject::invokeMethod(forward, "pressed"));
+        QCOMPARE(commands.last().at(0).toDouble(), 0.20);
+        emit robot->navigationSpeedLimitsChanged(0.40, 0.10, 0.60, 0.30, 0.05, 0.80, true);
+        QCOMPARE(commands.last().at(0).toDouble(), 0.40);
+        QVERIFY(QMetaObject::invokeMethod(forward, "released"));
+        QCOMPARE(commands.last().at(0).toDouble(), 0.0);
+        QPushButton *rotate = nullptr;
+        for (auto *button : teleop->findChildren<QPushButton *>())
+            if (button->text() == QStringLiteral("↺")) rotate = button;
+        QVERIFY(rotate);
+        QVERIFY(QMetaObject::invokeMethod(rotate, "pressed"));
+        QCOMPARE(commands.last().at(2).toDouble(), 0.30);
+        emit robot->navigationSpeedLimitsChanged(0.20, 0.10, 0.60, 0.30, 0.05, 0.80, true);
+        QCOMPARE(commands.last().at(2).toDouble(), 0.30);
+        emit robot->navigationSpeedLimitsChanged(0.20, 0.10, 0.60, 0.60, 0.05, 0.80, true);
+        QCOMPARE(commands.last().at(2).toDouble(), 0.60);
+        QVERIFY(QMetaObject::invokeMethod(rotate, "released"));
+        QCOMPARE(commands.last().at(2).toDouble(), 0.0);
+        emit robot->connectionChanged(false);
+        auto *value = window.findChild<QDoubleSpinBox *>(QStringLiteral("NavigationSpeedValue"));
+        QVERIFY(value && !value->isEnabled());
+    }
+
     void captureOnlyReportsSaveAfterRobotConfirms()
     {
         ui::CapturePanel panel;
@@ -158,7 +679,7 @@ private slots:
     void armWithoutReportedMetricDoesNotWarnAboutSingularity()
     {
         ui::ArmPanel arm;
-        const QList<double> home{0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785};
+        const QList<double> home{0.0, -0.785, 0.0, -2.356, 0.0, 1.571};
         arm.setArmState(home, std::numeric_limits<double>::quiet_NaN(),
                         std::numeric_limits<double>::quiet_NaN(), {});
         QLabel *advice = nullptr;
@@ -295,6 +816,8 @@ private slots:
         QVariantMap confirmed = pending;
         confirmed[QStringLiteral("revision")] = 1;
         arm.setPosePresets({confirmed});
+        QVERIFY(!button->isEnabled());
+        arm.setCommandResult(QStringLiteral("cmd/arm/pose_presets/save"), true, {}, {});
         QVERIFY(button->isEnabled());
         row = static_cast<ui::CatalogRow *>(list->itemWidget(list->item(0)));
         QVERIFY(row->editButton()->isEnabled());
@@ -932,7 +1455,7 @@ private slots:
         }
         const auto sliders = joints + ee;
 
-        const QList<double> home{0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785};
+        const QList<double> home{0.0, -0.785, 0.0, -2.356, 0.0, 1.571};
         arm.setArmState(home, 0.09, 0.06);
 
         // 끝단의 "지금" 은 실제 관절에서 나와야 한다.

@@ -52,6 +52,7 @@ Transition StateMachine::dispatch(Event event) {
   switch (state_) {
     case State::Idle:
       if (event == Event::MissionConfigured) {
+        return_detour_ = false;
         return accept(from, State::Ready, "mission configured");
       }
       if (event == Event::StopRequested) {
@@ -91,6 +92,11 @@ Transition StateMachine::dispatch(Event event) {
         return accept(from, State::Completed, "inspection completed");
       }
       if (state_ == State::Returning && event == Event::ReturnComplete) {
+        if (return_detour_) {
+          return_detour_ = false;
+          resume_target_ = return_resume_target_;
+          return accept(from, State::Paused, "dock reached; interrupted mission remains paused");
+        }
         return accept(from, State::Completed, "dock approach completed");
       }
       return reject("event is invalid while mission is active");
@@ -118,6 +124,14 @@ Transition StateMachine::dispatch(Event event) {
       return reject("event is invalid while pausing");
 
     case State::Paused:
+      if (event == Event::ReturnRequested) {
+        if (!return_detour_) {
+          return_resume_target_ = resume_target_;
+          resume_target_ = State::Returning;
+          return_detour_ = true;
+        }
+        return accept(from, State::Recovering, "dock detour recovery checks started");
+      }
       if (event == Event::ResumeRequested) {
         return accept(from, State::Recovering, "recovery checks started");
       }
@@ -185,6 +199,7 @@ const char * to_string(Event event) {
     case Event::RecoveryReady: return "recovery_ready";
     case Event::InspectionComplete: return "inspection_complete";
     case Event::ReturnComplete: return "return_complete";
+    case Event::ReturnRequested: return "return_requested";
     case Event::ResetRequested: return "reset_requested";
   }
   return "unknown";

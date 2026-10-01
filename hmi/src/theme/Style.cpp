@@ -166,6 +166,9 @@ QMenu::indicator { width: 14px; height: 14px; left: 7px; }
 }
 #MissionEmpty { font-size: @fsSm; color: @textMute; }
 #Hint { color: @textMute; font-size: @fsSm; }
+#NavigationSpeedSettingsReported, #NavigationSpeedSettingsAdjustment {
+    color: @textMute; font-size: @fsSm;
+}
 #ArmPreviewStatus { color: @textMute; font-size: @fsSm; }
 #ArmCommandStatus { color: @accent; font-size: @fsSm; }
 #ArmCommandStatus[tone="danger"] { color: @danger; }

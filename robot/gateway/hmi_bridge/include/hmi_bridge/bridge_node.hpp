@@ -26,13 +26,17 @@
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <nav2_msgs/action/navigate_to_pose.hpp>
 #include <nav2_msgs/srv/load_map.hpp>
+#include <nav2_msgs/msg/speed_limit.hpp>
 #include <nav2_msgs/srv/manage_lifecycle_nodes.hpp>
 #include <lifecycle_msgs/srv/change_state.hpp>
+#include <lifecycle_msgs/srv/get_state.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/parameter_client.hpp>
+#include <rcl_interfaces/srv/get_parameters.hpp>
+#include <rcl_interfaces/srv/set_parameters_atomically.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <sensor_msgs/msg/battery_state.hpp>
 #include <sensor_msgs/msg/image.hpp>
@@ -106,6 +110,14 @@ private:
     void publishPose();
     void publishHealth();
     void publishNav();
+    void publishNavigationSpeed();
+    void publishSpeedLimit();
+    json navigationSpeedSettings() const;
+    bool readNavigationSpeed(const json &input, bool requireAll, json *settings, std::string *error) const;
+    bool saveNavigationSpeed(const json &settings, std::string *error);
+    void syncNavigationSpeed();
+    void queryControllerSpeed(uint64_t generation, double linear, double angular, bool force);
+    void setControllerSpeed(uint64_t generation, double linear, double angular);
 
     /// CPU, memory and temperature of the machine this node runs on.
     ///
@@ -156,14 +168,10 @@ private:
     // This node only forwards the goal and reports back what the action server
     // says, because a second opinion on whether a goal is reachable is one the
     // operator has no way to adjudicate.
-    void startNavigation(const Envelope &request);
-
-    /// Asks Nav2 to abandon the current goal. Safe to call when there is none.
-    ///
-    /// This is *not* how the robot is stopped in an emergency - the safety node
-    /// does that without consulting anything here. Cancelling only keeps Nav2
-    /// from resuming once the operator has taken manual control.
-    void cancelNavigation(const char *reason);
+    void startNavigation(const Envelope &request, bool resume = false);
+    bool navigationBusy() const;
+    void stopNavigation(bool pause);
+    void requestNavigationCancel();
 
     void settleGoto(bool ok, const std::string &code = {}, const std::string &message = {});
 
@@ -175,6 +183,8 @@ private:
     // rather than move (see the station's ArmPanel for the same reasoning from
     // the other end).
     bool applyArmGoal(const Envelope &request, const std::vector<double> &positions);
+    void tickArmGoal();
+    void finishArmGoal(bool ok, const std::string &code = {}, const std::string &message = {});
 
     /// Named postures, kept here so the robot decides what "stow" means.
     ///
@@ -323,19 +333,15 @@ private:
     /// report success for a goal the planner then refuses, and the operator
     /// would be left watching a robot that never moves with nothing to read.
     std::optional<Envelope> pendingGoto_;
-    rclcpp::Time pendingGotoAt_;
+    std::chrono::steady_clock::time_point pendingGotoAt_;
+    bool navGoalPending_ = false;
+    uint64_t navGeneration_ = 0;
 
     std::vector<Sensor> sensors_;
 
     NavGoalHandle::SharedPtr navGoal_;
 
-    /// Which goal the status below describes.
-    ///
-    /// A new goto preempts the running one, and Nav2 then delivers the old
-    /// goal's result - CANCELED - *after* the new goal is already reporting
-    /// progress. Without this check that stale result overwrites the new
-    /// goal's status, and the station shows "failed" while the distance
-    /// remaining ticks down. Every callback is filtered against it.
+    /// Match both generation and UUID so late callbacks cannot affect a resumed goal.
     rclcpp_action::GoalUUID navGoalId_{};
     std::string navStatus_ = "idle";
     json navGoalPoint_;               ///< the goal echoed back, or null
@@ -419,11 +425,37 @@ private:
 
     /// 마지막으로 보고된 팔 자세. cmd/arm/stop 이 그 자리를 목표로 되쓴다.
     std::vector<double> lastArmPositions_;
+    std::chrono::steady_clock::time_point lastArmReceived_{};
+    std::optional<Envelope> pendingArmGoal_;
+    std::optional<int64_t> armAuthorityRequestId_;
+    std::vector<double> pendingArmPositions_;
+    std::chrono::steady_clock::time_point armGoalRequestedAt_{};
+    bool armAuthorityAccepted_ = false;
     /// True only after a safety-gated FR3 executor has been integrated.
     bool armExecutionEnabled_ = false;
 
+    double navigationSpeed_ = 0.30;
+    double navigationMinSpeed_ = 0.10;
+    double navigationMaxSpeed_ = 0.60;
+    double navigationAngularSpeed_ = 0.50;
+    double navigationMinAngularSpeed_ = 0.05;
+    double navigationMaxAngularSpeed_ = 0.80;
+    std::string navigationControllerId_ = "FollowPath";
+    bool navigationSpeedApplied_ = false;
+    bool navigationSpeedSyncPending_ = false;
+    bool navigationControllerActive_ = false;
+    uint64_t navigationSpeedGeneration_ = 0;
+    std::chrono::steady_clock::time_point navigationSpeedSyncAt_{};
+    std::optional<int64_t> navigationSpeedGetId_;
+    std::optional<int64_t> navigationSpeedStateId_;
+    std::optional<int64_t> navigationSpeedSetId_;
+
     // ---- ROS interfaces --------------------------------------------------
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr armCmdPub_;
+    rclcpp::Publisher<nav2_msgs::msg::SpeedLimit>::SharedPtr speedLimitPub_;
+    rclcpp::Client<rcl_interfaces::srv::GetParameters>::SharedPtr navigationSpeedGetClient_;
+    rclcpp::Client<lifecycle_msgs::srv::GetState>::SharedPtr navigationSpeedStateClient_;
+    rclcpp::Client<rcl_interfaces::srv::SetParametersAtomically>::SharedPtr navigationSpeedSetClient_;
     rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initialPosePub_;
     /// Manual-mode hold for the base. Zero velocity at 20 Hz, which is what
     /// keeps twist_mux from falling through to Nav2 while the operator has

@@ -39,6 +39,7 @@ namespace mission_manager::core
     RecoveryReady,
     InspectionComplete,
     ReturnComplete,
+    ReturnRequested,
     ResetRequested,
   };
 
@@ -57,6 +58,7 @@ namespace mission_manager::core
     [[nodiscard]] bool autonomous_motion_allowed() const;
     [[nodiscard]] State halt_target() const;
     [[nodiscard]] State resume_target() const;
+    [[nodiscard]] bool return_detour() const { return return_detour_; }
 
     // This mission-level option is captured from the validated immutable plan.
     // It may only be changed while IDLE.
@@ -74,6 +76,8 @@ namespace mission_manager::core
     State halt_target_{State::Paused};
     State resume_target_{State::Running};
     bool return_to_dock_{false};
+    bool return_detour_{false};
+    State return_resume_target_{State::Running};
   };
 
   const char *to_string(State state);

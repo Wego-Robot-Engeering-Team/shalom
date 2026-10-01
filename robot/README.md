@@ -98,6 +98,6 @@ cd ~/shalom_ws
 source /opt/ros/jazzy/setup.bash
 colcon build --base-paths src/shalom --symlink-install \
   --packages-select shalom_interfaces vectornav_driver vectornav_vn100 \
-  robot_bringup simulation_bringup hmi_bridge
+  robot_bringup simulation_bringup hmi_bridge mission_manager motion_interlock_manager
 source install/setup.bash
 ```

@@ -3,7 +3,7 @@
 현재 HMI와 `hmi_bridge`가 사용하는 JSON 형식이다. 아래 `path`는 로봇의
 `/var/lib/shalom/`을 기준으로 적었다. 이 경로는 소스 저장소 `shalom/` 밖에
 있다. `<map_id>`는 지도 폴더 이름이며 지도별 JSON에는 다시 기록하지 않는다.
-지도 데이터는 `maps_dir`, 지도와 무관한 팔 자세는 `robot_data_dir`에 저장한다.
+지도 데이터는 `maps_dir`, 팔 자세와 주행 속도 설정은 `robot_data_dir`에 저장한다.
 두 경로 모두 실행 인자로 변경할 수 있다.
 저장 파일에서 `map_id`가 필요한 곳은 기본 지도를 지정하는
 `maps/default_map.json`이다.
@@ -196,13 +196,42 @@ path: `maps/<map_id>/locations.json`
 
 ---
 
+## 주행 속도
+
+path: `navigation_settings.json`
+
+```json
+{
+  "speed_limit_mps": 0.30,
+  "min_speed_mps": 0.10,
+  "max_speed_mps": 0.60,
+  "angular_speed_limit_rps": 0.50,
+  "min_angular_speed_rps": 0.05,
+  "max_angular_speed_rps": 0.80
+}
+```
+
+| 필드 | 타입 | 의미 |
+|---|---|---|
+| `speed_limit_mps` | `float64` | 수동 이동 속도와 자율주행 최대 전진 속도(m/s). 기본 범위 0.10–0.60, 초기값 0.30. |
+| `min_speed_mps`, `max_speed_mps` | `float64` | 선속도 설정값의 최소·최대 범위(m/s). |
+| `angular_speed_limit_rps` | `float64` | 수동 회전 속도와 자율주행 최대 회전 속도(rad/s). 기본 범위 0.05–0.80, 초기값 0.50. |
+| `min_angular_speed_rps`, `max_angular_speed_rps` | `float64` | 각속도 설정값의 최소·최대 범위(rad/s). |
+
+로봇별 설정이며 지도 변경과 브리지 재시작 후에도 유지된다.
+HMI의 `주행 > 운용`에서 속도를, `설정 > 주행`에서 속도와 범위를 변경한다.
+
+---
+
 ## 저장과 동기화
 
 - HMI는 로봇 브리지에 명령을 보내고, 저장 성공 후 로봇이 다시 발행한 목록을
-  표시한다. 지도별 데이터의 원본은 `<maps_dir>`, 팔 자세의 원본은
+  표시한다. 지도별 데이터의 원본은 `<maps_dir>`, 팔 자세와 주행 속도 설정의 원본은
   `<robot_data_dir>`이다.
-- 미션과 팔 자세를 HMI에서 수정할 때는 마지막으로 받은 `revision`을
+- 미션과 팔 자세를 HMI에서 수정할 때는 편집 시작 시점의 `revision`을
   `expected_revision`으로 보낸다. 다른 화면이 먼저 바꿨다면 저장이 거절된다.
+- 웨이포인트 저장은 `map_id`와 편집 기준 목록 `expected_points`를 함께 보낸다.
+  현재 지도·목록과 다르면 저장을 거절한다. 미션에서 참조하는 지점은 삭제할 수 없다.
 - 지도별 JSON 파일을 직접 수정한 뒤에는 지도를 다시 불러오거나 브리지를
   재시작한다. 팔 자세 파일을 직접 수정한 뒤에는 브리지를 재시작한다.
 - 웨이포인트·마커·미션의 `description`은 현재 JSON 파일에서 직접 편집한다.

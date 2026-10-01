@@ -70,8 +70,17 @@ public:
     void requestGoal(double x, double y, double theta) override;
     void setInitialPose(double x, double y, double theta) override;
     void cancelNav() override;
+    void pauseNav() override;
+    void resumeNav() override;
+    void setNavigationSpeedLimits(double linear, double angular) override;
+    void setNavigationSpeedSettings(double linear, double minimum, double maximum,
+                                   double angular, double angularMinimum, double angularMaximum) override;
+    void setNavigationSpeedRanges(double minimum, double maximum,
+                                  double angularMinimum, double angularMaximum) override;
 
     void setWaypoints(const QList<QVariantMap> &waypoints) override;
+    void setWaypoints(const QList<QVariantMap> &waypoints,
+                      const QList<QVariantMap> &expectedPoints, const QString &mapId) override;
     void setLocations(const QList<QVariantMap> &locations) override;
     void setMarkers(const QList<QVariantMap> &markers) override;
     void triggerCapture(const QVariantMap &metadata) override;
@@ -85,6 +94,7 @@ public:
     void missionPause() override;
     void missionResume() override;
     void missionStop() override;
+    void returnToDock() override;
     hmi::robot::MissionState missionState() const override { return mission_; }
     void requestMissions() override;
     void saveMission(const QVariantMap &mission, quint64 expectedRevision) override;
@@ -97,6 +107,7 @@ public:
 
     void setMode(hmi::robot::DriveMode mode) override;
     hmi::robot::DriveMode mode() const override { return mode_; }
+    bool modeChangePending() const override;
 
     void setBasePosture(const QString &posture, bool confirm = false) override;
     QString basePosture() const override { return basePosture_; }
@@ -149,6 +160,8 @@ private:
     void handlePublish(const Envelope &env);
     void handleHeartbeat(const Envelope &env);
     void handleEstopFrame(const Frame &frame);
+    void sendNavigationRequest(const QString &channel, const QJsonObject &payload = {});
+    void flushNavigationRequest();
 
     void scheduleReconnect();
     void scheduleEstopReconnect();
@@ -200,13 +213,17 @@ private:
     QHash<qint64, qint64> heartbeatSentAt_;   ///< seq -> monotonic ms
     qint64 lastHeartbeatMs_ = 0;
     qint64 lastPoseMs_ = 0;
+    qint64 lastArmMs_ = 0;
     QElapsedTimer clock_;
 
     struct Pending {
         QString channel;
         qint64 sentAtMs;
+        QJsonObject payload;
     };
     QHash<QString, Pending> pending_;
+    QString deferredNavigationChannel_;
+    QJsonObject deferredNavigationPayload_;
 
     QHash<QString, qint64> lastSeq_;   ///< channel -> last seen sequence
 
@@ -219,6 +236,7 @@ private:
     bool missionStateSeen_ = false;
     hmi::robot::DriveMode mode_ = hmi::robot::DriveMode::Auto;
     bool modeReported_ = false;
+    std::optional<hmi::robot::DriveMode> queuedMode_;
 
     /// Posture and motion authority as reported by the robot. The UI does
     /// not guess either of them.

@@ -21,9 +21,7 @@ using namespace hmi::theme;
 
 namespace {
 
-/// 정지 판정 기준. 10 Hz 갱신에서 0.05 m/s 면 프레임 사이 이동이 5 mm 로,
-/// 주행 정밀도 요구(±10 cm)에 비해 무시할 만하다. 이보다 빠르면 저장된
-/// 좌표가 실제 정지 위치와 어긋난다.
+/// 충전 스테이션·시작 위치를 등록할 때 사용하는 정지 판정 기준.
 constexpr double kStationarySpeed = 0.05;
 
 }  // namespace
@@ -38,7 +36,7 @@ CaptureCheck LocationPanel::checkCapture(const RobotSnapshot &snap, const QStrin
         r.code = QStringLiteral("SETUP_LOC_BLOCKED");
         return r;
     }
-    if (snap.speed > kStationarySpeed) {
+    if (kind != QLatin1String("inspection") && snap.speed > kStationarySpeed) {
         r.reason = QStringLiteral("로봇이 움직이는 중입니다. 멈춘 뒤에 등록할 수 있습니다.");
         r.code = QStringLiteral("SETUP_LOC_BLOCKED");
         return r;

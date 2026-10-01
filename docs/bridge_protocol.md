@@ -65,9 +65,10 @@
 | `state/system` | CPU·GPU·네트워크 및 촬영·팔 실행기 활성 여부 |
 | `state/safety` | E-Stop·운용 모드 |
 | `state/nav` | 주행 상태·목표 |
+| `state/navigation_speed` | 선속도·각속도 설정, 허용 범위, Nav2 적용 상태 |
 | `state/plan` | 계획 경로 |
 | `state/trail` | 주행 궤적 |
-| `state/arm` | 관절·끝단 자세 |
+| `state/arm` | 실제 관절값. HMI는 6개 관절값의 마지막 수신 후 1초가 지나면 피드백을 무효화한다. |
 | `state/arm_pose_presets` | 로봇에 저장된 사용자 팔 자세 프리셋 |
 | `state/base` | 본체 자세·동작 권한 |
 | `state/apriltag` | 마커 검출 |
@@ -206,8 +207,12 @@ executor가 연결되어 있지 않으면 미션 전체를 시작 전에 거절�
 | `cmd/mode` | `auto` 또는 `manual` |
 | `cmd/goto` | 목표 자세 |
 | `cmd/localization/initial_pose` | 저장된 지도에서 초기 위치 추정값 설정 (`x`, `y`, `theta`) |
-| `cmd/nav_cancel` | 주행 취소 |
-| `cmd/waypoints/set` | 점검 지점 전체 설정 |
+| `cmd/nav_pause` | 개별 목표 주행 일시정지. 목적지 유지 |
+| `cmd/nav_resume` | 일시정지한 목적지로 주행 재개 |
+| `cmd/nav_cancel` | 개별 목표 주행 취소. 목적지 삭제 |
+| `cmd/navigation/speed_limit` | 공통 선속도·각속도 설정 (`speed_limit_mps`, `angular_speed_limit_rps`) |
+| `cmd/navigation/speed_settings` | 선속도·각속도의 최소·최대 범위 저장 |
+| `cmd/waypoints/set` | 점검 지점 전체 설정 (`points`, `expected_points`, `map_id`). 기존 목록이 달라지면 거절하고 최신 목록을 발행한다. 미션에서 참조하는 지점 삭제는 거절한다. |
 | `cmd/missions/list` | 선택된 지도의 미션 목록 요청 |
 | `cmd/missions/save` | 미션 생성/수정 (`mission`, `expected_revision`) |
 | `cmd/missions/archive` | 미션 보관 (`id`, `expected_revision`) |
@@ -224,8 +229,9 @@ executor가 연결되어 있지 않으면 미션 전체를 시작 전에 거절�
 | `cmd/mission/pause` | 점검 일시정지 |
 | `cmd/mission/resume` | 점검 재개 |
 | `cmd/mission/stop` | 점검 종료 |
+| `cmd/mission/return_dock` | 현재 단계를 보존하고 충전소로 복귀. 도착 후 미션은 일시정지 상태를 유지하며 명시적으로 재개한다. |
 | `cmd/arm/preset` | 암 프리셋 |
-| `cmd/arm/joint_goal` | 암 관절 목표. 실행기·안전 게이트·팔 제어 권한이 준비되지 않으면 거절한다. 응답 성공은 목표 접수이지 도달 확인이 아니다. |
+| `cmd/arm/joint_goal` | 관절 목표 (`positions`, rad × 6). 최신 관절 피드백과 실행기를 확인하고 `REQUEST_ARM` 권한·안전 상태 승인 후 전송한다. 성공 응답은 목표 접수를 뜻한다. |
 | `cmd/arm/ee_goal` | 암 끝단 목표. 현재 브리지는 MoveIt2 실행기가 연결되지 않아 거절한다. |
 | `cmd/arm/stop` | 암 정지 |
 | `cmd/arm/pose_presets/list` | 로봇 팔 자세 프리셋 목록 요청 |
@@ -234,6 +240,39 @@ executor가 연결되어 있지 않으면 미션 전체를 시작 전에 거절�
 | `cmd/arm/pose_presets/archive` | 미션 참조 확인 후 팔 자세를 목록에서 삭제 (`id`, `expected_revision` 필요) |
 | `cmd/base/posture` | 본체 자세 전환 (앉기·일어서기) |
 | `cmd/capture/trigger` | 촬영 |
+
+### `cmd/navigation/speed_limit` — 주행 속도
+
+`p.speed_limit_mps`에 선속도(m/s), `p.angular_speed_limit_rps`에 각속도(rad/s)를 보낸다.
+기본 범위는 선속도 0.10–0.60m/s, 각속도 0.05–0.80rad/s이다.
+초기값은 0.30m/s·0.50rad/s이다. 로봇은 설정값과 범위를
+`robot_data_dir/navigation_settings.json`에 함께 저장한다. 선속도만 보낸 기존 요청은
+저장된 각속도와 범위를 유지한다.
+
+`cmd/navigation/speed_settings`는 최소·최대 범위 4개 필드를 보낸다.
+현재 속도는 유지하며, 새 범위를 벗어나면 가장 가까운 경계값으로 조정한다.
+설정값까지 명시한 기존 6개 필드 요청도 지원한다.
+선속도는 `0.10 ≤ 최소 ≤ 설정값 ≤ 최대 ≤ 0.60`, 각속도는
+`0.05 ≤ 최소 ≤ 설정값 ≤ 최대 ≤ 0.80`을 검사한다. 범위는 HMI 속도 입력과 슬라이더에 적용한다.
+
+수동 전후진·회전은 각 설정값, 횡이동은 선속도의 70%를 사용한다.
+자율주행은 MPPI의 `FollowPath.vx_max`·`vx_min`·`vy_max`·`wz_max`를 원자적으로 갱신한다.
+후진·횡이동 한계는 선속도의 2/3, 회전 한계는 각속도 설정값이다.
+`/speed_limit`도 같은 선속도를 발행한다. 컨트롤러 활성화 후 적용하며,
+Nav2 재시작 시 설정을 다시 적용한다.
+
+`state/navigation_speed`의 필드는 아래와 같다.
+
+| 필드 | 타입 | 의미 |
+|---|---|---|
+| `speed_limit_mps` | `float64` | 저장된 선속도(m/s) |
+| `min_speed_mps`, `max_speed_mps` | `float64` | 선속도 설정값의 최소·최대 범위(m/s) |
+| `angular_speed_limit_rps` | `float64` | 저장된 각속도(rad/s) |
+| `min_angular_speed_rps`, `max_angular_speed_rps` | `float64` | 각속도 설정값의 최소·최대 범위(rad/s) |
+| `autonomous_applied` | `bool` | Nav2가 두 제한값을 적용했는지 여부 |
+
+성공 응답은 로봇의 저장 완료를 의미한다. Nav2 적용 완료는 `autonomous_applied`로 확인한다.
+설정은 로봇별로 저장되며 지도 변경 후에도 유지된다.
 
 ### `cmd/base/posture` — 본체 자세
 
@@ -315,6 +354,14 @@ E-Stop 과 정지의 차이는 게이트가 만든다. `controlled_stop`·`fault
 
 모드 전환은 자율주행을 취소하지 않는다. 수동인 동안 자율 출력이 막힐 뿐이고,
 `auto` 로 돌아가면 하던 주행이 이어진다. 취소는 `cmd/nav_cancel` 로만 한다.
+
+개별 목표 주행의 `정지`는 Nav2 목표 실행을 취소하고 목적지를 보관한다.
+`state/nav.status`는 `pausing`에서 Nav2 종료 확인 후 `paused`로 바뀐다.
+정지 확인을 기다리는 동안 자율 출력은 0으로 유지한다. `재개`는 같은 목적지를
+다시 전송해 현재 위치에서 경로를 계산하며, 지나온 경로는 유지한다.
+`취소`는 `canceling`에서 종료 확인 후 `canceled`로 바뀌고 목적지를 지운다.
+새 목표·미션 실행·지도 변경은 기존 목표 주행을 취소하거나 완료한 뒤 가능하다.
+이 명령은 미션 실행과 별개이며, 미션에는 `cmd/mission/*`를 사용한다.
 
 ## 촬영 데이터·위치·건강 상태
 

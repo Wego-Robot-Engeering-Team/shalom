@@ -12,6 +12,7 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rcl_interfaces REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
@@ -32,6 +33,7 @@ find_package(ZLIB REQUIRED)
 add_executable(hmi_bridge_node
     src/main.cpp
     src/bridge_node.cpp
+    src/navigation_speed.cpp
 )
 
 # 프레이밍은 관제와 공유하는 헤더 하나에서 나온다. 같은 바이트 배치를 두 번
@@ -43,7 +45,7 @@ target_include_directories(hmi_bridge_node PRIVATE
 )
 
 ament_target_dependencies(hmi_bridge_node
-    rclcpp rclcpp_action std_msgs shalom_interfaces std_srvs sensor_msgs geometry_msgs nav_msgs nav2_msgs lifecycle_msgs
+    rclcpp rcl_interfaces rclcpp_action std_msgs shalom_interfaces std_srvs sensor_msgs geometry_msgs nav_msgs nav2_msgs lifecycle_msgs
     tf2 tf2_ros tf2_geometry_msgs
 )
 target_link_libraries(hmi_bridge_node nlohmann_json::nlohmann_json)
@@ -64,6 +66,13 @@ install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../config/robot_metadata.yaml
 # 않으니 아무도 안 돌렸다 — 이 패키지에 시험이 하나뿐이었던 것도 그래서다.
 if(BUILD_TESTING)
     find_package(Threads REQUIRED)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME navigation_speed COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/test_navigation_speed.py $<TARGET_FILE:hmi_bridge_node>)
+    set_tests_properties(navigation_speed PROPERTIES TIMEOUT 60)
+    add_test(NAME navigation_control COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/test_navigation_control.py $<TARGET_FILE:hmi_bridge_node>)
+    set_tests_properties(navigation_control PROPERTIES TIMEOUT 60)
     add_executable(test_tcp_server
         test/test_tcp_server.cpp)
     target_include_directories(test_tcp_server PRIVATE

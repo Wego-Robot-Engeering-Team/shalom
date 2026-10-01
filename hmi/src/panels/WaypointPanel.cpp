@@ -131,26 +131,25 @@ void WaypointPanel::setSaveStatus(const QString &message, bool error)
 
 void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
 {
-    QString editingId;
-    QVariantMap draft;
-    if (editingEnabled_)
-        for (int i = 0; i < list_->count(); ++i) {
-            auto *item = list_->item(i);
-            auto *row = static_cast<CatalogRow *>(list_->itemWidget(item));
-            if (!row || !row->isEditing())
-                continue;
-            editingId = item->data(kWaypointRole).toMap()
-                            .value(QStringLiteral("id")).toString();
-            draft = {{QStringLiteral("name"), row->findChild<QLineEdit *>(
-                          QStringLiteral("WaypointRowName"))->text()},
-                     {QStringLiteral("x"), row->findChild<QDoubleSpinBox *>(
-                          QStringLiteral("WaypointRowX"))->value()},
-                     {QStringLiteral("y"), row->findChild<QDoubleSpinBox *>(
-                          QStringLiteral("WaypointRowY"))->value()},
-                     {QStringLiteral("yaw"), row->findChild<QDoubleSpinBox *>(
-                          QStringLiteral("WaypointRowYaw"))->value()}};
-            break;
-        }
+    QHash<QString, QVariantMap> drafts;
+    for (int i = 0; i < list_->count(); ++i) {
+        auto *item = list_->item(i);
+        auto *row = static_cast<CatalogRow *>(list_->itemWidget(item));
+        if (!row || !row->property("draftActive").toBool())
+            continue;
+        const QString editingId = item->data(kWaypointRole).toMap()
+                        .value(QStringLiteral("id")).toString();
+        drafts[editingId] = {{QStringLiteral("name"), row->findChild<QLineEdit *>(
+                      QStringLiteral("WaypointRowName"))->text()},
+                 {QStringLiteral("x"), row->findChild<QDoubleSpinBox *>(
+                      QStringLiteral("WaypointRowX"))->value()},
+                 {QStringLiteral("y"), row->findChild<QDoubleSpinBox *>(
+                      QStringLiteral("WaypointRowY"))->value()},
+                 {QStringLiteral("yaw"), row->findChild<QDoubleSpinBox *>(
+                      QStringLiteral("WaypointRowYaw"))->value()},
+                 {"base", row->property("editBase")}, {"editing", row->isEditing()},
+                 {"submitted", row->property("submitted")}};
+    }
     const QString selectedId = list_->currentItem()
         ? list_->currentItem()->data(kWaypointRole).toMap()
               .value(QStringLiteral("id")).toString() : QString{};
@@ -221,7 +220,10 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
             it->setSizeHint(QSize(0, row->sizeHint().height()));
             list_->doItemsLayout();
         };
-        connect(row->editButton(), &QPushButton::clicked, this, [this, row, resizeItem] {
+        connect(row->editButton(), &QPushButton::clicked, this, [this, row, wp, resizeItem] {
+            if (!row->property("draftActive").toBool())
+                row->setProperty("editBase", wp);
+            row->setProperty("draftActive", true);
             for (int i = 0; i < list_->count(); ++i) {
                 auto *otherItem = list_->item(i);
                 auto *other = static_cast<CatalogRow *>(list_->itemWidget(otherItem));
@@ -233,11 +235,17 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
             row->setEditing(true);
             resizeItem();
         });
-        connect(cancel, &QPushButton::clicked, this, [row, resizeItem] {
+        connect(cancel, &QPushButton::clicked, this, [row, wp, name, x, y, yaw, resizeItem] {
+            name->setText(wp.value("name", wp.value("id")).toString());
+            x->setValue(wp.value("x").toDouble());
+            y->setValue(wp.value("y").toDouble());
+            yaw->setValue(std::remainder(qRadiansToDegrees(wp.value("theta").toDouble()), 360.0));
+            row->setProperty("draftActive", false);
+            row->setProperty("submitted", false);
             row->setEditing(false);
             resizeItem();
         });
-        connect(save, &QPushButton::clicked, this, [this, id, wp, name, x, y, yaw] {
+        connect(save, &QPushButton::clicked, this, [this, id, wp, name, x, y, yaw, row] {
             if (!editingEnabled_)
                 return;
             const QString newName = name->text().trimmed();
@@ -250,6 +258,8 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
             updated[QStringLiteral("x")] = x->value();
             updated[QStringLiteral("y")] = y->value();
             updated[QStringLiteral("theta")] = qDegreesToRadians(yaw->value());
+            updated[QStringLiteral("_expected_point")] = row->property("editBase");
+            row->setProperty("submitted", true);
             emit updateRequested(id, updated);
         });
         connect(remove, &QPushButton::clicked, this, [this, id, wp] {
@@ -266,13 +276,25 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
                 emit gotoRequested(id);
         });
         it->setSizeHint(QSize(0, row->sizeHint().height()));
-        if (id == editingId) {
-            name->setText(draft.value(QStringLiteral("name")).toString());
-            x->setValue(draft.value(QStringLiteral("x")).toDouble());
-            y->setValue(draft.value(QStringLiteral("y")).toDouble());
-            yaw->setValue(draft.value(QStringLiteral("yaw")).toDouble());
-            row->setEditing(true);
-            it->setSizeHint(QSize(0, row->sizeHint().height()));
+        if (drafts.contains(id)) {
+            const auto draft = drafts.value(id);
+            const bool committed = draft.value("submitted").toBool() &&
+                draft.value("name").toString() == wp.value("name").toString() &&
+                std::abs(draft.value("x").toDouble() - wp.value("x").toDouble()) < 1e-6 &&
+                std::abs(draft.value("y").toDouble() - wp.value("y").toDouble()) < 1e-6 &&
+                std::abs(std::remainder(qDegreesToRadians(draft.value("yaw").toDouble()) -
+                                      wp.value("theta").toDouble(), 2 * M_PI)) < 1e-6;
+            if (!committed) {
+                name->setText(draft.value(QStringLiteral("name")).toString());
+                x->setValue(draft.value(QStringLiteral("x")).toDouble());
+                y->setValue(draft.value(QStringLiteral("y")).toDouble());
+                yaw->setValue(draft.value(QStringLiteral("yaw")).toDouble());
+                row->setProperty("draftActive", true);
+                row->setProperty("editBase", draft.value("base"));
+                row->setProperty("submitted", draft.value("submitted"));
+                row->setEditing(draft.value("editing").toBool());
+                it->setSizeHint(QSize(0, row->sizeHint().height()));
+            }
         }
         if (id == selectedId)
             list_->setCurrentItem(it);

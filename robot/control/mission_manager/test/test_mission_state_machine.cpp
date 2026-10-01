@@ -209,7 +209,7 @@ bool expected_acceptance(State state, Event event) {
       return event == Event::PauseRequested || event == Event::ManualTakeover ||
              event == Event::LinkLost || event == Event::SafetyStop ||
              event == Event::AuthorityLost ||
-             event == Event::StopRequested || event == Event::ResumeRequested;
+             event == Event::StopRequested || event == Event::ResumeRequested || event == Event::ReturnRequested;
     case State::Recovering:
       return event == Event::LinkLost || event == Event::SafetyStop ||
              event == Event::StopRequested || event == Event::RecoveryReady;
@@ -235,7 +235,7 @@ void test_complete_state_event_acceptance_matrix() {
     Event::ManualTakeover, Event::LinkLost, Event::SafetyStop, Event::AuthorityLost,
     Event::StopRequested, Event::FatalStepFailure, Event::MotionQuiesced,
     Event::ResumeRequested, Event::RecoveryReady, Event::InspectionComplete,
-    Event::ReturnComplete, Event::ResetRequested};
+    Event::ReturnComplete, Event::ReturnRequested, Event::ResetRequested};
 
   for (const auto state : states) {
     for (const auto event : events) {
@@ -252,6 +252,29 @@ void test_complete_state_event_acceptance_matrix() {
   }
 }
 
+void test_dock_detour_preserves_the_interrupted_phase() {
+  StateMachine fsm;
+  configure_and_start(fsm, true);
+  fsm.dispatch(Event::PauseRequested);
+  expect(!fsm.dispatch(Event::ReturnRequested).accepted, "dock return must wait for quiescence");
+  fsm.dispatch(Event::MotionQuiesced);
+  expect(fsm.dispatch(Event::ReturnRequested).accepted, "paused mission may request a dock detour");
+  expect(fsm.state() == State::Recovering, "dock detour must revalidate dependencies");
+  fsm.dispatch(Event::RecoveryReady);
+  expect(fsm.state() == State::Returning, "dock detour must enter RETURNING");
+  fsm.dispatch(Event::ManualTakeover);
+  fsm.dispatch(Event::MotionQuiesced);
+  fsm.dispatch(Event::ResumeRequested);
+  fsm.dispatch(Event::RecoveryReady);
+  expect(fsm.state() == State::Returning, "interrupted detour must resume the dock goal");
+  fsm.dispatch(Event::ReturnComplete);
+  expect(fsm.state() == State::Paused, "dock completion must not resume inspection automatically");
+  expect(fsm.resume_target() == State::Running, "inspection phase must survive the detour");
+  fsm.dispatch(Event::ResumeRequested);
+  fsm.dispatch(Event::RecoveryReady);
+  expect(fsm.state() == State::Running, "explicit resume must return to inspection");
+}
+
 }  // namespace
 
 int main() {
@@ -265,5 +288,6 @@ int main() {
   test_completion_respects_return_policy();
   test_invalid_events_do_not_change_state();
   test_complete_state_event_acceptance_matrix();
+  test_dock_detour_preserves_the_interrupted_phase();
   return 0;
 }

@@ -155,6 +155,98 @@ private:
 
 private slots:
 
+    void armFeedbackExpiresIndependentlyOfTheConnection()
+    {
+        connectPair();
+        Telemetry latest;
+        connect(client_, &BridgeClient::telemetry, this, [&](const Telemetry &value) { latest = value; });
+        server_->send(pub(hmi::ch::kArm, {{"positions", QJsonArray{0.0, -0.4, 0.5, -1.2, 0.0, 0.4}}}));
+        QVERIFY(waitFor([&] { return latest.armFresh; }));
+        QVERIFY(waitFor([&] { return !latest.armFresh; }, 2000));
+        QVERIFY(client_->isConnected());
+        server_->send(pub(hmi::ch::kArm, {{"positions", QJsonArray{0.0, -0.4, 0.5, -1.2, 0.0, 0.4}}}));
+        QVERIFY(waitFor([&] { return latest.armFresh; }));
+        server_->send(pub(hmi::ch::kArm, {{"positions", QJsonArray{0.0, -0.4}}}));
+        QVERIFY(waitFor([&] { return !latest.armFresh && latest.joints.isEmpty(); }));
+    }
+
+    void dockReturnWaitsForAutoConfirmationAndManualCancelsDeferredMotion()
+    {
+        connectPair();
+        server_->send(pub(hmi::ch::kSafety, {{"mode", "manual"}}));
+        QVERIFY(waitFor([&] { return client_->mode() == hmi::robot::DriveMode::Manual; }));
+        client_->returnToDock();
+        QVERIFY(waitFor([&] { return client_->modeChangePending() && std::any_of(
+            server_->received.cbegin(), server_->received.cend(), [](const Envelope &e) {
+                return e.ch == QLatin1String(hmi::ch::kCmdMode);
+            }); }));
+        Envelope mode;
+        for (const auto &e : server_->received) {
+            QVERIFY(e.ch != QLatin1String(hmi::ch::kCmdMissionReturnDock));
+            if (e.ch == QLatin1String(hmi::ch::kCmdMode)) mode = e;
+        }
+        server_->send(pub(hmi::ch::kSafety, {{"mode", "auto"}}));
+        server_->send(makeResponse(mode, true));
+        QVERIFY(waitFor([&] { return std::any_of(server_->received.cbegin(), server_->received.cend(),
+            [](const Envelope &e) { return e.ch == QLatin1String(hmi::ch::kCmdMissionReturnDock); }); }));
+        server_->received.clear();
+        client_->setMode(hmi::robot::DriveMode::Manual);
+        client_->requestGoal(1.0, 2.0, 0.0);
+        client_->setMode(hmi::robot::DriveMode::Manual);
+        QVERIFY(waitFor([&] { return !server_->received.isEmpty(); }));
+        QTest::qWait(50);
+        for (const auto &e : server_->received)
+            QVERIFY(e.ch != QLatin1String(hmi::ch::kCmdGoto));
+    }
+
+    void navigationSpeedUsesRobotReportedStateAndExplicitRequests()
+    {
+        connectPair();
+        QSignalSpy reports(client_, &BridgeClient::navigationSpeedLimitsChanged);
+        QJsonObject limits{{"speed_limit_mps", 0.30}, {"min_speed_mps", 0.10}, {"max_speed_mps", 0.60},
+                           {"angular_speed_limit_rps", 0.50}, {"min_angular_speed_rps", 0.05},
+                           {"max_angular_speed_rps", 0.80}, {"autonomous_applied", true}};
+        server_->send(pub(hmi::ch::kNavigationSpeed, limits));
+        QVERIFY(waitFor([&] { return reports.size() == 1; }));
+        QCOMPARE(reports.first().at(0).toDouble(), 0.30);
+        QCOMPARE(reports.first().at(3).toDouble(), 0.50);
+        QCOMPARE(reports.first().at(6).toBool(), true);
+        server_->send(pub(hmi::ch::kNavigationSpeed, {{"speed_limit_mps", 0.40}}));
+        server_->send(pub(hmi::ch::kNavigationSpeed,
+                          {{"speed_limit_mps", "0.40"}, {"min_speed_mps", 0.10}, {"max_speed_mps", 0.60}}));
+        auto invalid = limits;
+        invalid["angular_speed_limit_rps"] = 0.81;
+        server_->send(pub(hmi::ch::kNavigationSpeed, invalid));
+        invalid["angular_speed_limit_rps"] = "0.50";
+        server_->send(pub(hmi::ch::kNavigationSpeed, invalid));
+        invalid = limits;
+        invalid["autonomous_applied"] = "true";
+        server_->send(pub(hmi::ch::kNavigationSpeed, invalid));
+        client_->setNavigationSpeedLimits(0.40, 0.65);
+        QVERIFY(waitFor([&] {
+            for (const auto &e : server_->received)
+                if (e.ch == QLatin1String(hmi::ch::kCmdNavigationSpeedLimit))
+                    return e.p.value("speed_limit_mps").toDouble() == 0.40 &&
+                           e.p.value("angular_speed_limit_rps").toDouble() == 0.65;
+            return false;
+        }));
+        QCOMPARE(reports.size(), 1);
+        client_->setNavigationSpeedSettings(0.35, 0.20, 0.50, 0.45, 0.10, 0.70);
+        QVERIFY(waitFor([&] {
+            for (const auto &e : server_->received)
+                if (e.ch == QLatin1String(hmi::ch::kCmdNavigationSpeedSettings))
+                    return e.p == QJsonObject{{"speed_limit_mps", 0.35}, {"min_speed_mps", 0.20},
+                        {"max_speed_mps", 0.50}, {"angular_speed_limit_rps", 0.45},
+                        {"min_angular_speed_rps", 0.10}, {"max_angular_speed_rps", 0.70}};
+            return false;
+        }));
+        bool subscribed = false;
+        for (const auto &e : server_->received)
+            if (e.t == QLatin1String(mtype::kSub))
+                subscribed |= e.p.value("channels").toArray().contains(QLatin1String(hmi::ch::kNavigationSpeed));
+        QVERIFY(subscribed);
+    }
+
     void cleanup()
     {
         delete client_;
@@ -198,6 +290,22 @@ private slots:
 
         QVERIFY2(spy.count() >= 1, "식별자를 버렸다고 알리지 않았다");
         QCOMPARE(spy.takeLast().at(0).toString(), QString());
+    }
+
+    void pausedNavigationKeepsGoalMarker()
+    {
+        connectPair();
+        Telemetry latest;
+        connect(client_, &BridgeClient::telemetry, this, [&](const Telemetry &tm) { latest = tm; });
+        const QJsonObject goal{{"x", 2.0}, {"y", 3.0}, {"theta", 1.5}};
+        for (const auto *status : {"accepting", "navigating", "pausing", "paused", "canceling"}) {
+            server_->send(pub(hmi::ch::kNav, {{"status", status}, {"goal", goal}}));
+            QVERIFY(waitFor([&] { return latest.navStatus == QLatin1String(status); }));
+            QCOMPARE(latest.navGoal, goal.toVariantMap());
+        }
+        server_->send(pub(hmi::ch::kNav, {{"status", "canceled"}, {"goal", goal}}));
+        QVERIFY(waitFor([&] { return latest.navStatus == QLatin1String("canceled"); }));
+        QVERIFY(latest.navGoal.isEmpty());
     }
 
     void setEndpoint_discardsPreviousRobotNavigation()
@@ -294,7 +402,7 @@ private slots:
         server_->send(pub(hmi::ch::kBattery, {{"soc", 63.0}}));
         server_->send(pub(hmi::ch::kSystem,
                           {{"capture_enabled", true}, {"arm_execution_enabled", false}}));
-        QJsonArray joints{0.1, -0.8, 0.0, -2.2, 0.0, 1.5, 0.7};
+        QJsonArray joints{0.1, -0.8, 0.0, -2.2, 0.0, 1.5};
         server_->send(pub(hmi::ch::kArm,
                           {{"positions", joints}, {"manipulability", 0.07},
                            {"sigma_min", 0.05}}));
@@ -308,7 +416,8 @@ private slots:
 
         const auto tm = spy.last().at(0).value<Telemetry>();
         QCOMPARE(tm.y, -1.5);
-        QCOMPARE(tm.joints.size(), 7);
+        QCOMPARE(tm.joints.size(), 6);
+        QVERIFY(tm.armFresh);
         QVERIFY(qFuzzyCompare(tm.manipulability, 0.07));
         QVERIFY(tm.captureEnabled);
         QVERIFY(!tm.armExecutionEnabled);
@@ -687,8 +796,11 @@ private slots:
             QCOMPARE(arr.at(0).toObject().value(QStringLiteral("x")).toDouble(), -12.5);
         }
 
-        // 보낸 값은 화면 쪽에서도 바로 읽혀야 한다. 로봇이 되돌려 줄 때까지
-        // 예전 자리를 보여 주면 조작자는 등록이 안 먹은 줄 안다.
+        QVERIFY(client_->dockPose().isEmpty());
+        server_->send(pub(hmi::ch::kLocations,
+                          {{"locations", QJsonArray{QJsonObject{{"kind", "dock"},
+                              {"x", -12.5}, {"y", 3.25}, {"theta", 1.0}}}}}));
+        QVERIFY(waitFor([this] { return !client_->dockPose().isEmpty(); }));
         QCOMPARE(client_->dockPose().value(QStringLiteral("x")).toDouble(), -12.5);
     }
 

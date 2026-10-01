@@ -44,17 +44,18 @@ private slots:
         QCOMPARE(r.code, QStringLiteral("SETUP_LOC_CAPTURED"));
     }
 
-    /// 이동 중 좌표는 뭉개진다. 10 Hz 갱신에 0.2 m/s 면 프레임 사이 2 cm 다.
-    void movingRobot_isBlocked()
+    void movingRobot_allowsWaypointsOnly()
     {
         auto s = healthy();
         s.speed = 0.2;
         const auto r = LocationPanel::checkCapture(s, QStringLiteral("inspection"));
-        QVERIFY(!r.allowed);
-        QCOMPARE(r.code, QStringLiteral("SETUP_LOC_BLOCKED"));
-        // 문안은 다듬어질 수 있으므로 코드로 계약을 고정하고, 사유에는
-        // 조작자가 읽고 원인을 알 만한 낱말이 들어 있는지만 본다.
-        QVERIFY2(r.reason.contains(QStringLiteral("움직")), "사유에 원인이 드러나야 한다");
+        QVERIFY(r.allowed);
+        QCOMPARE(r.code, QStringLiteral("SETUP_LOC_CAPTURED"));
+        for (const auto &kind : {QStringLiteral("dock"), QStringLiteral("home")}) {
+            const auto fixed = LocationPanel::checkCapture(s, kind);
+            QVERIFY(!fixed.allowed);
+            QCOMPARE(fixed.code, QStringLiteral("SETUP_LOC_BLOCKED"));
+        }
     }
 
     /// 아주 느린 잔여 움직임까지 막으면 현장에서 등록이 안 된다.
@@ -69,6 +70,7 @@ private slots:
     void stalePose_isBlocked()
     {
         auto s = healthy();
+        s.speed = 0.2;
         s.poseFresh = false;
         const auto r = LocationPanel::checkCapture(s, QStringLiteral("inspection"));
         QVERIFY(!r.allowed);
@@ -121,12 +123,12 @@ private slots:
         }
     }
 
-    /// 차단 조건이 경고 조건보다 우선해야 한다. 순서가 뒤집히면
-    /// 이동 중인데도 "주의" 로만 표시되어 등록이 통과한다.
+    /// 오래된 위치는 신뢰도 경고와 관계없이 차단한다.
     void blockingBeatsWarning()
     {
         auto s = healthy();
         s.speed = 0.5;
+        s.poseFresh = false;
         s.localizationOk = false;
         s.visibleTagId = -1;
         const auto r = LocationPanel::checkCapture(s, QStringLiteral("inspection"));

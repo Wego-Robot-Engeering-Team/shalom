@@ -30,6 +30,9 @@ public:
 
     hmi::map::MapView *view() const { return view_; }
     QPushButton *goalButton() const { return goal_; }
+    QPushButton *navPauseButton() const { return navPause_; }
+    QPushButton *navCancelButton() const { return navCancel_; }
+    void setNavigationState(const QString &status, bool connected, bool canResume);
     QPushButton *poseEstimateButton() const { return poseEstimate_; }
     QPushButton *mapButton() const { return mapButton_; }
     IconButton *refreshButton() const { return refreshButton_; }
@@ -61,6 +64,8 @@ private:
     QWidget *toolbar_ = nullptr;
     QWidget *toolbarRow_ = nullptr;
     QPushButton *goal_ = nullptr;
+    QPushButton *navPause_ = nullptr;
+    QPushButton *navCancel_ = nullptr;
     QPushButton *poseEstimate_ = nullptr;
     QPushButton *mapButton_ = nullptr;
     IconButton *refreshButton_ = nullptr;

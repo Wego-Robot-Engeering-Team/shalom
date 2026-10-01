@@ -16,9 +16,9 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
-#include <QSlider>
 #include <QTimer>
 #include <QtMath>
+#include <cmath>
 #include <QVBoxLayout>
 
 #include "RobotDef.h"
@@ -47,14 +47,6 @@ TeleopPanel::TeleopPanel(QWidget *parent) : QWidget(parent)
     holder->addWidget(buildPad());
     holder->addStretch(1);
     card_->body()->addLayout(holder);
-
-    card_->body()->addSpacing(metrics::s2);
-    linear_ = addSpeedRow(QStringLiteral("선속도"), robot::kVxMax, 0.30,
-                          QStringLiteral("m/s"), robot::kVxCaution);
-    // 단위는 도(°) 로 보여준다. 값 자체는 rad/s 로 다룬다.
-    angular_ = addSpeedRow(QStringLiteral("각속도"), robot::kWzMax, 0.50,
-                           QStringLiteral("°/s"), -1,
-                           180.0 / M_PI, 0);
 
     card_->body()->addSpacing(metrics::s2);
     card_->body()->addWidget(buildPostureRow());
@@ -187,48 +179,6 @@ QWidget *TeleopPanel::buildPad()
     return pad;
 }
 
-QSlider *TeleopPanel::addSpeedRow(const QString &label, double vmax, double def,
-                                  const QString &unit, double caution,
-                                  double dispScale, int decimals)
-{
-    auto *host = new QWidget;
-    auto *lay = new QVBoxLayout(host);
-    lay->setContentsMargins(0, 0, 0, 0);
-    lay->setSpacing(metrics::s1);
-
-    auto *head = new QHBoxLayout;
-    head->addWidget(sectionLabel(label));
-    head->addStretch(1);
-    auto *value =
-        readout(QStringLiteral("%1 %2").arg(def * dispScale, 0, 'f', decimals).arg(unit));
-    head->addWidget(value);
-    lay->addLayout(head);
-
-    auto *slider = new QSlider(Qt::Horizontal);
-    slider->setRange(5, int(vmax * 100));
-    slider->setValue(int(def * 100));
-
-    connect(slider, &QSlider::valueChanged, this,
-            [value, unit, caution, slider, dispScale, decimals](int v) {
-        value->setText(QStringLiteral("%1 %2")
-                           .arg(v / 100.0 * dispScale, 0, 'f', decimals)
-                           .arg(unit));
-        if (caution < 0)
-            return;
-        // 지시서 2.2.5 는 미등록 물체 접근 시 30 cm/s 감속을 요구한다.
-        // 그 기준을 넘겨 설정하면 슬라이더를 경고색으로 바꿔 알린다.
-        const QString warn = v / 100.0 > caution ? QStringLiteral("true")
-                                                 : QStringLiteral("false");
-        if (slider->property("warn").toString() != warn) {
-            slider->setProperty("warn", warn);
-            repolish(slider);
-        }
-    });
-    lay->addWidget(slider);
-    card_->body()->addWidget(host);
-    return slider;
-}
-
 QWidget *TeleopPanel::buildPostureRow()
 {
     auto *host = new QWidget;
@@ -306,8 +256,6 @@ void TeleopPanel::setJogEnabled(bool on)
     enabled_ = on;
     for (auto it = buttons_.cbegin(); it != buttons_.cend(); ++it)
         it.value()->setEnabled(on || it.key() == QLatin1String("stop"));
-    linear_->setEnabled(on);
-    angular_->setEnabled(on);
     // 자세 전환도 수동 모드에서만 받는다. 자율주행 중에 앉으면 미션이 깨진다.
     for (auto it = postureButtons_.cbegin(); it != postureButtons_.cend(); ++it)
         it.value()->setEnabled(on);
@@ -319,8 +267,8 @@ void TeleopPanel::press(const QString &key)
 {
     if (!enabled_)
         return;
-    const double lin = linear_->value() / 100.0;
-    const double ang = angular_->value() / 100.0;
+    const double lin = linearSpeed_;
+    const double ang = angularSpeed_;
 
     vx_ = key == QLatin1String("fwd") ? lin : key == QLatin1String("back") ? -lin : 0.0;
     // 횡이동은 전진보다 느리게 건다. 사족보행에서 게걸음은 안정성이 낮다.
@@ -343,6 +291,22 @@ void TeleopPanel::release()
 void TeleopPanel::publish()
 {
     emit cmdVel(vx_, vy_, wz_);
+}
+
+void TeleopPanel::setSpeedLimits(double limit, double angular)
+{
+    if (!std::isfinite(limit) || limit <= 0 || limit > robot::kVxMax ||
+        !std::isfinite(angular) || angular <= 0 || angular > robot::kWzMax)
+        return;
+    const double ratio = limit / linearSpeed_;
+    const double angularRatio = angular / angularSpeed_;
+    linearSpeed_ = limit;
+    angularSpeed_ = angular;
+    vx_ *= ratio;
+    vy_ *= ratio;
+    wz_ *= angularRatio;
+    if (timer_->isActive())
+        publish();
 }
 
 }  // namespace hmi::ui

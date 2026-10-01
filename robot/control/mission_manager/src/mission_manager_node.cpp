@@ -170,6 +170,7 @@ namespace
       const auto state = fsm_.state();
       const bool has_current = has_plan_ && mission_index_ < plan_.waypoints.size() &&
                                (state == mission_manager::core::State::Running ||
+                                (state == mission_manager::core::State::Returning && fsm_.return_detour()) ||
                                 state == mission_manager::core::State::Pausing ||
                                 state == mission_manager::core::State::Paused ||
                                 state == mission_manager::core::State::Recovering ||
@@ -306,7 +307,7 @@ namespace
           }
         }
       }
-      if (plan.return_to_dock)
+      if (plan.return_to_dock || plan.has_dock_approach)
       {
         if (!plan.has_dock_approach || !finite_pose(plan.dock_approach.target_pose))
         {
@@ -488,6 +489,7 @@ namespace
       }
       else if (request->operation == MissionControl::Request::PAUSE)
       {
+        return_requested_ = false;
         accepted = dispatch(Event::PauseRequested, "MISSION_PAUSE_REQUESTED");
         if (!accepted)
           rejected_detail = detail_;
@@ -502,6 +504,7 @@ namespace
       }
       else if (request->operation == MissionControl::Request::STOP)
       {
+        return_requested_ = false;
         const auto state = fsm_.state();
         accepted = dispatch(
             state == mission_manager::core::State::Completed ||
@@ -514,9 +517,25 @@ namespace
       }
       else if (request->operation == MissionControl::Request::RESET)
       {
+        return_requested_ = false;
         accepted = dispatch(Event::ResetRequested, "MISSION_RESET_REQUESTED");
         if (!accepted)
           rejected_detail = detail_;
+      }
+      else if (request->operation == MissionControl::Request::RETURN_DOCK)
+      {
+        using State = mission_manager::core::State;
+        if (!has_plan_ || !plan_.has_dock_approach)
+          rejected_detail = "mission has no configured dock approach";
+        else if (fsm_.state() == State::Returning)
+          accepted = true;
+        else if (fsm_.state() == State::Running || fsm_.state() == State::Paused)
+        {
+          accepted = dispatch(Event::PauseRequested, "MISSION_DOCK_RETURN_REQUESTED");
+          return_requested_ = accepted;
+        }
+        else
+          rejected_detail = "pause or finish the current transition before returning to dock";
       }
       else
       {
@@ -532,6 +551,8 @@ namespace
 
     void on_safety(const SafetyState::SharedPtr message)
     {
+      if (message->state == SafetyState::E_STOP_LATCHED || message->state == SafetyState::FAULT)
+        return_requested_ = false;
       // SafetyState is published periodically; a changed sequence identifies a
       // transition that occurred after the pending START was accepted.
       const bool safety_transition_after_start = start_safety_sequence_.has_value() &&
@@ -697,6 +718,7 @@ namespace
         mission_index_ = 0;
       if (transition.to == mission_manager::core::State::Idle)
       {
+        return_requested_ = false;
         has_plan_ = false;
         plan_ = MissionPlan{};
         mission_index_ = 0;
@@ -813,6 +835,13 @@ namespace
         if (motion_dependencies_ready())
           dispatch(Event::RecoveryReady, "MISSION_RECOVERY_READY");
         else
+          request_dependencies();
+        return;
+      }
+      if (state == State::Paused && return_requested_)
+      {
+        return_requested_ = false;
+        if (dispatch(Event::ReturnRequested, "MISSION_DOCK_RETURN_STARTED"))
           request_dependencies();
         return;
       }
@@ -963,6 +992,7 @@ namespace
     bool has_plan_{false};
     bool start_requested_{false};
     std::size_t mission_index_{0};
+    bool return_requested_{false};
     uint64_t sequence_{0};
     uint64_t dependency_sequence_{0};
     uint64_t safety_sequence_{0};

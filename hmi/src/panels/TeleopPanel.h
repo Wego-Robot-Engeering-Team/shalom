@@ -5,7 +5,7 @@
 
 // Manual jog panel. Statement of work 2.2.7 [2] item 2.
 //
-// Direction buttons plus linear and angular speed sliders, publishing
+// Direction buttons with shared linear/angular speed limits, publishing
 // UDP teleop packets at 20 Hz through the active RobotLink.
 //
 // Safety design:
@@ -29,7 +29,6 @@
 class QKeyEvent;
 class QLabel;
 class QPushButton;
-class QSlider;
 class QTimer;
 
 namespace hmi::ui {
@@ -43,6 +42,8 @@ public:
 
     /// Enables the jog controls. The stop button stays live either way.
     void setJogEnabled(bool on);
+    /// Uses the robot-confirmed speed limits, including during a jog.
+    void setSpeedLimits(double linear, double angular);
     /// Stops an active keyboard or button jog when its view is hidden.
     void cancelJog() { release(); }
 
@@ -77,21 +78,13 @@ private:
     /// True while a text field, spin box or editable combo has focus.
     static bool typingSomewhere();
 
-
-    /// Adds a labelled speed slider. The slider always works in SI units;
-    /// dispScale and decimals only change how the number is written, so that
-    /// rotation can be shown in degrees without radians leaking into the
-    /// command path.
-    QSlider *addSpeedRow(const QString &label, double vmax, double def,
-                         const QString &unit, double caution,
-                         double dispScale = 1.0, int decimals = 2);
     void press(const QString &key);
     void release();
     void publish();
 
     Card *card_ = nullptr;
-    QSlider *linear_ = nullptr;
-    QSlider *angular_ = nullptr;
+    double linearSpeed_ = 0.30;
+    double angularSpeed_ = 0.50;
     QHash<QString, QPushButton *> buttons_;
     QTimer *timer_ = nullptr;
 

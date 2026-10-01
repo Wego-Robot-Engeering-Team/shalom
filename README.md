@@ -33,7 +33,7 @@ cd ~/shalom_ws
 source /opt/ros/jazzy/setup.bash
 MAKEFLAGS=-j2 colcon build --executor parallel --parallel-workers 2 --base-paths src/shalom --symlink-install \
   --packages-select shalom_interfaces b2_mujoco vectornav_driver vectornav_vn100 \
-  hmi_bridge robot_bringup simulation_bringup
+  hmi_bridge mission_manager motion_interlock_manager robot_bringup simulation_bringup
 source install/setup.bash
 ```
 

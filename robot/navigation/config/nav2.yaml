@@ -80,6 +80,7 @@ controller_server:
     # 를 권하지만 이 기계에서는 시뮬레이터와 SLAM 이 같은 CPU 를 쓰므로 10 Hz
     # 로 두고 batch 를 1000 으로 잡았다. 실기(젯슨)에서는 실측해서 다시 잡을 것.
     controller_frequency: 10.0
+    speed_limit_topic: /speed_limit
     min_x_velocity_threshold: 0.01
     min_y_velocity_threshold: 0.01
     min_theta_velocity_threshold: 0.1
@@ -173,6 +174,7 @@ controller_server:
 
       # Statement of work limits, the same ones in hmi/src/RobotDef.h. These are
       # not the policy's ceiling; they are the contract's.
+      # hmi_bridge restores the robot's saved linear/angular limits after activation.
       vx_max: 0.6
       vx_min: -0.4
       vy_max: 0.4

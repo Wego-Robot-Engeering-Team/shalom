@@ -309,15 +309,12 @@ QWidget *ArmPanel::buildEeTab()
     commandButtons_ << send << revert;
 
     connect(send, &QPushButton::clicked, this, [this] {
-        emit eeGoal(QVariantMap{
-            {"x", ee_[QStringLiteral("x")]->command()},
-            {"y", ee_[QStringLiteral("y")]->command()},
-            {"z", ee_[QStringLiteral("z")]->command()},
-            {"roll", ee_[QStringLiteral("roll")]->command()},
-            {"pitch", ee_[QStringLiteral("pitch")]->command()},
-            {"yaw", ee_[QStringLiteral("yaw")]->command()},
-            {"frame", QStringLiteral("fr3_link0")},
-        });
+        if (!feedbackFresh_ || !eeReachable_)
+            return;
+        QList<double> joints;
+        for (auto *slider : std::as_const(sliders_))
+            joints << slider->command();
+        emit jointGoal(joints);
         // 기준값은 건드리지 않는다. 팔이 실제로 그 자세에 닿을 때까지
         // 편집 표시가 남아 있는 것이 맞다 — 관절 입력도 그렇게 동작한다.
     });
@@ -342,8 +339,8 @@ QWidget *ArmPanel::buildPoseManagementTab()
 
 void ArmPanel::savePose(bool measured)
 {
-    if (!controlsEnabled_ || !pendingPose_.isEmpty() ||
-        (measured && !hadArmState_) || (!measured && !eeReachable_))
+    if (!controlsEnabled_ || !pendingPoseChannel_.isEmpty() || !pendingPose_.isEmpty() ||
+        (measured && !feedbackFresh_) || (!measured && !eeReachable_))
         return;
 
     int number = 1;
@@ -363,6 +360,7 @@ void ArmPanel::savePose(bool measured)
                     {QStringLiteral("name"), name},
                     {QStringLiteral("description"), QString()},
                     {QStringLiteral("positions"), positions}};
+    pendingPoseChannel_ = QStringLiteral("cmd/arm/pose_presets/save");
     rebuildPoseList();
     sectionTabs_->setCurrentIndex(1);
     refreshCommandControls();
@@ -371,49 +369,14 @@ void ArmPanel::savePose(bool measured)
 
 void ArmPanel::setPosePresets(const QList<QVariantMap> &presets)
 {
-    QString editingId;
-    QString draftName;
-    QString draftDescription;
-    QList<double> draftJoints;
-    for (auto it = poseRows_.cbegin(); it != poseRows_.cend(); ++it) {
-        auto *row = it.value();
-        if (!row->isEditing())
-            continue;
-        editingId = it.key();
-        if (auto *field = row->findChild<QLineEdit *>(QStringLiteral("PoseRowName")))
-            draftName = field->text();
-        if (auto *field = row->findChild<QLineEdit *>(QStringLiteral("PoseRowDescription")))
-            draftDescription = field->text();
-        for (int i = 1; i <= robot::kArmJointCount; ++i)
-            if (auto *field = row->findChild<QDoubleSpinBox *>(
-                    QStringLiteral("PoseRowJoint%1").arg(i)))
-                draftJoints << field->value();
-        break;
-    }
     posePresets_ = presets;
     const QString pendingId = pendingPose_.value(QStringLiteral("id")).toString();
-    if (!pendingId.isEmpty() && std::any_of(presets.cbegin(), presets.cend(),
+    if (pendingPoseChannel_.isEmpty() && !pendingId.isEmpty() && std::any_of(presets.cbegin(), presets.cend(),
         [&pendingId](const QVariantMap &preset) {
             return preset.value(QStringLiteral("id")).toString() == pendingId;
         }))
         pendingPose_.clear();
     rebuildPoseList();
-    if (auto *row = poseRows_.value(editingId, nullptr); row && !editingId.isEmpty()) {
-        row->findChild<QLineEdit *>(QStringLiteral("PoseRowName"))->setText(draftName);
-        row->findChild<QLineEdit *>(QStringLiteral("PoseRowDescription"))
-            ->setText(draftDescription);
-        for (int i = 0; i < draftJoints.size(); ++i)
-            row->findChild<QDoubleSpinBox *>(QStringLiteral("PoseRowJoint%1").arg(i + 1))
-                ->setValue(draftJoints.at(i));
-        row->setEditing(true);
-        if (editingId == pendingPoseUpdateId_)
-            row->setPending(true);
-        for (int i = 0; i < savedPresets_->count(); ++i)
-            if (savedPresets_->item(i)->data(Qt::UserRole).toString() == editingId) {
-                savedPresets_->item(i)->setSizeHint(QSize(0, row->sizeHint().height()));
-                break;
-            }
-    }
     refreshCommandControls();
 }
 
@@ -421,19 +384,33 @@ void ArmPanel::rebuildPoseList()
 {
     if (!savedPresets_)
         return;
+    for (auto it = poseRows_.cbegin(); it != poseRows_.cend(); ++it) {
+        auto *row = it.value();
+        if (!row->property("draftActive").toBool())
+            continue;
+        QVariantList joints;
+        for (int i = 1; i <= robot::kArmJointCount; ++i)
+            joints << row->findChild<QDoubleSpinBox *>(QStringLiteral("PoseRowJoint%1").arg(i))->value();
+        poseDrafts_[it.key()] = {{"name", row->findChild<QLineEdit *>(QStringLiteral("PoseRowName"))->text()},
+            {"description", row->findChild<QLineEdit *>(QStringLiteral("PoseRowDescription"))->text()},
+            {"joints", joints}, {"base", row->property("editBase")}, {"editing", row->isEditing()}};
+    }
     const QString selectedId = savedPresets_->currentItem()
         ? savedPresets_->currentItem()->data(Qt::UserRole).toString() : QString{};
     const QSignalBlocker blocker(savedPresets_);
     poseRows_.clear();
     savedPresets_->clear();
     QList<QVariantMap> shown = posePresets_;
-    if (!pendingPose_.isEmpty())
+    if (!pendingPose_.isEmpty() && std::none_of(shown.cbegin(), shown.cend(), [this](const QVariantMap &pose) {
+            return pose.value("id") == pendingPose_.value("id");
+        }))
         shown << pendingPose_;
     for (const auto &pose : shown) {
         if (pose.value(QStringLiteral("archived")).toBool())
             continue;
         const QString id = pose.value(QStringLiteral("id")).toString();
-        const bool pending = id == pendingPose_.value(QStringLiteral("id")).toString();
+        const bool pending = (!pendingPoseChannel_.isEmpty() &&
+            (id == pendingPose_.value(QStringLiteral("id")).toString() || id == pendingPoseUpdateId_));
         auto *item = new QListWidgetItem(savedPresets_);
         item->setData(Qt::UserRole, id);
         auto *row = new CatalogRow(savedPresets_);
@@ -502,7 +479,10 @@ void ArmPanel::rebuildPoseList()
             item->setSizeHint(QSize(0, row->sizeHint().height()));
             savedPresets_->doItemsLayout();
         };
-        connect(row->editButton(), &QPushButton::clicked, this, [this, row, resizeItem] {
+        connect(row->editButton(), &QPushButton::clicked, this, [this, row, pose, resizeItem] {
+            if (!row->property("draftActive").toBool())
+                row->setProperty("editBase", pose);
+            row->setProperty("draftActive", true);
             for (int i = 0; i < savedPresets_->count(); ++i) {
                 auto *otherItem = savedPresets_->item(i);
                 auto *other = static_cast<CatalogRow *>(savedPresets_->itemWidget(otherItem));
@@ -514,12 +494,17 @@ void ArmPanel::rebuildPoseList()
             row->setEditing(true);
             resizeItem();
         });
-        connect(cancel, &QPushButton::clicked, this, [row, resizeItem] {
+        connect(cancel, &QPushButton::clicked, this, [this, id, row] {
+            row->setProperty("draftActive", false);
             row->setEditing(false);
-            resizeItem();
+            poseDrafts_.remove(id);
+            rebuildPoseList();
+            previewSavedPose(id);
         });
         connect(save, &QPushButton::clicked, this,
                 [this, id, name, description, jointsEditor, row] {
+            if (!pendingPoseChannel_.isEmpty())
+                return;
             const auto it = std::find_if(posePresets_.cbegin(), posePresets_.cend(),
                 [&id](const QVariantMap &entry) {
                     return entry.value(QStringLiteral("id")).toString() == id;
@@ -542,7 +527,8 @@ void ArmPanel::rebuildPoseList()
                 commandStatus_->show();
                 return;
             }
-            QVariantMap updated = *it;
+            const QVariantMap base = row->property("editBase").toMap();
+            QVariantMap updated = base.isEmpty() ? *it : base;
             updated[QStringLiteral("name")] = newName;
             updated[QStringLiteral("description")] = newDescription;
             QVariantList values;
@@ -552,11 +538,15 @@ void ArmPanel::rebuildPoseList()
                                  kFr3Joints.at(i).hi);
             updated[QStringLiteral("positions")] = values;
             pendingPoseUpdateId_ = id;
+            pendingPoseChannel_ = QStringLiteral("cmd/arm/pose_presets/update");
             row->setPending(true);
+            refreshCommandControls();
             emit updatePosePresetRequested(
-                updated, it->value(QStringLiteral("revision"), quint64{1}).toULongLong());
+                updated, updated.value(QStringLiteral("revision"), quint64{1}).toULongLong());
         });
         connect(remove, &QPushButton::clicked, this, [this, id, row] {
+            if (!pendingPoseChannel_.isEmpty())
+                return;
             const auto it = std::find_if(posePresets_.cbegin(), posePresets_.cend(),
                 [&id](const QVariantMap &entry) {
                     return entry.value(QStringLiteral("id")).toString() == id;
@@ -568,11 +558,36 @@ void ArmPanel::rebuildPoseList()
                 QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
                 return;
             row->setPending(true);
+            pendingPoseUpdateId_ = id;
+            pendingPoseChannel_ = QStringLiteral("cmd/arm/pose_presets/archive");
+            refreshCommandControls();
             emit archivePosePresetRequested(
                 id, it->value(QStringLiteral("revision"), quint64{1}).toULongLong());
         });
         connect(row->applyButton(), &QPushButton::clicked, this,
                 [this, id] { applySavedPose(id); });
+        if (poseDrafts_.contains(id)) {
+            const auto draft = poseDrafts_.value(id);
+            row->setProperty("draftActive", true);
+            row->setProperty("editBase", draft.value("base"));
+            name->setText(draft.value("name").toString());
+            description->setText(draft.value("description").toString());
+            const auto values = draft.value("joints").toList();
+            for (int i = 0; i < jointsEditor.size(); ++i)
+                jointsEditor.at(i)->setValue(values.value(i).toDouble());
+            row->setEditing(draft.value("editing").toBool());
+            item->setSizeHint(QSize(0, row->sizeHint().height()));
+        }
+        for (auto *spin : jointsEditor)
+            connect(spin, &QDoubleSpinBox::valueChanged, this, [this, row, jointsEditor](double) {
+                if (!row->isEditing())
+                    return;
+                syncing_ = true;
+                for (int i = 0; i < jointsEditor.size(); ++i)
+                    sliders_.at(i)->setCommand(qDegreesToRadians(jointsEditor.at(i)->value()));
+                syncing_ = false;
+                onSliderMoved();
+            });
         if (id == selectedId)
             savedPresets_->setCurrentItem(item);
     }
@@ -583,7 +598,10 @@ void ArmPanel::updatePoseRows()
 {
     for (auto *row : std::as_const(poseRows_)) {
         row->setEditEnabled(controlsEnabled_);
-        row->setApplyEnabled(controlsEnabled_ && executionAvailable_ && hadArmState_);
+        row->setApplyEnabled(controlsEnabled_ && executionAvailable_ && feedbackFresh_);
+        for (const auto *name : {"PoseRowSave", "PoseRowDelete"})
+            row->findChild<QPushButton *>(QLatin1String(name))->setEnabled(
+                controlsEnabled_ && pendingPoseChannel_.isEmpty());
     }
 }
 
@@ -608,7 +626,7 @@ void ArmPanel::previewSavedPose(const QString &id)
 
 void ArmPanel::applySavedPose(const QString &id)
 {
-    if (!controlsEnabled_ || !executionAvailable_ || !hadArmState_)
+    if (!controlsEnabled_ || !executionAvailable_ || !feedbackFresh_)
         return;
     const auto it = std::find_if(posePresets_.cbegin(), posePresets_.cend(),
         [&id](const QVariantMap &entry) {
@@ -638,9 +656,11 @@ void ArmPanel::setArmState(const QList<double> &positions, double manipulability
     // 보낸다. 그것을 첫 관절 보고로 취급하면 hadArmState_ 가 너무 일찍 켜져
     // 편집 중인 목표를 실제값과 비교할 수 없고, 미리보기가 지워진다.
     // FR3 는 6축이므로 전체 관절값이 도착한 경우에만 기준 자세를 갱신한다.
-    if (positions.size() >= kArmJointCount) {
+    if (positions.size() == kArmJointCount &&
+        std::all_of(positions.cbegin(), positions.cend(), [](double value) { return std::isfinite(value); })) {
         const bool first = !hadArmState_;
         hadArmState_ = true;
+        feedbackFresh_ = true;
         actual_ = positions;
         for (int i = 0; i < sliders_.size() && i < positions.size(); ++i)
             sliders_[i]->setActual(positions.at(i));
@@ -711,8 +731,26 @@ void ArmPanel::setExecutionAvailable(bool available)
     refreshCommandControls();
 }
 
+void ArmPanel::setFeedbackFresh(bool fresh)
+{
+    feedbackFresh_ = fresh;
+    if (!fresh) {
+        view3d_->setStale(true);
+        for (auto *slider : std::as_const(sliders_))
+            slider->clearActual();
+        for (auto *slider : std::as_const(ee_))
+            slider->clearActual();
+    }
+    refreshCommandControls();
+}
+
 void ArmPanel::clearReportedState()
 {
+    for (auto *row : std::as_const(poseRows_))
+        row->setProperty("draftActive", false);
+    poseDrafts_.clear();
+    pendingPoseChannel_.clear();
+    feedbackFresh_ = false;
     pendingPoseUpdateId_.clear();
     pendingPose_.clear();
     rebuildPoseList();
@@ -748,18 +786,18 @@ void ArmPanel::setCommandResult(const QString &channel, bool ok, const QString &
     if (channel == QLatin1String("cmd/arm/pose_presets/save") ||
         channel == QLatin1String("cmd/arm/pose_presets/update") ||
         channel == QLatin1String("cmd/arm/pose_presets/archive")) {
-        if (channel == QLatin1String("cmd/arm/pose_presets/update")) {
+        if (channel == pendingPoseChannel_) {
+            if (ok) {
+                if (auto *row = poseRows_.value(pendingPoseUpdateId_, nullptr))
+                    row->setProperty("draftActive", false);
+                poseDrafts_.remove(pendingPoseUpdateId_);
+            }
+            pendingPoseChannel_.clear();
             pendingPoseUpdateId_.clear();
-            if (ok)
-                rebuildPoseList();
-        }
-        if (!ok && channel == QLatin1String("cmd/arm/pose_presets/save")) {
-            pendingPose_.clear();
+            if (channel == QLatin1String("cmd/arm/pose_presets/save"))
+                pendingPose_.clear();
             rebuildPoseList();
         }
-        if (!ok)
-            for (auto *row : std::as_const(poseRows_))
-                row->setPending(false);
         const bool archived = channel == QLatin1String("cmd/arm/pose_presets/archive");
         commandStatus_->setText(ok ? (archived ? QStringLiteral("자세 삭제됨")
                                                : QStringLiteral("자세 저장됨"))
@@ -784,17 +822,17 @@ void ArmPanel::refreshCommandControls()
 {
     if (savePreviewPose_)
         savePreviewPose_->setEnabled(controlsEnabled_ && eeReachable_ &&
-                                     pendingPose_.isEmpty());
+                                     pendingPoseChannel_.isEmpty());
     if (savePose_)
-        savePose_->setEnabled(controlsEnabled_ && hadArmState_ && pendingPose_.isEmpty());
+        savePose_->setEnabled(controlsEnabled_ && feedbackFresh_ && pendingPoseChannel_.isEmpty());
     for (auto *b : std::as_const(commandButtons_))
-        b->setEnabled(controlsEnabled_ && hadArmState_);
+        b->setEnabled(controlsEnabled_ && feedbackFresh_);
     if (jointSend_)
         jointSend_->setEnabled(controlsEnabled_ && executionAvailable_ &&
-                               hadArmState_ && hasPendingGoal_);
+                               feedbackFresh_ && hasPendingGoal_);
     if (eeSend_)
         eeSend_->setEnabled(controlsEnabled_ && executionAvailable_ &&
-                            hadArmState_ && hasPendingGoal_ && eeReachable_);
+                            feedbackFresh_ && hasPendingGoal_ && eeReachable_);
     for (auto *send : {jointSend_, eeSend_})
         if (send)
             send->setToolTip(executionAvailable_ ? QString()

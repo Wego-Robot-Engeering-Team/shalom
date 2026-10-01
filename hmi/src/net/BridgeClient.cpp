@@ -12,6 +12,8 @@
 #include <QUdpSocket>
 
 #include <limits>
+#include <cmath>
+#include <algorithm>
 
 #include "net/Channels.h"
 
@@ -227,7 +229,7 @@ void BridgeClient::onConnected()
 
     QStringList channels;
     for (const auto *ch : {hmi::ch::kPose, hmi::ch::kBattery, hmi::ch::kSystem,
-                           hmi::ch::kSafety, hmi::ch::kNav, hmi::ch::kPlan,
+                           hmi::ch::kSafety, hmi::ch::kNav, hmi::ch::kNavigationSpeed, hmi::ch::kPlan,
                            hmi::ch::kTrail, hmi::ch::kArm, hmi::ch::kApriltag,
                            hmi::ch::kMission, hmi::ch::kWaypoints, hmi::ch::kLocations,
                            hmi::ch::kMissions, hmi::ch::kArmPosePresets,
@@ -319,10 +321,14 @@ void BridgeClient::resetLinkState()
     markers_.clear();
     missionStateSeen_ = false;
     modeReported_ = false;
+    queuedMode_.reset();
+    deferredNavigationChannel_.clear();
+    deferredNavigationPayload_ = {};
     const auto link = telemetry_.link;
     telemetry_ = hmi::robot::Telemetry{};
     telemetry_.link = link;
     lastPoseMs_ = 0;
+    lastArmMs_ = 0;
     heartbeatSentAt_.clear();
     lastSeq_.clear();
     // 위치를 즉시 오래된 것으로 표시한다. 끊긴 뒤에도 마지막 좌표가
@@ -390,7 +396,7 @@ void BridgeClient::sendRequest(const QString &channel, const QJsonObject &payloa
         return;
     }
     const Envelope env = makeRequest(channel, payload);
-    pending_.insert(env.id, {channel, clock_.elapsed()});
+    pending_.insert(env.id, {channel, clock_.elapsed(), payload});
     sendEnvelope(env);
 }
 
@@ -403,7 +409,7 @@ void BridgeClient::sendEstopRequest(const QString &channel, const QJsonObject &p
         return;
     }
     const Envelope env = makeRequest(channel, payload);
-    pending_.insert(env.id, {channel, clock_.elapsed()});
+    pending_.insert(env.id, {channel, clock_.elapsed(), payload});
     sendEstopEnvelope(env);
 }
 
@@ -545,12 +551,32 @@ void BridgeClient::handleHeartbeat(const Envelope &env)
 void BridgeClient::handleResponse(const Envelope &env)
 {
     // 기한이 지나거나 이전 연결에서 온 응답은 새 요청의 결과로 보이면 안 된다.
-    if (pending_.remove(env.id) == 0)
+    const auto found = pending_.find(env.id);
+    if (found == pending_.end() || found->channel != env.ch)
         return;
+    const auto request = *found;
+    pending_.erase(found);
     const bool ok = env.p.value(QStringLiteral("ok")).toBool();
+    if (env.ch == QLatin1String(hmi::ch::kCmdMode) && queuedMode_) {
+        const auto next = *queuedMode_;
+        queuedMode_.reset();
+        setMode(next);
+        return;
+    }
     if (ok) {
+        if (env.ch == QLatin1String(hmi::ch::kCmdWaypointsSet)) {
+            waypoints_.clear();
+            for (const auto &value : request.payload.value(QStringLiteral("points")).toArray())
+                waypoints_ << value.toObject().toVariantMap();
+        }
         emit commandResult(env.ch, true, {},
                            env.p.value(QStringLiteral("file")).toString());
+        if (env.ch == QLatin1String(hmi::ch::kCmdWaypointsSet))
+            emit waypointsChanged(waypoints_);
+        if (env.ch == QLatin1String(hmi::ch::kCmdMode) && modeReported_)
+            emit driveModeReported(mode_);
+        if (env.ch == QLatin1String(hmi::ch::kCmdMode))
+            flushNavigationRequest();
         return;
     }
 
@@ -559,6 +585,10 @@ void BridgeClient::handleResponse(const Envelope &env)
     const QJsonObject err = env.p.value(QStringLiteral("err")).toObject();
     const QString code = err.value(QStringLiteral("code")).toString();
     const QString message = err.value(QStringLiteral("msg")).toString();
+    if (env.ch == QLatin1String(hmi::ch::kCmdMode)) {
+        deferredNavigationChannel_.clear();
+        deferredNavigationPayload_ = {};
+    }
     emit commandResult(env.ch, false,
                        code.isEmpty() ? QStringLiteral("E_BAD_PAYLOAD") : code, message);
     emit robotEvent(code.isEmpty() ? QStringLiteral("E_BAD_PAYLOAD") : code,
@@ -609,16 +639,20 @@ void BridgeClient::handlePublish(const Envelope &env)
         if (estop != estop_) {
             estop_ = estop;
             telemetry_.estop = estop;
+            if (estop) {
+                queuedMode_.reset();
+                deferredNavigationChannel_.clear();
+                deferredNavigationPayload_ = {};
+            }
         }
         const QString mode = p.value(QStringLiteral("mode")).toString();
         if (mode == QLatin1String("manual") || mode == QLatin1String("auto")) {
             const DriveMode reported = mode == QLatin1String("manual")
                 ? DriveMode::Manual : DriveMode::Auto;
-            if (!modeReported_ || reported != mode_) {
-                mode_ = reported;
-                modeReported_ = true;
-                emit driveModeReported(mode_);
-            }
+            mode_ = reported;
+            modeReported_ = true;
+            emit driveModeReported(mode_);
+            flushNavigationRequest();
         }
         telemetry_.localizationOk = !p.value(QStringLiteral("localization_degraded")).toBool();
     } else if (ch == QLatin1String(hmi::ch::kBase)) {
@@ -629,10 +663,34 @@ void BridgeClient::handlePublish(const Envelope &env)
             motionAuthority_ = authority;
             emit baseStateChanged(basePosture_, motionAuthority_);
         }
+    } else if (ch == QLatin1String(hmi::ch::kNavigationSpeed)) {
+        const auto limit = p.value(QStringLiteral("speed_limit_mps"));
+        const auto minimum = p.value(QStringLiteral("min_speed_mps"));
+        const auto maximum = p.value(QStringLiteral("max_speed_mps"));
+        const auto angular = p.value(QStringLiteral("angular_speed_limit_rps"));
+        const auto angularMinimum = p.value(QStringLiteral("min_angular_speed_rps"));
+        const auto angularMaximum = p.value(QStringLiteral("max_angular_speed_rps"));
+        const auto applied = p.value(QStringLiteral("autonomous_applied"));
+        if (limit.isDouble() && minimum.isDouble() && maximum.isDouble() &&
+            std::isfinite(limit.toDouble()) && std::isfinite(minimum.toDouble()) &&
+            std::isfinite(maximum.toDouble()) && minimum.toDouble() > 0 &&
+            maximum.toDouble() >= minimum.toDouble() &&
+            limit.toDouble() >= minimum.toDouble() && limit.toDouble() <= maximum.toDouble() &&
+            angular.isDouble() && angularMinimum.isDouble() && angularMaximum.isDouble() &&
+            std::isfinite(angular.toDouble()) && std::isfinite(angularMinimum.toDouble()) &&
+            std::isfinite(angularMaximum.toDouble()) && angularMinimum.toDouble() > 0 &&
+            angularMaximum.toDouble() >= angularMinimum.toDouble() &&
+            angular.toDouble() >= angularMinimum.toDouble() &&
+            angular.toDouble() <= angularMaximum.toDouble() && applied.isBool())
+            emit navigationSpeedLimitsChanged(limit.toDouble(), minimum.toDouble(), maximum.toDouble(),
+                angular.toDouble(), angularMinimum.toDouble(), angularMaximum.toDouble(), applied.toBool());
     } else if (ch == QLatin1String(hmi::ch::kNav)) {
         telemetry_.navStatus = p.value(QStringLiteral("status")).toString();
         const bool active = telemetry_.navStatus == QLatin1String("accepting") ||
-                            telemetry_.navStatus == QLatin1String("navigating");
+                            telemetry_.navStatus == QLatin1String("navigating") ||
+                            telemetry_.navStatus == QLatin1String("pausing") ||
+                            telemetry_.navStatus == QLatin1String("paused") ||
+                            telemetry_.navStatus == QLatin1String("canceling");
         telemetry_.navGoal = active ? p.value(QStringLiteral("goal")).toObject().toVariantMap()
                                     : QVariantMap{};
     } else if (ch == QLatin1String(hmi::ch::kPlan)) {
@@ -648,8 +706,18 @@ void BridgeClient::handlePublish(const Envelope &env)
             telemetry_.trail = telemetry_.trail.mid(telemetry_.trail.size() - 4000);
     } else if (ch == QLatin1String(hmi::ch::kArm)) {
         QList<double> q;
-        for (const auto &v : p.value(QStringLiteral("positions")).toArray())
+        for (const auto &v : p.value(QStringLiteral("positions")).toArray()) {
+            if (!v.isDouble() || !std::isfinite(v.toDouble())) {
+                q.clear();
+                break;
+            }
             q << v.toDouble();
+        }
+        telemetry_.armFresh = q.size() == 6;
+        if (telemetry_.armFresh)
+            lastArmMs_ = clock_.elapsed();
+        else
+            q.clear();
         telemetry_.joints = q;
         telemetry_.manipulability = p.value(QStringLiteral("manipulability")).isDouble()
             ? p.value(QStringLiteral("manipulability")).toDouble()
@@ -766,6 +834,8 @@ void BridgeClient::checkTimeouts()
     // 위치 신선도. 링크가 살아 있어도 pose 만 끊길 수 있다.
     if (telemetry_.poseFresh && now - lastPoseMs_ > kPoseStaleMs)
         telemetry_.poseFresh = false;
+    if (telemetry_.armFresh && now - lastArmMs_ > kPoseStaleMs)
+        telemetry_.armFresh = false;
 
     if (isConnected() && now - lastHeartbeatMs_ > kLinkSilentMs) {
         emit robotEvent(QStringLiteral("LINK_HEARTBEAT_TIMEOUT"),
@@ -774,20 +844,27 @@ void BridgeClient::checkTimeouts()
     }
 
     // 응답 없는 명령. 조용히 사라지면 조작자는 명령이 먹은 줄 안다.
+    QList<QString> expiredChannels;
     for (auto it = pending_.begin(); it != pending_.end();) {
         const qint64 timeoutMs = it->channel == QLatin1String(hmi::ch::kCmdMapsSelect)
                                      ? 45000 : kRequestTimeoutMs;
         if (now - it->sentAtMs > timeoutMs) {
-            emit commandResult(it->channel, false, QStringLiteral("E_BUSY"),
-                               QStringLiteral("로봇 응답이 없습니다"));
-            emit robotEvent(QStringLiteral("E_BUSY"),
-                            {{"channel", it->channel},
-                             {"msg", QStringLiteral("응답 없음 (%1 ms 초과)")
-                                         .arg(timeoutMs)}});
+            expiredChannels << it->channel;
             it = pending_.erase(it);
         } else {
             ++it;
         }
+    }
+    for (const auto &channel : expiredChannels) {
+        if (channel == QLatin1String(hmi::ch::kCmdMode)) {
+            queuedMode_.reset();
+            deferredNavigationChannel_.clear();
+            deferredNavigationPayload_ = {};
+        }
+        emit commandResult(channel, false, QStringLiteral("E_BUSY"),
+                           QStringLiteral("로봇 응답이 없습니다"));
+        emit robotEvent(QStringLiteral("E_BUSY"),
+                        {{"channel", channel}, {"msg", QStringLiteral("로봇 응답이 없습니다")}});
     }
 
     // 초당 바이트. 1 초마다 누적을 비율로 환산한다.
@@ -831,7 +908,30 @@ void BridgeClient::setCmdVel(double vx, double vy, double wz)
 
 void BridgeClient::requestGoal(double x, double y, double theta)
 {
-    sendRequest(QLatin1String(hmi::ch::kCmdGoto), {{"x", x}, {"y", y}, {"theta", theta}});
+    sendNavigationRequest(QLatin1String(hmi::ch::kCmdGoto), {{"x", x}, {"y", y}, {"theta", theta}});
+}
+
+void BridgeClient::sendNavigationRequest(const QString &channel, const QJsonObject &payload)
+{
+    if (modeChangePending() || (modeReported_ && mode_ != DriveMode::Auto)) {
+        deferredNavigationChannel_ = channel;
+        deferredNavigationPayload_ = payload;
+        setMode(DriveMode::Auto);
+        return;
+    }
+    sendRequest(channel, payload);
+}
+
+void BridgeClient::flushNavigationRequest()
+{
+    if (deferredNavigationChannel_.isEmpty() || modeChangePending() ||
+        !modeReported_ || mode_ != DriveMode::Auto || estop_)
+        return;
+    const QString channel = deferredNavigationChannel_;
+    const QJsonObject payload = deferredNavigationPayload_;
+    deferredNavigationChannel_.clear();
+    deferredNavigationPayload_ = {};
+    sendRequest(channel, payload);
 }
 
 void BridgeClient::setInitialPose(double x, double y, double theta)
@@ -842,19 +942,74 @@ void BridgeClient::setInitialPose(double x, double y, double theta)
 
 void BridgeClient::cancelNav()
 {
+    deferredNavigationChannel_.clear();
+    deferredNavigationPayload_ = {};
     sendRequest(QLatin1String(hmi::ch::kCmdNavCancel));
+}
+
+void BridgeClient::pauseNav()
+{
+    deferredNavigationChannel_.clear();
+    deferredNavigationPayload_ = {};
+    sendRequest(QLatin1String(hmi::ch::kCmdNavPause));
+}
+
+void BridgeClient::resumeNav()
+{
+    sendNavigationRequest(QLatin1String(hmi::ch::kCmdNavResume), {});
+}
+
+void BridgeClient::setNavigationSpeedLimits(double linear, double angular)
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdNavigationSpeedLimit),
+                {{"speed_limit_mps", linear}, {"angular_speed_limit_rps", angular}});
+}
+
+void BridgeClient::setNavigationSpeedSettings(double linear, double minimum, double maximum,
+                                              double angular, double angularMinimum, double angularMaximum)
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdNavigationSpeedSettings),
+                {{"speed_limit_mps", linear}, {"min_speed_mps", minimum}, {"max_speed_mps", maximum},
+                 {"angular_speed_limit_rps", angular}, {"min_angular_speed_rps", angularMinimum},
+                 {"max_angular_speed_rps", angularMaximum}});
+}
+
+void BridgeClient::setNavigationSpeedRanges(double minimum, double maximum,
+                                           double angularMinimum, double angularMaximum)
+{
+    sendRequest(QLatin1String(hmi::ch::kCmdNavigationSpeedSettings),
+                {{"min_speed_mps", minimum}, {"max_speed_mps", maximum},
+                 {"min_angular_speed_rps", angularMinimum}, {"max_angular_speed_rps", angularMaximum}});
 }
 
 void BridgeClient::setWaypoints(const QList<QVariantMap> &waypoints)
 {
+    setWaypoints(waypoints, waypoints_, activeMapId_);
+}
+
+void BridgeClient::setWaypoints(const QList<QVariantMap> &waypoints,
+                                const QList<QVariantMap> &expectedPoints, const QString &mapId)
+{
     QJsonArray arr;
     for (const auto &w : waypoints) {
         QJsonObject point = QJsonObject::fromVariantMap(w);
-        point.remove(QStringLiteral("status"));
-        point.remove(QStringLiteral("kind"));
+        for (const auto *field : {"status", "kind", "captured_from", "localization_ok", "tag_id"})
+            point.remove(QLatin1String(field));
+        if (!point.contains(QStringLiteral("name")))
+            point.insert(QStringLiteral("name"), point.value(QStringLiteral("id")));
+        if (!point.contains(QStringLiteral("theta")))
+            point.insert(QStringLiteral("theta"), 0.0);
         arr.append(point);
     }
-    sendRequest(QLatin1String(hmi::ch::kCmdWaypointsSet), {{"points", arr}});
+    QJsonArray expected;
+    for (const auto &w : expectedPoints) {
+        auto point = QJsonObject::fromVariantMap(w);
+        for (const auto *field : {"status", "kind", "captured_from", "localization_ok", "tag_id"})
+            point.remove(QLatin1String(field));
+        expected.append(point);
+    }
+    sendRequest(QLatin1String(hmi::ch::kCmdWaypointsSet),
+                {{"points", arr}, {"expected_points", expected}, {"map_id", mapId}});
 }
 
 void BridgeClient::setLocations(const QList<QVariantMap> &locations)
@@ -862,11 +1017,6 @@ void BridgeClient::setLocations(const QList<QVariantMap> &locations)
     QJsonArray arr;
     for (const auto &loc : locations) {
         arr.append(QJsonObject::fromVariantMap(loc));
-        const QString kind = loc.value(QStringLiteral("kind")).toString();
-        if (kind == QLatin1String("dock"))
-            dock_ = loc;
-        else if (kind == QLatin1String("home"))
-            home_ = loc;
     }
     sendRequest(QLatin1String(hmi::ch::kCmdLocationsSet), {{"locations", arr}});
 }
@@ -946,6 +1096,8 @@ void BridgeClient::missionStop()
 
 void BridgeClient::engageEstop()
 {
+    deferredNavigationChannel_.clear();
+    deferredNavigationPayload_ = {};
     // 화면 상태는 로봇이 state/safety로 확인한 값만 쓴다. 여기서 estop_를
     // 미리 바꾸면 소켓 쓰기 실패도 "발동"으로 보이게 된다.
     sendEstopRequest(QLatin1String(hmi::ch::kCmdEstop));
@@ -958,10 +1110,30 @@ void BridgeClient::releaseEstop()
 
 void BridgeClient::setMode(DriveMode mode)
 {
+    if (mode == DriveMode::Manual) {
+        deferredNavigationChannel_.clear();
+        deferredNavigationPayload_ = {};
+    }
+    if (modeChangePending()) {
+        queuedMode_ = mode;
+        return;
+    }
     // cmd/mode is a request. Only state/safety confirms the effective mode.
     sendRequest(QLatin1String(hmi::ch::kCmdMode),
                 {{"mode", mode == DriveMode::Manual ? QStringLiteral("manual")
                                                     : QStringLiteral("auto")}});
+}
+
+bool BridgeClient::modeChangePending() const
+{
+    return std::any_of(pending_.cbegin(), pending_.cend(), [](const Pending &request) {
+        return request.channel == QLatin1String(hmi::ch::kCmdMode);
+    });
+}
+
+void BridgeClient::returnToDock()
+{
+    sendNavigationRequest(QLatin1String(hmi::ch::kCmdMissionReturnDock));
 }
 
 void BridgeClient::setBasePosture(const QString &posture, bool confirm)

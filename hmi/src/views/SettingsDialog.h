@@ -30,6 +30,8 @@ class QSpinBox;
 
 namespace hmi::ui {
 
+class NavigationSpeedPanel;
+
 class SettingsDialog : public QWidget {
     Q_OBJECT
 public:
@@ -39,6 +41,12 @@ public:
     void setCurrentTab(int index);
     /// Re-read saved settings before showing this non-modal window again.
     void reload();
+    void setNavigationSpeedState(double linear, double minimum, double maximum,
+                                 double angular, double angularMinimum, double angularMaximum,
+                                 bool autonomousApplied);
+    void resetNavigationSpeed();
+    void handleCommandResult(const QString &channel, bool ok, const QString &code,
+                             const QString &message);
 
     /// How many tabs there are, so a test can walk all of them. Hard-coding the
     /// count in the test left the safety tab unpainted when a sixth was added.
@@ -54,6 +62,8 @@ signals:
     void robotProfilesChanged();
     /// Appearance is previewed immediately, but is not persisted until save.
     void appearancePreviewChanged(const QString &theme, double scale);
+    void navigationSpeedRangesRequested(double minimum, double maximum,
+                                       double angularMinimum, double angularMaximum);
 
 private:
     QWidget *buildConnectionTab();
@@ -101,8 +111,7 @@ private:
     QSpinBox *port_ = nullptr;
     QSlider *scale_ = nullptr;
     QLabel *scaleValue_ = nullptr;
-    QDoubleSpinBox *linear_ = nullptr;
-    QDoubleSpinBox *angular_ = nullptr;
+    NavigationSpeedPanel *navigationSpeed_ = nullptr;
     QLineEdit *logDir_ = nullptr;
     QSpinBox *retention_ = nullptr;
     QSpinBox *returnPct_ = nullptr;

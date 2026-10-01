@@ -61,6 +61,7 @@
 #include "panels/MissionLibraryPanel.h"
 #include "panels/StatusPanel.h"
 #include "panels/TeleopPanel.h"
+#include "panels/NavigationSpeedPanel.h"
 #include "panels/WaypointPanel.h"
 #include "theme/Style.h"
 #include "views/SettingsDialog.h"
@@ -88,6 +89,17 @@ namespace {
 constexpr int kPresenceProbeIntervalMs = 3000;
 constexpr int kPresenceProbeTimeoutMs = 800;
 constexpr char kPresenceReply[] = "INSPECTION-PRESENCE/1\n";
+
+QVariantMap waypointDefinition(QVariantMap point)
+{
+    for (const auto *field : {"status", "kind", "captured_from", "localization_ok", "tag_id"})
+        point.remove(QLatin1String(field));
+    if (!point.contains(QStringLiteral("name")))
+        point.insert(QStringLiteral("name"), point.value(QStringLiteral("id")));
+    if (!point.contains(QStringLiteral("theta")))
+        point.insert(QStringLiteral("theta"), 0.0);
+    return point;
+}
 
 QIcon presenceIcon(bool reachable)
 {
@@ -486,6 +498,9 @@ QWidget *MainWindow::buildDriveContext()
     status_ = new StatusPanel;
     lay->addWidget(status_);
 
+    navigationSpeed_ = new NavigationSpeedPanel;
+    lay->addWidget(navigationSpeed_);
+
     // 본체의 수동 이동과 자세는 주행의 한 방식이다. 여러 장치를 쓰는
     // 미션의 진행·제어는 미션 탭에서 맡는다.
     teleop_ = new TeleopPanel;
@@ -634,6 +649,10 @@ void MainWindow::openSettings()
     if (!settings_) {
         // 모달이 아니다. 로봇을 보면서 글자 크기를 조정할 수 있어야 한다.
         settings_ = new SettingsDialog(this);
+        connect(settings_, &SettingsDialog::navigationSpeedRangesRequested,
+                robot_, &robot::RobotLink::setNavigationSpeedRanges);
+        connect(robot_, &robot::RobotLink::commandResult,
+                settings_, &SettingsDialog::handleCommandResult);
         connect(settings_, &SettingsDialog::batteryPolicyChanged, this,
                 &MainWindow::pushBatteryPolicy);
         connect(settings_, &SettingsDialog::robotProfilesChanged, this, [this] {
@@ -683,6 +702,13 @@ void MainWindow::openSettings()
                 });
     }
     settings_->reload();
+    if (navigationSpeedLimits_) {
+        const auto &limits = *navigationSpeedLimits_;
+        settings_->setNavigationSpeedState(limits[0], limits[1], limits[2], limits[3], limits[4], limits[5],
+                                           navigationSpeedApplied_);
+    } else {
+        settings_->resetNavigationSpeed();
+    }
     settings_->show();
     settings_->raise();
     settings_->activateWindow();
@@ -849,6 +875,8 @@ void MainWindow::wireRobotSignals()
             saidName_.clear();
             maps_.clear();
             activeMapId_.clear();
+            navigationStatus_.clear();
+            map_->setNavigationState({}, false, false);
             activeMapName_.clear();
             mapExtent_.clear();
             requestedMapId_.clear();
@@ -862,6 +890,8 @@ void MainWindow::wireRobotSignals()
             refreshMissionProgress();
             mission_->setMissionState(QStringLiteral("disconnected"));
             waypointWritePending_ = false;
+            waypointWriteAccepted_ = false;
+            pendingWaypoints_.clear();
             waypoints_->setEditingEnabled(false);
             waypoints_->setSaveStatus({});
             waypoints_->setWaypoints({});
@@ -904,7 +934,7 @@ void MainWindow::wireRobotSignals()
     connect(robot_, &robot::RobotLink::driveModeReported, this,
             [this](DriveMode mode) {
                 driveModeConfirmed_ = true;
-                if (requestedDriveMode_ && *requestedDriveMode_ == mode)
+                if (requestedDriveMode_ && *requestedDriveMode_ == mode && !robot_->modeChangePending())
                     requestedDriveMode_.reset();
                 showReportedDriveMode();
                 refreshGoalAvailability();
@@ -969,28 +999,19 @@ void MainWindow::wireRobotSignals()
     });
     connect(robot_, &robot::RobotLink::waypointsChanged, this,
             [this](const QList<QVariantMap> &points) {
-                // 새 지도의 웨이포인트가 지도 이미지보다 먼저 도착할 수 있다.
-                // 전환 응답 때 RobotLink의 최신 목록을 한꺼번에 반영한다.
-                if (!requestedMapId_.isEmpty())
-                    return;
-                const bool saved = waypointWritePending_;
-                waypoints_->setWaypoints(points);
-                const auto *shown = map_->view()->mapInfo();
-                map_->view()->setWaypoints(shown && shown->mapId == activeMapId_
-                                                ? points : QList<QVariantMap>{});
-                waypointWritePending_ = false;
-                waypoints_->setEditingEnabled(shown && shown->mapId == activeMapId_ &&
-                                              activeMapId_ != QLatin1String("live") &&
-                                              requestedMapId_.isEmpty());
-                waypoints_->setSaveStatus(saved ? QStringLiteral("웨이포인트 저장됨")
-                    : activeMapId_ == QLatin1String("live")
-                        ? QStringLiteral("실시간 지도 · 웨이포인트 저장 불가")
-                        : QString());
+                applyWaypointCatalog(points);
             });
     connect(robot_, &robot::RobotLink::commandResult, this,
             [this](const QString &channel, bool ok, const QString &code, const QString &message) {
+                if (channel == QLatin1String(hmi::ch::kCmdWaypointsSet) && ok && waypointWritePending_) {
+                    waypointWriteAccepted_ = true;
+                    applyWaypointCatalog(robot_->waypoints());
+                }
                 if (channel == QLatin1String(hmi::ch::kCmdWaypointsSet) && !ok) {
                     waypointWritePending_ = false;
+                    waypointWriteAccepted_ = false;
+                    pendingWaypoints_.clear();
+                    applyWaypointCatalog(robot_->waypoints());
                     const auto *shown = map_->view()->mapInfo();
                     waypoints_->setEditingEnabled(robot_->isConnected() && shown &&
                                                   shown->mapId == activeMapId_ &&
@@ -998,6 +1019,12 @@ void MainWindow::wireRobotSignals()
                                                   requestedMapId_.isEmpty());
                     waypoints_->setSaveStatus(
                         QStringLiteral("저장 실패 · %1 %2").arg(code, message), true);
+                }
+                if (channel == QLatin1String(hmi::ch::kCmdLocationsSet) && !ok) {
+                    dock_ = robot_->dockPose();
+                    home_ = robot_->homePose();
+                    showFixedLocations();
+                    log_->note(diag::Severity::Error, QStringLiteral("위치 저장 실패 · %1 %2").arg(code, message));
                 }
                 if (channel == QLatin1String(hmi::ch::kCmdMarkersSet) && !ok) {
                     log_->note(diag::Severity::Error,
@@ -1014,8 +1041,7 @@ void MainWindow::wireRobotSignals()
             [this](const QString &channel, bool ok, const QString &code, const QString &message) {
                 if (channel == QLatin1String(hmi::ch::kCmdMapsSelect)) {
                     requestedMapId_.clear();
-                    if (!ok)
-                        waypoints_->setWaypoints(robot_->waypoints());
+                    waypoints_->setWaypoints(robot_->waypoints());
                     map_->view()->setWaypoints(waypoints_->waypoints());
                     dock_ = robot_->dockPose();
                     home_ = robot_->homePose();
@@ -1089,6 +1115,15 @@ void MainWindow::wireMapSignals()
 {
     auto *view = map_->view();
     connect(map_->mapButton(), &QPushButton::clicked, this, &MainWindow::showMapPicker);
+    connect(map_->navPauseButton(), &QPushButton::clicked, this, [this] {
+        if (!robot_->isConnected())
+            return;
+        if (navigationStatus_ == QLatin1String("paused"))
+            robot_->resumeNav();
+        else
+            robot_->pauseNav();
+    });
+    connect(map_->navCancelButton(), &QPushButton::clicked, robot_, &robot::RobotLink::cancelNav);
     connect(map_->refreshButton(), &QPushButton::clicked, this, [this] {
         if (auto *bridge = qobject_cast<net::BridgeClient *>(robot_))
             bridge->requestMapCatalog();
@@ -1286,6 +1321,35 @@ void MainWindow::wireLocationSignals()
 
 void MainWindow::wirePanelSignals()
 {
+    connect(navigationSpeed_, &NavigationSpeedPanel::speedLimitsRequested,
+            robot_, &robot::RobotLink::setNavigationSpeedLimits);
+    connect(robot_, &robot::RobotLink::navigationSpeedLimitsChanged,
+            navigationSpeed_, &NavigationSpeedPanel::setReportedLimits);
+    connect(robot_, &robot::RobotLink::navigationSpeedLimitsChanged, teleop_,
+            [this](double linear, double, double, double angular, double, double, bool) {
+                teleop_->setSpeedLimits(linear, angular);
+            });
+    connect(robot_, &robot::RobotLink::navigationSpeedLimitsChanged, this,
+            [this](double linear, double minimum, double maximum,
+                   double angular, double angularMinimum, double angularMaximum, bool applied) {
+                navigationSpeedLimits_ = std::array<double, 6>{linear, minimum, maximum,
+                                                              angular, angularMinimum, angularMaximum};
+                navigationSpeedApplied_ = applied;
+                if (settings_)
+                    settings_->setNavigationSpeedState(linear, minimum, maximum, angular,
+                                                       angularMinimum, angularMaximum, applied);
+            });
+    connect(robot_, &robot::RobotLink::commandResult,
+            navigationSpeed_, &NavigationSpeedPanel::handleCommandResult);
+    connect(robot_, &robot::RobotLink::connectionChanged, navigationSpeed_,
+            [this](bool) {
+                navigationSpeed_->reset();
+                navigationSpeedLimits_.reset();
+                navigationSpeedApplied_ = false;
+                if (settings_)
+                    settings_->resetNavigationSpeed();
+                teleop_->setSpeedLimits(0.30, 0.50);
+            });
     connect(teleop_, &TeleopPanel::cmdVel, robot_, &robot::RobotLink::setCmdVel);
     connect(teleop_, &TeleopPanel::basePosture, robot_,
             [this](const QString &posture, bool confirm) {
@@ -1399,7 +1463,13 @@ void MainWindow::wireMissionSignals()
         });
         if (it == wps.end())
             return;
-        *it = edited;
+        QVariantMap value = edited;
+        const auto base = value.take(QStringLiteral("_expected_point")).toMap();
+        if (!base.isEmpty() && waypointDefinition(base) != waypointDefinition(*it)) {
+            waypoints_->setSaveStatus(QStringLiteral("다른 곳에서 수정된 웨이포인트입니다. 취소 후 다시 편집하십시오."), true);
+            return;
+        }
+        *it = value;
         if (submitWaypoints(wps))
             log_->note(diag::Severity::Info, QStringLiteral("웨이포인트 수정 요청 (%1)").arg(id),
                        QJsonObject::fromVariantMap(edited));
@@ -1450,15 +1520,7 @@ void MainWindow::wireMissionSignals()
         log_->log(QStringLiteral("MISSION_STOP"));
     });
     connect(mission_, &MissionPanel::returnToDock, this, [this] {
-        // 점검 중이면 먼저 세운다. 목표만 걸면 로봇이 충전소로 갔다가
-        // 남은 점검을 저 혼자 다시 시작한다 — 조작자는 세운 줄 안다.
-        // 취소가 아니라 일시정지인 이유는, 충전하고 이어서 하는 것이
-        // 이 버튼을 누르는 거의 모든 이유이기 때문이다.
-        if (robot_->missionState() != MissionState::Idle) {
-            robot_->missionPause();
-            log_->log(QStringLiteral("MISSION_PAUSE"));
-        }
-        driveTo(dock_, QStringLiteral("충전 스테이션"));
+        robot_->returnToDock();
     });
 }
 
@@ -1652,6 +1714,12 @@ void MainWindow::showView(NavItem item)
 
 bool MainWindow::canPlaceGoal() const
 {
+    const bool navigating = navigationStatus_ == QLatin1String("accepting") ||
+        navigationStatus_ == QLatin1String("navigating") || navigationStatus_ == QLatin1String("pausing") ||
+        navigationStatus_ == QLatin1String("paused") || navigationStatus_ == QLatin1String("canceling");
+    const auto mission = robot_->missionState();
+    const bool missionBusy = mission != MissionState::Idle && mission != MissionState::Completed &&
+                             mission != MissionState::Failed;
     const auto *shown = map_->view()->mapInfo();
     // SLAM 중에는 저장 지도 ID가 없지만 지도 자체는 유효하다. 반대로
     // 저장 지도 전환 중의 이전 프레임에는 목표를 찍으면 안 된다.
@@ -1662,11 +1730,17 @@ bool MainWindow::canPlaceGoal() const
     return robot_->isConnected() && !estop_->isEngaged() &&
            driveModeConfirmed_ && !requestedDriveMode_ &&
            robot_->mode() == DriveMode::Auto && matchingMap &&
-           requestedMapId_.isEmpty();
+           requestedMapId_.isEmpty() && !navigating && !missionBusy;
 }
 
 void MainWindow::refreshGoalAvailability()
 {
+    const auto mission = robot_->missionState();
+    const bool missionBusy = mission != MissionState::Idle && mission != MissionState::Completed &&
+                             mission != MissionState::Failed;
+    map_->setNavigationState(navigationStatus_, robot_->isConnected() && !missionBusy,
+        !estop_->isEngaged() && driveModeConfirmed_ && !requestedDriveMode_ &&
+        robot_->mode() == DriveMode::Auto && requestedMapId_.isEmpty());
     const bool available = canPlaceGoal();
     if (!available)
         map_->goalButton()->setChecked(false);
@@ -1686,6 +1760,14 @@ void MainWindow::refreshGoalAvailability()
         reason = QStringLiteral("자율 모드에서 사용할 수 있습니다");
     else if (!requestedMapId_.isEmpty())
         reason = QStringLiteral("지도 전환을 기다리는 중입니다");
+    else if (missionBusy)
+        reason = QStringLiteral("미션 종료 후 사용할 수 있습니다");
+    else if (navigationStatus_ == QLatin1String("accepting") ||
+             navigationStatus_ == QLatin1String("navigating") ||
+             navigationStatus_ == QLatin1String("pausing") ||
+             navigationStatus_ == QLatin1String("paused") ||
+             navigationStatus_ == QLatin1String("canceling"))
+        reason = QStringLiteral("현재 목표 주행을 취소한 뒤 새 목표를 지정하십시오");
     else
         reason = QStringLiteral("현재 지도를 불러오는 중입니다");
     map_->goalButton()->setToolTip(reason);
@@ -1758,6 +1840,29 @@ void MainWindow::captureLocation(const QString &kind)
               QJsonObject::fromVariantMap(loc));
 }
 
+void MainWindow::applyWaypointCatalog(const QList<QVariantMap> &points)
+{
+    if (!requestedMapId_.isEmpty())
+        return;
+    const bool saved = waypointWritePending_;
+    if (saved) {
+        if (!waypointWriteAccepted_ || points.size() != pendingWaypoints_.size())
+            return;
+        for (int i = 0; i < points.size(); ++i)
+            if (waypointDefinition(points.at(i)) != waypointDefinition(pendingWaypoints_.at(i)))
+                return;
+        waypointWritePending_ = waypointWriteAccepted_ = false;
+        pendingWaypoints_.clear();
+    }
+    waypoints_->setWaypoints(points);
+    const auto *shown = map_->view()->mapInfo();
+    const bool ready = robot_->isConnected() && shown && shown->mapId == activeMapId_;
+    map_->view()->setWaypoints(ready ? points : QList<QVariantMap>{});
+    waypoints_->setEditingEnabled(ready && activeMapId_ != QLatin1String("live"));
+    if (saved)
+        waypoints_->setSaveStatus(QStringLiteral("웨이포인트 저장됨"));
+}
+
 bool MainWindow::submitWaypoints(const QList<QVariantMap> &points)
 {
     const auto *shown = map_->view()->mapInfo();
@@ -1774,9 +1879,24 @@ bool MainWindow::submitWaypoints(const QList<QVariantMap> &points)
         return false;
     }
     waypointWritePending_ = true;
+    waypointWriteAccepted_ = false;
+    pendingWaypoints_ = points;
     waypoints_->setEditingEnabled(false);
     waypoints_->setSaveStatus(QStringLiteral("웨이포인트 저장 중…"));
-    robot_->setWaypoints(points);
+    robot_->setWaypoints(points, waypoints_->waypoints(), activeMapId_);
+    const auto generation = ++waypointWriteGeneration_;
+    QTimer::singleShot(7000, this, [this, generation] {
+        if (!waypointWritePending_ || waypointWriteGeneration_ != generation)
+            return;
+        waypointWritePending_ = false;
+        waypointWriteAccepted_ = false;
+        pendingWaypoints_.clear();
+        applyWaypointCatalog(robot_->waypoints());
+        const auto *shown = map_->view()->mapInfo();
+        waypoints_->setEditingEnabled(robot_->isConnected() && shown && shown->mapId == activeMapId_ &&
+                                      requestedMapId_.isEmpty() && activeMapId_ != QLatin1String("live"));
+        waypoints_->setSaveStatus(QStringLiteral("저장 결과를 확인하지 못했습니다."), true);
+    });
     return true;
 }
 
@@ -2410,6 +2530,7 @@ void MainWindow::startSession()
 
 void MainWindow::onTelemetry(const Telemetry &tm)
 {
+    navigationStatus_ = tm.navStatus;
     const bool estopChanged = estop_->isEngaged() != tm.estop;
     if (estopChanged) {
         estop_->setEngaged(tm.estop);
@@ -2434,6 +2555,7 @@ void MainWindow::onTelemetry(const Telemetry &tm)
         refreshGoalAvailability();
     }
 
+    refreshGoalAvailability();
     auto *view = map_->view();
 
     view->setRobotPose(tm.x, tm.y, tm.theta, !tm.poseFresh);
@@ -2470,7 +2592,9 @@ void MainWindow::onTelemetry(const Telemetry &tm)
     // 여기서 또 그리면 한 화면에 같은 숫자가 두 번 뜬다.
     status_->setMotion(tm.speed);
     status_->setPose(tm.x, tm.y, qRadiansToDegrees(tm.theta));
-    arm_->setArmState(tm.joints, tm.manipulability, tm.sigmaMin, tm.armState);
+    arm_->setFeedbackFresh(tm.armFresh);
+    if (tm.armFresh)
+        arm_->setArmState(tm.joints, tm.manipulability, tm.sigmaMin, tm.armState);
     arm_->setExecutionAvailable(tm.armExecutionEnabled);
 
     lastSoc_ = tm.soc;
@@ -2492,8 +2616,7 @@ void MainWindow::onTelemetry(const Telemetry &tm)
     }
     nav_->setDiagnosticsAlerts(diagnosticAlerts);
 
-    // 위치 등록 가능 여부는 실제 속력으로 판정한다. 시뮬레이터가 속력을
-    // 직접 알려주므로 UI 가 궤적을 미분할 필요가 없다.
+    // 웨이포인트는 최신 위치를 사용하며, 고정 위치 등록은 속력도 확인한다.
     snapshot_.x = tm.x;
     snapshot_.y = tm.y;
     snapshot_.theta = tm.theta;

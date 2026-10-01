@@ -86,6 +86,7 @@ add_library(hmi_core STATIC
     src/widgets/MapLegend.cpp
     src/widgets/ValueSlider.cpp
     src/panels/TeleopPanel.cpp
+    src/panels/NavigationSpeedPanel.cpp
     src/panels/WaypointPanel.cpp
     src/panels/ArmPanel.cpp
     src/panels/LocationPanel.cpp

@@ -48,9 +48,24 @@ public:
     virtual void setInitialPose(double x, double y, double theta)
     { Q_UNUSED(x); Q_UNUSED(y); Q_UNUSED(theta); }
     virtual void cancelNav() = 0;
+    virtual void pauseNav() {}
+    virtual void resumeNav() {}
+    /// Robot-owned manual/autonomous speed limits in m/s and rad/s.
+    virtual void setNavigationSpeedLimits(double linear, double angular)
+    { Q_UNUSED(linear); Q_UNUSED(angular); }
+    virtual void setNavigationSpeedSettings(double linear, double minimum, double maximum,
+                                           double angular, double angularMinimum, double angularMaximum)
+    { Q_UNUSED(linear); Q_UNUSED(minimum); Q_UNUSED(maximum);
+      Q_UNUSED(angular); Q_UNUSED(angularMinimum); Q_UNUSED(angularMaximum); }
+    virtual void setNavigationSpeedRanges(double minimum, double maximum,
+                                         double angularMinimum, double angularMaximum)
+    { Q_UNUSED(minimum); Q_UNUSED(maximum); Q_UNUSED(angularMinimum); Q_UNUSED(angularMaximum); }
 
     // ---- mission --------------------------------------------------------
     virtual void setWaypoints(const QList<QVariantMap> &waypoints) = 0;
+    virtual void setWaypoints(const QList<QVariantMap> &waypoints,
+                              const QList<QVariantMap> &expectedPoints, const QString &mapId)
+    { Q_UNUSED(expectedPoints); Q_UNUSED(mapId); setWaypoints(waypoints); }
 
     /// Replaces the fixed locations: the charging station and the start point.
     ///
@@ -90,6 +105,7 @@ public:
     /// driving on its own after a stop.
     virtual void missionResume() = 0;
     virtual void missionStop() = 0;
+    virtual void returnToDock() {}
     virtual MissionState missionState() const = 0;
 
     /// The robot owns mission definitions; the HMI requests and edits a view.
@@ -109,6 +125,7 @@ public:
 
     virtual void setMode(DriveMode mode) = 0;
     virtual DriveMode mode() const = 0;
+    virtual bool modeChangePending() const { return false; }
 
     // ---- arm ------------------------------------------------------------
     // ---- Base posture -------------------------------------------------------
@@ -199,6 +216,9 @@ signals:
     void baseStateChanged(const QString &posture, const QString &authority);
 
     void connectionChanged(bool connected);
+    void navigationSpeedLimitsChanged(double linear, double minimum, double maximum,
+                                       double angular, double angularMinimum,
+                                       double angularMaximum, bool autonomousApplied);
 
     /// Drive mode confirmed by the robot's safety state, not merely requested
     /// by the operator. A new connection must report its mode again.

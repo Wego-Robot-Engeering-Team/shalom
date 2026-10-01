@@ -999,6 +999,30 @@
       ]
     },
     {
+      "id": 3007,
+      "code": "NAV_PAUSED",
+      "severity": "info",
+      "category": "mission",
+      "origin": "브릿지",
+      "channel": "state/nav",
+      "clears": "momentary",
+      "title": "목표 주행 일시정지",
+      "cause": "목적지를 유지하고 주행을 일시정지했습니다.",
+      "actions": ["같은 목적지로 이동하려면 재개를 누르십시오"]
+    },
+    {
+      "id": 3008,
+      "code": "NAV_CANCEL_REJECTED",
+      "severity": "error",
+      "category": "mission",
+      "origin": "Nav2",
+      "channel": "state/nav",
+      "clears": "momentary",
+      "title": "목표 주행 정지 확인 실패",
+      "cause": "Nav2가 취소를 수락하지 않아 자율 출력 차단을 유지합니다.",
+      "actions": ["취소를 다시 요청하십시오", "반복되면 Nav2 상태를 확인하십시오"]
+    },
+    {
       "id": 3101,
       "code": "MISSION_DOCK_MISSING",
       "severity": "error",

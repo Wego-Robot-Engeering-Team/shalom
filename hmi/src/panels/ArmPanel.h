@@ -59,6 +59,7 @@ public:
                      double sigmaMin, const QString &moveitState = QStringLiteral("idle"));
     void setControlsEnabled(bool on);
     void setExecutionAvailable(bool available);
+    void setFeedbackFresh(bool fresh);
     void clearReportedState();
     void setCommandResult(const QString &channel, bool ok, const QString &code,
                           const QString &message);
@@ -94,8 +95,7 @@ private:
     ///
     /// Joint edits run forward kinematics into the pose fields; pose edits run
     /// inverse kinematics back into the joints, seeded from where the arm is.
-    /// The robot still plans the move - this only stops the operator reading a
-    /// number that is not what will be sent.
+    /// Both editors send the same joint target through the robot's safety gate.
     void syncEeFromJoints();
     void syncJointsFromEe();
 
@@ -132,6 +132,9 @@ private:
     QVariantMap pendingPose_;
     QString pendingPoseUpdateId_;
     QHash<QString, CatalogRow *> poseRows_;
+    QHash<QString, QVariantMap> poseDrafts_;
+    QString pendingPoseChannel_;
+    bool feedbackFresh_ = false;
 
     /// Whether the robot has ever reported a pose. The command sliders snap to
     /// the first report: until then they sit on defaults, and showing that as

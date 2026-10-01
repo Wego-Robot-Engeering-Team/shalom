@@ -79,6 +79,7 @@ struct Telemetry {
     double cpu = 0, gpu = 0, mem = 0, cpuTemp = 0, gpuTemp = 0, rtt = 0;
     bool captureEnabled = false;
     bool armExecutionEnabled = false;
+    bool armFresh = false;
     bool estop = false;
     QString navStatus;                ///< "idle" | "driving" | "arrived" | "blocked"
     QVariantMap navGoal;              ///< Robot-reported active goal, empty when none
