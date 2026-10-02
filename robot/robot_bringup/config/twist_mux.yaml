@@ -4,30 +4,31 @@ twist_mux:
     # twist_mux 4.5 defaults to TwistStamped, so keep the wire type explicit.
     use_stamped: false
 
-    # A source must continuously renew its 300 ms lease. Higher numeric values
-    # win; equal priorities are intentionally avoided.
+    # Source eligibility expires 3 s after its last message. Higher numeric
+    # priorities win; equal priorities are intentionally avoided. This selection
+    # timeout is separate from the final safety gate's command timeout.
     topics:
       teleop:
         topic: /motion/teleop/cmd_vel
-        timeout: 0.3
+        timeout: 3.0
         priority: 100
       manual_hold:
         topic: /motion/manual_hold/cmd_vel
-        timeout: 0.3
+        timeout: 3.0
         priority: 90
       mission:
         topic: /motion/mission/cmd_vel
-        timeout: 0.3
+        timeout: 3.0
         priority: 80
       stair:
         topic: /motion/stair/cmd_vel
-        timeout: 0.3
+        timeout: 3.0
         priority: 40
       dock:
         topic: /motion/dock/cmd_vel
-        timeout: 0.3
+        timeout: 3.0
         priority: 30
       navigation:
         topic: /motion/nav/cmd_vel
-        timeout: 0.3
+        timeout: 3.0
         priority: 20
