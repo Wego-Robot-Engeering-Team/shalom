@@ -79,6 +79,7 @@ private:
     QWidget *buildPoseManagementTab();
     void rebuildPoseList();
     void updatePoseRows();
+    void previewPoseEditor(CatalogRow *row);
     void previewSavedPose(const QString &id);
     void applySavedPose(const QString &id);
     void savePose(bool measured);
@@ -134,6 +135,7 @@ private:
     QHash<QString, CatalogRow *> poseRows_;
     QHash<QString, QVariantMap> poseDrafts_;
     QString pendingPoseChannel_;
+    quint64 poseContextGeneration_ = 0;
     bool feedbackFresh_ = false;
 
     /// Whether the robot has ever reported a pose. The command sliders snap to

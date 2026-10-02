@@ -10,6 +10,7 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QtMath>
+#include <cmath>
 #include <utility>
 
 #include "theme/Tokens.h"
@@ -33,6 +34,11 @@ CaptureCheck LocationPanel::checkCapture(const RobotSnapshot &snap, const QStrin
     // ---- 차단 조건 ----
     if (!snap.poseFresh) {
         r.reason = QStringLiteral("위치 정보가 오래되었습니다. 로봇 연결을 확인하십시오.");
+        r.code = QStringLiteral("SETUP_LOC_BLOCKED");
+        return r;
+    }
+    if (kind != QLatin1String("inspection") && !std::isfinite(snap.speed)) {
+        r.reason = QStringLiteral("주행 상태를 확인하는 중입니다.");
         r.code = QStringLiteral("SETUP_LOC_BLOCKED");
         return r;
     }

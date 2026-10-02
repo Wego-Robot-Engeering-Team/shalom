@@ -148,6 +148,9 @@ void StatusPanel::setMode(const QString &mode, bool estop)
 
 void StatusPanel::setTelemetry(const robot::Telemetry &tm, bool connected)
 {
+    safetyState_ = tm.safetyState;
+    safetyFresh_ = connected && tm.safetyFresh;
+    safetyMotionPermitted_ = tm.safetyMotionPermitted;
     navigation_->setText(connected && tm.navFresh ? lifecycle(tm.navigationLifecycle) : QStringLiteral("—"));
     localization_->setText(connected && tm.navFresh ? lifecycle(tm.localizationLifecycle) : QStringLiteral("—"));
     const bool progress = connected && tm.navFresh;
@@ -182,6 +185,20 @@ void StatusPanel::setGoalState(const QString &state, const QVariantMap &goal, bo
     if (pending || state == QLatin1String("accepting")) label = QStringLiteral("시작 요청 중");
     if (mission) label = QStringLiteral("미션 수행 중");
     if (manual_) label = QStringLiteral("수동 조작");
+    if (safetyFresh_ && safetyState_ == QLatin1String("controlled_stop")) {
+        label = QStringLiteral("안전 정지"); tone = QStringLiteral("warn");
+    } else if (safetyFresh_ && safetyState_ == QLatin1String("fault")) {
+        label = QStringLiteral("안전 오류"); tone = QStringLiteral("danger");
+    } else if (safetyFresh_ && safetyState_ == QLatin1String("initializing")) {
+        label = QStringLiteral("안전 상태 준비 중"); tone = QStringLiteral("warn");
+    } else if (safetyFresh_ && safetyState_ == QLatin1String("normal") &&
+               !safetyMotionPermitted_ && moving) {
+        label = QStringLiteral("동작 허가 대기"); tone = QStringLiteral("warn");
+    }
+    if (state == QLatin1String("stale") && !draft && !mission && !manual_) {
+        label = QStringLiteral("상태 수신 대기");
+        tone = QStringLiteral("warn");
+    }
     if (estop_) { label = QStringLiteral("비상정지"); tone = QStringLiteral("danger"); }
     if (state == QLatin1String("disconnected")) { label = QStringLiteral("연결 없음"); tone = QStringLiteral("neutral"); }
     state_->set(label, tone);

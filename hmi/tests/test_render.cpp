@@ -31,6 +31,7 @@
 #include <QTreeWidget>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QTimer>
 
 #include <limits>
 
@@ -44,6 +45,7 @@
 #include "panels/CapturePanel.h"
 #include "panels/LocationPanel.h"
 #include "panels/MissionPanel.h"
+#include "panels/MissionLibraryPanel.h"
 #include "panels/StatusPanel.h"
 #include "panels/NavigationSpeedPanel.h"
 #include "panels/TeleopPanel.h"
@@ -65,6 +67,13 @@ using namespace hmi;
 
 namespace {
 
+class InspectWindow : public ui::MainWindow {
+public:
+    using MainWindow::MainWindow;
+    using MainWindow::selectRobot;
+    using MainWindow::showMapPicker;
+};
+
 class CatalogBridge : public QObject {
 public:
     CatalogBridge()
@@ -76,8 +85,11 @@ public:
                 decoder.append(peer->readAll());
                 net::Frame frame;
                 while (decoder.next(frame) == net::FrameDecoder::Status::Ok)
-                    if (const auto envelope = net::Envelope::fromHeader(frame.header))
+                    if (const auto envelope = net::Envelope::fromHeader(frame.header)) {
                         received << *envelope;
+                        if (envelope->t == QLatin1String(net::mtype::kHb))
+                            send(net::makeHeartbeat(envelope->seq.value_or(0)));
+                    }
             });
         });
     }
@@ -90,7 +102,12 @@ public:
     }
     void send(const net::Envelope &envelope)
     {
-        peer->write(net::encodeFrame(envelope.toHeader(), envelope.payload));
+        auto report = envelope;
+        if (report.ch == QLatin1String(ch::kSafety) && !report.p.contains(QStringLiteral("state"))) {
+            report.p.insert(QStringLiteral("state"), QStringLiteral("normal"));
+            report.p.insert(QStringLiteral("motion_permitted"), true);
+        }
+        peer->write(net::encodeFrame(report.toHeader(), report.payload));
         peer->flush();
     }
     QTcpServer server;
@@ -98,6 +115,25 @@ public:
     net::FrameDecoder decoder;
     QList<net::Envelope> received;
 };
+
+bool prepareNavigation(CatalogBridge &bridge, net::BridgeClient *link, ui::MainWindow &window)
+{
+    link->connectToBridge();
+    if (!QTest::qWaitFor([&] { return bridge.peer && link->isConnected(); }))
+        return false;
+    QImage image(100, 100, QImage::Format_RGB32);
+    image.fill(Qt::white);
+    QByteArray png;
+    QBuffer buffer(&png);
+    if (!buffer.open(QIODevice::WriteOnly) || !image.save(&buffer, "PNG"))
+        return false;
+    emit link->activeMapReceived({{"id", "map-1"}, {"name", "map-1"}});
+    emit link->mapReceived(png, {{"width", 100}, {"height", 100}, {"resolution", 0.1}, {"map_id", "map-1"}});
+    bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}, {"estop", false}}));
+    bridge.send(net::makePublish(QLatin1String(ch::kNav), {{"status", "idle"}, {"navigation_state", "active"}}));
+    auto *panel = window.findChild<ui::StatusPanel *>();
+    return QTest::qWaitFor([&] { return panel->goalButton()->isEnabled(); });
+}
 
 /// 창을 만들어 한 화면씩 그려 본다. 테마마다 색을 다시 계산하는 위젯이
 /// 있어 두 테마 모두 돌린다.
@@ -155,6 +191,288 @@ class TestRender : public QObject {
     Q_OBJECT
 
 private slots:
+    void selectingConnectedRobotAgainRetainsIdentity()
+    {
+        auto &cfg = Config::instance();
+        const auto previous = cfg.robots();
+        const int previousCurrent = cfg.currentRobot();
+        CatalogBridge bridge;
+        cfg.setRobots({{QStringLiteral("별칭"), QStringLiteral("127.0.0.1"), bridge.server.serverPort()}});
+        cfg.setCurrentRobot(0);
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), bridge.server.serverPort());
+        InspectWindow window(link);
+        link->connectToBridge();
+        QTRY_VERIFY(bridge.peer && link->isConnected());
+        auto identity = net::makePublish(QLatin1String(ch::kSystem), {{"robot_name", "Robot"}});
+        identity.robot = QStringLiteral("SE-0001");
+        bridge.send(identity);
+        auto *primary = window.findChild<QLabel *>(QStringLiteral("RobotPickerName"));
+        QTRY_COMPARE(primary->text(), QStringLiteral("SE-0001"));
+        window.selectRobot(0);
+        bridge.send(identity);
+        QTest::qWait(50);
+        QCOMPARE(primary->text(), QStringLiteral("SE-0001"));
+        QVERIFY(link->isConnected());
+        cfg.setRobots(previous);
+        cfg.setCurrentRobot(previousCurrent);
+    }
+
+    void readyStartCancellationIsShownAndRetryIsExplicit()
+    {
+        Config::instance().setRobots({});
+        CatalogBridge bridge;
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), bridge.server.serverPort());
+        InspectWindow window(link);
+        QVERIFY(prepareNavigation(bridge, link, window));
+        const QVariantMap mission{{"id", "mission"}, {"name", "점검"}, {"revision", 1},
+            {"steps", QVariantList{QVariantMap{{"id", "move"}, {"type", "navigate"}, {"location_id", "wp"}}}}};
+        emit link->missionsChanged({mission});
+        bridge.send(net::makePublish(QLatin1String(ch::kBattery), {{"soc", 90}}));
+        bridge.send(net::makePublish(QLatin1String(ch::kMission),
+            {{"state", "ready"}, {"mission_id", "mission"}, {"index", -1}, {"total", 1},
+             {"reason_code", "MISSION_START_REQUESTED"}}));
+        bridge.send(net::makePublish(QLatin1String(ch::kMission),
+            {{"state", "ready"}, {"mission_id", "mission"}, {"index", -1}, {"total", 1},
+             {"reason_code", "MISSION_START_CANCELLED_BY_SAFETY"}, {"detail", "안전 정지"}}));
+        auto *panel = window.findChild<ui::MissionPanel *>();
+        auto *retry = panel->findChild<QPushButton *>(QStringLiteral("MissionPauseResumeButton"));
+        QTRY_COMPARE(retry->text(), QStringLiteral("미션 다시 시작"));
+        QTRY_VERIFY(retry->isEnabled());
+        QVERIFY(panel->findChild<QLabel *>(QStringLiteral("MissionReason"))->text().contains(QStringLiteral("안전 정지")));
+        retry->click();
+        retry->click();
+        QTRY_VERIFY(!bridge.lastRequest(ch::kCmdMissionStart).id.isEmpty());
+        int starts = 0;
+        for (const auto &message : bridge.received)
+            starts += message.ch == QLatin1String(ch::kCmdMissionStart);
+        QCOMPARE(starts, 1);
+        QVERIFY(!retry->isEnabled());
+    }
+
+    void mapSwitchBlocksMissionButtonAndLateRunSignal()
+    {
+        Config::instance().setRobots({});
+        CatalogBridge bridge;
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), bridge.server.serverPort());
+        InspectWindow window(link);
+        QVERIFY(prepareNavigation(bridge, link, window));
+        emit link->missionsChanged({QVariantMap{{"id", "mission"}, {"name", "점검"}, {"revision", 1},
+            {"steps", QVariantList{QVariantMap{{"id", "move"}, {"type", "navigate"}, {"location_id", "wp"}}}}}});
+        bridge.send(net::makePublish(QLatin1String(ch::kMission), {{"state", "idle"}}));
+        emit link->mapsReceived({QVariantMap{{"id", "map-1"}}, QVariantMap{{"id", "map-2"}}});
+        window.showMapPicker();
+        auto *select = window.findChild<QPushButton *>(QStringLiteral("MapSelect_map-2"));
+        QVERIFY(select);
+        select->click();
+        QTRY_VERIFY(!bridge.lastRequest(ch::kCmdMapsSelect).id.isEmpty());
+        auto *library = window.findChild<ui::MissionLibraryPanel *>();
+        auto *run = library->findChild<QPushButton *>(QStringLiteral("MissionRun_mission"));
+        QVERIFY(run && !run->isEnabled());
+        emit library->runRequested(QStringLiteral("mission"));
+        QTest::qWait(70);
+        QVERIFY(bridge.lastRequest(ch::kCmdMissionStart).id.isEmpty());
+    }
+
+    void navigationResumeUsesStartReadinessAndPreventsDuplicateRequests()
+    {
+        Config::instance().setRobots({});
+        CatalogBridge bridge;
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), bridge.server.serverPort());
+        ui::MainWindow window(link);
+        QVERIFY(prepareNavigation(bridge, link, window));
+        auto *panel = window.findChild<ui::StatusPanel *>();
+        bridge.send(net::makePublish(QLatin1String(ch::kNav),
+            {{"status", "paused"}, {"navigation_state", "inactive"}}));
+        QTRY_COMPARE(panel->navPauseButton()->text(), QStringLiteral("재개"));
+        QVERIFY(!panel->navPauseButton()->isEnabled());
+        bridge.send(net::makePublish(QLatin1String(ch::kNav),
+            {{"status", "paused"}, {"navigation_state", "active"}}));
+        QTRY_VERIFY(panel->navPauseButton()->isEnabled());
+        panel->navPauseButton()->click();
+        panel->navPauseButton()->click();
+        QTRY_VERIFY(!bridge.lastRequest(ch::kCmdNavResume).id.isEmpty());
+        int resumes = 0;
+        for (const auto &message : bridge.received)
+            resumes += message.ch == QLatin1String(ch::kCmdNavResume);
+        QCOMPARE(resumes, 1);
+        const auto request = bridge.lastRequest(ch::kCmdNavResume);
+        bridge.send(net::makeResponse(request, true));
+        bridge.send(net::makePublish(QLatin1String(ch::kNav),
+            {{"status", "paused"}, {"navigation_state", "active"}}));
+        QTest::qWait(70);
+        QVERIFY(!panel->navPauseButton()->isEnabled());
+        bridge.send(net::makePublish(QLatin1String(ch::kNav),
+            {{"status", "navigating"}, {"navigation_state", "active"}}));
+        QTRY_VERIFY(panel->navPauseButton()->isEnabled());
+    }
+
+    void safetyStopOverridesNav2MovingStatus()
+    {
+        ui::StatusPanel panel;
+        robot::Telemetry tm;
+        tm.navFresh = tm.safetyFresh = true;
+        tm.safetyState = QStringLiteral("controlled_stop");
+        panel.setTelemetry(tm, true);
+        panel.setGoalState(QStringLiteral("navigating"), {}, false, false, false, {}, {});
+        auto *state = panel.findChild<QLabel *>(QStringLiteral("NavigationState"));
+        QCOMPARE(state->text(), QStringLiteral("안전 정지"));
+        tm.safetyState = QStringLiteral("fault");
+        panel.setTelemetry(tm, true);
+        panel.setGoalState(QStringLiteral("navigating"), {}, false, false, false, {}, {});
+        QCOMPARE(state->text(), QStringLiteral("안전 오류"));
+    }
+
+
+    void goalResponseSettlesFastTerminalReports_data()
+    {
+        QTest::addColumn<QString>("terminal");
+        QTest::addColumn<bool>("retryable");
+        QTest::addColumn<bool>("terminalBeforeAck");
+        QTest::newRow("success") << QStringLiteral("succeeded") << false << false;
+        QTest::newRow("failure") << QStringLiteral("failed") << true << false;
+        QTest::newRow("canceled") << QStringLiteral("canceled") << false << false;
+        QTest::newRow("success-report-before-ack") << QStringLiteral("succeeded") << false << true;
+        QTest::newRow("failure-report-before-ack") << QStringLiteral("failed") << true << true;
+    }
+
+    void goalResponseSettlesFastTerminalReports()
+    {
+        QFETCH(QString, terminal);
+        QFETCH(bool, retryable);
+        QFETCH(bool, terminalBeforeAck);
+        Config::instance().setRobots({});
+        CatalogBridge bridge;
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), bridge.server.serverPort());
+        ui::MainWindow window(link);
+        QVERIFY(prepareNavigation(bridge, link, window));
+        auto *panel = window.findChild<ui::StatusPanel *>();
+        auto *map = window.findChild<ui::MapCard *>();
+        emit map->view()->goalRequested(2.0, 3.0, 0.7);
+        panel->startButton()->click();
+        QTRY_VERIFY(!bridge.lastRequest(ch::kCmdGoto).id.isEmpty());
+        const auto request = bridge.lastRequest(ch::kCmdGoto);
+        // All three arrive before the next 20 Hz telemetry snapshot.
+        if (!terminalBeforeAck)
+            bridge.send(net::makeResponse(request, true));
+        bridge.send(net::makePublish(QLatin1String(ch::kNav),
+            {{"status", "navigating"}, {"goal", request.p}, {"navigation_state", "active"}}));
+        bridge.send(net::makePublish(QLatin1String(ch::kNav),
+            {{"status", terminal}, {"navigation_state", "active"}, {"error", retryable ? "planner failed" : ""}}));
+        if (terminalBeforeAck)
+            bridge.send(net::makeResponse(request, true));
+        QTRY_VERIFY(panel->goalButton()->isEnabled());
+        QCOMPARE(panel->startButton()->isEnabled(), retryable);
+        QCOMPARE(!map->view()->draftGoal().isEmpty(), retryable);
+        QVERIFY(panel->findChild<QLabel *>(QStringLiteral("NavigationUnavailableReason"))->text().isEmpty());
+        if (retryable) {
+            QCOMPARE(map->view()->draftGoal().value("theta").toDouble(), 0.7);
+            QCOMPARE(panel->findChild<QLabel *>(QStringLiteral("NavigationError"))->text(), QStringLiteral("planner failed"));
+        }
+    }
+
+    void acceptingGoalRejectionRestoresCandidate()
+    {
+        Config::instance().setRobots({});
+        CatalogBridge bridge;
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), bridge.server.serverPort());
+        ui::MainWindow window(link);
+        QVERIFY(prepareNavigation(bridge, link, window));
+        auto *panel = window.findChild<ui::StatusPanel *>();
+        auto *map = window.findChild<ui::MapCard *>();
+        emit map->view()->goalRequested(2.0, 3.0, 0.7);
+        panel->startButton()->click();
+        QTRY_VERIFY(!bridge.lastRequest(ch::kCmdGoto).id.isEmpty());
+        const auto request = bridge.lastRequest(ch::kCmdGoto);
+        bridge.send(net::makePublish(QLatin1String(ch::kNav),
+            {{"status", "accepting"}, {"goal", request.p}, {"navigation_state", "active"}}));
+        QTRY_VERIFY(map->view()->draftGoal().isEmpty());
+        bridge.send(net::makeResponse(request, false, QStringLiteral("E_UNREACHABLE"), QStringLiteral("Nav2 rejected")));
+        bridge.send(net::makePublish(QLatin1String(ch::kNav),
+            {{"status", "rejected"}, {"navigation_state", "active"}, {"error", "Nav2 rejected"}}));
+        QTRY_VERIFY(panel->startButton()->isEnabled());
+        QCOMPARE(map->view()->draftGoal().value("x").toDouble(), 2.0);
+        QCOMPARE(map->view()->draftGoal().value("theta").toDouble(), 0.7);
+        QCOMPARE(panel->findChild<QLabel *>(QStringLiteral("NavigationError"))->text(), QStringLiteral("Nav2 rejected"));
+    }
+
+    void cancelPendingGoalRemovesCandidate()
+    {
+        Config::instance().setRobots({});
+        CatalogBridge bridge;
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), bridge.server.serverPort());
+        ui::MainWindow window(link);
+        QVERIFY(prepareNavigation(bridge, link, window));
+        auto *panel = window.findChild<ui::StatusPanel *>();
+        auto *map = window.findChild<ui::MapCard *>();
+        emit map->view()->goalRequested(2.0, 3.0, 0.7);
+        panel->startButton()->click();
+        QTRY_VERIFY(!bridge.lastRequest(ch::kCmdGoto).id.isEmpty());
+        const auto request = bridge.lastRequest(ch::kCmdGoto);
+        panel->navCancelButton()->click();
+        QVERIFY(map->view()->draftGoal().isEmpty());
+        QVERIFY(!panel->startButton()->isEnabled());
+        QCOMPARE(panel->findChild<QLabel *>(QStringLiteral("NavigationState"))->text(), QStringLiteral("정지 중"));
+        QTRY_VERIFY(!bridge.lastRequest(ch::kCmdNavCancel).id.isEmpty());
+        bridge.send(net::makeResponse(request, false, QStringLiteral("E_MODE"), QStringLiteral("목표 주행 취소 요청")));
+        bridge.send(net::makeResponse(bridge.lastRequest(ch::kCmdNavCancel), true));
+        bridge.send(net::makePublish(QLatin1String(ch::kNav),
+            {{"status", "canceled"}, {"navigation_state", "active"}}));
+        QTRY_VERIFY(panel->goalButton()->isEnabled());
+        QVERIFY(map->view()->draftGoal().isEmpty());
+        QVERIFY(!panel->startButton()->isEnabled());
+    }
+
+    void staleNavigationDoesNotPresentAnActiveGoal()
+    {
+        Config::instance().setRobots({});
+        CatalogBridge bridge;
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), bridge.server.serverPort());
+        ui::MainWindow window(link);
+        QVERIFY(prepareNavigation(bridge, link, window));
+        QTimer safety;
+        connect(&safety, &QTimer::timeout, &window, [&] {
+            bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}, {"estop", false}}));
+        });
+        safety.start(200);
+        auto *map = window.findChild<ui::MapCard *>();
+        emit map->view()->goalRequested(1.0, 1.0, 0.0);
+        QVERIFY(!map->view()->draftGoal().isEmpty());
+        bridge.send(net::makePublish(QLatin1String(ch::kNav),
+            {{"status", "navigating"}, {"goal", QJsonObject{{"x", 2.0}, {"y", 3.0}, {"theta", 0.7}}},
+             {"navigation_state", "active"}, {"distance_remaining_m", 4.0}}));
+        auto *panel = window.findChild<ui::StatusPanel *>();
+        auto *state = panel->findChild<QLabel *>(QStringLiteral("NavigationState"));
+        QTRY_COMPARE(state->text(), QStringLiteral("주행 중"));
+        QVERIFY(map->view()->draftGoal().isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(state->text(), QStringLiteral("상태 수신 대기"), 2000);
+        QCOMPARE(panel->findChild<QLabel *>(QStringLiteral("NavigationTarget"))->text(), QStringLiteral("목표 없음"));
+        QCOMPARE(panel->findChild<QLabel *>(QStringLiteral("NavigationDistance"))->text(), QStringLiteral("—"));
+        QVERIFY(!panel->startButton()->isEnabled());
+        QVERIFY(panel->navCancelButton()->isEnabled());
+    }
+
+    void safetyFreshnessGatesResumeUntilConfirmedAgain()
+    {
+        Config::instance().setRobots({});
+        CatalogBridge bridge;
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), bridge.server.serverPort());
+        ui::MainWindow window(link);
+        QVERIFY(prepareNavigation(bridge, link, window));
+        const auto report = net::makePublish(QLatin1String(ch::kNav),
+            {{"status", "paused"}, {"goal", QJsonObject{{"x", 2.0}, {"y", 3.0}, {"theta", 0.7}}},
+             {"navigation_state", "active"}});
+        bridge.send(report);
+        QTimer navigation;
+        connect(&navigation, &QTimer::timeout, &window, [&] { bridge.send(report); });
+        navigation.start(200);
+        auto *panel = window.findChild<ui::StatusPanel *>();
+        QTRY_VERIFY(panel->navPauseButton()->isEnabled());
+        QTRY_VERIFY_WITH_TIMEOUT(!panel->navPauseButton()->isEnabled(), 2000);
+        QCOMPARE(panel->findChild<QLabel *>(QStringLiteral("NavigationUnavailableReason"))->text(), QStringLiteral("안전 상태 수신 대기"));
+        QVERIFY(panel->navCancelButton()->isEnabled());
+        bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}, {"estop", false}}));
+        QTRY_VERIFY(panel->navPauseButton()->isEnabled());
+    }
     void goalSelectionRequiresExplicitStart()
     {
         CatalogBridge bridge;
@@ -197,6 +515,7 @@ private slots:
         QTRY_VERIFY(panel->startButton()->isEnabled());
         QTRY_VERIFY_WITH_TIMEOUT(!panel->startButton()->isEnabled(), 2000);
         QVERIFY(!map->view()->draftGoal().isEmpty());
+        bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}}));
         bridge.send(net::makePublish(QLatin1String(ch::kNav), {{"status", "idle"}, {"navigation_state", "active"}}));
         QTRY_VERIFY(panel->startButton()->isEnabled());
 
@@ -392,6 +711,7 @@ private slots:
         bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}}));
         const QJsonObject goal{{"x", 1.0}, {"y", 2.0}, {"theta", 0.5}};
         auto report = [&](const char *status) {
+            bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}}));
             bridge.send(net::makePublish(QLatin1String(ch::kNav), {{"status", status}, {"goal", goal}}));
         };
         report("navigating");
@@ -400,6 +720,7 @@ private slots:
         QVERIFY(!card->goalButton()->isEnabled());
         pause->click();
         QTRY_VERIFY(!bridge.lastRequest(ch::kCmdNavPause).id.isEmpty());
+        bridge.send(net::makeResponse(bridge.lastRequest(ch::kCmdNavPause), true));
         report("pausing");
         QTRY_VERIFY(!pause->isEnabled());
         report("paused");
@@ -407,11 +728,14 @@ private slots:
         QVERIFY(pause->isEnabled());
         pause->click();
         QTRY_VERIFY(!bridge.lastRequest(ch::kCmdNavResume).id.isEmpty());
+        bridge.send(net::makeResponse(bridge.lastRequest(ch::kCmdNavResume), true));
         report("navigating");
         QTRY_COMPARE(pause->text(), QStringLiteral("일시정지"));
         cancel->click();
         QTRY_VERIFY(!bridge.lastRequest(ch::kCmdNavCancel).id.isEmpty());
+        bridge.send(net::makeResponse(bridge.lastRequest(ch::kCmdNavCancel), true));
         report("canceled");
+        QTRY_COMPARE(card->findChild<QLabel *>(QStringLiteral("NavigationState"))->text(), QStringLiteral("취소됨"));
         QTRY_VERIFY(!cancel->isEnabled());
         QVERIFY(!pause->isEnabled());
         report("paused");
@@ -1368,18 +1692,15 @@ private slots:
 
     void goalButtonFollowsReportedModeAndMap()
     {
-        QTcpServer server;
-        QVERIFY(server.listen(QHostAddress::LocalHost));
-        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), server.serverPort());
+        CatalogBridge bridge;
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), bridge.server.serverPort());
         ui::MainWindow window(link);
         auto *map = window.findChild<ui::MapCard *>();
         QVERIFY(map);
         QVERIFY(!window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());
 
         link->connectToBridge();
-        QTRY_VERIFY(server.hasPendingConnections());
-        auto *peer = server.nextPendingConnection();
-        QTRY_VERIFY(link->isConnected());
+        QTRY_VERIFY(bridge.peer && link->isConnected());
 
         QImage image(8, 8, QImage::Format_RGB32);
         image.fill(Qt::white);
@@ -1395,11 +1716,12 @@ private slots:
                                      {QStringLiteral("map_id"), QStringLiteral("map-1")}});
         QVERIFY(!window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());  // 지도가 있어도 모드 미확인
 
-        const auto reportMode = [peer](const char *mode) {
+        const auto reportMode = [&bridge, link](const char *mode) {
             const auto state = net::makePublish(QLatin1String(hmi::ch::kSafety),
                                                 {{QStringLiteral("mode"), QLatin1String(mode)}});
-            peer->write(net::encodeFrame(state.toHeader(), state.payload));
-            peer->flush();
+            bridge.send(state);
+            if (link->modeChangePending())
+                bridge.send(net::makeResponse(bridge.lastRequest(ch::kCmdMode), true));
         };
         reportMode("auto");
         QTRY_VERIFY(window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());
@@ -1414,12 +1736,15 @@ private slots:
 
         window.setDriveMode(QStringLiteral("manual"));
         QVERIFY(!window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());
+        QTRY_COMPARE(bridge.lastRequest(ch::kCmdMode).p.value("mode").toString(), QStringLiteral("manual"));
         reportMode("manual");
         QTRY_VERIFY(link->mode() == robot::DriveMode::Manual);
+        QTRY_VERIFY(!link->modeChangePending());
         QVERIFY(!window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());
 
         window.setDriveMode(QStringLiteral("auto"));
         QVERIFY(!window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());
+        QTRY_COMPARE(bridge.lastRequest(ch::kCmdMode).p.value("mode").toString(), QStringLiteral("auto"));
         reportMode("auto");
         QTRY_VERIFY(window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());
     }
@@ -1450,7 +1775,9 @@ private slots:
                                      {QStringLiteral("map_id"), QString()}});
         QVERIFY(!window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());
         const auto state = net::makePublish(QLatin1String(hmi::ch::kSafety),
-                                            {{QStringLiteral("mode"), QStringLiteral("auto")}});
+                                            {{QStringLiteral("mode"), QStringLiteral("auto")},
+                                             {QStringLiteral("state"), QStringLiteral("normal")},
+                                             {QStringLiteral("motion_permitted"), true}});
         peer->write(net::encodeFrame(state.toHeader(), state.payload));
         peer->flush();
         QTRY_VERIFY(window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());

@@ -23,6 +23,7 @@
 #include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QStackedWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QUuid>
 
@@ -184,9 +185,24 @@ MissionLibraryPanel::MissionLibraryPanel(QWidget *parent) : QWidget(parent)
                 setStatus(QStringLiteral("%1번 작업의 대상을 선택하십시오.").arg(i + 1));
                 return;
             }
+            if (step.type == QLatin1String("navigate") && std::none_of(
+                    waypoints_.cbegin(), waypoints_.cend(), [&step](const QVariantMap &point) {
+                        return point.value(QStringLiteral("id")).toString() == step.reference;
+                    })) {
+                setStatus(QStringLiteral("%1번 작업의 웨이포인트가 없습니다. 다시 선택하십시오.").arg(i + 1));
+                return;
+            }
             if (step.type == QLatin1String("capture") &&
                 !validReferenceId(step.reference.trimmed())) {
                 setStatus(QStringLiteral("촬영 프리셋 ID는 영문·숫자·-·_만 사용할 수 있습니다."));
+                return;
+            }
+            if (step.type == QLatin1String("arm_move") && std::none_of(
+                    armPosePresets_.cbegin(), armPosePresets_.cend(), [&step](const QVariantMap &pose) {
+                        return pose.value(QStringLiteral("id")).toString() == step.reference &&
+                               !pose.value(QStringLiteral("archived")).toBool();
+                    })) {
+                setStatus(QStringLiteral("%1번 작업의 팔 자세가 없습니다. 다시 선택하십시오.").arg(i + 1));
                 return;
             }
             if (step.type == QLatin1String("dock") && i + 1 != draftSteps_.size()) {
@@ -195,16 +211,29 @@ MissionLibraryPanel::MissionLibraryPanel(QWidget *parent) : QWidget(parent)
             }
         }
         pendingSaveId_ = editingId_;
+        pendingMission_ = currentMission();
+        pendingSaveAccepted_ = false;
+        const quint64 generation = ++pendingSaveGeneration_;
         updateControls();
         setStatus(QStringLiteral("저장 중…"));
-        emit saveRequested(currentMission(), revisionValue_);
+        QTimer::singleShot(7000, this, [this, generation] {
+            if (pendingSaveId_.isEmpty() || pendingSaveGeneration_ != generation)
+                return;
+            pendingSaveId_.clear();
+            pendingMission_.clear();
+            pendingSaveAccepted_ = false;
+            setStatus(QStringLiteral("저장 결과를 확인하지 못했습니다. 목록을 새로 고친 뒤 확인하십시오."));
+            updateControls();
+        });
+        const QVariantMap submitted = pendingMission_;
+        emit saveRequested(submitted, revisionValue_);
     });
     updateControls();
 }
 
 bool MissionLibraryPanel::canEdit() const
 {
-    return !missionBusy_ && !mapId_.isEmpty() && mapId_ != QLatin1String("live");
+    return editingEnabled_ && !missionBusy_ && !mapId_.isEmpty() && mapId_ != QLatin1String("live");
 }
 
 void MissionLibraryPanel::startNew()
@@ -256,6 +285,8 @@ void MissionLibraryPanel::closeEditor()
     draftSteps_.clear();
     revisionValue_ = 0;
     pendingSaveId_.clear();
+    pendingMission_.clear();
+    pendingSaveAccepted_ = false;
     name_->clear();
     steps_->clear();
     pages_->setCurrentIndex(0);
@@ -278,15 +309,7 @@ void MissionLibraryPanel::setMissions(const QList<QVariantMap> &missions)
 {
     missions_ = missions;
     if (editing_ && !pendingSaveId_.isEmpty()) {
-        const auto saved = std::find_if(missions_.cbegin(), missions_.cend(), [this](const QVariantMap &m) {
-            return m.value(QStringLiteral("id")).toString() == pendingSaveId_ &&
-                   !m.value(QStringLiteral("archived")).toBool() &&
-                   m.value(QStringLiteral("revision")).toULongLong() > revisionValue_;
-        });
-        if (saved != missions_.cend()) {
-            closeEditor();
-            setStatus(QStringLiteral("로봇 저장 완료"));
-        }
+        confirmPendingSave();
     } else if (editing_ && revisionValue_ > 0) {
         const bool exists = std::any_of(missions_.cbegin(), missions_.cend(), [this](const QVariantMap &m) {
             return m.value(QStringLiteral("id")).toString() == editingId_ &&
@@ -324,22 +347,70 @@ void MissionLibraryPanel::setMissionState(hmi::robot::MissionState state)
     refreshList();
 }
 
+void MissionLibraryPanel::setEditingEnabled(bool enabled)
+{
+    if (editingEnabled_ == enabled)
+        return;
+    editingEnabled_ = enabled;
+    updateControls();
+    refreshList();
+}
+
+void MissionLibraryPanel::setExecutionEnabled(bool enabled, const QString &reason)
+{
+    if (executionEnabled_ == enabled && executionReason_ == reason)
+        return;
+    executionEnabled_ = enabled;
+    executionReason_ = reason;
+    refreshList();
+}
+
 void MissionLibraryPanel::setStatus(const QString &message)
 {
     status_->setText(message);
     status_->setVisible(!message.isEmpty());
 }
 
+bool MissionLibraryPanel::confirmPendingSave()
+{
+    if (!editing_ || pendingSaveId_.isEmpty() || !pendingSaveAccepted_)
+        return false;
+    const auto saved = std::find_if(missions_.cbegin(), missions_.cend(), [this](QVariantMap mission) {
+        if (mission.value(QStringLiteral("id")).toString() != pendingSaveId_ ||
+            mission.value(QStringLiteral("archived")).toBool() ||
+            mission.value(QStringLiteral("revision")).toULongLong() != revisionValue_ + 1)
+            return false;
+        mission.remove(QStringLiteral("revision"));
+        mission.remove(QStringLiteral("archived"));
+        mission.remove(QStringLiteral("map_id"));
+        return mission == pendingMission_;
+    });
+    if (saved == missions_.cend())
+        return false;
+    closeEditor();
+    setStatus(QStringLiteral("로봇 저장 완료"));
+    return true;
+}
+
 void MissionLibraryPanel::handleCommandResult(const QString &channel, bool ok,
                                               const QString &code, const QString &message)
 {
     if (channel == QLatin1String(hmi::ch::kCmdMissionsSave)) {
-        if (!ok)
+        if (pendingSaveId_.isEmpty())
+            return;
+        if (!ok) {
             pendingSaveId_.clear();
-        setStatus(ok ? QStringLiteral("로봇 저장 완료")
-                     : QStringLiteral("저장 실패 · %1 %2").arg(code, message));
-        if (ok)
+            pendingMission_.clear();
+            pendingSaveAccepted_ = false;
+            setStatus(QStringLiteral("저장 실패 · %1 %2").arg(code, message));
+        } else {
+            pendingSaveAccepted_ = true;
+            if (confirmPendingSave())
+                refreshList();
+            else
+                setStatus(QStringLiteral("저장 확인 중…"));
             emit missionsRequested();
+        }
         updateControls();
     } else if (channel == QLatin1String(hmi::ch::kCmdMissionsArchive)) {
         setStatus(ok ? QStringLiteral("미션 삭제됨")
@@ -420,8 +491,9 @@ void MissionLibraryPanel::refreshList()
         run->setObjectName(QStringLiteral("MissionRun_%1").arg(id));
         run->setProperty("size", "sm");
         const QString reason = runBlockReason(mission);
-        run->setEnabled(!missionBusy_ && reason.isEmpty());
-        run->setToolTip(missionBusy_ ? QStringLiteral("미션 실행 중") : reason);
+        run->setEnabled(executionEnabled_ && !missionBusy_ && reason.isEmpty());
+        run->setToolTip(!executionEnabled_ ? executionReason_
+                       : missionBusy_ ? QStringLiteral("미션 실행 중") : reason);
         top->addWidget(run);
         auto *remove = new IconButton(IconButton::Glyph::Trash);
         remove->setObjectName(QStringLiteral("MissionDelete_%1").arg(id));
@@ -442,7 +514,7 @@ void MissionLibraryPanel::refreshList()
         listHeight += item->sizeHint().height();
         connect(edit, &QPushButton::clicked, this, [this, mission] { startEdit(mission); });
         connect(run, &QPushButton::clicked, this, [this, mission] {
-            if (missionBusy_ || !runBlockReason(mission).isEmpty())
+            if (!executionEnabled_ || missionBusy_ || !runBlockReason(mission).isEmpty())
                 return;
             emit runRequested(mission.value(QStringLiteral("id")).toString());
         });

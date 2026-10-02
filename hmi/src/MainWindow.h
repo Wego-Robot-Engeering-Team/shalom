@@ -159,14 +159,20 @@ private:
     void refreshGoalAvailability();
     bool canPlaceGoal() const;
     bool canStartGoal() const;
+    QString autonomousReadinessReason() const;
+    QString safetyReadinessReason() const;
+    void refreshMissionAvailability();
+    void startStoredMission(const QString &id, bool retry = false);
+    void beginMissionCommand(const QString &channel);
+    void settleMissionCommand();
+    void settleNavigationControl();
     void showReportedDriveMode();
     void setDraftGoal(const QVariantMap &goal);
     void clearDraftGoal();
+    void clearSubmittedGoal();
     void startDraftGoal();
 
-    /// Sends the robot to a taught pose (dock or home). Autonomous driving is
-    /// what carries it there, so this switches the mode rather than failing on
-    /// it - the operator asked for the destination, not for a mode.
+    /// Stages a saved destination for explicit start in the operation panel.
     void driveTo(const QVariantMap &pose, const QString &label);
     void showLocationAssets();
 
@@ -217,8 +223,25 @@ private:
     hmi::robot::Telemetry navigationTelemetry_;
     QVariantMap draftGoal_;
     QString draftGoalMapId_;
+    QVariantMap submittedGoal_;
+    QString submittedGoalMapId_;
+    quint64 submittedGoalNavRevision_ = 0;
     QString navigationError_;
     bool goalStartPending_ = false;
+    bool goalAwaitingState_ = false;
+    bool goalCancelRequested_ = false;
+    quint64 goalCancelNavRevision_ = 0;
+    bool goalExecutionReported_ = false;
+    QString navigationControlPending_;
+    quint64 navigationControlRevision_ = 0;
+    bool navigationControlAccepted_ = false;
+    bool navigationControlReported_ = false;
+    quint64 navigationControlGeneration_ = 0;
+    QString missionCommandPending_;
+    bool missionCommandAccepted_ = false;
+    bool missionCommandReported_ = false;
+    quint64 missionCommandGeneration_ = 0;
+    QString missionReasonCode_, missionDetail_;
 
     BatteryPill *headerBattery_ = nullptr;
     NotificationBell *bell_ = nullptr;

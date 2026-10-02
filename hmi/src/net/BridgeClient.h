@@ -123,6 +123,9 @@ public:
     void archiveArmPosePreset(const QString &id, quint64 expectedRevision) override;
 
     bool isConnected() const override;
+    QString endpointHost() const { return host_; }
+    quint16 endpointPort() const { return port_; }
+    quint64 navigationRevision() const { return telemetry_.navRevision; }
     QString describe() const override;
 
 signals:
@@ -142,6 +145,7 @@ private:
     void onEstopDisconnected();
     void onEstopSocketError();
     void onEstopReadyRead();
+    void refreshSafetyHeartbeat();
 
     void sendEnvelope(const Envelope &env);
     void sendEstopEnvelope(const Envelope &env);
@@ -214,6 +218,7 @@ private:
     qint64 lastHeartbeatMs_ = 0;
     qint64 lastPoseMs_ = 0;
     qint64 lastNavMs_ = 0;
+    qint64 lastSafetyMs_ = 0;
     qint64 lastArmMs_ = 0;
     QElapsedTimer clock_;
 

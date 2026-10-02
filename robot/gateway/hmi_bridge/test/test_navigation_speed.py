@@ -71,7 +71,7 @@ class NavigationSpeedTest(unittest.TestCase):
             [BRIDGE, "--ros-args", "-p", "robot_id:=speed-test", "-p", f"port:={port}",
              "-p", f"robot_data_dir:={self.root}", "-p", f"maps_dir:={self.root / 'maps'}",
              "-p", f"initial_map:={self.map_directory / 'map.yaml'}",
-             "-p", "arm.execution_enabled:=true"],
+             "-p", "arm.execution_enabled:=true"] + getattr(self, "extra_bridge_args", []),
             stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
@@ -106,7 +106,7 @@ class NavigationSpeedTest(unittest.TestCase):
         return self.receive(lambda e: e.get("t") == "res" and e.get("id") == request_id)["p"]
 
     def receive(self, predicate):
-        deadline = time.monotonic() + 4
+        deadline = time.monotonic() + getattr(self, "receive_timeout_s", 4)
         while time.monotonic() < deadline:
             rclpy.spin_once(self.node, timeout_sec=0.01)
             while len(self.buffer) >= 8:

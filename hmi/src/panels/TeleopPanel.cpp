@@ -98,8 +98,29 @@ bool TeleopPanel::typingSomewhere()
 
 bool TeleopPanel::eventFilter(QObject *watched, QEvent *ev)
 {
+    const auto *widget = qobject_cast<QWidget *>(watched);
+    const bool ownWindow = widget && widget->window() == window();
+    const bool hidden = ev->type() == QEvent::Hide && widget &&
+                        (widget == this || widget->isAncestorOf(this));
+    if (ev->type() == QEvent::ApplicationDeactivate || hidden ||
+        (ev->type() == QEvent::WindowDeactivate && ownWindow) ||
+        (ev->type() == QEvent::FocusOut && ownWindow && !heldKey_.isEmpty()) ||
+        (ev->type() == QEvent::FocusIn && ownWindow && typingSomewhere())) {
+        if (timer_ && timer_->isActive())
+            release();
+        return QWidget::eventFilter(watched, ev);
+    }
+
     const bool down = ev->type() == QEvent::KeyPress;
-    if ((!down && ev->type() != QEvent::KeyRelease) || !enabled_ || typingSomewhere())
+    if (ev->type() == QEvent::KeyRelease) {
+        const auto *ke = static_cast<QKeyEvent *>(ev);
+        if (!ke->isAutoRepeat() && !heldKey_.isEmpty() && keyFor(ke) == heldKey_) {
+            release();
+            return true;
+        }
+        return QWidget::eventFilter(watched, ev);
+    }
+    if (!down || !enabled_ || !ownWindow || typingSomewhere())
         return QWidget::eventFilter(watched, ev);
 
     // 이 패널이 보이는 화면에서만 키를 받는다. 창 전체를 감시하므로, 이
@@ -127,19 +148,12 @@ bool TeleopPanel::eventFilter(QObject *watched, QEvent *ev)
     if (key.isEmpty())
         return QWidget::eventFilter(watched, ev);
 
-    if (down) {
-        heldKey_ = key;
-        press(key);
-    } else if (heldKey_ == key) {
-        // 다른 방향키로 이미 넘어간 뒤라면 이 뗌은 무시한다. 그러지 않으면
-        // 두 키를 겹쳐 눌렀다 하나를 뗄 때 로봇이 멈춘다.
-        heldKey_.clear();
-        release();
-    }
+    heldKey_ = key;
+    press(key);
 
     // 눌린 방향 버튼을 같이 눌린 것처럼 보여준다.
     if (auto *b = buttons_.value(key))
-        b->setDown(down);
+        b->setDown(true);
     return true;
 }
 
@@ -283,6 +297,9 @@ void TeleopPanel::press(const QString &key)
 
 void TeleopPanel::release()
 {
+    heldKey_.clear();
+    for (auto *button : std::as_const(buttons_))
+        button->setDown(false);
     vx_ = vy_ = wz_ = 0.0;
     publish();        // 즉시 0 을 한 번 보낸다. 데드맨을 기다리지 않는다.
     timer_->stop();

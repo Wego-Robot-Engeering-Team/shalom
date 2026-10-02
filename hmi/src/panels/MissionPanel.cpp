@@ -28,6 +28,10 @@ MissionPanel::MissionPanel(QWidget *parent) : QWidget(parent)
     state_ = new Badge(QStringLiteral("대기"), QStringLiteral("neutral"));
     card_->addHeaderWidget(state_);
     outer->addWidget(card_);
+    reason_ = new QLabel;
+    reason_->setObjectName(QStringLiteral("MissionReason"));
+    reason_->setWordWrap(true);
+    card_->body()->addWidget(reason_);
 
     card_->body()->addWidget(sectionLabel(QStringLiteral("현재 미션")));
     missionNameLabel_ = new QLabel(QStringLiteral("실행 중인 미션 없음"));
@@ -122,7 +126,29 @@ void MissionPanel::setProgress(const QString &missionName, int index, int total,
 
 void MissionPanel::setMissionState(const QString &state)
 {
+    if (missionState_ != state)
+        commandPending_ = false;
     missionState_ = state;
+    refresh();
+}
+
+void MissionPanel::setMissionDetails(const QString &reason, const QString &detail)
+{
+    reasonCode_ = reason;
+    detail_ = detail;
+    refresh();
+}
+
+void MissionPanel::setControlAvailability(bool ready, const QString &reason)
+{
+    controlsReady_ = ready;
+    controlReason_ = reason;
+    refresh();
+}
+
+void MissionPanel::setCommandPending(bool pending)
+{
+    commandPending_ = pending;
     refresh();
 }
 
@@ -146,6 +172,8 @@ void MissionPanel::refresh()
                         missionState_ == QLatin1String("paused") ||
                         missionState_ == QLatin1String("recovering") || returning;
     const bool paused = missionState_ == QLatin1String("paused");
+    const bool retry = missionState_ == QLatin1String("ready") &&
+        reasonCode_ == QLatin1String("MISSION_START_CANCELLED_BY_SAFETY");
 
     if (disconnected)
         state_->set(QStringLiteral("연결 없음"), QStringLiteral("warn"));
@@ -158,7 +186,8 @@ void MissionPanel::refresh()
     else if (paused)
         state_->set(QStringLiteral("일시정지"), QStringLiteral("warn"));
     else if (missionState_ == QLatin1String("ready"))
-        state_->set(QStringLiteral("시작 준비"), QStringLiteral("info"));
+        state_->set(retry ? QStringLiteral("시작 취소됨") : QStringLiteral("시작 준비"),
+                    retry ? QStringLiteral("warn") : QStringLiteral("info"));
     else if (missionState_ == QLatin1String("pausing"))
         state_->set(QStringLiteral("정지 확인 중"), QStringLiteral("warn"));
     else if (missionState_ == QLatin1String("recovering"))
@@ -172,15 +201,25 @@ void MissionPanel::refresh()
     else
         state_->set(QStringLiteral("대기"), QStringLiteral("neutral"));
 
-    run_->setText(paused ? QStringLiteral("미션 재개") : QStringLiteral("일시정지"));
+    run_->setText(retry ? QStringLiteral("미션 다시 시작")
+                        : paused ? QStringLiteral("미션 재개") : QStringLiteral("일시정지"));
     run_->setVisible(active);
-    run_->setEnabled(active && (paused || missionState_ == QLatin1String("running")));
+    run_->setEnabled(active && !commandPending_ &&
+        (missionState_ == QLatin1String("running") || ((paused || retry) && controlsReady_)));
+    const QString detail = retry
+        ? QStringLiteral("시작 요청 취소 · %1").arg(detail_.isEmpty()
+            ? QStringLiteral("안전 상태를 확인한 뒤 다시 시작하십시오.") : detail_)
+        : failed || reasonCode_.startsWith(QLatin1String("E_")) ? detail_ : QString();
+    reason_->setText(!controlReason_.isEmpty() && active ? controlReason_ : detail);
+    reason_->setToolTip(detail_);
+    reason_->setVisible(!reason_->text().isEmpty());
 
     // 취소할 점검이 없을 때도 자리는 지킨다. 버튼이 사라졌다 나타나면
     // 손이 자리를 외우지 못한다.
     stop_->setVisible(active);
     stop_->setEnabled(active);
-    dock_->setEnabled(dockKnown_ && !disconnected && !blocked);
+    dock_->setEnabled(dockKnown_ && !disconnected && !blocked && controlsReady_ && !commandPending_ &&
+        (!active || paused || missionState_ == QLatin1String("running")));
     dock_->setToolTip(
         !dockKnown_ ? QStringLiteral("충전 스테이션 위치가 등록되어 있지 않습니다.")
         : active    ? QStringLiteral("점검을 일시정지하고 충전 스테이션으로 돌아갑니다.\n"
@@ -188,7 +227,7 @@ void MissionPanel::refresh()
                     : QStringLiteral("충전 스테이션까지 자율 주행으로 돌아갑니다."));
 
     const int total = std::max(0, total_);
-    const int done = missionState_ == QLatin1String("completed") ? total
+    const int done = missionState_ == QLatin1String("completed") || (returning && index_ < 0) ? total
                      : index_ < 0 ? 0 : std::clamp(index_, 0, total);
     bar_->setValue(total > 0 ? done * 100 / total : 0);
     missionNameLabel_->setText(disconnected ? QStringLiteral("로봇 연결 필요")
@@ -227,8 +266,10 @@ void MissionPanel::refresh()
     // 세우는 것과 그만두는 것의 차이는 누른 뒤에야 드러난다. 누르기 전에,
     // 몇 번 지점이 걸려 있는지까지 넣어서 말해 둔다.
     const int resumeAt = done + 1;
-    run_->setToolTip(
-        paused ? QStringLiteral("%1번 지점부터 이어서 점검합니다.").arg(resumeAt)
+    run_->setToolTip(commandPending_ ? QStringLiteral("로봇 응답 대기 중")
+        : !controlsReady_ && (paused || retry) ? controlReason_
+        : retry ? QStringLiteral("현재 미션에 새 시작 명령을 보냅니다.")
+        : paused ? QStringLiteral("%1번 지점부터 이어서 점검합니다.").arg(resumeAt)
                  : QStringLiteral("로봇이 그 자리에 섭니다. 진행 상황은 그대로 두고,\n"
                                   "재개하면 %1번 지점부터 이어서 합니다.")
                        .arg(resumeAt));
@@ -241,6 +282,19 @@ void MissionPanel::refresh()
 
 void MissionPanel::onRunClicked()
 {
+    if (commandPending_)
+        return;
+    const bool retry = missionState_ == QLatin1String("ready") &&
+        reasonCode_ == QLatin1String("MISSION_START_CANCELLED_BY_SAFETY");
+    if ((retry || missionState_ == QLatin1String("paused")) && !controlsReady_)
+        return;
+    if (!retry && missionState_ != QLatin1String("paused") && missionState_ != QLatin1String("running"))
+        return;
+    setCommandPending(true);
+    if (retry) {
+        emit missionRetry();
+        return;
+    }
     if (missionState_ == QLatin1String("paused"))
         emit missionResume();
     else if (missionState_ == QLatin1String("running"))

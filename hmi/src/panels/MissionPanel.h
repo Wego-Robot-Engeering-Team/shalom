@@ -30,6 +30,9 @@ public:
 
     /// Robot-owned lifecycle, with distinct failure and safety-stop states.
     void setMissionState(const QString &state);
+    void setMissionDetails(const QString &reason, const QString &detail);
+    void setControlAvailability(bool ready, const QString &reason = {});
+    void setCommandPending(bool pending);
 
     /// Whether the charging station has a known pose. Without one there is
     /// nowhere to send the robot, and a button that quietly does nothing is
@@ -40,6 +43,7 @@ signals:
     /// Pause keeps the robot's active plan and resume continues its step index.
     void missionPause();
     void missionResume();
+    void missionRetry();
 
     /// Stop ends the run and discards progress; selecting a mission starts anew.
     void missionStop();
@@ -69,6 +73,7 @@ private:
     QLabel *current_ = nullptr;
     QLabel *next_ = nullptr;
     QLabel *nextMission_ = nullptr;
+    QLabel *reason_ = nullptr;
 
     /// One button for pause/resume. Mission selection and start belong to the
     /// mission management panel, not this status card.
@@ -85,7 +90,10 @@ private:
     int index_ = -1;
     int total_ = 0;
     QString missionState_ = QStringLiteral("idle");
+    QString reasonCode_, detail_, controlReason_;
     bool dockKnown_ = false;
+    bool controlsReady_ = true;
+    bool commandPending_ = false;
 };
 
 }  // namespace hmi::ui

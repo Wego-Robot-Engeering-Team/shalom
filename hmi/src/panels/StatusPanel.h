@@ -24,6 +24,9 @@ public:
 signals:
     void missionRequested();
 private:
+    QString safetyState_;
+    bool safetyFresh_ = false;
+    bool safetyMotionPermitted_ = false;
     QLabel *navigation_, *localization_, *target_, *distance_, *eta_, *reason_, *error_;
     QLabel *pose_, *velocity_, *elapsed_, *recoveries_;
     Badge *state_;

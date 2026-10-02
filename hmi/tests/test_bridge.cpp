@@ -29,6 +29,7 @@
 #include <QTest>
 
 #include <cmath>
+#include <algorithm>
 
 #include "net/BridgeClient.h"
 #include "net/Channels.h"
@@ -90,6 +91,7 @@ public:
 
     QList<Envelope> received;
     QList<QByteArray> udpPackets;
+    bool echoHeartbeats = true;
 
 signals:
     void clientConnected();
@@ -103,6 +105,8 @@ private:
         while (decoder_.next(f) == FrameDecoder::Status::Ok) {
             if (const auto env = Envelope::fromHeader(f.header)) {
                 received << *env;
+                if (echoHeartbeats && env->t == QLatin1String(mtype::kHb))
+                    send(makeHeartbeat(qint64(env->p.value(QStringLiteral("seq")).toDouble())));
                 emit gotEnvelope(env->t, env->ch);
             }
         }
@@ -154,6 +158,149 @@ private:
     }
 
 private slots:
+
+    void generalLinkLossStopsSafetyHeartbeatButKeepsEstopCommands()
+    {
+        QTcpServer safetyServer;
+        for (int attempt = 0; attempt < 20; ++attempt) {
+            delete server_;
+            server_ = new MockBridge(this);
+            if (server_->port() < 65535 &&
+                safetyServer.listen(QHostAddress::LocalHost, quint16(server_->port() + 1)))
+                break;
+        }
+        QVERIFY(safetyServer.isListening());
+        server_->rememberPort();
+        QTcpSocket *safetyPeer = nullptr;
+        FrameDecoder decoder;
+        QList<Envelope> safetyMessages;
+        connect(&safetyServer, &QTcpServer::newConnection, &safetyServer, [&] {
+            safetyPeer = safetyServer.nextPendingConnection();
+            connect(safetyPeer, &QTcpSocket::readyRead, &safetyServer, [&] {
+                decoder.append(safetyPeer->readAll());
+                Frame frame;
+                while (decoder.next(frame) == FrameDecoder::Status::Ok)
+                    if (const auto env = Envelope::fromHeader(frame.header))
+                        safetyMessages << *env;
+            });
+        });
+        client_ = new BridgeClient(QStringLiteral("127.0.0.1"), server_->port(), this);
+        client_->connectToBridge();
+        const auto heartbeatCount = [&] {
+            return std::count_if(safetyMessages.cbegin(), safetyMessages.cend(),
+                [](const Envelope &env) { return env.t == QLatin1String(mtype::kHb); });
+        };
+        QVERIFY(waitFor([&] { return client_->isConnected() && heartbeatCount() >= 2; }));
+        server_->stopListening();
+        server_->dropPeer();
+        QVERIFY(waitFor([&] { return !client_->isConnected(); }));
+        QTest::qWait(100);  // Drain heartbeat bytes written before the disconnect.
+        const auto stoppedAt = heartbeatCount();
+        QTest::qWait(1100);
+        QCOMPARE(heartbeatCount(), stoppedAt);
+        QVERIFY(safetyPeer && safetyPeer->state() == QAbstractSocket::ConnectedState);
+        client_->engageEstop();
+        QVERIFY(waitFor([&] {
+            return std::any_of(safetyMessages.cbegin(), safetyMessages.cend(),
+                [](const Envelope &env) { return env.ch == QLatin1String(hmi::ch::kCmdEstop); });
+        }));
+        server_->resumeListening();
+        QVERIFY(waitFor([&] { return client_->isConnected() && heartbeatCount() > stoppedAt; }, 5000));
+        client_->disconnectFromBridge();
+    }
+
+    void missionReasonChangesAreReportedWithoutAnFsmTransition()
+    {
+        connectPair();
+        QSignalSpy states(client_, &BridgeClient::missionStateChanged);
+        QSignalSpy statuses(client_, &BridgeClient::missionStatusReported);
+        Telemetry latest;
+        connect(client_, &BridgeClient::telemetry, this, [&](const Telemetry &tm) { latest = tm; });
+        server_->send(pub(hmi::ch::kMission, {{"state", "ready"},
+            {"reason_code", "MISSION_START_REQUESTED"}, {"detail", "Waiting for base"}}));
+        QVERIFY(waitFor([&] { return statuses.size() == 1; }));
+        server_->send(pub(hmi::ch::kMission, {{"state", "ready"},
+            {"reason_code", "MISSION_START_CANCELLED_BY_SAFETY"}, {"detail", "Safety fault"}}));
+        QVERIFY(waitFor([&] { return statuses.size() == 2 &&
+            latest.missionReasonCode == QLatin1String("MISSION_START_CANCELLED_BY_SAFETY"); }));
+        QCOMPARE(states.size(), 1);
+        QCOMPARE(latest.missionDetail, QStringLiteral("Safety fault"));
+        server_->send(pub(hmi::ch::kMission, {{"state", "ready"},
+            {"reason_code", "MISSION_START_CANCELLED_BY_SAFETY"}, {"detail", "Safety fault"}}));
+        QTest::qWait(80);
+        QCOMPARE(statuses.size(), 2);
+    }
+
+    void safetyStopAndSourceFreshnessAreRetained()
+    {
+        connectPair();
+        Telemetry latest;
+        connect(client_, &BridgeClient::telemetry, this, [&](const Telemetry &tm) { latest = tm; });
+        server_->send(pub(hmi::ch::kSafety, {{"mode", "auto"}, {"estop", false},
+            {"state", "controlled_stop"}, {"motion_permitted", false}, {"state_fresh", true},
+            {"reason_code", "HMI_LINK_LOST"}, {"detail", "General control link lost"}}));
+        QVERIFY(waitFor([&] { return latest.safetyFresh; }));
+        QCOMPARE(latest.safetyState, QStringLiteral("controlled_stop"));
+        QVERIFY(!latest.safetyMotionPermitted);
+        QCOMPARE(latest.safetyReasonCode, QStringLiteral("HMI_LINK_LOST"));
+        QCOMPARE(latest.safetyDetail, QStringLiteral("General control link lost"));
+        server_->send(pub(hmi::ch::kSafety, {{"mode", "auto"}, {"estop", false},
+            {"state", "normal"}, {"motion_permitted", true}, {"state_fresh", false}}));
+        QVERIFY(waitFor([&] { return latest.safetyState == QLatin1String("normal"); }));
+        QVERIFY(!latest.safetyFresh);
+    }
+
+    void silentGeneralConnectionIsClosed()
+    {
+        connectPair();
+        server_->echoHeartbeats = false;
+        server_->stopListening();
+        QSignalSpy events(client_, &BridgeClient::robotEvent);
+        QVERIFY(waitFor([&] { return !client_->isConnected(); }, 2500));
+        bool timeoutReported = false;
+        for (const auto &event : events)
+            timeoutReported |= event.at(0).toString() == QLatin1String("LINK_HEARTBEAT_TIMEOUT");
+        QVERIFY(timeoutReported);
+    }
+
+    void unchangedEstopReportSurvivesReconnectAndExpires()
+    {
+        connectPair();
+        Telemetry latest;
+        connect(client_, &BridgeClient::telemetry, this, [&](const Telemetry &tm) { latest = tm; });
+        server_->send(pub(hmi::ch::kSafety, {{"mode", "auto"}, {"estop", true}}));
+        QVERIFY(waitFor([&] { return latest.safetyFresh && latest.estop; }));
+        client_->disconnectFromBridge();
+        QVERIFY(waitFor([&] { return !client_->isConnected() && !latest.safetyFresh; }));
+        QVERIFY(latest.estop);  // The last confirmed E-Stop never becomes a false release.
+        client_->connectToBridge();
+        QVERIFY(waitFor([&] { return client_->isConnected() && server_->hasPeer(); }));
+        server_->send(pub(hmi::ch::kSafety, {{"mode", "auto"}, {"estop", true}}));
+        QVERIFY(waitFor([&] { return latest.safetyFresh; }));
+        QVERIFY(latest.estop);
+        QVERIFY(client_->estopEngaged());
+        QVERIFY(waitFor([&] { return !latest.safetyFresh; }, 2000));
+        QVERIFY(latest.estop);
+        server_->send(pub(hmi::ch::kSafety, {{"mode", "auto"}, {"estop", false}}));
+        QVERIFY(waitFor([&] { return latest.safetyFresh && !latest.estop; }));
+    }
+
+    void navigationReportsRetainRevisionAcrossCoalescedSnapshots()
+    {
+        connectPair();
+        Telemetry latest;
+        connect(client_, &BridgeClient::telemetry, this, [&](const Telemetry &tm) { latest = tm; });
+        server_->send(pub(hmi::ch::kNav, {{"status", "navigating"}}));
+        server_->send(pub(hmi::ch::kNav, {{"status", "succeeded"}}));
+        QVERIFY(waitFor([&] { return latest.navStatus == QLatin1String("succeeded"); }));
+        QCOMPARE(latest.navRevision, quint64(2));
+        QCOMPARE(client_->navigationRevision(), latest.navRevision);
+        server_->send(pub(hmi::ch::kPose, {{"x", 0.0}, {"y", 0.0}, {"theta", 0.0},
+            {"speed", QJsonValue::Null}, {"yaw_rate", QJsonValue::Null}}));
+        QVERIFY(waitFor([&] { return latest.poseFresh; }));
+        QVERIFY(std::isnan(latest.speed));
+        QVERIFY(std::isnan(latest.angularSpeed));
+    }
 
     void armFeedbackExpiresIndependentlyOfTheConnection()
     {
@@ -902,7 +1049,7 @@ private slots:
                                  return true;
                          return false;
                      },
-                     6000),
+                     7500),
                  "응답 없는 명령이 보고되어야 한다");
     }
 

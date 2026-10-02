@@ -73,7 +73,16 @@ if(BUILD_TESTING)
     set_tests_properties(navigation_speed PROPERTIES TIMEOUT 60)
     add_test(NAME navigation_control COMMAND ${Python3_EXECUTABLE}
         ${CMAKE_CURRENT_SOURCE_DIR}/test/test_navigation_control.py $<TARGET_FILE:hmi_bridge_node>)
-    set_tests_properties(navigation_control PROPERTIES TIMEOUT 60)
+    set_tests_properties(navigation_control PROPERTIES TIMEOUT 90)
+    add_test(NAME operation_storage COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/test_operation_storage.py $<TARGET_FILE:hmi_bridge_node>)
+    set_tests_properties(operation_storage PROPERTIES TIMEOUT 30)
+    add_test(NAME pose_freshness COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/test_pose_freshness.py $<TARGET_FILE:hmi_bridge_node>)
+    set_tests_properties(pose_freshness PROPERTIES TIMEOUT 30)
+    add_test(NAME operation_guards COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/test_operation_guards.py $<TARGET_FILE:hmi_bridge_node>)
+    set_tests_properties(operation_guards PROPERTIES TIMEOUT 60)
     add_executable(test_tcp_server
         test/test_tcp_server.cpp)
     target_include_directories(test_tcp_server PRIVATE

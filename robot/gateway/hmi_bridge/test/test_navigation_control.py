@@ -16,6 +16,9 @@ from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
+from shalom_interfaces.msg import SafetyState, MotionAuthority, SafetyEvent
+from shalom_interfaces.srv import SafetyCommand, AuthorityRequest
+from rclpy.qos import QoSProfile, DurabilityPolicy
 
 
 class NavigationControlTest(fixture.NavigationSpeedTest):
@@ -33,6 +36,11 @@ class NavigationControlTest(fixture.NavigationSpeedTest):
         self.publish_feedback = True
         self.goals = []
         self.holds = []
+        self.safety_accepts = self.authority_accepts = True
+        self.safety_reported = SafetyState.NORMAL
+        self.authority_reported = MotionAuthority.BASE_ACTIVE
+        self.report_dependencies = True
+        self.safety_requests, self.authority_requests, self.safety_events = [], [], []
         self.hold_sub = self.node.create_subscription(Twist, "/motion/manual_hold/cmd_vel",
                                                        self.holds.append, 10)
         self.nav_node = rclpy.create_node("navigation_control_test_server")
@@ -74,6 +82,30 @@ class NavigationControlTest(fixture.NavigationSpeedTest):
         self.worker = threading.Thread(target=self.executor.spin, daemon=True)
         self.worker.start()
         self.fake_controller()
+        transient = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.safety_pub = self.node.create_publisher(SafetyState, "/safety/state", transient)
+        self.authority_pub = self.node.create_publisher(MotionAuthority, "/motion/authority", transient)
+        self.node.create_subscription(SafetyEvent, "/safety/event", self.safety_events.append, 20)
+        def safety(request, response):
+            self.safety_requests.append(request)
+            response.accepted = self.safety_accepts
+            response.reason_code = "" if self.safety_accepts else "SAFETY_RESUME_GUARD_FAILED"
+            response.detail = "" if self.safety_accepts else "Safety rejected resume"
+            return response
+        def authority(request, response):
+            self.authority_requests.append(request)
+            response.accepted = self.authority_accepts
+            response.reason_code = "" if self.authority_accepts else "AUTHORITY_BUSY"
+            response.detail = "" if self.authority_accepts else "Authority rejected base"
+            return response
+        self.node.create_service(SafetyCommand, "/safety/command", safety)
+        self.node.create_service(AuthorityRequest, "/motion/authority/request", authority)
+        def report():
+            if self.report_dependencies:
+                self.safety_pub.publish(SafetyState(state=self.safety_reported,
+                    motion_permitted=self.safety_reported == SafetyState.NORMAL))
+                self.authority_pub.publish(MotionAuthority(state=self.authority_reported, owner="hmi_bridge"))
+        self.dependency_timer = self.node.create_timer(0.05, report)
         self.expect_applied(0.3, 0.5)
         self.spin_for(0.3)
 
@@ -212,6 +244,78 @@ class NavigationControlTest(fixture.NavigationSpeedTest):
             self.node.destroy_service(service)
         self.receive(lambda e: e.get("ch") == "state/nav" and
                      e["p"].get("navigation_state") == "unknown")
+
+    def test_safety_and_authority_denials_do_not_send_nav2_goal(self):
+        for dependency in ("safety", "authority"):
+            with self.subTest(dependency=dependency):
+                self.safety_accepts = dependency != "safety"
+                self.authority_accepts = dependency != "authority"
+                result = self.request({"x": 1.0, "y": 2.0}, "cmd/goto")
+                self.assertFalse(result["ok"])
+                self.assertEqual(result["err"]["code"],
+                    "SAFETY_RESUME_GUARD_FAILED" if dependency == "safety" else "AUTHORITY_BUSY")
+                self.assertEqual(self.goals, [])
+                self.nav_state("rejected")
+
+    def test_accepted_services_still_wait_for_typed_normal_and_base_active(self):
+        self.safety_reported = SafetyState.CONTROLLED_STOP
+        self.authority_reported = MotionAuthority.ARM_ACTIVE
+        self.spin_for(0.2)
+        result = self.request({"x": 1.0, "y": 2.0}, "cmd/goto")
+        self.assertFalse(result["ok"])
+        self.assertIn("시간 초과", result["err"]["msg"])
+        self.assertEqual(self.goals, [])
+        self.safety_reported = SafetyState.NORMAL
+        self.authority_reported = MotionAuthority.BASE_ACTIVE
+        self.spin_for(0.2)
+        self.assertTrue(self.request({"x": 1.0, "y": 2.0}, "cmd/goto")["ok"])
+        self.nav_state("navigating")
+
+    def test_disconnect_requests_safety_stop_and_pauses_current_goal(self):
+        target = {"x": 1.0, "y": 2.0, "theta": 0.2}
+        self.assertTrue(self.request(target, "cmd/goto")["ok"])
+        self.peer.close()
+        self.peer = None
+        self.spin_for(0.4)
+        self.assertTrue(any(event.event == SafetyEvent.REQUEST_STOP for event in self.safety_events))
+        self.assertTrue(self.holds)
+        # The bridge remains alive and no second action goal is sent by a stale callback.
+        self.assertIsNone(self.process.poll())
+        self.assertEqual(len(self.goals), 1)
+
+    def test_safety_hold_pauses_goal_and_resume_waits_for_permissions(self):
+        target = {"x": 1.0, "y": 2.0, "theta": 0.2}
+        self.assertTrue(self.request(target, "cmd/goto")["ok"])
+        self.safety_reported = SafetyState.CONTROLLED_STOP
+        self.assertEqual(self.nav_state("paused")["goal"], target)
+        self.safety_accepts = False
+        self.assertFalse(self.request({}, "cmd/nav_resume")["ok"])
+        self.assertEqual(self.nav_state("paused")["goal"], target)
+        self.safety_accepts = True
+        self.safety_reported = SafetyState.NORMAL
+        self.assertTrue(self.request({}, "cmd/nav_resume")["ok"])
+        self.nav_state("navigating")
+        self.spin_for(0.1)
+        self.assertEqual(len(self.goals), 2)
+
+    def test_stale_safety_and_authority_pause_existing_goal(self):
+        target = {"x": 1.0, "y": 2.0, "theta": 0.2}
+        self.assertTrue(self.request(target, "cmd/goto")["ok"])
+        self.report_dependencies = False
+        self.assertEqual(self.nav_state("paused")["goal"], target)
+        self.receive(lambda e: e.get("ch") == "state/safety" and not e["p"].get("state_fresh"))
+        self.assertEqual(len(self.goals), 1)
+
+    def test_cancel_during_permission_wait_never_sends_action_goal(self):
+        self.safety_reported = SafetyState.CONTROLLED_STOP
+        self.spin_for(0.2)
+        self.send_without_waiting("cmd/goto", {"x": 1.0, "y": 2.0})
+        self.nav_state("accepting")
+        self.assertTrue(self.request({}, "cmd/nav_cancel")["ok"])
+        self.nav_state("canceled")
+        self.safety_reported = SafetyState.NORMAL
+        self.spin_for(0.3)
+        self.assertEqual(self.goals, [])
 
 
 if __name__ == "__main__":

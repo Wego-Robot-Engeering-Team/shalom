@@ -12,6 +12,7 @@
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QPointer>
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QScrollArea>
@@ -54,6 +55,23 @@ double wrapNear(double v, double ref)
     while (ref - v > M_PI)
         v += 2 * M_PI;
     return v;
+}
+
+QVariantList editedJointPositions(const QVariantList &original,
+                                 const QList<QDoubleSpinBox *> &editors,
+                                 const QVariantList &initialValues)
+{
+    QVariantList positions;
+    for (int i = 0; i < editors.size(); ++i) {
+        if (i < original.size() && i < initialValues.size() &&
+            editors.at(i)->value() == initialValues.at(i).toDouble())
+            positions << original.at(i);
+        else
+            positions << qBound(kFr3Joints.at(i).lo,
+                                qDegreesToRadians(editors.at(i)->value()),
+                                kFr3Joints.at(i).hi);
+    }
+    return positions;
 }
 
 }  // namespace
@@ -393,7 +411,8 @@ void ArmPanel::rebuildPoseList()
             joints << row->findChild<QDoubleSpinBox *>(QStringLiteral("PoseRowJoint%1").arg(i))->value();
         poseDrafts_[it.key()] = {{"name", row->findChild<QLineEdit *>(QStringLiteral("PoseRowName"))->text()},
             {"description", row->findChild<QLineEdit *>(QStringLiteral("PoseRowDescription"))->text()},
-            {"joints", joints}, {"base", row->property("editBase")}, {"editing", row->isEditing()}};
+            {"joints", joints}, {"base", row->property("editBase")},
+            {"initialJoints", row->property("editJointValues")}, {"editing", row->isEditing()}};
     }
     const QString selectedId = savedPresets_->currentItem()
         ? savedPresets_->currentItem()->data(Qt::UserRole).toString() : QString{};
@@ -479,9 +498,14 @@ void ArmPanel::rebuildPoseList()
             item->setSizeHint(QSize(0, row->sizeHint().height()));
             savedPresets_->doItemsLayout();
         };
-        connect(row->editButton(), &QPushButton::clicked, this, [this, row, pose, resizeItem] {
-            if (!row->property("draftActive").toBool())
+        connect(row->editButton(), &QPushButton::clicked, this, [this, item, row, pose, jointsEditor, resizeItem] {
+            if (!row->property("draftActive").toBool()) {
                 row->setProperty("editBase", pose);
+                QVariantList initialValues;
+                for (const auto *spin : jointsEditor)
+                    initialValues << spin->value();
+                row->setProperty("editJointValues", initialValues);
+            }
             row->setProperty("draftActive", true);
             for (int i = 0; i < savedPresets_->count(); ++i) {
                 auto *otherItem = savedPresets_->item(i);
@@ -492,6 +516,8 @@ void ArmPanel::rebuildPoseList()
                 }
             }
             row->setEditing(true);
+            savedPresets_->setCurrentItem(item);
+            previewPoseEditor(row);
             resizeItem();
         });
         connect(cancel, &QPushButton::clicked, this, [this, id, row] {
@@ -531,12 +557,9 @@ void ArmPanel::rebuildPoseList()
             QVariantMap updated = base.isEmpty() ? *it : base;
             updated[QStringLiteral("name")] = newName;
             updated[QStringLiteral("description")] = newDescription;
-            QVariantList values;
-            for (int i = 0; i < jointsEditor.size(); ++i)
-                values << qBound(kFr3Joints.at(i).lo,
-                                 qDegreesToRadians(jointsEditor.at(i)->value()),
-                                 kFr3Joints.at(i).hi);
-            updated[QStringLiteral("positions")] = values;
+            updated[QStringLiteral("positions")] = editedJointPositions(
+                updated.value(QStringLiteral("positions")).toList(), jointsEditor,
+                row->property("editJointValues").toList());
             pendingPoseUpdateId_ = id;
             pendingPoseChannel_ = QStringLiteral("cmd/arm/pose_presets/update");
             row->setPending(true);
@@ -544,25 +567,47 @@ void ArmPanel::rebuildPoseList()
             emit updatePosePresetRequested(
                 updated, updated.value(QStringLiteral("revision"), quint64{1}).toULongLong());
         });
-        connect(remove, &QPushButton::clicked, this, [this, id, row] {
-            if (!pendingPoseChannel_.isEmpty())
+        connect(remove, &QPushButton::clicked, this, [this, id] {
+            if (!controlsEnabled_ || !pendingPoseChannel_.isEmpty())
                 return;
             const auto it = std::find_if(posePresets_.cbegin(), posePresets_.cend(),
                 [&id](const QVariantMap &entry) {
                     return entry.value(QStringLiteral("id")).toString() == id;
                 });
-            if (it == posePresets_.cend() || QMessageBox::question(
+            if (it == posePresets_.cend())
+                return;
+            const QString targetId = id;
+            const quint64 revision = it->value(QStringLiteral("revision"), quint64{1}).toULongLong();
+            const QString targetName = it->value(QStringLiteral("name")).toString();
+            const QPointer<ArmPanel> panel(this);
+            const quint64 contextGeneration = poseContextGeneration_;
+            if (QMessageBox::question(
                 this, QStringLiteral("자세 삭제"),
                 QStringLiteral("'%1' 자세를 삭제하시겠습니까?")
-                    .arg(it->value(QStringLiteral("name")).toString()),
+                    .arg(targetName),
                 QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
                 return;
-            row->setPending(true);
-            pendingPoseUpdateId_ = id;
+            if (!panel || poseContextGeneration_ != contextGeneration ||
+                !controlsEnabled_ || !pendingPoseChannel_.isEmpty())
+                return;
+            const auto current = std::find_if(posePresets_.cbegin(), posePresets_.cend(),
+                [&targetId](const QVariantMap &entry) {
+                    return entry.value(QStringLiteral("id")).toString() == targetId;
+                });
+            if (current == posePresets_.cend() || current->value(QStringLiteral("archived")).toBool() ||
+                current->value(QStringLiteral("revision"), quint64{1}).toULongLong() != revision) {
+                commandStatus_->setText(QStringLiteral("자세가 변경되었습니다. 다시 확인하십시오."));
+                commandStatus_->setProperty("tone", "danger");
+                theme::repolish(commandStatus_);
+                commandStatus_->show();
+                return;
+            }
+            if (auto *currentRow = poseRows_.value(targetId, nullptr))
+                currentRow->setPending(true);
+            pendingPoseUpdateId_ = targetId;
             pendingPoseChannel_ = QStringLiteral("cmd/arm/pose_presets/archive");
             refreshCommandControls();
-            emit archivePosePresetRequested(
-                id, it->value(QStringLiteral("revision"), quint64{1}).toULongLong());
+            emit archivePosePresetRequested(targetId, revision);
         });
         connect(row->applyButton(), &QPushButton::clicked, this,
                 [this, id] { applySavedPose(id); });
@@ -570,6 +615,7 @@ void ArmPanel::rebuildPoseList()
             const auto draft = poseDrafts_.value(id);
             row->setProperty("draftActive", true);
             row->setProperty("editBase", draft.value("base"));
+            row->setProperty("editJointValues", draft.value("initialJoints"));
             name->setText(draft.value("name").toString());
             description->setText(draft.value("description").toString());
             const auto values = draft.value("joints").toList();
@@ -579,14 +625,10 @@ void ArmPanel::rebuildPoseList()
             item->setSizeHint(QSize(0, row->sizeHint().height()));
         }
         for (auto *spin : jointsEditor)
-            connect(spin, &QDoubleSpinBox::valueChanged, this, [this, row, jointsEditor](double) {
+            connect(spin, &QDoubleSpinBox::valueChanged, this, [this, row](double) {
                 if (!row->isEditing())
                     return;
-                syncing_ = true;
-                for (int i = 0; i < jointsEditor.size(); ++i)
-                    sliders_.at(i)->setCommand(qDegreesToRadians(jointsEditor.at(i)->value()));
-                syncing_ = false;
-                onSliderMoved();
+                previewPoseEditor(row);
             });
         if (id == selectedId)
             savedPresets_->setCurrentItem(item);
@@ -605,8 +647,27 @@ void ArmPanel::updatePoseRows()
     }
 }
 
+void ArmPanel::previewPoseEditor(CatalogRow *row)
+{
+    QList<QDoubleSpinBox *> editors;
+    for (int i = 1; i <= robot::kArmJointCount; ++i)
+        editors << row->findChild<QDoubleSpinBox *>(QStringLiteral("PoseRowJoint%1").arg(i));
+    const auto positions = editedJointPositions(
+        row->property("editBase").toMap().value(QStringLiteral("positions")).toList(),
+        editors, row->property("editJointValues").toList());
+    syncing_ = true;
+    for (int i = 0; i < positions.size(); ++i)
+        sliders_.at(i)->setCommand(positions.at(i).toDouble());
+    syncing_ = false;
+    onSliderMoved();
+}
+
 void ArmPanel::previewSavedPose(const QString &id)
 {
+    if (auto *row = poseRows_.value(id, nullptr); row && row->property("draftActive").toBool()) {
+        previewPoseEditor(row);
+        return;
+    }
     const auto it = std::find_if(posePresets_.cbegin(), posePresets_.cend(),
         [&id](const QVariantMap &entry) {
             return entry.value(QStringLiteral("id")).toString() == id &&
@@ -746,6 +807,7 @@ void ArmPanel::setFeedbackFresh(bool fresh)
 
 void ArmPanel::clearReportedState()
 {
+    ++poseContextGeneration_;
     for (auto *row : std::as_const(poseRows_))
         row->setProperty("draftActive", false);
     poseDrafts_.clear();

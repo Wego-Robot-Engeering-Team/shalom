@@ -26,6 +26,19 @@
           "type": "navigate"
         }
       ]
+    },
+    {
+      "archived": false,
+      "id": "b3202b3d30bd408c9da61e2faf6fe1cb",
+      "name": "주행용",
+      "revision": 2,
+      "steps": [
+        {
+          "id": "step-1",
+          "pose": "4f282540b43244d6be5ad98c5d6f1f4f",
+          "type": "arm_move"
+        }
+      ]
     }
   ]
 }

@@ -9,6 +9,7 @@
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QProgressBar>
 #include <QSignalSpy>
 #include <QStackedWidget>
 #include <QTest>
@@ -41,6 +42,84 @@ QVariantMap mission(const QVariantList &steps)
 class MissionTest : public QObject {
     Q_OBJECT
 private slots:
+    void missionExecutionAndEditingLockDuringMapSwitch()
+    {
+        MissionLibraryPanel panel;
+        panel.setMapId(QStringLiteral("map-1"));
+        panel.setMissions({mission({QVariantMap{{"id", "move-1"}, {"type", "navigate"},
+                                             {"location_id", "wp-1"}}})});
+        panel.setExecutionEnabled(false, QStringLiteral("지도 전환 중"));
+        panel.setEditingEnabled(false);
+        auto *list = panel.findChild<QListWidget *>(QStringLiteral("MissionList"));
+        auto *run = list->itemWidget(list->item(0))->findChild<QPushButton *>(QStringLiteral("MissionRun_inspection-1"));
+        auto *edit = list->itemWidget(list->item(0))->findChild<QPushButton *>(QStringLiteral("MissionEdit_inspection-1"));
+        QVERIFY(run && edit);
+        QVERIFY(!run->isEnabled());
+        QVERIFY(!edit->isEnabled());
+        QSignalSpy requested(&panel, &MissionLibraryPanel::runRequested);
+        run->click();
+        QCOMPARE(requested.size(), 0);
+        panel.setExecutionEnabled(true);
+        panel.setEditingEnabled(true);
+        run = list->itemWidget(list->item(0))->findChild<QPushButton *>(QStringLiteral("MissionRun_inspection-1"));
+        QVERIFY(run->isEnabled());
+    }
+
+    void missingOrArchivedArmPoseCannotBeSaved()
+    {
+        for (bool archived : {false, true}) {
+            MissionLibraryPanel panel;
+            panel.setMapId(QStringLiteral("map-1"));
+            if (archived)
+                panel.setArmPosePresets({QVariantMap{{"id", "inspection-a"}, {"archived", true}}});
+            panel.setMissions({mission({QVariantMap{{"id", "arm-1"}, {"type", "arm_move"},
+                                                  {"pose", "inspection-a"}}})});
+            panel.findChild<QPushButton *>(QStringLiteral("MissionEdit_inspection-1"))->click();
+            QSignalSpy saved(&panel, &MissionLibraryPanel::saveRequested);
+            button(panel, QStringLiteral("저장"))->click();
+            QCOMPARE(saved.size(), 0);
+        }
+    }
+
+    void cancelledReadyMissionOffersExplicitStartRetry()
+    {
+        MissionPanel panel;
+        panel.setProgress(QStringLiteral("점검"), -1, 3, {});
+        panel.setMissionState(QStringLiteral("ready"));
+        panel.setMissionDetails(QStringLiteral("MISSION_START_CANCELLED_BY_SAFETY"), QStringLiteral("안전 정지"));
+        auto *retry = button(panel, QStringLiteral("미션 다시 시작"));
+        auto *reason = panel.findChild<QLabel *>(QStringLiteral("MissionReason"));
+        QVERIFY(retry && retry->isEnabled());
+        QVERIFY(reason->text().contains(QStringLiteral("안전 정지")));
+        QSignalSpy requested(&panel, &MissionPanel::missionRetry);
+        retry->click();
+        retry->click();
+        QCOMPARE(requested.size(), 1);
+        QVERIFY(!retry->isEnabled());
+        panel.setCommandPending(false);
+        panel.setControlAvailability(false, QStringLiteral("내비게이션 준비 중"));
+        QVERIFY(!retry->isEnabled());
+    }
+
+    void finalDockRetainsCompletedNavigationCount()
+    {
+        MissionPanel panel;
+        panel.setProgress(QStringLiteral("점검"), 2, 3, {});
+        panel.setMissionState(QStringLiteral("running"));
+        auto *progress = panel.findChild<QProgressBar *>();
+        QCOMPARE(progress->value(), 66);
+        panel.setProgress(QStringLiteral("점검"), -1, 3, {});
+        panel.setMissionState(QStringLiteral("returning"));
+        QCOMPARE(progress->value(), 100);
+        bool countFound = false;
+        for (const auto *label : panel.findChildren<QLabel *>())
+            countFound |= label->text() == QStringLiteral("3 / 3 단계 완료");
+        QVERIFY(countFound);
+        // Mid-mission dock detours retain the current waypoint index.
+        panel.setProgress(QStringLiteral("점검"), 1, 3, {});
+        QCOMPARE(progress->value(), 33);
+    }
+
     void mapSwitchClearsPreviousMissionList()
     {
         MissionLibraryPanel panel;
@@ -73,6 +152,7 @@ private slots:
     {
         MissionLibraryPanel panel;
         panel.setMapId(QStringLiteral("map-1"));
+        panel.setWaypoints({QVariantMap{{"id", "wp-1"}, {"name", "입구"}}});
         panel.setMissions({mission({QVariantMap{{"id", "move-1"}, {"type", "navigate"},
                                          {"location_id", "wp-1"}},
                                     QVariantMap{{"id", "photo-1"}, {"type", "capture"},
@@ -98,6 +178,7 @@ private slots:
     {
         MissionLibraryPanel panel;
         panel.setMapId(QStringLiteral("map-1"));
+        panel.setArmPosePresets({QVariantMap{{"id", "inspection-a"}, {"name", "점검"}, {"archived", false}}});
         panel.setMissions({mission({QVariantMap{{"id", "arm-1"}, {"type", "arm_move"},
                                          {"pose", "inspection-a"}}})});
         auto *edit = panel.findChild<QPushButton *>(QStringLiteral("MissionEdit_inspection-1"));
@@ -117,6 +198,7 @@ private slots:
     {
         MissionLibraryPanel panel;
         panel.setMapId(QStringLiteral("map-1"));
+        panel.setWaypoints({QVariantMap{{"id", "wp-1"}, {"name", "입구"}}});
         QVariantMap stored = mission({QVariantMap{{"id", "move-1"}, {"type", "navigate"},
                                                 {"location_id", "wp-1"},
                                                 {"requires", QStringList{QStringLiteral("nav")}}}});
@@ -160,6 +242,8 @@ private slots:
     {
         MissionLibraryPanel panel;
         panel.setMapId(QStringLiteral("map-1"));
+        panel.setWaypoints({QVariantMap{{"id", "wp-1"}, {"name", "입구"}},
+                            QVariantMap{{"id", "wp-2"}, {"name", "후면"}}});
         panel.setMissions({mission({QVariantMap{{"id", "first"}, {"type", "navigate"},
                                          {"location_id", "wp-1"}},
                                     QVariantMap{{"id", "second"}, {"type", "navigate"},
@@ -184,6 +268,7 @@ private slots:
     {
         MissionLibraryPanel panel;
         panel.setMapId(QStringLiteral("map-1"));
+        panel.setWaypoints({QVariantMap{{"id", "wp-1"}, {"name", "입구"}}});
         const QVariantMap stored = mission({QVariantMap{{"id", "move-1"},
             {"type", "navigate"}, {"location_id", "wp-1"}}});
         panel.setMissions({stored});
@@ -208,6 +293,9 @@ private slots:
         panel.setMissions({updated});
         auto *pages = panel.findChild<QStackedWidget *>(QStringLiteral("MissionLibraryPages"));
         QVERIFY(pages);
+        QCOMPARE(pages->currentIndex(), 1);
+        QCOMPARE(name->text(), QStringLiteral("수정 중인 이름"));
+        panel.handleCommandResult(QStringLiteral("cmd/missions/save"), true, {}, {});
         QCOMPARE(pages->currentIndex(), 0);
         auto *list = panel.findChild<QListWidget *>(QStringLiteral("MissionList"));
         edit = list && list->count()
@@ -219,6 +307,73 @@ private slots:
         save->click();
         QCOMPARE(saves.size(), 2);
         QCOMPARE(saves.last().at(1).toULongLong(), 2ULL);
+    }
+
+    void competingRevisionDoesNotConfirmSaveOrDiscardDraft()
+    {
+        MissionLibraryPanel panel;
+        panel.setMapId(QStringLiteral("map-1"));
+        panel.setWaypoints({QVariantMap{{"id", "wp-1"}, {"name", "입구"}}});
+        auto stored = mission({QVariantMap{{"id", "move-1"}, {"type", "navigate"},
+                                           {"location_id", "wp-1"}}});
+        panel.setMissions({stored});
+        panel.findChild<QPushButton *>(QStringLiteral("MissionEdit_inspection-1"))->click();
+        auto *name = panel.findChild<QLineEdit *>(QStringLiteral("MissionName"));
+        name->setText(QStringLiteral("내 초안"));
+        auto *save = button(panel, QStringLiteral("저장"));
+        save->click();
+        stored[QStringLiteral("revision")] = 2;
+        stored[QStringLiteral("name")] = QStringLiteral("다른 변경");
+        panel.setMissions({stored});
+        auto *pages = panel.findChild<QStackedWidget *>(QStringLiteral("MissionLibraryPages"));
+        QCOMPARE(pages->currentIndex(), 1);
+        QCOMPARE(name->text(), QStringLiteral("내 초안"));
+        auto *status = panel.findChild<QLabel *>(QStringLiteral("MissionLibraryStatus"));
+        QVERIFY(!status->text().contains(QStringLiteral("완료")));
+        panel.handleCommandResult(QStringLiteral("cmd/missions/save"), false,
+                                  QStringLiteral("E_BUSY"), QStringLiteral("revision 충돌"));
+        QCOMPARE(pages->currentIndex(), 1);
+        QCOMPARE(name->text(), QStringLiteral("내 초안"));
+        QVERIFY(save->isEnabled());
+    }
+
+    void saveAckWaitsForMatchingCatalog()
+    {
+        MissionLibraryPanel panel;
+        panel.setMapId(QStringLiteral("map-1"));
+        panel.setWaypoints({QVariantMap{{"id", "wp-1"}, {"name", "입구"}}});
+        auto stored = mission({QVariantMap{{"id", "move-1"}, {"type", "navigate"},
+                                           {"location_id", "wp-1"}}});
+        panel.setMissions({stored});
+        panel.findChild<QPushButton *>(QStringLiteral("MissionEdit_inspection-1"))->click();
+        panel.findChild<QLineEdit *>(QStringLiteral("MissionName"))->setText(QStringLiteral("내 초안"));
+        auto *save = button(panel, QStringLiteral("저장"));
+        save->click();
+        panel.handleCommandResult(QStringLiteral("cmd/missions/save"), true, {}, {});
+        auto *pages = panel.findChild<QStackedWidget *>(QStringLiteral("MissionLibraryPages"));
+        QCOMPARE(pages->currentIndex(), 1);
+        QVERIFY(!save->isEnabled());
+        stored[QStringLiteral("revision")] = 2;
+        stored[QStringLiteral("name")] = QStringLiteral("다른 변경");
+        panel.setMissions({stored});
+        QCOMPARE(pages->currentIndex(), 1);
+        stored[QStringLiteral("name")] = QStringLiteral("내 초안");
+        panel.setMissions({stored});
+        QCOMPARE(pages->currentIndex(), 0);
+    }
+
+    void missingWaypointCannotBeSaved()
+    {
+        MissionLibraryPanel panel;
+        panel.setMapId(QStringLiteral("map-1"));
+        panel.setMissions({mission({QVariantMap{{"id", "move-1"}, {"type", "navigate"},
+                                              {"location_id", "missing"}}})});
+        panel.findChild<QPushButton *>(QStringLiteral("MissionEdit_inspection-1"))->click();
+        QSignalSpy saves(&panel, &MissionLibraryPanel::saveRequested);
+        button(panel, QStringLiteral("저장"))->click();
+        QCOMPARE(saves.size(), 0);
+        QVERIFY(panel.findChild<QLabel *>(QStringLiteral("MissionLibraryStatus"))->text()
+                    .contains(QStringLiteral("웨이포인트가 없습니다")));
     }
 
     void stepTargetCanBeChosenByWaypointName()

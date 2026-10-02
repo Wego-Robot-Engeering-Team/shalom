@@ -9,11 +9,9 @@
 // run ROS 2: it connects over a single raw TCP socket, and everything it sees
 // or commands passes through here. See docs/bridge_protocol.md.
 //
-// SAFETY IS NOT THIS NODE'S JOB
-// -----------------------------
-// The one-second communication-loss stop and the emergency-stop ingress are
-// owned by estop_bridge and safety_manager. A healthy telemetry/map connection
-// must never be able to mask a failed E-Stop connection.
+// Safety transitions remain owned by safety_manager. This adapter emits an
+// existing typed stop event on general-channel loss and pauses its goals;
+// estop_bridge independently owns E-Stop ingress and heartbeat supervision.
 //
 // THREADING
 // ---------
@@ -49,6 +47,7 @@
 #include <shalom_interfaces/msg/mission_state.hpp>
 #include <shalom_interfaces/msg/motion_authority.hpp>
 #include <shalom_interfaces/msg/safety_state.hpp>
+#include <shalom_interfaces/msg/safety_event.hpp>
 #include <shalom_interfaces/srv/authority_request.hpp>
 #include <shalom_interfaces/srv/configure_mission.hpp>
 #include <shalom_interfaces/srv/mission_control.hpp>
@@ -104,6 +103,7 @@ private:
     void publishSafety();
     void requestBaseAuthority();
     void requestSafetyResume();
+    void requestSafetyStop(const std::string &reason, const std::string &detail);
     [[nodiscard]] bool estopActive() const;
 
     // ---- telemetry -------------------------------------------------------
@@ -172,6 +172,10 @@ private:
     // says, because a second opinion on whether a goal is reachable is one the
     // operator has no way to adjudicate.
     void startNavigation(const Envelope &request, bool resume = false);
+    void sendPreparedNavigation(uint64_t generation, bool resume);
+    void tickNavigationPreparation();
+    void finishNavigationPreparation(const std::string &code, const std::string &detail);
+    void clearNavigationPreparation();
     bool navigationBusy() const;
     void stopNavigation(bool pause);
     void requestNavigationCancel();
@@ -238,8 +242,7 @@ private:
     // ---- operator-owned lists ----------------------------------------------
     //
     // Waypoints, dock and home, and the battery policy are set by the operator
-    // and belong to the robot: it has to keep driving to them when the station
-    // disconnects. The bridge holds them and echoes them back on their state
+    // and belong to the robot. The bridge holds them and echoes their state
     // channels so a station that reconnects, or a second one that replaces the
     // first, sees what the robot is actually working from rather than its own
     // last edit.
@@ -253,6 +256,7 @@ private:
     void loadSelectedMap(const Envelope &request, const std::string &id, bool from_slam);
     void switchFromSlam(const Envelope &request, const std::string &id);
     void restoreSlam(const Envelope &request, const std::string &reason);
+    void finishMapTransition(bool ok, const std::string &detail = {});
     bool loadMapBundle(const std::string &map_id, std::string *error = nullptr,
                        bool validate_only = false);
     bool saveMapState(const char *filename, const json &state);
@@ -264,6 +268,7 @@ private:
     std::optional<shalom_interfaces::msg::MissionPlan> makeMissionPlan(
         const json *mission = nullptr, std::string *error = nullptr);
     void configureAndStartMission(const Envelope &request);
+    void finishMissionStart(bool ok, const std::string &code = {}, const std::string &detail = {});
     void sendMissionControl(const Envelope &request, uint8_t operation);
     void pauseMissionForManualTakeover();
     void onMissionState(const shalom_interfaces::msg::MissionState::SharedPtr message);
@@ -278,6 +283,7 @@ private:
     void handleCapture(const Envelope &request);
 
     /// 지금 움직이고 있는지. 과업지시서 2.2.4 가 정지 상태 촬영을 요구한다.
+    bool motionFeedbackFresh() const;
     bool isMoving() const;
 
     /// 깊이 이미지 한가운데의 거리(mm). 못 읽으면 음수.
@@ -324,6 +330,11 @@ private:
     TcpServer server_;
     bool estopEngaged_ = false;
     std::string safetyState_{"unknown"};
+    bool safetyMotionPermitted_ = false;
+    std::string safetyReasonCode_, safetyDetail_;
+    std::chrono::steady_clock::time_point safetyReceived_{}, authorityReceived_{};
+    bool linkHold_ = false;
+    bool linkMissionResumePending_ = false;
     bool manualMode_ = false;
     std::int64_t seq_ = 0;
 
@@ -339,6 +350,11 @@ private:
     std::chrono::steady_clock::time_point pendingGotoAt_;
     bool navGoalPending_ = false;
     uint64_t navGeneration_ = 0;
+    bool navPreparing_ = false;
+    bool navPreparingResume_ = false;
+    bool navSafetyAccepted_ = false, navAuthorityAccepted_ = false;
+    std::optional<int64_t> navSafetyRequestId_, navAuthorityRequestId_;
+    std::string navReadyReason_, navReadyDetail_;
 
     std::vector<Sensor> sensors_;
 
@@ -369,19 +385,31 @@ private:
     std::string mapId_ = "live";
     std::string pendingMapId_;
     bool pendingMapPublication_ = false;
+    std::optional<Envelope> pendingMapRequest_;
+    std::chrono::steady_clock::time_point pendingMapAt_{};
+    uint64_t mapTransitionGeneration_ = 0;
+    std::optional<int64_t> mapLoadRequestId_, mapLocalizationRequestId_, mapSlamRequestId_;
+    bool mapTransitionUncertain_ = false;
     std::string mapsDir_ = "/var/lib/shalom/maps";
     std::string robotDataDir_ = "/var/lib/shalom";
 
     json waypoints_ = json::array();
     json missions_ = json::array();
     json armPosePresets_ = json::array();
+    bool armPosePresetsLoadInvalid_ = false;
     json markers_ = json::array();
     bool wasConnected_ = false;
+    uint64_t linkGeneration_ = 0;
 
     shalom_interfaces::msg::MissionState missionState_;
     bool haveMissionState_ = false;
     uint64_t missionPlanRevision_ = 0;
     uint64_t rosRequestSequence_ = 0;
+    bool missionStartPending_ = false;
+    uint64_t missionStartGeneration_ = 0;
+    std::optional<Envelope> missionStartRequest_;
+    std::optional<int64_t> missionConfigureRequestId_, missionStartControlRequestId_;
+    std::chrono::steady_clock::time_point missionStartAt_{};
 
     // 로봇 식별자. 지금은 한 대뿐이라 화면에 이름을 띄우는 데만 쓰지만,
     // 여러 대가 되면 관제가 어느 로봇의 값인지 가르는 근거가 된다. 나중에
@@ -402,12 +430,19 @@ private:
     double lastPoseX_ = 0.0;
     double lastPoseY_ = 0.0;
     double lastPoseTheta_ = 0.0;
+    // Source TF time, not the wall timer's polling time. A repeated cached
+    // transform cannot renew pose or stationary-state confirmation.
     rclcpp::Time lastPoseAt_;
+    std::chrono::steady_clock::time_point lastPoseReceived_{};
     sensor_msgs::msg::Image::ConstSharedPtr lastColor_;
     sensor_msgs::msg::Image::ConstSharedPtr lastDepth_;
+    std::chrono::steady_clock::time_point lastColorReceived_{}, lastDepthReceived_{};
+    double captureMaxImageAge_ = 1.0;
+    double captureMaxSyncDifference_ = 0.1;
     double speedLinear_ = 0.0;
     double speedAngular_ = 0.0;
     rclcpp::Time lastOdomAt_;
+    std::chrono::steady_clock::time_point lastOdomReceived_{};
 
     std::string spoolDir_;
     std::string captureMountPoint_;
@@ -486,6 +521,7 @@ private:
     rclcpp::Client<shalom_interfaces::srv::ConfigureMission>::SharedPtr missionConfigureClient_;
     rclcpp::Client<shalom_interfaces::srv::MissionControl>::SharedPtr missionControlClient_;
     rclcpp::Client<shalom_interfaces::srv::SafetyCommand>::SharedPtr safetyCommandClient_;
+    rclcpp::Publisher<shalom_interfaces::msg::SafetyEvent>::SharedPtr safetyEventPub_;
     rclcpp::Client<shalom_interfaces::srv::AuthorityRequest>::SharedPtr authorityRequestClient_;
 
     rclcpp::Subscription<sensor_msgs::msg::BatteryState>::SharedPtr batterySub_;

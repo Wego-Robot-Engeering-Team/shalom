@@ -52,6 +52,82 @@ class TestMapView : public QObject {
 
 private slots:
 
+    void sameMapUpdatePreservesViewport()
+    {
+        MapView v;
+        v.resize(640, 360);
+        v.show();
+        QTest::qWait(1);
+        v.setMap(testMap(), testImage());
+        v.scale(3, 3);
+        v.centerOn(100, 80);
+        const QTransform transform = v.transform();
+        const QPointF center = v.mapToScene(v.viewport()->rect().center());
+        v.setMap(testMap(), testImage());
+        QCOMPARE(v.transform(), transform);
+        QCOMPARE(v.mapToScene(v.viewport()->rect().center()), center);
+    }
+
+    void growingMapPreservesWorldViewportAndOverlays()
+    {
+        MapView v;
+        v.resize(640, 360);
+        v.show();
+        QTest::qWait(1);
+        const MapInfo original = testMap();
+        v.setMap(original, testImage());
+        v.scale(3, 3);
+        v.centerOn(100, 80);
+        double x = 0, y = 0;
+        const QPointF center = v.mapToScene(v.viewport()->rect().center());
+        original.toWorld(center.x(), center.y(), x, y);
+        const double pixelsPerMetre = v.transform().m11() / original.resolution;
+        v.setRobotPose(1, 2, 0);
+        v.setGoal(3, 4, 0);
+        v.setDraftGoal({{"x", 1.0}, {"y", 2.0}, {"theta", 0.0}});
+        v.setWaypoints({QVariantMap{{"id", "a"}, {"x", 1.0}, {"y", 2.0}}});
+        v.setTags({QVariantMap{{"id", 1}, {"x", 1.0}, {"y", 2.0}}});
+        v.setTrail({QPointF(1, 2), QPointF(3, 4)});
+
+        MapInfo next = original;
+        next.width = 1000;
+        next.height = 600;
+        next.resolution = 0.025;
+        next.originX = -12;
+        next.originY = -7;
+        QImage image(next.width, next.height, QImage::Format_RGB32);
+        image.fill(Qt::white);
+        v.setMap(next, image);
+        const QPointF updated = v.mapToScene(v.viewport()->rect().center());
+        double newX = 0, newY = 0;
+        next.toWorld(updated.x(), updated.y(), newX, newY);
+        QVERIFY(std::hypot(newX - x, newY - y) < 0.02);
+        QVERIFY(std::abs(v.transform().m11() / next.resolution - pixelsPerMetre) < 1e-6);
+        const QPointF expected = next.toScene(1, 2);
+        for (auto *item : v.scene()->items()) {
+            if (dynamic_cast<RobotMarker *>(item) || dynamic_cast<WaypointMarker *>(item) ||
+                dynamic_cast<AprilTagMarker *>(item))
+                QCOMPARE(item->pos(), expected);
+            if (auto *path = dynamic_cast<QGraphicsPathItem *>(item); path && !path->path().isEmpty())
+                QCOMPARE(path->path().pointAtPercent(0), expected);
+        }
+    }
+
+    void differentMapFitsViewport()
+    {
+        MapView v;
+        v.resize(640, 360);
+        v.show();
+        QTest::qWait(1);
+        v.setMap(testMap(), testImage());
+        const double fitted = v.transform().m11();
+        v.scale(3, 3);
+        MapInfo next = testMap();
+        next.mapId = QStringLiteral("next");
+        v.setMap(next, testImage());
+        QVERIFY(std::abs(v.transform().m11() - fitted) < 1e-6);
+    }
+
     void tagPlacementKeepsFacingDirection()
     {
         MapView v;

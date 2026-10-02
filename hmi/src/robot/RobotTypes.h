@@ -82,15 +82,22 @@ struct Telemetry {
     bool armExecutionEnabled = false;
     bool armFresh = false;
     bool estop = false;
+    bool safetyFresh = false;
+    QString safetyState;
+    bool safetyMotionPermitted = false;
+    QString safetyReasonCode, safetyDetail;
+    QString missionReasonCode, missionDetail;
     QString navStatus;                ///< "idle" | "driving" | "arrived" | "blocked"
     QVariantMap navGoal;              ///< Robot-reported active goal, empty when none
     bool navFresh = false;
+    quint64 navRevision = 0;           ///< Incremented for each received navigation report
     QString navigationLifecycle, localizationLifecycle;
     double navDistance = std::numeric_limits<double>::quiet_NaN();
     double navEta = std::numeric_limits<double>::quiet_NaN();
     double navElapsed = std::numeric_limits<double>::quiet_NaN();
     int navRecoveries = -1;
     QString navError;
+    QString navReadinessReasonCode, navReadinessDetail;
 
     /// False once the link has been quiet long enough that the pose can no
     /// longer be trusted. Everything that acts on position must check this.

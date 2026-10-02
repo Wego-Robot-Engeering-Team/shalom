@@ -395,14 +395,42 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
         std::error_code ec;
         const bool useLegacy = !std::filesystem::is_regular_file(current, ec) &&
                                std::filesystem::is_regular_file(legacy, ec);
-        std::ifstream in(useLegacy ? legacy : current);
+        const auto source = useLegacy ? legacy : current;
+        std::ifstream in(source);
         if (in) {
             try {
                 json document;
                 in >> document;
-                const auto presets = document.value("presets", json::array());
+                if (!document.is_object() || !document.contains("presets") || !document["presets"].is_array())
+                    throw json::type_error::create(302, "presets must be an array in an object", &document);
+                const auto &presets = document["presets"];
                 if (presets.is_array()) {
-                    armPosePresets_ = presets;
+                    std::unordered_set<std::string> ids, names;
+                    for (const auto &preset : presets) {
+                        try {
+                            if (!preset.is_object() || !preset.contains("id") || !preset["id"].is_string() ||
+                                !preset.contains("name") || !preset["name"].is_string() ||
+                                !preset.contains("positions") || !validArmPresetPositions(preset["positions"]) ||
+                                (preset.contains("description") && !preset["description"].is_string()) ||
+                                (preset.contains("archived") && !preset["archived"].is_boolean()) ||
+                                (preset.contains("revision") && (!preset["revision"].is_number_integer() ||
+                                    preset["revision"].get<int64_t>() < 1)))
+                                throw std::invalid_argument("invalid preset fields");
+                            const auto id = preset["id"].get<std::string>();
+                            const auto name = preset["name"].get<std::string>();
+                            const bool archived = preset.value("archived", false);
+                            if (!validArmPresetId(id) || !validArmPresetText(name, preset.value("description", std::string{})) ||
+                                !ids.insert(id).second || (!archived && !names.insert(name).second))
+                                throw std::invalid_argument("invalid or duplicate preset");
+                            json validated = preset;
+                            if (!validated.contains("revision")) validated["revision"] = 1;
+                            if (!validated.contains("archived")) validated["archived"] = false;
+                            armPosePresets_.push_back(std::move(validated));
+                        } catch (const std::exception &e) {
+                            armPosePresetsLoadInvalid_ = true;
+                            RCLCPP_WARN(get_logger(), "잘못된 팔 자세 항목을 건너뜁니다: %s", e.what());
+                        }
+                    }
                     if (useLegacy) {
                         std::string error;
                         if (saveArmPosePresets(&error))
@@ -410,10 +438,14 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
                         else
                             RCLCPP_WARN(get_logger(), "팔 자세 프리셋 이전 실패: %s", error.c_str());
                     }
-                }
+                } else armPosePresetsLoadInvalid_ = true;
             } catch (const json::exception &e) {
+                armPosePresetsLoadInvalid_ = true;
                 RCLCPP_WARN(get_logger(), "팔 자세 프리셋을 읽지 못했습니다: %s", e.what());
             }
+        } else if (std::filesystem::exists(source, ec) || ec) {
+            armPosePresetsLoadInvalid_ = true;
+            RCLCPP_WARN(get_logger(), "팔 자세 파일을 열지 못했습니다: %s", source.c_str());
         }
     }
     const auto initialMap = declare_parameter("initial_map", std::string{});
@@ -447,6 +479,7 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     }
     safetyCommandClient_ = create_client<shalom_interfaces::srv::SafetyCommand>(
         "/safety/command");
+    safetyEventPub_ = create_publisher<shalom_interfaces::msg::SafetyEvent>("/safety/event", 20);
     authorityRequestClient_ = create_client<shalom_interfaces::srv::AuthorityRequest>(
         "/motion/authority/request");
     missionConfigureClient_ = create_client<shalom_interfaces::srv::ConfigureMission>(
@@ -514,6 +547,7 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     mapSub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
         "map", rclcpp::QoS(1).transient_local(),
         [this](const nav_msgs::msg::OccupancyGrid::ConstSharedPtr &msg) {
+            if (mapTransitionUncertain_) return;
             const std::string png = encodeGridPng(*msg);
             if (png.empty()) {
                 RCLCPP_WARN(get_logger(), "맵 %ux%u 를 PNG 로 만들지 못했다",
@@ -574,6 +608,7 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
         "/motion/authority", rclcpp::QoS(1).transient_local(),
         [this](const shalom_interfaces::msg::MotionAuthority::SharedPtr msg) {
             const std::string next = authorityName(msg->state);
+            authorityReceived_ = std::chrono::steady_clock::now();
             if (motionAuthority_ == next)
                 return;
             motionAuthority_ = next;
@@ -589,9 +624,18 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
         [this](const shalom_interfaces::msg::SafetyState::SharedPtr msg) {
             const std::string next = safetyStateName(msg->state);
             const bool estop_active = msg->software_estop_active || msg->physical_estop_active;
-            const bool changed = safetyState_ != next || estopEngaged_ != estop_active;
+            safetyReceived_ = std::chrono::steady_clock::now();
+            const bool changed = safetyState_ != next || estopEngaged_ != estop_active ||
+                safetyMotionPermitted_ != msg->motion_permitted || safetyReasonCode_ != msg->reason_code ||
+                safetyDetail_ != msg->detail;
             safetyState_ = next;
             estopEngaged_ = estop_active;
+            safetyMotionPermitted_ = msg->motion_permitted;
+            safetyReasonCode_ = msg->reason_code;
+            safetyDetail_ = msg->detail;
+            if (!navPreparing_ && (next != "normal" || !msg->motion_permitted) &&
+                (navStatus_ == "navigating" || navStatus_ == "accepting"))
+                stopNavigation(true);
             if (!changed)
                 return;
             publishSafety();
@@ -669,6 +713,11 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
         }
         maxCaptureLinear_ = declare_parameter("capture.max_linear_speed", maxCaptureLinear_);
         maxCaptureAngular_ = declare_parameter("capture.max_angular_speed", maxCaptureAngular_);
+        captureMaxImageAge_ = declare_parameter("capture.max_image_age_s", captureMaxImageAge_);
+        captureMaxSyncDifference_ = declare_parameter("capture.max_image_sync_difference_s", captureMaxSyncDifference_);
+        if (!std::isfinite(captureMaxImageAge_) || captureMaxImageAge_ <= 0 ||
+            !std::isfinite(captureMaxSyncDifference_) || captureMaxSyncDifference_ < 0)
+            throw std::invalid_argument("capture image age and synchronization limits must be valid");
         const auto colorTopic = declare_parameter(
             "capture.color_topic", std::string("/fr3/camera_2d/image_raw"));
         const auto depthTopic = declare_parameter(
@@ -679,10 +728,14 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
             colorTopic, rclcpp::SensorDataQoS(),
             [this](const sensor_msgs::msg::Image::ConstSharedPtr &msg) {
                 lastColor_ = msg;
+                lastColorReceived_ = std::chrono::steady_clock::now();
             });
         depthSub_ = create_subscription<sensor_msgs::msg::Image>(
             depthTopic, rclcpp::SensorDataQoS(),
-            [this](const sensor_msgs::msg::Image::ConstSharedPtr &msg) { lastDepth_ = msg; });
+            [this](const sensor_msgs::msg::Image::ConstSharedPtr &msg) {
+                lastDepth_ = msg;
+                lastDepthReceived_ = std::chrono::steady_clock::now();
+            });
     }
 
 
@@ -741,6 +794,7 @@ void BridgeNode::pollLink()
         return;
 
     if (events.clientConnected) {
+        ++linkGeneration_;
         RCLCPP_INFO(get_logger(), "관제 연결됨");
     }
     if (events.protocolError) {
@@ -755,7 +809,17 @@ void BridgeNode::pollLink()
                                             {"msg", events.protocolErrorDetail}}));
     }
     if (events.clientDisconnected) {
+        ++linkGeneration_;
         RCLCPP_WARN(get_logger(), "관제 연결 끊김");
+        linkHold_ = true;
+        linkMissionResumePending_ = false;
+        requestSafetyStop("SAFETY_COMM_TIMEOUT_STOP", "일반 관제 연결이 끊겼습니다");
+        stopNavigation(true);
+        pauseMissionForManualTakeover();
+        if (missionStartPending_) {
+            ++missionStartGeneration_;
+            finishMissionStart(false, err::kMode, "관제 연결 종료로 미션 시작을 취소했습니다");
+        }
     }
 
     for (const auto &frame : events.frames)
@@ -798,8 +862,17 @@ void BridgeNode::handleFrame(const inspection::Frame &frame)
 
     if (env->t == mtype::kHb)
         handleHeartbeat(*env);
-    else if (env->t == mtype::kReq)
-        handleRequest(*env);
+    else if (env->t == mtype::kReq) {
+        try {
+            handleRequest(*env);
+        } catch (const json::exception &e) {
+            RCLCPP_WARN(get_logger(), "잘못된 요청 JSON (%s): %s", env->ch.c_str(), e.what());
+            respond(*env, false, err::kBadPayload, "요청 필드의 타입 또는 값이 올바르지 않습니다");
+        } catch (const std::filesystem::filesystem_error &e) {
+            RCLCPP_ERROR(get_logger(), "요청 파일 처리 실패 (%s): %s", env->ch.c_str(), e.what());
+            respond(*env, false, err::kHardware, "로봇 파일을 처리하지 못했습니다");
+        }
+    }
     else if (env->t == mtype::kPub && env->ch == "cmd/cmd_vel")
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
                              "TCP cmd/cmd_vel은 비활성입니다. 수동 조작은 UDP teleop_bridge를 사용합니다");
@@ -843,6 +916,17 @@ bool BridgeNode::commandsAllowed(const Envelope &request)
 
 void BridgeNode::handleRequest(const Envelope &request)
 {
+    if (mapTransitionUncertain_ && (request.ch == kCmdInitialPose || request.ch == kCmdCapture ||
+        request.ch == kCmdMissionResume || request.ch == kCmdMissionReturnDock)) {
+        respond(request, false, err::kHardware, "지도 전환 결과가 불명확합니다. 내비게이션과 브리지를 재시작하십시오");
+        return;
+    }
+    if (missionStartPending_ && (request.ch == kCmdMapsSelect || request.ch == kCmdMapsRename ||
+        request.ch == kCmdMapsDelete || request.ch == kCmdMissionsSave || request.ch == kCmdMissionsArchive ||
+        request.ch == kCmdWaypointsSet || request.ch == kCmdLocationsSet || request.ch == kCmdMarkersSet)) {
+        respond(request, false, err::kBusy, "미션 시작 요청이 끝난 뒤 지도 데이터를 변경하십시오");
+        return;
+    }
     // E-Stop은 일반 API 연결이 아니라 estop_bridge의 전용 TCP 포트만 쓴다.
     // 여기서 받아 버리면 일반 링크가 살아 있는 동안 독립 감시 채널이 죽어도
     // 정지하지 않는, 분리의 목적과 반대되는 구성이 된다.
@@ -924,6 +1008,7 @@ void BridgeNode::handleRequest(const Envelope &request)
             // stop forever and teleop velocity can never reach the base.
             requestSafetyResume();
             requestBaseAuthority();
+            linkHold_ = false;
         }
         RCLCPP_INFO(get_logger(), "주행 모드: %s", manualMode_ ? "수동" : "자율");
         respond(request, true);
@@ -1060,12 +1145,18 @@ void BridgeNode::handleRequest(const Envelope &request)
             point.erase("tag_id");
             point.erase("kind");
         }
+        std::unordered_set<std::string> removedIds;
+        for (const auto &point : waypoints_)
+            if (point.is_object() && point.contains("id") && point["id"].is_string()) {
+                const auto id = point["id"].get<std::string>();
+                if (!ids.count(id)) removedIds.insert(id);
+            }
         for (const auto &mission : missions_) {
             if (!mission.is_object() || mission.value("archived", false))
                 continue;
             for (const auto &step : mission.value("steps", json::array())) {
                 if (step.is_object() && step.value("type", std::string{}) == "navigate" &&
-                    !ids.count(step.value("location_id", std::string{}))) {
+                    removedIds.count(step.value("location_id", std::string{}))) {
                     respond(request, false, err::kBusy,
                             "미션에서 사용하는 웨이포인트는 삭제할 수 없습니다: " + mission.value("name", std::string{}));
                     return;
@@ -1278,6 +1369,27 @@ void BridgeNode::handleRequest(const Envelope &request)
                 respond(request, false, err::kBadPayload, "단계에 유효한 위치·촬영 프리셋·팔 자세 참조가 필요합니다");
                 return;
             }
+            if (type == "navigate") {
+                const auto locationId = step["location_id"].get<std::string>();
+                if (std::none_of(waypoints_.begin(), waypoints_.end(), [&locationId](const json &point) {
+                        return point.is_object() && point.value("id", std::string{}) == locationId;
+                    })) {
+                    respond(request, false, err::kBadPayload,
+                            "주행 단계 '" + stepId + "'의 웨이포인트가 없습니다: " + locationId);
+                    return;
+                }
+            }
+            if (type == "arm_move") {
+                const auto poseId = step["pose"].get<std::string>();
+                if (std::none_of(armPosePresets_.begin(), armPosePresets_.end(), [&poseId](const json &preset) {
+                        return preset.is_object() && preset.value("id", std::string{}) == poseId &&
+                            !preset.value("archived", false);
+                    })) {
+                    respond(request, false, err::kBadPayload,
+                        "로봇팔 단계 '" + stepId + "'의 자세가 없거나 보관되었습니다: " + poseId);
+                    return;
+                }
+            }
         }
         if (mission.contains("map_id") && mission.value("map_id", std::string{}) != mapId_) {
             respond(request, false, err::kMode, "현재 선택된 지도와 미션의 지도가 다릅니다");
@@ -1478,8 +1590,14 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdMapsSelect) {
+        if (mapTransitionUncertain_) {
+            respond(request, false, err::kHardware, "지도 전환 결과가 불명확합니다. 내비게이션과 브리지를 재시작하십시오");
+            return;
+        }
         const std::string id = request.p.value("id", std::string{});
-        if (!haveMissionState_ || missionState_.state != shalom_interfaces::msg::MissionState::IDLE ||
+        if (!haveMissionState_ || (missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
+            missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
+            missionState_.state != shalom_interfaces::msg::MissionState::FAILED) ||
             navigationBusy() || !pendingMapId_.empty()) {
             respond(request, false, err::kBusy,
                     "주행 또는 점검이 끝난 뒤에 지도를 전환하십시오");
@@ -1496,6 +1614,9 @@ void BridgeNode::handleRequest(const Envelope &request)
             return;
         }
         pendingMapId_ = id;
+        pendingMapRequest_ = request;
+        pendingMapAt_ = std::chrono::steady_clock::now();
+        ++mapTransitionGeneration_;
         if (mapId_ == "live")
             switchFromSlam(request, id);
         else
@@ -1506,7 +1627,9 @@ void BridgeNode::handleRequest(const Envelope &request)
     if (request.ch == kCmdMapsRename) {
         const std::string id = request.p.value("id", std::string{});
         const std::string name = request.p.value("name", std::string{});
-        if (!haveMissionState_ || missionState_.state != shalom_interfaces::msg::MissionState::IDLE ||
+        if (!haveMissionState_ || (missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
+            missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
+            missionState_.state != shalom_interfaces::msg::MissionState::FAILED) ||
             navigationBusy() || !pendingMapId_.empty()) {
             respond(request, false, err::kBusy,
                     "주행 또는 점검이 끝난 뒤에 지도 이름을 바꾸십시오");
@@ -1702,7 +1825,9 @@ void BridgeNode::handleRequest(const Envelope &request)
 
     if (request.ch == kCmdMapsDelete) {
         const std::string id = request.p.value("id", std::string{});
-        if (!haveMissionState_ || missionState_.state != shalom_interfaces::msg::MissionState::IDLE ||
+        if (!haveMissionState_ || (missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
+            missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
+            missionState_.state != shalom_interfaces::msg::MissionState::FAILED) ||
             navigationBusy() || !pendingMapId_.empty()) {
             respond(request, false, err::kBusy, "주행과 미션이 끝난 뒤 지도를 삭제하십시오");
             return;
@@ -2173,22 +2298,23 @@ void BridgeNode::loadSelectedMap(const Envelope &request, const std::string &id,
         if (from_slam) {
             restoreSlam(request, "map_server/load_map 서비스를 찾지 못했습니다");
         } else {
-            pendingMapId_.clear();
-            respond(request, false, err::kHardware, "map_server/load_map 서비스를 찾지 못했습니다");
+            finishMapTransition(false, "map_server/load_map 서비스를 찾지 못했습니다");
         }
         return;
     }
     auto load = std::make_shared<nav2_msgs::srv::LoadMap::Request>();
     load->map_url = (std::filesystem::path(mapsDir_) / id / "map.yaml").string();
     pendingMapPublication_ = true;
-    mapLoadClient_->async_send_request(load, [this, request, id, from_slam](
+    const auto generation = mapTransitionGeneration_;
+    mapLoadRequestId_ = mapLoadClient_->async_send_request(load, [this, request, id, from_slam, generation](
         rclcpp::Client<nav2_msgs::srv::LoadMap>::SharedFuture future) {
+        if (!pendingMapRequest_ || generation != mapTransitionGeneration_) return;
+        mapLoadRequestId_.reset();
         if (future.get()->result != nav2_msgs::srv::LoadMap::Response::RESULT_SUCCESS) {
             pendingMapPublication_ = false;
             if (from_slam) restoreSlam(request, "map_server가 지도를 불러오지 못했습니다");
             else {
-                pendingMapId_.clear();
-                respond(request, false, err::kHardware, "map_server가 지도를 불러오지 못했습니다");
+                finishMapTransition(false, "map_server가 지도를 불러오지 못했습니다");
             }
             return;
         }
@@ -2197,8 +2323,10 @@ void BridgeNode::loadSelectedMap(const Envelope &request, const std::string &id,
             pendingMapPublication_ = false;
             if (from_slam) restoreSlam(request, detail);
             else {
-                pendingMapId_.clear();
-                respond(request, false, err::kHardware, detail);
+                mapTransitionUncertain_ = true;
+                linkHold_ = true;
+                requestSafetyStop("NAV_MAP_BUNDLE_INVALID", "지도 적용 후 지도 데이터 읽기 실패");
+                finishMapTransition(false, detail);
             }
             return;
         }
@@ -2213,85 +2341,105 @@ void BridgeNode::loadSelectedMap(const Envelope &request, const std::string &id,
         sendEnvelope(makePublish(kChPlan, json{{"points", lastPlanPoints_}}), true);
         sendEnvelope(makePublish(kChTrail,
                                  json{{"points", json::array()}, {"reset", true}}));
-        respond(request, true);
-    });
+        finishMapTransition(true);
+    }).request_id;
+}
+
+void BridgeNode::finishMapTransition(bool ok, const std::string &detail)
+{
+    if (mapLoadRequestId_) mapLoadClient_->remove_pending_request(*mapLoadRequestId_);
+    if (mapLocalizationRequestId_) localizationManagerClient_->remove_pending_request(*mapLocalizationRequestId_);
+    if (mapSlamRequestId_) slamLifecycleClient_->remove_pending_request(*mapSlamRequestId_);
+    mapLoadRequestId_.reset();
+    mapLocalizationRequestId_.reset();
+    mapSlamRequestId_.reset();
+    pendingMapId_.clear();
+    pendingMapPublication_ = false;
+    ++mapTransitionGeneration_;
+    if (pendingMapRequest_) respond(*pendingMapRequest_, ok, ok ? std::string{} : err::kHardware, detail);
+    pendingMapRequest_.reset();
 }
 
 void BridgeNode::switchFromSlam(const Envelope &request, const std::string &id)
 {
     if (!slamLifecycleClient_->service_is_ready() ||
         !localizationManagerClient_->service_is_ready()) {
-        pendingMapId_.clear();
-        respond(request, false, err::kHardware,
-                "SLAM 또는 위치 추정 전환 서비스를 찾지 못했습니다");
+        finishMapTransition(false, "SLAM 또는 위치 추정 전환 서비스를 찾지 못했습니다");
         return;
     }
     // 먼저 위치 추정 노드를 inactive까지 준비한다. 이 동안 SLAM의 지도와
     // map->odom은 그대로 살아 있어 전환 준비 실패가 주행 좌표계를 끊지 않는다.
     auto configure = std::make_shared<nav2_msgs::srv::ManageLifecycleNodes::Request>();
     configure->command = nav2_msgs::srv::ManageLifecycleNodes::Request::CONFIGURE;
-    localizationManagerClient_->async_send_request(configure, [this, request, id](
+    const auto generation = mapTransitionGeneration_;
+    mapLocalizationRequestId_ = localizationManagerClient_->async_send_request(configure, [this, request, id, generation](
         rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedFuture configured) {
+        if (!pendingMapRequest_ || generation != mapTransitionGeneration_) return;
+        mapLocalizationRequestId_.reset();
         if (!configured.get()->success) {
-            pendingMapId_.clear();
-            respond(request, false, err::kHardware, "map_server·AMCL 준비에 실패했습니다. SLAM은 유지됩니다");
+            finishMapTransition(false, "map_server·AMCL 준비에 실패했습니다. SLAM은 유지됩니다");
             return;
         }
         auto deactivate = std::make_shared<lifecycle_msgs::srv::ChangeState::Request>();
         deactivate->transition.id = lifecycle_msgs::msg::Transition::TRANSITION_DEACTIVATE;
-        slamLifecycleClient_->async_send_request(deactivate, [this, request, id](
+        mapSlamRequestId_ = slamLifecycleClient_->async_send_request(deactivate, [this, request, id, generation](
             rclcpp::Client<lifecycle_msgs::srv::ChangeState>::SharedFuture stopped) {
+            if (!pendingMapRequest_ || generation != mapTransitionGeneration_) return;
+            mapSlamRequestId_.reset();
             if (!stopped.get()->success) {
-                pendingMapId_.clear();
-                respond(request, false, err::kHardware,
-                        "SLAM을 중지하지 못해 지도를 전환하지 않았습니다");
+                finishMapTransition(false, "SLAM을 중지하지 못해 지도를 전환하지 않았습니다");
                 return;
             }
             auto resume = std::make_shared<nav2_msgs::srv::ManageLifecycleNodes::Request>();
             resume->command = nav2_msgs::srv::ManageLifecycleNodes::Request::RESUME;
-            localizationManagerClient_->async_send_request(resume, [this, request, id](
+            mapLocalizationRequestId_ = localizationManagerClient_->async_send_request(resume, [this, request, id, generation](
                 rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedFuture resumed) {
+                if (!pendingMapRequest_ || generation != mapTransitionGeneration_) return;
+                mapLocalizationRequestId_.reset();
                 if (!resumed.get()->success) {
                     restoreSlam(request, "map_server·AMCL을 활성화하지 못했습니다");
                     return;
                 }
                 loadSelectedMap(request, id, true);
-            });
-        });
-    });
+            }).request_id;
+        }).request_id;
+    }).request_id;
 }
 
 void BridgeNode::restoreSlam(const Envelope &request, const std::string &reason)
 {
     pendingMapPublication_ = false;
     if (!localizationManagerClient_->service_is_ready()) {
-        pendingMapId_.clear();
-        respond(request, false, err::kHardware,
-                reason + "; 위치 추정 종료 서비스를 찾지 못해 수동 복구가 필요합니다");
+        mapTransitionUncertain_ = true;
+        finishMapTransition(false, reason + "; 위치 추정 종료 서비스를 찾지 못해 수동 복구가 필요합니다");
         return;
     }
     auto pause = std::make_shared<nav2_msgs::srv::ManageLifecycleNodes::Request>();
     pause->command = nav2_msgs::srv::ManageLifecycleNodes::Request::PAUSE;
-    localizationManagerClient_->async_send_request(pause, [this, request, reason](
+    const auto generation = mapTransitionGeneration_;
+    mapLocalizationRequestId_ = localizationManagerClient_->async_send_request(pause, [this, request, reason, generation](
         rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedFuture pause_future) {
+        if (!pendingMapRequest_ || generation != mapTransitionGeneration_) return;
+        mapLocalizationRequestId_.reset();
         if (!pause_future.get()->success || !slamLifecycleClient_->service_is_ready()) {
-            pendingMapId_.clear();
-            respond(request, false, err::kHardware,
-                    reason + "; 위치 추정 종료 실패로 수동 복구가 필요합니다");
+            mapTransitionUncertain_ = true;
+            finishMapTransition(false, reason + "; 위치 추정 종료 실패로 수동 복구가 필요합니다");
             return;
         }
         auto activate = std::make_shared<lifecycle_msgs::srv::ChangeState::Request>();
         activate->transition.id = lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE;
-        slamLifecycleClient_->async_send_request(activate, [this, request, reason](
+        mapSlamRequestId_ = slamLifecycleClient_->async_send_request(activate, [this, request, reason, generation](
             rclcpp::Client<lifecycle_msgs::srv::ChangeState>::SharedFuture activate_future) {
-            pendingMapId_.clear();
+            if (!pendingMapRequest_ || generation != mapTransitionGeneration_) return;
+            mapSlamRequestId_.reset();
             lastMapPng_.clear();
             lastMapMeta_ = json::object();
-            respond(request, false, err::kHardware,
-                    reason + (activate_future.get()->success ? "; SLAM으로 복귀했습니다"
-                        : "; SLAM 복귀 실패로 수동 복구가 필요합니다"));
-        });
-    });
+            const bool restored = activate_future.get()->success;
+            mapTransitionUncertain_ = !restored;
+            finishMapTransition(false, reason + (restored ? "; SLAM으로 복귀했습니다"
+                : "; SLAM 복귀 실패로 수동 복구가 필요합니다"));
+        }).request_id;
+    }).request_id;
 }
 
 void BridgeNode::publishMapCatalog()
@@ -2551,6 +2699,10 @@ bool BridgeNode::saveNavigationSpeed(const json &settings, std::string *error)
 
 bool BridgeNode::saveArmPosePresets(std::string *error)
 {
+    if (armPosePresetsLoadInvalid_) {
+        if (error) *error = "팔 자세 파일에 잘못된 항목이 있습니다. 파일을 수정하고 브리지를 다시 시작하십시오";
+        return false;
+    }
     const std::filesystem::path root(robotDataDir_);
     std::error_code ec;
     std::filesystem::create_directories(root, ec);
@@ -2585,12 +2737,20 @@ bool BridgeNode::saveArmPosePresets(std::string *error)
 }
 
 
+bool BridgeNode::motionFeedbackFresh() const
+{
+    if (lastOdomAt_.nanoseconds() == 0 ||
+        lastOdomReceived_ == std::chrono::steady_clock::time_point{})
+        return false;
+    const double sourceAge = (now() - lastOdomAt_).seconds();
+    return sourceAge >= -0.1 && sourceAge <= 1.0 &&
+        std::chrono::steady_clock::now() - lastOdomReceived_ <= std::chrono::seconds(1);
+}
+
 bool BridgeNode::isMoving() const
 {
-    // 오도메트리가 끊겼으면 움직이는 것으로 본다. 모르는 채로 찍어 흔들린
-    // 사진을 남기는 것보다, 거절하고 이유를 말하는 편이 낫다.
-    if (lastOdomAt_.nanoseconds() == 0 || (now() - lastOdomAt_).seconds() > 1.0)
-        return true;
+    // A stopped or disconnected TF source cannot confirm that the robot is stationary.
+    if (!motionFeedbackFresh()) return true;
     return speedLinear_ > maxCaptureLinear_ || speedAngular_ > maxCaptureAngular_;
 }
 
@@ -2642,6 +2802,24 @@ void BridgeNode::handleCapture(const Envelope &request)
     if (!lastColor_) {
         respond(request, false, err::kUnreachable,
                 "카메라 영상이 없습니다. 카메라 연결을 확인하십시오");
+        return;
+    }
+    const auto imageFresh = [this](const sensor_msgs::msg::Image::ConstSharedPtr &image,
+            std::chrono::steady_clock::time_point received) {
+        if (!image || received == std::chrono::steady_clock::time_point{}) return false;
+        const rclcpp::Time stamp(image->header.stamp, get_clock()->get_clock_type());
+        const double age = (now() - stamp).seconds();
+        return stamp.nanoseconds() != 0 && age >= -0.1 && age <= captureMaxImageAge_ &&
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - received).count() <= captureMaxImageAge_;
+    };
+    if (!imageFresh(lastColor_, lastColorReceived_) || !imageFresh(lastDepth_, lastDepthReceived_)) {
+        respond(request, false, err::kUnreachable, "RGB·Depth 영상이 없거나 오래되었습니다");
+        return;
+    }
+    const auto rgbStamp = rclcpp::Time(lastColor_->header.stamp, get_clock()->get_clock_type());
+    const auto depthStamp = rclcpp::Time(lastDepth_->header.stamp, get_clock()->get_clock_type());
+    if (std::abs((rgbStamp - depthStamp).seconds()) > captureMaxSyncDifference_) {
+        respond(request, false, err::kUnreachable, "RGB·Depth 영상의 촬영 시각이 일치하지 않습니다");
         return;
     }
     if (estopActive()) {
@@ -2920,6 +3098,18 @@ std::optional<shalom_interfaces::msg::MissionPlan> BridgeNode::makeMissionPlan(
 
 void BridgeNode::configureAndStartMission(const Envelope &request)
 {
+    if (mapTransitionUncertain_) {
+        respond(request, false, err::kHardware, "지도 전환 결과가 불명확합니다. 내비게이션과 브리지를 재시작하십시오");
+        return;
+    }
+    if (missionStartPending_ || !pendingMapId_.empty()) {
+        respond(request, false, err::kBusy, "지도 전환 또는 미션 시작 요청을 처리 중입니다");
+        return;
+    }
+    if (manualMode_) {
+        respond(request, false, err::kMode, "자율 모드에서 미션을 시작하십시오");
+        return;
+    }
     publishSpeedLimit();
     if (!navigationSpeedApplied_) {
         respond(request, false, err::kBusy, "자율주행 속도 설정을 적용 중입니다");
@@ -2965,36 +3155,72 @@ void BridgeNode::configureAndStartMission(const Envelope &request)
     configure->request_id = request_id + ":configure";
     configure->operator_id = "hmi";
     configure->plan = *plan;
-    missionConfigureClient_->async_send_request(
+    const auto generation = ++missionStartGeneration_;
+    const auto selectedMap = mapId_;
+    missionStartPending_ = true;
+    missionStartRequest_ = request;
+    missionStartAt_ = std::chrono::steady_clock::now();
+    missionConfigureRequestId_ = missionConfigureClient_->async_send_request(
         configure,
-        [this, request, request_id](
+        [this, generation, selectedMap, request_id](
             rclcpp::Client<shalom_interfaces::srv::ConfigureMission>::SharedFuture future) {
-            const auto configured = future.get();
-            if (!configured->accepted) {
-                respond(request, false, err::kMode, configured->detail);
+            if (!missionStartPending_ || generation != missionStartGeneration_) return;
+            missionConfigureRequestId_.reset();
+            if (!server_.isConnected() || mapId_ != selectedMap || !pendingMapId_.empty() || manualMode_ || estopActive()) {
+                finishMissionStart(false, err::kBusy, "미션 시작 전 로봇·지도 상태가 변경되었습니다");
                 return;
             }
+            const auto configured = future.get();
+            if (!configured->accepted) {
+                finishMissionStart(false, configured->reason_code.empty() ? err::kMode : configured->reason_code, configured->detail);
+                return;
+            }
+            onMissionState(std::make_shared<shalom_interfaces::msg::MissionState>(configured->state));
             auto control = std::make_shared<shalom_interfaces::srv::MissionControl::Request>();
             control->request_id = request_id + ":start";
             control->operator_id = "hmi";
             control->mission_id = configured->state.mission_id;
             control->operation = shalom_interfaces::srv::MissionControl::Request::START;
-            missionControlClient_->async_send_request(
+            missionStartControlRequestId_ = missionControlClient_->async_send_request(
                 control,
-                [this, request](
+                [this, generation, selectedMap](
                     rclcpp::Client<shalom_interfaces::srv::MissionControl>::SharedFuture result) {
+                    if (!missionStartPending_ || generation != missionStartGeneration_) return;
+                    missionStartControlRequestId_.reset();
                     const auto started = result.get();
+                    if (!server_.isConnected() || mapId_ != selectedMap || !pendingMapId_.empty()) {
+                        requestSafetyStop("SAFETY_COMM_TIMEOUT_STOP", "미션 시작 중 관제·지도 상태 변경");
+                        finishMissionStart(false, err::kBusy, "미션 시작 중 로봇·지도 상태가 변경되었습니다");
+                        return;
+                    }
+                    onMissionState(std::make_shared<shalom_interfaces::msg::MissionState>(started->state));
+                    if (started->accepted) linkMissionResumePending_ = true;
                     // READY 동안에는 안전·동작 권한을 기다릴 수 있다. 실제 RUNNING
                     // 전환은 onMissionState가 확인하고 그때 경로를 초기화한다.
-                    respond(request, started->accepted,
-                            started->accepted ? std::string() : err::kMode,
-                            started->detail);
-                });
-        });
+                    finishMissionStart(started->accepted,
+                        started->accepted ? std::string() : started->reason_code.empty() ? err::kMode : started->reason_code,
+                        started->detail);
+                }).request_id;
+        }).request_id;
+}
+
+void BridgeNode::finishMissionStart(bool ok, const std::string &code, const std::string &detail)
+{
+    if (missionConfigureRequestId_) missionConfigureClient_->remove_pending_request(*missionConfigureRequestId_);
+    if (missionStartControlRequestId_) missionControlClient_->remove_pending_request(*missionStartControlRequestId_);
+    missionConfigureRequestId_.reset();
+    missionStartControlRequestId_.reset();
+    missionStartPending_ = false;
+    ++missionStartGeneration_;
+    if (missionStartRequest_) respond(*missionStartRequest_, ok, code, detail);
+    missionStartRequest_.reset();
 }
 
 void BridgeNode::sendMissionControl(const Envelope &request, uint8_t operation)
 {
+    if (missionStartPending_ && (operation == shalom_interfaces::srv::MissionControl::Request::STOP ||
+        operation == shalom_interfaces::srv::MissionControl::Request::PAUSE))
+        finishMissionStart(false, err::kMode, "미션 시작 요청을 취소했습니다");
     if (!missionControlClient_->service_is_ready()) {
         respond(request, false, err::kUnreachable, "Mission Manager가 준비되지 않았습니다");
         return;
@@ -3005,10 +3231,16 @@ void BridgeNode::sendMissionControl(const Envelope &request, uint8_t operation)
     control->operator_id = "hmi";
     control->mission_id = missionState_.mission_id;
     control->operation = operation;
+    const auto linkGeneration = linkGeneration_;
     missionControlClient_->async_send_request(
         control,
-        [this, request](rclcpp::Client<shalom_interfaces::srv::MissionControl>::SharedFuture future) {
+        [this, request, operation, linkGeneration](rclcpp::Client<shalom_interfaces::srv::MissionControl>::SharedFuture future) {
+            if (!server_.isConnected() || linkGeneration != linkGeneration_) return;
             const auto result = future.get();
+            onMissionState(std::make_shared<shalom_interfaces::msg::MissionState>(result->state));
+            if (result->accepted && (operation == shalom_interfaces::srv::MissionControl::Request::RESUME ||
+                operation == shalom_interfaces::srv::MissionControl::Request::RETURN_DOCK))
+                linkMissionResumePending_ = true;
             respond(request, result->accepted,
                     result->accepted ? std::string() : err::kMode, result->detail);
         });
@@ -3018,7 +3250,8 @@ void BridgeNode::pauseMissionForManualTakeover()
 {
     if (!haveMissionState_ ||
         (missionState_.state != shalom_interfaces::msg::MissionState::RUNNING &&
-         missionState_.state != shalom_interfaces::msg::MissionState::RETURNING))
+         missionState_.state != shalom_interfaces::msg::MissionState::RETURNING &&
+         missionState_.state != shalom_interfaces::msg::MissionState::READY))
         return;
     if (!missionControlClient_->service_is_ready()) {
         RCLCPP_ERROR(get_logger(), "수동 전환 중 Mission Manager에 일시정지를 요청하지 못했습니다");
@@ -3028,13 +3261,20 @@ void BridgeNode::pauseMissionForManualTakeover()
     control->request_id = "hmi-manual-" + std::to_string(++rosRequestSequence_);
     control->operator_id = "hmi_manual_takeover";
     control->mission_id = missionState_.mission_id;
-    control->operation = shalom_interfaces::srv::MissionControl::Request::PAUSE;
+    control->operation = missionState_.state == shalom_interfaces::msg::MissionState::READY
+        ? shalom_interfaces::srv::MissionControl::Request::STOP : shalom_interfaces::srv::MissionControl::Request::PAUSE;
     missionControlClient_->async_send_request(control);
 }
 
 void BridgeNode::onMissionState(
     const shalom_interfaces::msg::MissionState::SharedPtr message)
 {
+    // Service snapshots can arrive after a newer transient-local state report.
+    // A manager restart may reset sequence, but has a newer source timestamp.
+    if (haveMissionState_ && message->sequence != 0 && missionState_.sequence != 0 &&
+        message->sequence < missionState_.sequence &&
+        rclcpp::Time(message->stamp) <= rclcpp::Time(missionState_.stamp))
+        return;
     const uint8_t previous = haveMissionState_ ? missionState_.state
                                                : shalom_interfaces::msg::MissionState::IDLE;
     if (message->state == shalom_interfaces::msg::MissionState::RUNNING &&
@@ -3082,7 +3322,8 @@ void BridgeNode::publishMission()
                                   {"index", haveMissionState_ ? missionState_.current_step : -1},
                                   {"total", haveMissionState_ ? missionState_.total_steps : 0},
                                   {"reason_code", haveMissionState_
-                                      ? missionState_.reason_code : std::string()}}));
+                                      ? missionState_.reason_code : std::string()},
+                                  {"detail", haveMissionState_ ? missionState_.detail : std::string()}}));
 }
 
 
@@ -3323,6 +3564,10 @@ bool BridgeNode::navigationBusy() const
 
 void BridgeNode::startNavigation(const Envelope &request, bool resume)
 {
+    if (mapTransitionUncertain_) {
+        respond(request, false, err::kHardware, "지도 전환 결과가 불명확합니다. 내비게이션과 브리지를 재시작하십시오");
+        return;
+    }
     publishSpeedLimit();
     if (!request.p.contains("x") || !request.p.contains("y")
         || !request.p["x"].is_number() || !request.p["y"].is_number()
@@ -3350,6 +3595,139 @@ void BridgeNode::startNavigation(const Envelope &request, bool resume)
         return;
     }
 
+    if (!safetyCommandClient_->service_is_ready() || !authorityRequestClient_->service_is_ready()) {
+        respond(request, false, err::kUnreachable, "안전·주행 권한 서비스가 준비되지 않았습니다");
+        return;
+    }
+    const auto generation = ++navGeneration_;
+    pendingGoto_ = request;
+    pendingGotoAt_ = std::chrono::steady_clock::now();
+    navGoalPoint_ = json{{"x", request.p["x"]}, {"y", request.p["y"]},
+                         {"theta", request.p.value("theta", 0.0)}};
+    navStatus_ = "accepting";
+    navGoalPending_ = navPreparing_ = true;
+    navPreparingResume_ = resume;
+    navSafetyAccepted_ = navAuthorityAccepted_ = false;
+    navReadyReason_ = "NAV_SAFETY_AUTHORITY_PENDING";
+    navReadyDetail_ = "안전·주행 권한 승인 대기";
+    navError_.clear();
+    navDistance_ = navEta_ = navElapsed_ = navRecoveries_ = nullptr;
+    auto safety = std::make_shared<shalom_interfaces::srv::SafetyCommand::Request>();
+    safety->request_id = "hmi-nav-safety-" + std::to_string(++rosRequestSequence_);
+    safety->operator_id = "hmi";
+    safety->operation = shalom_interfaces::srv::SafetyCommand::Request::RESUME;
+    auto authority = std::make_shared<shalom_interfaces::srv::AuthorityRequest::Request>();
+    authority->request_id = "hmi-nav-authority-" + std::to_string(++rosRequestSequence_);
+    authority->requester = "hmi_bridge";
+    authority->operation = shalom_interfaces::srv::AuthorityRequest::Request::REQUEST_BASE;
+    navSafetyRequestId_ = safetyCommandClient_->async_send_request(safety,
+        [this, generation](rclcpp::Client<shalom_interfaces::srv::SafetyCommand>::SharedFuture future) {
+            if (!navPreparing_ || generation != navGeneration_) return;
+            navSafetyRequestId_.reset();
+            try {
+                const auto result = future.get();
+                if (!result->accepted) {
+                    finishNavigationPreparation(result->reason_code.empty() ? err::kMode : result->reason_code,
+                        result->detail.empty() ? "안전 재개 요청이 거절되었습니다" : result->detail);
+                    return;
+                }
+                navSafetyAccepted_ = true;
+                tickNavigationPreparation();
+            } catch (const std::exception &e) {
+                finishNavigationPreparation(err::kUnreachable, std::string("안전 서비스 응답 실패: ") + e.what());
+            }
+        }).request_id;
+    navAuthorityRequestId_ = authorityRequestClient_->async_send_request(authority,
+        [this, generation](rclcpp::Client<shalom_interfaces::srv::AuthorityRequest>::SharedFuture future) {
+            if (!navPreparing_ || generation != navGeneration_) return;
+            navAuthorityRequestId_.reset();
+            try {
+                const auto result = future.get();
+                if (!result->accepted) {
+                    finishNavigationPreparation(result->reason_code.empty() ? err::kMode : result->reason_code,
+                        result->detail.empty() ? "주행 권한 요청이 거절되었습니다" : result->detail);
+                    return;
+                }
+                navAuthorityAccepted_ = true;
+                tickNavigationPreparation();
+            } catch (const std::exception &e) {
+                finishNavigationPreparation(err::kUnreachable, std::string("주행 권한 응답 실패: ") + e.what());
+            }
+        }).request_id;
+    publishNav();
+}
+
+void BridgeNode::clearNavigationPreparation()
+{
+    if (navSafetyRequestId_) safetyCommandClient_->remove_pending_request(*navSafetyRequestId_);
+    if (navAuthorityRequestId_) authorityRequestClient_->remove_pending_request(*navAuthorityRequestId_);
+    navSafetyRequestId_.reset();
+    navAuthorityRequestId_.reset();
+    navPreparing_ = false;
+}
+
+void BridgeNode::finishNavigationPreparation(const std::string &code, const std::string &detail)
+{
+    const bool resume = navPreparingResume_;
+    clearNavigationPreparation();
+    ++navGeneration_;
+    navGoalPending_ = false;
+    navStatus_ = resume ? "paused" : "rejected";
+    navError_ = detail;
+    navReadyReason_ = code;
+    navReadyDetail_ = detail;
+    if (!resume) navGoalPoint_ = nullptr;
+    settleGoto(false, code, detail);
+    publishNav();
+}
+
+void BridgeNode::tickNavigationPreparation()
+{
+    if (!navPreparing_) return;
+    const auto wall = std::chrono::steady_clock::now();
+    if (!server_.isConnected() || manualMode_ || estopActive()) {
+        finishNavigationPreparation(err::kMode, "연결·주행 모드·비상정지 상태가 변경되었습니다");
+        return;
+    }
+    const bool safetyReady = safetyReceived_ != std::chrono::steady_clock::time_point{} &&
+        wall - safetyReceived_ <= std::chrono::seconds(1) && safetyState_ == "normal" && safetyMotionPermitted_;
+    const bool authorityReady = authorityReceived_ != std::chrono::steady_clock::time_point{} &&
+        wall - authorityReceived_ <= std::chrono::seconds(1) && motionAuthority_ == "base_active";
+    if (wall - pendingGotoAt_ > kGoalAcceptTimeout) {
+        finishNavigationPreparation(err::kUnreachable, navReadyDetail_.empty()
+            ? "안전·주행 권한 확인 시간이 초과되었습니다" : navReadyDetail_ + ": 응답 시간 초과");
+        return;
+    }
+    if (!navSafetyAccepted_ || !navAuthorityAccepted_) {
+        navReadyReason_ = "NAV_SAFETY_AUTHORITY_PENDING";
+        navReadyDetail_ = "안전·주행 권한 승인 대기";
+    } else if (!safetyReady) {
+        navReadyReason_ = "NAV_SAFETY_STATE_PENDING";
+        navReadyDetail_ = "로봇 안전 상태 확인 대기";
+    } else if (!authorityReady) {
+        navReadyReason_ = "NAV_BASE_AUTHORITY_PENDING";
+        navReadyDetail_ = "로봇 주행 권한 확인 대기";
+    } else {
+        const auto generation = navGeneration_;
+        const bool resume = navPreparingResume_;
+        clearNavigationPreparation();
+        navReadyReason_.clear();
+        navReadyDetail_.clear();
+        if (!navigationSpeedApplied_ || !navClient_->action_server_is_ready() || !pendingMapId_.empty()) {
+            navPreparing_ = true;
+            finishNavigationPreparation(err::kBusy, "자율주행 준비 상태가 변경되었습니다");
+            return;
+        }
+        linkHold_ = false;
+        sendPreparedNavigation(generation, resume);
+    }
+}
+
+void BridgeNode::sendPreparedNavigation(uint64_t generation, bool resume)
+{
+    if (!pendingGoto_ || generation != navGeneration_) return;
+    const auto request = *pendingGoto_;
+
     NavigateToPose::Goal goal;
     goal.pose.header.frame_id = mapFrame_;
     goal.pose.header.stamp = now();
@@ -3363,9 +3741,6 @@ void BridgeNode::startNavigation(const Envelope &request, bool resume)
     goal.pose.pose.orientation.z = q.z();
     goal.pose.pose.orientation.w = q.w();
 
-    requestSafetyResume();
-    requestBaseAuthority();
-    const auto generation = ++navGeneration_;
     rclcpp_action::Client<NavigateToPose>::SendGoalOptions opts;
 
     opts.goal_response_callback = [this, generation, resume](NavGoalHandle::SharedPtr handle) {
@@ -3457,7 +3832,6 @@ void BridgeNode::startNavigation(const Envelope &request, bool resume)
     navRecoveries_ = nullptr;
     navError_.clear();
     navFeedbackAt_ = {};
-    pendingGoto_ = request;
     pendingGotoAt_ = std::chrono::steady_clock::now();
     navGoalPending_ = true;
     navClient_->async_send_goal(goal, opts);
@@ -3467,6 +3841,13 @@ void BridgeNode::stopNavigation(bool pause)
 {
     if (!navigationBusy())
         return;
+    if (navPreparing_) {
+        clearNavigationPreparation();
+        ++navGeneration_;
+        navGoalPending_ = false;
+    }
+    navReadyReason_.clear();
+    navReadyDetail_.clear();
     navStatus_ = pause ? "pausing" : "canceling";
     baseHoldPub_->publish(geometry_msgs::msg::Twist{});
     settleGoto(false, err::kMode, pause ? "목표 주행 일시정지 요청" : "목표 주행 취소 요청");
@@ -3506,7 +3887,7 @@ void BridgeNode::settleGoto(bool ok, const std::string &code, const std::string 
 void BridgeNode::publishNav()
 {
     // Goal acceptance must also time out when the simulation clock is paused.
-    if (pendingGoto_ && std::chrono::steady_clock::now() - pendingGotoAt_ > kGoalAcceptTimeout) {
+    if (!navPreparing_ && pendingGoto_ && std::chrono::steady_clock::now() - pendingGotoAt_ > kGoalAcceptTimeout) {
         navError_ = "자율주행이 목표에 응답하지 않습니다";
         settleGoto(false, err::kUnreachable, "자율주행이 목표에 응답하지 않습니다");
         // A delayed acceptance must be canceled before any other motion is allowed.
@@ -3525,9 +3906,11 @@ void BridgeNode::publishNav()
                                   {"eta_s", navStatus_ == "navigating" && feedbackFresh ? navEta_ : json(nullptr)},
                                   {"elapsed_s", feedbackFresh ? navElapsed_ : json(nullptr)},
                                   {"recoveries", feedbackFresh ? navRecoveries_ : json(nullptr)},
-                                  {"navigation_state", navigationReadiness()},
+                                  {"navigation_state", mapTransitionUncertain_ ? "unknown" : navigationReadiness()},
                                   {"localization_state", localizationReadiness()},
                                   {"error", navError_},
+                                  {"ready_reason_code", navReadyReason_},
+                                  {"ready_detail", navReadyDetail_},
                                   // 경유점 개념은 아직 이 노드에 없다. 필드를
                                   // 빼면 관제가 키 없음과 값 없음을 구분해야
                                   // 하므로 null 로 보낸다.
@@ -3539,6 +3922,33 @@ void BridgeNode::publishNav()
 
 void BridgeNode::tickSafety()
 {
+    const auto wall = std::chrono::steady_clock::now();
+    if (!navPreparing_ && (navStatus_ == "navigating" || navStatus_ == "accepting") &&
+        (safetyReceived_ == std::chrono::steady_clock::time_point{} || wall - safetyReceived_ > std::chrono::seconds(1) ||
+         authorityReceived_ == std::chrono::steady_clock::time_point{} || wall - authorityReceived_ > std::chrono::seconds(1)))
+        stopNavigation(true);
+    if (linkMissionResumePending_ && server_.isConnected() && haveMissionState_ &&
+        (missionState_.state == shalom_interfaces::msg::MissionState::RUNNING ||
+         missionState_.state == shalom_interfaces::msg::MissionState::RETURNING) &&
+        safetyState_ == "normal" && safetyMotionPermitted_ && motionAuthority_ == "base_active" &&
+        wall - safetyReceived_ <= std::chrono::seconds(1) && wall - authorityReceived_ <= std::chrono::seconds(1)) {
+        linkHold_ = false;
+        linkMissionResumePending_ = false;
+    }
+    if (pendingMapRequest_ && std::chrono::steady_clock::now() - pendingMapAt_ > std::chrono::seconds(10)) {
+        mapTransitionUncertain_ = true;
+        linkHold_ = true;
+        requestSafetyStop("NAV_MAP_TRANSITION_TIMEOUT", "지도 전환 응답 시간 초과");
+        finishMapTransition(false, "지도 전환 응답 시간이 초과되었습니다. 내비게이션과 브리지를 재시작하십시오");
+    }
+    tickNavigationPreparation();
+    if (missionStartPending_ && std::chrono::steady_clock::now() - missionStartAt_ > std::chrono::seconds(3)) {
+        linkHold_ = true;
+        linkMissionResumePending_ = false;
+        requestSafetyStop("MISSION_START_TIMEOUT", "미션 구성·시작 응답 시간 초과");
+        pauseMissionForManualTakeover();
+        finishMissionStart(false, err::kUnreachable, "미션 구성·시작 응답 시간이 초과되었습니다");
+    }
     // 수동 모드인 동안 제자리 명령을 계속 내보낸다. 두 가지를 한꺼번에 한다 —
     // 로봇을 세워 두고, mux 에서 자율 출력이 선택되지 못하게 한다.
     //
@@ -3548,7 +3958,7 @@ void BridgeNode::tickSafety()
     //
     // E-Stop 중에도 내보낸다. 멈추는 것은 안전 게이트가 하지만, 그 사이에
     // 자율 출력이 mux 에서 선택되어 있을 이유는 없다.
-    if (manualMode_ || estopEngaged_ || navStatus_ == "pausing" ||
+    if (linkHold_ || navPreparing_ || manualMode_ || estopEngaged_ || navStatus_ == "pausing" ||
         navStatus_ == "paused" || navStatus_ == "canceling")
         baseHoldPub_->publish(geometry_msgs::msg::Twist{});
 }
@@ -3582,19 +3992,34 @@ void BridgeNode::requestSafetyResume()
 
 void BridgeNode::publishSafety()
 {
+    const bool fresh = safetyReceived_ != std::chrono::steady_clock::time_point{} &&
+        std::chrono::steady_clock::now() - safetyReceived_ <= std::chrono::seconds(1);
     sendEnvelope(makePublish(kChSafety,
                              json{{"estop", estopActive()},
                                   {"mode", manualMode_ ? "manual" : "auto"},
-                                  {"state", safetyState_}}));
+                                  {"state", safetyState_}, {"state_fresh", fresh},
+                                  {"motion_permitted", fresh && safetyMotionPermitted_},
+                                  {"reason_code", safetyReasonCode_}, {"detail", safetyDetail_}}));
+}
+
+void BridgeNode::requestSafetyStop(const std::string &reason, const std::string &detail)
+{
+    shalom_interfaces::msg::SafetyEvent event;
+    event.stamp = now();
+    event.sequence = ++rosRequestSequence_;
+    event.event = shalom_interfaces::msg::SafetyEvent::REQUEST_STOP;
+    event.source = "hmi_bridge";
+    event.reason_code = reason;
+    event.detail = detail;
+    safetyEventPub_->publish(event);
+    baseHoldPub_->publish(geometry_msgs::msg::Twist{});
 }
 
 // ================= 텔레메트리 =================
 
 void BridgeNode::publishPose()
 {
-    if (!server_.isConnected())
-        return;
-
+    if (mapTransitionUncertain_) return;
     geometry_msgs::msg::TransformStamped tf;
     try {
         tf = tfBuffer_->lookupTransform(mapFrame_, baseFrame_, tf2::TimePointZero);
@@ -3604,45 +4029,55 @@ void BridgeNode::publishPose()
     }
 
 
+    const rclcpp::Time sourceAt(tf.header.stamp, get_clock()->get_clock_type());
+    const double sourceAge = (now() - sourceAt).seconds();
+    if (sourceAt.nanoseconds() == 0 || sourceAge < -0.1 || sourceAge > 1.0 ||
+        sourceAt.nanoseconds() == lastPoseAt_.nanoseconds())
+        return;
+    const double x = tf.transform.translation.x;
+    const double y = tf.transform.translation.y;
     tf2::Quaternion q(tf.transform.rotation.x, tf.transform.rotation.y,
                       tf.transform.rotation.z, tf.transform.rotation.w);
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(q.length2()) || q.length2() < 1e-12)
+        return;
+    q.normalize();
     double roll = 0, pitch = 0, yaw = 0;
     tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
 
-    // 자세가 얼마나 움직였는지로 속도를 낸다. 한 표본만 보면 값이 튀므로
-    // 지수이동평균으로 눌러 준다 — 촬영 허용 판정에 쓰는 값이라, 잠깐의
-    // 튐으로 버튼이 깜빡이면 조작자가 못 누른다.
+    // Derive velocity from distinct, continuous source samples. The first
+    // sample after startup or a clock/source interruption has no velocity.
     {
-        const rclcpp::Time nowT = now();
-        const double x = tf.transform.translation.x;
-        const double y = tf.transform.translation.y;
-        if (lastPoseAt_.nanoseconds() != 0) {
-            const double dt = (nowT - lastPoseAt_).seconds();
-            if (dt > 1e-3 && dt < 2.0) {
-                const double v = std::hypot(x - lastPoseX_, y - lastPoseY_) / dt;
-                double dth = yaw - lastPoseTheta_;
-                while (dth > M_PI) dth -= 2 * M_PI;
-                while (dth < -M_PI) dth += 2 * M_PI;
-                const double w = std::abs(dth) / dt;
-                speedLinear_ = 0.7 * speedLinear_ + 0.3 * v;
-                speedAngular_ = 0.7 * speedAngular_ + 0.3 * w;
-                lastOdomAt_ = nowT;
-            }
+        const auto received = std::chrono::steady_clock::now();
+        const double dt = lastPoseAt_.nanoseconds() == 0 ? 0.0 : (sourceAt - lastPoseAt_).seconds();
+        const bool continuous = lastPoseReceived_ != std::chrono::steady_clock::time_point{} &&
+            received - lastPoseReceived_ <= std::chrono::seconds(1);
+        if (continuous && dt > 1e-3 && dt < 2.0) {
+            const double v = std::hypot(x - lastPoseX_, y - lastPoseY_) / dt;
+            double dth = yaw - lastPoseTheta_;
+            while (dth > M_PI) dth -= 2 * M_PI;
+            while (dth < -M_PI) dth += 2 * M_PI;
+            const double w = std::abs(dth) / dt;
+            speedLinear_ = 0.7 * speedLinear_ + 0.3 * v;
+            speedAngular_ = 0.7 * speedAngular_ + 0.3 * w;
+            lastOdomAt_ = sourceAt;
+            lastOdomReceived_ = received;
+        } else {
+            speedLinear_ = speedAngular_ = 0.0;
+            lastOdomAt_ = rclcpp::Time(0, 0, get_clock()->get_clock_type());
+            lastOdomReceived_ = {};
         }
         lastPoseX_ = x;
         lastPoseY_ = y;
         lastPoseTheta_ = yaw;
-        lastPoseAt_ = nowT;
+        lastPoseAt_ = sourceAt;
+        lastPoseReceived_ = received;
     }
 
-    // 속도를 함께 보낸다. 이것이 없으면 관제는 로봇이 늘 멈춰 있는 줄 알고,
-    // 이동 중에도 촬영 버튼이 열려 있다 — 과업지시서 2.2.4 가 금지하는
-    // 동적 촬영이 화면에서는 막히지 않는다는 뜻이다.
-    const bool odomFresh = lastOdomAt_.nanoseconds() != 0
-                           && (now() - lastOdomAt_).seconds() < 1.0;
+    if (!server_.isConnected()) return;
+    const bool odomFresh = motionFeedbackFresh();
     sendEnvelope(makePublish(kChPose,
-                             json{{"speed", odomFresh ? speedLinear_ : 0.0},
-                                  {"yaw_rate", odomFresh ? speedAngular_ : 0.0},
+                             json{{"speed", odomFresh ? json(speedLinear_) : json(nullptr)},
+                                  {"yaw_rate", odomFresh ? json(speedAngular_) : json(nullptr)},
                                   {"moving", isMoving()},
                                   {"x", tf.transform.translation.x},
                                   {"y", tf.transform.translation.y},
@@ -3760,8 +4195,7 @@ void BridgeNode::handleBasePosture(const Envelope &request)
         // 확인할 수 없으니 거절하는 편이 안전하다). 다만 그 이유를 "이동 중"
         // 이라고 말하면, 조작자는 멈춰 서 있는 로봇 앞에서 멈추라는 말을
         // 듣게 되고 다음에 무엇을 해야 하는지 알 수 없다.
-        const bool odomStale = lastOdomAt_.nanoseconds() == 0
-                               || (now() - lastOdomAt_).seconds() > 1.0;
+        const bool odomStale = !motionFeedbackFresh();
         if (odomStale) {
             refusePosture(request, err::kHardware,
                           "주행 정보가 들어오지 않아 정지 상태를 확인할 수 없습니다");

@@ -28,6 +28,8 @@ public:
     void setArmPosePresets(const QList<QVariantMap> &presets);
     void setMapId(const QString &mapId);
     void setMissionState(hmi::robot::MissionState state);
+    void setEditingEnabled(bool enabled);
+    void setExecutionEnabled(bool enabled, const QString &reason = {});
     void handleCommandResult(const QString &channel, bool ok,
                              const QString &code, const QString &message);
 
@@ -54,6 +56,7 @@ private:
     void updateStepTarget(int index, const QString &type);
     void updateControls();
     void setStatus(const QString &message);
+    bool confirmPendingSave();
     QVariantMap currentMission() const;
     QString runBlockReason(const QVariantMap &mission) const;
     bool canEdit() const;
@@ -77,9 +80,15 @@ private:
     QString mapId_;
     QString editingId_;
     QString pendingSaveId_;
+    QVariantMap pendingMission_;
+    quint64 pendingSaveGeneration_ = 0;
+    bool pendingSaveAccepted_ = false;
     quint64 revisionValue_ = 0;
     bool editing_ = false;
     bool missionBusy_ = false;
+    bool editingEnabled_ = true;
+    bool executionEnabled_ = true;
+    QString executionReason_;
 };
 
 }  // namespace hmi::ui

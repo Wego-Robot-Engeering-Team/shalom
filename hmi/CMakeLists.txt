@@ -187,6 +187,19 @@ if(HMI_BUILD_TESTS)
     set_tests_properties(test_mapview PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    hmi_add_test(test_teleop)
+    set_tests_properties(test_teleop PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    hmi_add_test(test_location_capture)
+    set_tests_properties(test_location_capture PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    hmi_add_test(test_arm)
+    hmi_add_test(test_waypoint)
+    set_tests_properties(test_arm test_waypoint PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     hmi_add_test(test_robotview)
     set_tests_properties(test_robotview PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

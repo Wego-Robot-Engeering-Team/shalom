@@ -99,7 +99,14 @@ static StationMarker *placeStation(QGraphicsScene *scene, StationMarker *existin
 
 void MapView::setMap(const MapInfo &info, const QImage &image)
 {
-    if (info_ && info_->mapId != info.mapId) {
+    const auto previous = info_;
+    const bool sameMap = previous && previous->mapId == info.mapId;
+    const bool geometryChanged = sameMap &&
+        (previous->width != info.width || previous->height != info.height ||
+         previous->resolution != info.resolution || previous->originX != info.originX ||
+         previous->originY != info.originY);
+    const QPointF previousCenter = mapToScene(viewport()->rect().center());
+    if (previous && !sameMap) {
         setTrail({});
         setPlan({});
         setWaypoints({});
@@ -112,11 +119,37 @@ void MapView::setMap(const MapInfo &info, const QImage &image)
     mapItem_->setPos(0, 0);
     scene_->setSceneRect(QRectF(0, 0, info.sceneWidth(), info.sceneHeight()));
 
+    if (geometryChanged) {
+        // SLAM may grow or shift the grid. Preserve world positions and pixels/metre.
+        const double ratio = previous->resolution / info.resolution;
+        const QTransform remap(ratio, 0, 0, ratio,
+            (previous->originX - info.originX) / info.resolution,
+            info.height - previous->height * ratio +
+                (info.originY - previous->originY) / info.resolution);
+        trailItem_->setPath(remap.map(trailItem_->path()));
+        planItem_->setPath(remap.map(planItem_->path()));
+        for (auto *marker : std::as_const(waypoints_))
+            marker->setPos(remap.map(marker->pos()));
+        for (auto *marker : std::as_const(tags_))
+            marker->setPos(remap.map(marker->pos()));
+        robot_->setPos(remap.map(robot_->pos()));
+        if (goal_) goal_->setPos(remap.map(goal_->pos()));
+        if (draftMarker_) draftMarker_->setPos(remap.map(draftMarker_->pos()));
+        dragOrigin_ = remap.map(dragOrigin_);
+        dragCurrent_ = remap.map(dragCurrent_);
+        const auto anchor = transformationAnchor();
+        setTransformationAnchor(QGraphicsView::NoAnchor);
+        scale(1.0 / ratio, 1.0 / ratio);
+        centerOn(remap.map(previousCenter));
+        setTransformationAnchor(anchor);
+    }
+
     // 지도가 바뀌면 좌표계도 바뀐다. 들고 있던 자리를 새 좌표로 다시 놓는다.
     dock_ = placeStation(scene_, dock_, StationMarker::Kind::Dock, dockLoc_, info_);
     home_ = placeStation(scene_, home_, StationMarker::Kind::Home, homeLoc_, info_);
 
-    fitMap();
+    if (!sameMap)
+        fitMap();
 }
 
 void MapView::clearMap()

@@ -201,6 +201,8 @@ signals:
     /// The mission state is owned by the robot side. The UI follows it rather
     /// than tracking its own copy, so the buttons cannot disagree with reality.
     void missionStateChanged(hmi::robot::MissionState state);
+    void missionStatusReported(hmi::robot::MissionState state,
+                               const QString &reason, const QString &detail);
     /// Progress belongs to the robot's active plan, not to the waypoint catalog.
     void missionProgressChanged(const QString &missionId, int index, int total);
     void missionsChanged(const QList<QVariantMap> &missions);

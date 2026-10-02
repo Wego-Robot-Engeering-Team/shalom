@@ -148,6 +148,8 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
                  {QStringLiteral("yaw"), row->findChild<QDoubleSpinBox *>(
                       QStringLiteral("WaypointRowYaw"))->value()},
                  {"base", row->property("editBase")}, {"editing", row->isEditing()},
+                 {"initialValues", row->property("editValues")},
+                 {"submittedPoint", row->property("submittedPoint")},
                  {"submitted", row->property("submitted")}};
     }
     const QString selectedId = list_->currentItem()
@@ -222,9 +224,12 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
             it->setSizeHint(QSize(0, row->sizeHint().height()));
             list_->doItemsLayout();
         };
-        connect(row->editButton(), &QPushButton::clicked, this, [this, row, wp, resizeItem] {
-            if (!row->property("draftActive").toBool())
+        connect(row->editButton(), &QPushButton::clicked, this, [this, row, wp, x, y, yaw, resizeItem] {
+            if (!row->property("draftActive").toBool()) {
                 row->setProperty("editBase", wp);
+                row->setProperty("editValues", QVariantMap{{"x", x->value()}, {"y", y->value()},
+                                                          {"yaw", yaw->value()}});
+            }
             row->setProperty("draftActive", true);
             for (int i = 0; i < list_->count(); ++i) {
                 auto *otherItem = list_->item(i);
@@ -256,12 +261,18 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
                 return;
             }
             QVariantMap updated = wp;
+            const auto base = row->property("editBase").toMap();
+            const auto initial = row->property("editValues").toMap();
             updated[QStringLiteral("name")] = newName;
-            updated[QStringLiteral("x")] = x->value();
-            updated[QStringLiteral("y")] = y->value();
-            updated[QStringLiteral("theta")] = qDegreesToRadians(yaw->value());
+            updated[QStringLiteral("x")] = initial.contains("x") && x->value() == initial.value("x").toDouble()
+                ? base.value("x") : QVariant(x->value());
+            updated[QStringLiteral("y")] = initial.contains("y") && y->value() == initial.value("y").toDouble()
+                ? base.value("y") : QVariant(y->value());
+            updated[QStringLiteral("theta")] = initial.contains("yaw") && yaw->value() == initial.value("yaw").toDouble()
+                ? base.value("theta", 0.0) : QVariant(qDegreesToRadians(yaw->value()));
             updated[QStringLiteral("_expected_point")] = row->property("editBase");
             row->setProperty("submitted", true);
+            row->setProperty("submittedPoint", updated);
             emit updateRequested(id, updated);
         });
         connect(remove, &QPushButton::clicked, this, [this, id, wp] {
@@ -280,11 +291,12 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
         it->setSizeHint(QSize(0, row->sizeHint().height()));
         if (drafts.contains(id)) {
             const auto draft = drafts.value(id);
+            const auto submitted = draft.value("submittedPoint").toMap();
             const bool committed = draft.value("submitted").toBool() &&
-                draft.value("name").toString() == wp.value("name").toString() &&
-                std::abs(draft.value("x").toDouble() - wp.value("x").toDouble()) < 1e-6 &&
-                std::abs(draft.value("y").toDouble() - wp.value("y").toDouble()) < 1e-6 &&
-                std::abs(std::remainder(qDegreesToRadians(draft.value("yaw").toDouble()) -
+                !submitted.isEmpty() && submitted.value("name").toString() == wp.value("name").toString() &&
+                std::abs(submitted.value("x").toDouble() - wp.value("x").toDouble()) < 1e-6 &&
+                std::abs(submitted.value("y").toDouble() - wp.value("y").toDouble()) < 1e-6 &&
+                std::abs(std::remainder(submitted.value("theta").toDouble() -
                                       wp.value("theta").toDouble(), 2 * M_PI)) < 1e-6;
             if (!committed) {
                 name->setText(draft.value(QStringLiteral("name")).toString());
@@ -293,7 +305,9 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
                 yaw->setValue(draft.value(QStringLiteral("yaw")).toDouble());
                 row->setProperty("draftActive", true);
                 row->setProperty("editBase", draft.value("base"));
+                row->setProperty("editValues", draft.value("initialValues"));
                 row->setProperty("submitted", draft.value("submitted"));
+                row->setProperty("submittedPoint", draft.value("submittedPoint"));
                 row->setEditing(draft.value("editing").toBool());
                 it->setSizeHint(QSize(0, row->sizeHint().height()));
             }

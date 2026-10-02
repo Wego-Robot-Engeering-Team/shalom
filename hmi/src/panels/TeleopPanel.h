@@ -53,8 +53,7 @@ public:
 
 protected:
     /// Watches the whole window so the operator does not have to click the
-    /// panel first. Keys are ignored while a text field has focus, otherwise
-    /// typing a vehicle number would drive the robot.
+    /// panel first. Text input blocks new jogs, but never blocks releasing one.
     bool eventFilter(QObject *watched, QEvent *ev) override;
 
 signals:

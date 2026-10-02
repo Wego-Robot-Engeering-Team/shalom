@@ -91,7 +91,8 @@ BridgeClient::BridgeClient(QString host, quint16 port, QObject *parent)
     estopHeartbeatTimer_ = new QTimer(this);
     estopHeartbeatTimer_->setInterval(kHeartbeatMs);
     connect(estopHeartbeatTimer_, &QTimer::timeout, this, [this] {
-        sendEstopEnvelope(makeHeartbeat(++estopHeartbeatSeq_));
+        if (isConnected())
+            sendEstopEnvelope(makeHeartbeat(++estopHeartbeatSeq_));
     });
 
     watchdogTimer_ = new QTimer(this);
@@ -241,6 +242,7 @@ void BridgeClient::onConnected()
     sendEnvelope(makeSubscribe(channels));
 
     heartbeatTimer_->start();
+    refreshSafetyHeartbeat();
 
     // 붙자마자 전원 정책을 다시 보낸다. 로봇이 재부팅했으면 정책을 잊었을
     // 수 있고, 그 상태로 두면 관제 화면에 적힌 값과 로봇이 지키는 값이
@@ -264,6 +266,9 @@ void BridgeClient::onConnected()
 void BridgeClient::onDisconnected()
 {
     heartbeatTimer_->stop();
+    // Keep the dedicated socket available for E-Stop commands, but stop
+    // renewing motion permission when the general control link is lost.
+    estopHeartbeatTimer_->stop();
     for (const auto &pending : pending_.values())
         emit commandResult(pending.channel, false, QStringLiteral("LINK_LOST"),
                            QStringLiteral("로봇 연결이 끊겼습니다"));
@@ -280,10 +285,19 @@ void BridgeClient::onEstopConnected()
     estopSocket_->setSocketOption(QAbstractSocket::LowDelayOption, 1);
     estopSocket_->setSocketOption(QAbstractSocket::KeepAliveOption, 1);
     estopDecoder_.reset();
-    estopHeartbeatTimer_->start();
-    // 안전 감시를 초기화하려면 첫 heartbeat가 바로 나가야 한다. 타이머 한
-    // 주기를 기다리면 연결 직후 200 ms 동안 불필요하게 controlled-stop이다.
-    sendEstopEnvelope(makeHeartbeat(++estopHeartbeatSeq_));
+    refreshSafetyHeartbeat();
+}
+
+void BridgeClient::refreshSafetyHeartbeat()
+{
+    if (!isConnected() || estopSocket_->state() != QAbstractSocket::ConnectedState) {
+        estopHeartbeatTimer_->stop();
+        return;
+    }
+    if (!estopHeartbeatTimer_->isActive()) {
+        estopHeartbeatTimer_->start();
+        sendEstopEnvelope(makeHeartbeat(++estopHeartbeatSeq_));
+    }
 }
 
 void BridgeClient::onEstopDisconnected()
@@ -319,6 +333,7 @@ void BridgeClient::resetLinkState()
     dock_.clear();
     home_.clear();
     markers_.clear();
+    activeMapId_.clear();
     missionStateSeen_ = false;
     modeReported_ = false;
     queuedMode_.reset();
@@ -327,8 +342,10 @@ void BridgeClient::resetLinkState()
     const auto link = telemetry_.link;
     telemetry_ = hmi::robot::Telemetry{};
     telemetry_.link = link;
+    telemetry_.estop = estop_;
     lastPoseMs_ = 0;
     lastNavMs_ = 0;
+    lastSafetyMs_ = 0;
     lastArmMs_ = 0;
     heartbeatSentAt_.clear();
     lastSeq_.clear();
@@ -614,7 +631,9 @@ void BridgeClient::handlePublish(const Envelope &env)
         telemetry_.x = p.value(QStringLiteral("x")).toDouble();
         telemetry_.y = p.value(QStringLiteral("y")).toDouble();
         telemetry_.theta = p.value(QStringLiteral("theta")).toDouble();
-        telemetry_.speed = p.value(QStringLiteral("speed")).toDouble();
+        const auto speed = p.value(QStringLiteral("speed"));
+        telemetry_.speed = speed.isDouble() ? speed.toDouble()
+            : std::numeric_limits<double>::quiet_NaN();
         const auto angular = p.value(QStringLiteral("yaw_rate"));
         telemetry_.angularSpeed = angular.isDouble() ? angular.toDouble()
             : std::numeric_limits<double>::quiet_NaN();
@@ -640,9 +659,15 @@ void BridgeClient::handlePublish(const Envelope &env)
         }
     } else if (ch == QLatin1String(hmi::ch::kSafety)) {
         const bool estop = p.value(QStringLiteral("estop")).toBool();
+        lastSafetyMs_ = clock_.elapsed();
+        telemetry_.safetyFresh = p.value(QStringLiteral("state_fresh")).toBool(true);
+        telemetry_.estop = estop;
+        telemetry_.safetyState = p.value(QStringLiteral("state")).toString(QStringLiteral("unknown"));
+        telemetry_.safetyMotionPermitted = p.value(QStringLiteral("motion_permitted")).toBool();
+        telemetry_.safetyReasonCode = p.value(QStringLiteral("reason_code")).toString();
+        telemetry_.safetyDetail = p.value(QStringLiteral("detail")).toString();
         if (estop != estop_) {
             estop_ = estop;
-            telemetry_.estop = estop;
             if (estop) {
                 queuedMode_.reset();
                 deferredNavigationChannel_.clear();
@@ -691,6 +716,7 @@ void BridgeClient::handlePublish(const Envelope &env)
     } else if (ch == QLatin1String(hmi::ch::kNav)) {
         lastNavMs_ = clock_.elapsed();
         telemetry_.navFresh = true;
+        ++telemetry_.navRevision;
         const auto metric = [&p](const char *key) {
             const auto value = p.value(QLatin1String(key));
             return value.isDouble() && std::isfinite(value.toDouble()) && value.toDouble() >= 0
@@ -703,6 +729,8 @@ void BridgeClient::handlePublish(const Envelope &env)
         telemetry_.navigationLifecycle = p.value("navigation_state").toString();
         telemetry_.localizationLifecycle = p.value("localization_state").toString();
         telemetry_.navError = p.value("error").toString();
+        telemetry_.navReadinessReasonCode = p.value(QStringLiteral("ready_reason_code")).toString();
+        telemetry_.navReadinessDetail = p.value(QStringLiteral("ready_detail")).toString();
         telemetry_.navStatus = p.value(QStringLiteral("status")).toString();
         const bool active = telemetry_.navStatus == QLatin1String("accepting") ||
                             telemetry_.navStatus == QLatin1String("navigating") ||
@@ -757,6 +785,12 @@ void BridgeClient::handlePublish(const Envelope &env)
     } else if (ch == QLatin1String(hmi::ch::kMission)) {
         const QString state = p.value(QStringLiteral("state")).toString();
         const MissionState next = hmi::robot::missionStateFromWire(state);
+        const QString reason = p.value(QStringLiteral("reason_code")).toString();
+        const QString detail = p.value(QStringLiteral("detail")).toString();
+        const bool statusChanged = !missionStateSeen_ || next != mission_ ||
+            reason != telemetry_.missionReasonCode || detail != telemetry_.missionDetail;
+        telemetry_.missionReasonCode = reason;
+        telemetry_.missionDetail = detail;
         emit missionProgressChanged(p.value(QStringLiteral("mission_id")).toString(),
                                     p.value(QStringLiteral("index")).toInt(-1),
                                     p.value(QStringLiteral("total")).toInt());
@@ -767,6 +801,8 @@ void BridgeClient::handlePublish(const Envelope &env)
             missionStateSeen_ = true;
             emit missionStateChanged(mission_);
         }
+        if (statusChanged)
+            emit missionStatusReported(mission_, reason, detail);
     } else if (ch == QLatin1String(hmi::ch::kWaypoints)) {
         QList<QVariantMap> wps;
         for (const auto &v : p.value(QStringLiteral("points")).toArray())
@@ -856,18 +892,25 @@ void BridgeClient::checkTimeouts()
         telemetry_.armFresh = false;
     if (telemetry_.navFresh && now - lastNavMs_ > kPoseStaleMs)
         telemetry_.navFresh = false;
+    if (telemetry_.safetyFresh && now - lastSafetyMs_ > kPoseStaleMs)
+        telemetry_.safetyFresh = false;
 
     if (isConnected() && now - lastHeartbeatMs_ > kLinkSilentMs) {
         emit robotEvent(QStringLiteral("LINK_HEARTBEAT_TIMEOUT"),
                         {{"silent_ms", now - lastHeartbeatMs_}});
-        lastHeartbeatMs_ = now;   // 매 주기마다 반복해서 쏟아내지 않는다
+        // A socket can stay open while its process stops responding. Treat
+        // that as a link loss too, so the safety heartbeat cannot mask it.
+        socket_->abort();
     }
 
     // 응답 없는 명령. 조용히 사라지면 조작자는 명령이 먹은 줄 안다.
     QList<QString> expiredChannels;
     for (auto it = pending_.begin(); it != pending_.end();) {
+        const bool motionPreparation = it->channel == QLatin1String(hmi::ch::kCmdGoto) ||
+            it->channel == QLatin1String(hmi::ch::kCmdNavResume) ||
+            it->channel == QLatin1String(hmi::ch::kCmdMissionStart);
         const qint64 timeoutMs = it->channel == QLatin1String(hmi::ch::kCmdMapsSelect)
-                                     ? 45000 : kRequestTimeoutMs;
+            ? 45000 : motionPreparation ? 6000 : kRequestTimeoutMs;
         if (now - it->sentAtMs > timeoutMs) {
             expiredChannels << it->channel;
             it = pending_.erase(it);

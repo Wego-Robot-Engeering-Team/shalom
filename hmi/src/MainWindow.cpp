@@ -837,7 +837,7 @@ void MainWindow::wireRobotSignals()
                     const bool wasLive = activeMapId_ == QLatin1String("live");
                     if (activeMapId_ != mapId) {
                         clearDraftGoal();
-                        goalStartPending_ = false;
+                        clearSubmittedGoal();
                         navigationError_.clear();
                         missionDefinitions_.clear();
                         refreshMissionProgress();
@@ -892,8 +892,15 @@ void MainWindow::wireRobotSignals()
             maps_.clear();
             activeMapId_.clear();
             navigationStatus_.clear();
+            navigationControlPending_.clear();
+            ++navigationControlGeneration_;
+            missionCommandPending_.clear();
+            missionReasonCode_.clear();
+            missionDetail_.clear();
+            ++missionCommandGeneration_;
+            mission_->setMissionDetails({}, {});
             clearDraftGoal();
-            goalStartPending_ = false;
+            clearSubmittedGoal();
             navigationError_.clear();
             navigationTelemetry_ = {};
             status_->setTelemetry({}, false);
@@ -939,16 +946,13 @@ void MainWindow::wireRobotSignals()
             driveModeConfirmed_ = false;
             requestedDriveMode_.reset();
             showReportedDriveMode();
-            autoBtn_->setEnabled(true);
-            manualBtn_->setEnabled(true);
+            autoBtn_->setEnabled(false);
+            manualBtn_->setEnabled(false);
             map_->setMapListEnabled(true);
             refreshGoalAvailability();
-            // 연결 자체는 제어 권한이 아니다. 다만 기존의 빈 화면에서처럼
-            // 조작계를 계속 비활성으로 두면 새로 고른 로봇을 조작할 수 없다.
-            arm_->setControlsEnabled(true);
-            // 본체 조작도 같이 돌아와야 한다. 연결이 끊겼을 때 잠가 둔 것을
-            // 다시 풀지 않으면, 로봇이 붙어 있는데 조작만 죽은 채로 남는다.
-            teleop_->setJogEnabled(true);
+            // 첫 안전 상태를 확인한 뒤 조작계를 활성화한다.
+            arm_->setControlsEnabled(false);
+            teleop_->setJogEnabled(false);
         }
     });
 
@@ -987,6 +991,25 @@ void MainWindow::wireRobotSignals()
     // 미션 상태와 로봇 이벤트의 진실 원천은 로봇쪽이다. UI 는 따라간다.
     connect(robot_, &robot::RobotLink::missionStateChanged,
             this, &MainWindow::onMissionStateChanged);
+    connect(robot_, &robot::RobotLink::missionStatusReported, this,
+            [this](MissionState state, const QString &reason, const QString &detail) {
+        missionReasonCode_ = reason;
+        missionDetail_ = detail;
+        mission_->setMissionDetails(reason, detail);
+        if (!missionCommandPending_.isEmpty()) {
+            const bool starting = missionCommandPending_ == QLatin1String(ch::kCmdMissionStart);
+            const bool pausing = missionCommandPending_ == QLatin1String(ch::kCmdMissionPause);
+            const bool resuming = missionCommandPending_ == QLatin1String(ch::kCmdMissionResume);
+            missionCommandReported_ = missionCommandReported_ ||
+                (starting && (state == MissionState::Running ||
+                    reason == QLatin1String("MISSION_START_REQUESTED") ||
+                    reason == QLatin1String("MISSION_START_CANCELLED_BY_SAFETY"))) ||
+                (pausing && (state == MissionState::Pausing || state == MissionState::Paused)) ||
+                (resuming && (state == MissionState::Recovering || state == MissionState::Running));
+            settleMissionCommand();
+        }
+        refreshMissionAvailability();
+    });
     connect(robot_, &robot::RobotLink::missionsChanged, this,
             [this](const QList<QVariantMap> &missions) {
                 missionDefinitions_ = missions;
@@ -1091,10 +1114,21 @@ void MainWindow::wireRobotSignals()
     connect(robot_, &robot::RobotLink::commandResult, missionLibrary_,
             &MissionLibraryPanel::handleCommandResult);
     connect(robot_, &robot::RobotLink::commandResult, this,
-            [this](const QString &channel, bool ok, const QString &, const QString &) {
-                if (ok && channel == QLatin1String(hmi::ch::kCmdMissionStart))
-                    showView(NavItem::Mission);
-            });
+            [this](const QString &channel, bool ok, const QString &code, const QString &message) {
+        if (channel == missionCommandPending_) {
+            if (!ok) {
+                missionCommandPending_.clear();
+                mission_->setMissionDetails(code, message);
+                missionDetail_ = message;
+            } else {
+                missionCommandAccepted_ = true;
+                settleMissionCommand();
+            }
+            refreshMissionAvailability();
+        }
+        if (ok && channel == QLatin1String(hmi::ch::kCmdMissionStart))
+            showView(NavItem::Mission);
+    });
     connect(robot_, &robot::RobotLink::robotEvent, this,
             [this](const QString &code, const QVariantMap &detail) {
                 log_->log(code, QJsonObject::fromVariantMap(detail));
@@ -1137,9 +1171,28 @@ void MainWindow::wireMapSignals()
     auto *view = map_->view();
     connect(map_->mapButton(), &QPushButton::clicked, this, &MainWindow::showMapPicker);
     connect(status_->navPauseButton(), &QPushButton::clicked, this, [this] {
-        if (!robot_->isConnected())
+        const auto missionState = robot_->missionState();
+        if (!robot_->isConnected() || !navigationControlPending_.isEmpty() || goalCancelRequested_ ||
+            (missionState != MissionState::Idle && missionState != MissionState::Completed && missionState != MissionState::Failed))
             return;
-        if (navigationStatus_ == QLatin1String("paused"))
+        const bool resume = navigationStatus_ == QLatin1String("paused");
+        if (resume && !autonomousReadinessReason().isEmpty())
+            return;
+        if (!resume && navigationStatus_ != QLatin1String("accepting") &&
+            navigationStatus_ != QLatin1String("navigating"))
+            return;
+        navigationControlPending_ = QLatin1String(resume ? ch::kCmdNavResume : ch::kCmdNavPause);
+        navigationControlRevision_ = navigationTelemetry_.navRevision;
+        navigationControlAccepted_ = navigationControlReported_ = false;
+        const auto generation = ++navigationControlGeneration_;
+        QTimer::singleShot(7000, this, [this, generation] {
+            if (generation != navigationControlGeneration_ || navigationControlPending_.isEmpty()) return;
+            navigationControlPending_.clear();
+            navigationError_ = QStringLiteral("주행 명령 결과를 확인하지 못했습니다. 로봇 상태를 확인하십시오.");
+            refreshGoalAvailability();
+        });
+        refreshGoalAvailability();
+        if (resume)
             robot_->resumeNav();
         else
             robot_->pauseNav();
@@ -1147,25 +1200,62 @@ void MainWindow::wireMapSignals()
     connect(status_->startButton(), &QPushButton::clicked, this, &MainWindow::startDraftGoal);
     connect(status_, &StatusPanel::missionRequested, this, [this] { showView(NavItem::Mission); });
     connect(status_->navCancelButton(), &QPushButton::clicked, this, [this] {
-        if (!draftGoal_.isEmpty() && !goalStartPending_) {
-            status_->goalButton()->setChecked(false);
-            clearDraftGoal();
-            navigationError_.clear();
-            refreshGoalAvailability();
-        } else {
+        navigationControlPending_.clear();
+        ++navigationControlGeneration_;
+        const bool localOnly = !draftGoal_.isEmpty() && submittedGoal_.isEmpty() &&
+                               !goalStartPending_ && !goalAwaitingState_ &&
+                               navigationStatus_ != QLatin1String("accepting") &&
+                               navigationStatus_ != QLatin1String("navigating") &&
+                               navigationStatus_ != QLatin1String("pausing") &&
+                               navigationStatus_ != QLatin1String("paused") &&
+                               navigationStatus_ != QLatin1String("canceling");
+        status_->goalButton()->setChecked(false);
+        clearDraftGoal();
+        navigationError_.clear();
+        if (!localOnly) {
+            goalCancelRequested_ = true;
+            goalCancelNavRevision_ = navigationTelemetry_.navRevision;
             robot_->cancelNav();
         }
+        refreshGoalAvailability();
     });
     connect(robot_, &robot::RobotLink::commandResult, this,
             [this](const QString &channel, bool ok, const QString &code, const QString &message) {
         if (channel != QLatin1String(ch::kCmdGoto) && channel != QLatin1String(ch::kCmdNavResume) &&
             channel != QLatin1String(ch::kCmdNavPause) && channel != QLatin1String(ch::kCmdNavCancel))
             return;
+        if (channel == QLatin1String(ch::kCmdGoto) && !submittedGoal_.isEmpty()) {
+            goalStartPending_ = false;
+            if (ok) {
+                clearDraftGoal();
+                goalAwaitingState_ = !goalExecutionReported_;
+            } else {
+                const auto retry = submittedGoal_;
+                const auto mapId = submittedGoalMapId_;
+                const bool canceled = goalCancelRequested_;
+                const auto cancelRevision = goalCancelNavRevision_;
+                clearSubmittedGoal();
+                goalCancelRequested_ = canceled;
+                goalCancelNavRevision_ = cancelRevision;
+                const auto *shown = map_->view()->mapInfo();
+                if (!canceled && !estop_->isEngaged() && shown && shown->mapId == mapId)
+                    setDraftGoal(retry);
+            }
+        }
         if (!ok) {
-            if (channel == QLatin1String(ch::kCmdGoto)) goalStartPending_ = false;
             navigationError_ = message.isEmpty() ? code : message;
         } else {
             navigationError_.clear();
+        }
+        if (channel == QLatin1String(ch::kCmdNavCancel) && !ok)
+            goalCancelRequested_ = false;
+        if (channel == navigationControlPending_) {
+            if (!ok)
+                navigationControlPending_.clear();
+            else {
+                navigationControlAccepted_ = true;
+                settleNavigationControl();
+            }
         }
         refreshGoalAvailability();
     });
@@ -1478,16 +1568,7 @@ void MainWindow::wireMissionSignals()
     connect(missionLibrary_, &MissionLibraryPanel::archiveRequested,
             robot_, &robot::RobotLink::archiveMission);
     connect(missionLibrary_, &MissionLibraryPanel::runRequested, this,
-            [this](const QString &id) {
-                const double departAt = Config::instance().batteryDeparturePercent();
-                if (lastSoc_ < departAt) {
-                    QMessageBox::warning(this, QStringLiteral("미션을 시작할 수 없습니다"),
-                        QStringLiteral("배터리가 %1%% 입니다. 출발 최소 기준 %2%% 이상 충전하십시오.")
-                            .arg(lastSoc_, 0, 'f', 0).arg(departAt, 0, 'f', 0));
-                    return;
-                }
-                robot_->startMission(id);
-            });
+            [this](const QString &id) { startStoredMission(id); });
     connect(waypoints_, &WaypointPanel::addRequested, this, [this] {
         pendingPlacementKind_ = QStringLiteral("inspection");
         status_->goalButton()->setChecked(false);
@@ -1545,13 +1626,27 @@ void MainWindow::wireMissionSignals()
             driveTo(*it, it->value(QStringLiteral("name"), id).toString());
     });
     connect(mission_, &MissionPanel::missionPause, this, [this] {
+        if (!missionCommandPending_.isEmpty() || !robot_->isConnected() ||
+            robot_->missionState() != MissionState::Running) {
+            refreshMissionAvailability();
+            return;
+        }
+        beginMissionCommand(QLatin1String(ch::kCmdMissionPause));
         robot_->missionPause();
         log_->log(QStringLiteral("MISSION_PAUSE"));
     });
     connect(mission_, &MissionPanel::missionResume, this, [this] {
+        if (!missionCommandPending_.isEmpty() || robot_->missionState() != MissionState::Paused ||
+            !autonomousReadinessReason().isEmpty()) {
+            refreshMissionAvailability();
+            return;
+        }
+        beginMissionCommand(QLatin1String(ch::kCmdMissionResume));
         robot_->missionResume();
         log_->log(QStringLiteral("MISSION_RESUME"));
     });
+    connect(mission_, &MissionPanel::missionRetry, this,
+            [this] { startStoredMission(activeMissionId_, true); });
     connect(waypoints_, &WaypointPanel::waypointsChanged, this,
             [this](const QList<QVariantMap> &points) {
                 missionLibrary_->setWaypoints(points);
@@ -1559,8 +1654,11 @@ void MainWindow::wireMissionSignals()
             });
 
     connect(mission_, &MissionPanel::missionStop, this, [this] {
+        missionCommandPending_.clear();
+        ++missionCommandGeneration_;
         robot_->missionStop();
         log_->log(QStringLiteral("MISSION_STOP"));
+        refreshMissionAvailability();
     });
     connect(mission_, &MissionPanel::returnToDock, this, [this] {
         robot_->returnToDock();
@@ -1577,7 +1675,8 @@ void MainWindow::driveTo(const QVariantMap &pose, const QString &label)
                                             "시도하십시오."));
         return;
     }
-    if (!robot_->isConnected() || !requestedMapId_.isEmpty() || goalStartPending_)
+    if (!robot_->isConnected() || !requestedMapId_.isEmpty() || goalStartPending_ ||
+        goalAwaitingState_ || goalCancelRequested_)
         return;
     const auto mission = robot_->missionState();
     if ((mission != MissionState::Idle && mission != MissionState::Completed && mission != MissionState::Failed) ||
@@ -1758,10 +1857,141 @@ void MainWindow::clearDraftGoal()
     map_->view()->setDraftGoal({});
 }
 
+void MainWindow::clearSubmittedGoal()
+{
+    submittedGoal_.clear();
+    submittedGoalMapId_.clear();
+    submittedGoalNavRevision_ = 0;
+    goalStartPending_ = false;
+    goalAwaitingState_ = false;
+    goalCancelRequested_ = false;
+    goalCancelNavRevision_ = 0;
+    goalExecutionReported_ = false;
+}
+
+void MainWindow::settleNavigationControl()
+{
+    if (!navigationControlPending_.isEmpty() && navigationControlAccepted_ && navigationControlReported_)
+        navigationControlPending_.clear();
+}
+
+QString MainWindow::safetyReadinessReason() const
+{
+    if (!robot_->isConnected())
+        return QStringLiteral("로봇 연결 후 사용할 수 있습니다");
+    const bool realLink = qobject_cast<net::BridgeClient *>(robot_);
+    if (realLink && !navigationTelemetry_.safetyFresh)
+        return QStringLiteral("안전 상태 수신 대기");
+    if (estop_->isEngaged() || navigationTelemetry_.estop ||
+        navigationTelemetry_.safetyState == QLatin1String("e_stop_latched"))
+        return QStringLiteral("비상정지 해제 후 사용할 수 있습니다");
+    if (!realLink && navigationTelemetry_.safetyState.isEmpty())
+        return {};
+    if (navigationTelemetry_.safetyState == QLatin1String("normal") ||
+        navigationTelemetry_.safetyState == QLatin1String("controlled_stop"))
+        return {};
+    if (navigationTelemetry_.safetyState == QLatin1String("fault"))
+        return navigationTelemetry_.safetyDetail.isEmpty()
+            ? QStringLiteral("안전 오류를 확인하십시오") : navigationTelemetry_.safetyDetail;
+    return QStringLiteral("안전 상태 확인 중");
+}
+
+QString MainWindow::autonomousReadinessReason() const
+{
+    const QString safety = safetyReadinessReason();
+    if (!safety.isEmpty()) return safety;
+    if (!driveModeConfirmed_ || requestedDriveMode_ || robot_->modeChangePending())
+        return QStringLiteral("주행 모드 전환을 기다리는 중입니다");
+    if (robot_->mode() != DriveMode::Auto)
+        return QStringLiteral("자율 모드에서 사용할 수 있습니다");
+    if (!requestedMapId_.isEmpty())
+        return QStringLiteral("지도 전환을 기다리는 중입니다");
+    if (!navigationTelemetry_.navFresh)
+        return QStringLiteral("주행 상태 수신 대기");
+    if (!navigationTelemetry_.navigationLifecycle.isEmpty() &&
+        navigationTelemetry_.navigationLifecycle != QLatin1String("active"))
+        return QStringLiteral("내비게이션 준비 중");
+    if (navigationSpeedLimits_ && !navigationSpeedApplied_)
+        return QStringLiteral("속도 제한 적용 대기 중");
+    return {};
+}
+
+void MainWindow::refreshMissionAvailability()
+{
+    const auto *shown = map_->view()->mapInfo();
+    const bool mapReady = shown && !activeMapId_.isEmpty() && activeMapId_ != QLatin1String("live") &&
+        shown->mapId == activeMapId_ && requestedMapId_.isEmpty();
+    const QString readiness = autonomousReadinessReason();
+    QString reason = !readiness.isEmpty() ? readiness
+        : !mapReady ? QStringLiteral("저장된 지도를 불러오십시오")
+        : !missionCommandPending_.isEmpty() ? QStringLiteral("로봇 응답 대기 중") : QString();
+    if (reason.isEmpty() && lastSoc_ < Config::instance().batteryDeparturePercent())
+        reason = QStringLiteral("배터리 출발 기준을 확인하십시오");
+    missionLibrary_->setEditingEnabled(robot_->isConnected() && requestedMapId_.isEmpty());
+    missionLibrary_->setExecutionEnabled(reason.isEmpty(), reason);
+    const QString safetyExplanation = navigationTelemetry_.safetyState == QLatin1String("controlled_stop")
+        ? QStringLiteral("안전 정지 · 시작 또는 재개 명령을 기다리는 중입니다") : QString();
+    mission_->setControlAvailability(readiness.isEmpty() && mapReady &&
+        lastSoc_ >= Config::instance().batteryDeparturePercent(),
+        !reason.isEmpty() ? reason : safetyExplanation);
+    mission_->setCommandPending(!missionCommandPending_.isEmpty());
+}
+
+void MainWindow::beginMissionCommand(const QString &channel)
+{
+    missionCommandPending_ = channel;
+    missionCommandAccepted_ = missionCommandReported_ = false;
+    const auto generation = ++missionCommandGeneration_;
+    refreshMissionAvailability();
+    QTimer::singleShot(7000, this, [this, generation] {
+        if (generation != missionCommandGeneration_ || missionCommandPending_.isEmpty()) return;
+        missionCommandPending_.clear();
+        mission_->setMissionDetails(QStringLiteral("E_UNREACHABLE"),
+            QStringLiteral("미션 명령 결과를 확인하지 못했습니다. 로봇 상태를 확인하십시오."));
+        refreshMissionAvailability();
+    });
+}
+
+void MainWindow::settleMissionCommand()
+{
+    if (missionCommandAccepted_ && missionCommandReported_)
+        missionCommandPending_.clear();
+}
+
+void MainWindow::startStoredMission(const QString &id, bool retry)
+{
+    const auto state = robot_->missionState();
+    const auto *shown = map_->view()->mapInfo();
+    const bool stateAllowsStart = retry
+        ? (state == MissionState::Ready && id == activeMissionId_ &&
+           missionReasonCode_ == QLatin1String("MISSION_START_CANCELLED_BY_SAFETY"))
+        : (state == MissionState::Idle || state == MissionState::Completed || state == MissionState::Failed);
+    const auto found = std::find_if(missionDefinitions_.cbegin(), missionDefinitions_.cend(), [&id](const QVariantMap &mission) {
+        return mission.value(QStringLiteral("id")).toString() == id &&
+               !mission.value(QStringLiteral("archived")).toBool() &&
+               mission.value(QStringLiteral("revision")).toULongLong() > 0;
+    });
+    if (!stateAllowsStart || !missionCommandPending_.isEmpty() || !autonomousReadinessReason().isEmpty() ||
+        !shown || activeMapId_.isEmpty() || activeMapId_ == QLatin1String("live") ||
+        shown->mapId != activeMapId_ || found == missionDefinitions_.cend()) {
+        refreshMissionAvailability();
+        return;
+    }
+    const double departAt = Config::instance().batteryDeparturePercent();
+    if (lastSoc_ < departAt) {
+        mission_->setMissionDetails(QStringLiteral("E_LOW_BATTERY"),
+            QStringLiteral("배터리 %1%% · 출발 기준 %2%%").arg(lastSoc_, 0, 'f', 0).arg(departAt, 0, 'f', 0));
+        refreshMissionAvailability();
+        return;
+    }
+    beginMissionCommand(QLatin1String(ch::kCmdMissionStart));
+    robot_->startMission(id);
+}
+
 void MainWindow::setDraftGoal(const QVariantMap &goal)
 {
     const auto *info = map_->view()->mapInfo();
-    if (!info || goalStartPending_ || !goal.contains("x") || !goal.contains("y") ||
+    if (!info || goalStartPending_ || goalAwaitingState_ || goalCancelRequested_ || !goal.contains("x") || !goal.contains("y") ||
         !goal.contains("theta") || !std::isfinite(goal.value("x").toDouble()) ||
         !std::isfinite(goal.value("y").toDouble()) || !std::isfinite(goal.value("theta").toDouble()))
         return;
@@ -1778,7 +2008,14 @@ void MainWindow::startDraftGoal()
     if (!canStartGoal() || !info || info->mapId != draftGoalMapId_)
         return;
     status_->goalButton()->setChecked(false);
+    submittedGoal_ = draftGoal_;
+    submittedGoalMapId_ = draftGoalMapId_;
+    submittedGoalNavRevision_ = navigationTelemetry_.navRevision;
     goalStartPending_ = true;
+    goalAwaitingState_ = false;
+    goalCancelRequested_ = false;
+    goalCancelNavRevision_ = 0;
+    goalExecutionReported_ = false;
     navigationError_.clear();
     refreshGoalAvailability();
     const QVariantMap target = draftGoal_;
@@ -1815,18 +2052,17 @@ bool MainWindow::canPlaceGoal() const
         ((activeMapId_.isEmpty() || activeMapId_ == QLatin1String("live"))
              ? (shown->mapId.isEmpty() || shown->mapId == QLatin1String("live"))
              : shown->mapId == activeMapId_);
-    return robot_->isConnected() && !estop_->isEngaged() &&
+    const bool safetyKnown = !qobject_cast<net::BridgeClient *>(robot_) || navigationTelemetry_.safetyFresh;
+    return robot_->isConnected() && safetyKnown && safetyReadinessReason().isEmpty() && !estop_->isEngaged() &&
            driveModeConfirmed_ && !requestedDriveMode_ &&
            robot_->mode() == DriveMode::Auto && matchingMap &&
-           requestedMapId_.isEmpty() && !goalStartPending_ && !navigating && !missionBusy;
+           requestedMapId_.isEmpty() && !goalStartPending_ && !goalAwaitingState_ &&
+           !goalCancelRequested_ && navigationControlPending_.isEmpty() && !navigating && !missionBusy;
 }
 
 bool MainWindow::canStartGoal() const
 {
-    return canPlaceGoal() && !draftGoal_.isEmpty() && navigationTelemetry_.navFresh &&
-        (!navigationSpeedLimits_ || navigationSpeedApplied_) &&
-        (navigationTelemetry_.navigationLifecycle.isEmpty() ||
-         navigationTelemetry_.navigationLifecycle == QLatin1String("active"));
+    return canPlaceGoal() && !draftGoal_.isEmpty() && autonomousReadinessReason().isEmpty();
 }
 
 void MainWindow::refreshGoalAvailability()
@@ -1843,6 +2079,8 @@ void MainWindow::refreshGoalAvailability()
         reason.clear();
     else if (!robot_->isConnected())
         reason = QStringLiteral("로봇 연결 후 사용할 수 있습니다");
+    else if (qobject_cast<net::BridgeClient *>(robot_) && !navigationTelemetry_.safetyFresh)
+        reason = QStringLiteral("안전 상태 수신 대기");
     else if (estop_->isEngaged())
         reason = QStringLiteral("비상정지 해제 후 사용할 수 있습니다");
     else if (!driveModeConfirmed_)
@@ -1855,7 +2093,9 @@ void MainWindow::refreshGoalAvailability()
         reason = QStringLiteral("지도 전환을 기다리는 중입니다");
     else if (missionBusy)
         reason.clear();
-    else if (goalStartPending_)
+    else if (goalCancelRequested_)
+        reason = QStringLiteral("취소 요청 중");
+    else if (goalStartPending_ || goalAwaitingState_)
         reason = QStringLiteral("로봇 응답 대기 중");
     else if (navigationStatus_ == QLatin1String("accepting") ||
              navigationStatus_ == QLatin1String("navigating") ||
@@ -1872,16 +2112,26 @@ void MainWindow::refreshGoalAvailability()
                           navigationStatus_ == QLatin1String("canceling");
     if (paused || moving || stopping)
         reason.clear();
-    const bool resume = !estop_->isEngaged() && driveModeConfirmed_ && !requestedDriveMode_ &&
-                        robot_->mode() == DriveMode::Auto && requestedMapId_.isEmpty() && navigationTelemetry_.navFresh;
+    if (robot_->isConnected() && !navigationTelemetry_.navFresh)
+        reason = QStringLiteral("주행 상태 수신 대기");
+    const bool safetyKnown = !qobject_cast<net::BridgeClient *>(robot_) || navigationTelemetry_.safetyFresh;
+    if (robot_->isConnected() && !safetyKnown)
+        reason = QStringLiteral("안전 상태 수신 대기");
+    const bool resume = autonomousReadinessReason().isEmpty();
+    if (!safetyReadinessReason().isEmpty()) reason = safetyReadinessReason();
+    else if (navigationTelemetry_.safetyState == QLatin1String("controlled_stop"))
+        reason = QStringLiteral("안전 정지 · 시작 또는 재개 명령을 기다리는 중입니다");
+    else if (!navigationControlPending_.isEmpty()) reason = QStringLiteral("로봇 응답 대기 중");
     QString missionLabel = robot::missionStateLabel(mission);
     if (activeMissionIndex_ >= 0)
         missionLabel += QStringLiteral(" · 단계 %1 / %2").arg(activeMissionIndex_ + 1).arg(activeMissionTotal_);
     if (!missionNavigationLabel_.isEmpty()) missionLabel += '\n' + missionNavigationLabel_;
     status_->setTelemetry(navigationTelemetry_, robot_->isConnected());
-    status_->setGoalState(robot_->isConnected() ? navigationStatus_ : QStringLiteral("disconnected"),
-        draftGoal_.isEmpty() ? navigationTelemetry_.navGoal : draftGoal_,
-        !draftGoal_.isEmpty(), goalStartPending_, missionBusy, missionLabel,
+    status_->setGoalState(!robot_->isConnected() ? QStringLiteral("disconnected") :
+        !navigationTelemetry_.navFresh ? QStringLiteral("stale") :
+        goalCancelRequested_ ? QStringLiteral("canceling") : navigationStatus_,
+        !draftGoal_.isEmpty() ? draftGoal_ : navigationTelemetry_.navFresh ? navigationTelemetry_.navGoal : QVariantMap{},
+        !draftGoal_.isEmpty(), (goalStartPending_ || goalAwaitingState_) && !goalCancelRequested_, missionBusy, missionLabel,
         missionBusy ? QString{} : !navigationError_.isEmpty() ? navigationError_ :
         draftGoal_.isEmpty() ? navigationTelemetry_.navError : QString{});
     if (available && !draftGoal_.isEmpty()) {
@@ -1892,18 +2142,25 @@ void MainWindow::refreshGoalAvailability()
         else if (navigationSpeedLimits_ && !navigationSpeedApplied_)
             reason = QStringLiteral("속도 제한 적용 대기 중");
     }
+    if ((goalStartPending_ || goalAwaitingState_ || !navigationControlPending_.isEmpty()) &&
+        !navigationTelemetry_.navReadinessDetail.isEmpty())
+        reason = navigationTelemetry_.navReadinessDetail;
     status_->setActions(available, canStartGoal(),
-        robot_->isConnected() && !missionBusy && (paused ? resume : moving),
-        robot_->isConnected() && !missionBusy && (goalStartPending_ || paused || moving || stopping || !draftGoal_.isEmpty()),
+        robot_->isConnected() && !missionBusy && !goalCancelRequested_ && navigationControlPending_.isEmpty() &&
+            (paused ? resume : moving),
+        robot_->isConnected() && !missionBusy && !goalCancelRequested_ &&
+            (goalStartPending_ || goalAwaitingState_ || paused || moving || stopping || !draftGoal_.isEmpty()),
         reason);
+    refreshMissionAvailability();
 }
 
 void MainWindow::showReportedDriveMode()
 {
-    teleop_->setVisible(driveModeConfirmed_ && robot_->mode() == DriveMode::Manual &&
+    const bool safetyKnown = !qobject_cast<net::BridgeClient *>(robot_) || navigationTelemetry_.safetyFresh;
+    teleop_->setVisible(safetyKnown && safetyReadinessReason().isEmpty() && driveModeConfirmed_ && robot_->mode() == DriveMode::Manual &&
                         !requestedDriveMode_ && !estop_->isEngaged());
     if (!teleop_->isVisible()) teleop_->cancelJog();
-    const bool modeSelectable = robot_->isConnected() && !estop_->isEngaged() &&
+    const bool modeSelectable = robot_->isConnected() && safetyKnown && safetyReadinessReason().isEmpty() && !estop_->isEngaged() &&
                                 !requestedDriveMode_;
     autoBtn_->setEnabled(modeSelectable);
     manualBtn_->setEnabled(modeSelectable);
@@ -2103,6 +2360,8 @@ void MainWindow::applyFixedLocations()
 
 void MainWindow::setMode(const QString &mode)
 {
+    if (qobject_cast<net::BridgeClient *>(robot_) && !navigationTelemetry_.safetyFresh)
+        return;
     if (estop_->isEngaged()) {
         autoBtn_->setChecked(false);
         manualBtn_->setChecked(false);
@@ -2351,6 +2610,7 @@ void MainWindow::showMapPicker()
             if (auto *bridge = qobject_cast<net::BridgeClient *>(robot_)) {
                 clearDraftGoal();
                 requestedMapId_ = id;
+                refreshMissionAvailability();
                 map_->setMapListEnabled(false);
                 status_->goalButton()->setChecked(false);
                 status_->goalButton()->setEnabled(false);
@@ -2413,8 +2673,11 @@ void MainWindow::selectRobot(int index)
 
     cfg.setCurrentRobot(index);
     const auto &e = list.at(index);
-
     if (auto *bridge = qobject_cast<hmi::net::BridgeClient *>(robot_)) {
+        if (bridge->isConnected() && bridge->endpointHost() == e.host && bridge->endpointPort() == e.port) {
+            refreshRobotButton();
+            return;
+        }
         bridge->setEndpoint(e.host, quint16(e.port));
         bridge->connectToBridge();
     }
@@ -2661,19 +2924,60 @@ void MainWindow::onTelemetry(const Telemetry &tm)
 {
     navigationTelemetry_ = tm;
     navigationStatus_ = tm.navStatus;
-    if (tm.navFresh && (tm.navStatus == QLatin1String("accepting") ||
-                       tm.navStatus == QLatin1String("navigating"))) {
-        goalStartPending_ = false;
+    if (!navigationControlPending_.isEmpty() && tm.navFresh && tm.navRevision > navigationControlRevision_) {
+        const bool pausing = navigationControlPending_ == QLatin1String(ch::kCmdNavPause);
+        navigationControlReported_ = navigationControlReported_ ||
+            (pausing && (tm.navStatus == QLatin1String("pausing") || tm.navStatus == QLatin1String("paused"))) ||
+            (!pausing && (tm.navStatus == QLatin1String("accepting") || tm.navStatus == QLatin1String("navigating"))) ||
+            tm.navStatus == QLatin1String("failed") || tm.navStatus == QLatin1String("canceled") ||
+            tm.navStatus == QLatin1String("idle");
+        settleNavigationControl();
+    }
+    const bool executing = tm.navStatus == QLatin1String("navigating") ||
+        tm.navStatus == QLatin1String("pausing") || tm.navStatus == QLatin1String("paused") ||
+        tm.navStatus == QLatin1String("canceling");
+    const bool terminal = tm.navStatus == QLatin1String("succeeded") ||
+        tm.navStatus == QLatin1String("canceled") || tm.navStatus == QLatin1String("failed") ||
+        tm.navStatus == QLatin1String("rejected");
+    if (tm.navFresh && !submittedGoal_.isEmpty() && tm.navRevision > submittedGoalNavRevision_) {
+        if (tm.navStatus == QLatin1String("accepting") || executing)
+            clearDraftGoal();
+        if (executing) {
+            goalExecutionReported_ = true;
+            goalStartPending_ = false;
+            goalAwaitingState_ = false;
+        } else if (terminal && !goalStartPending_) {
+            const auto retry = submittedGoal_;
+            const auto mapId = submittedGoalMapId_;
+            const bool retryable = !goalCancelRequested_ && !tm.estop &&
+                (tm.navStatus == QLatin1String("failed") || tm.navStatus == QLatin1String("rejected"));
+            clearDraftGoal();
+            clearSubmittedGoal();
+            const auto *shown = map_->view()->mapInfo();
+            if (retryable && robot_->isConnected() && shown && shown->mapId == mapId) {
+                setDraftGoal(retry);
+                navigationError_ = tm.navError;
+            }
+        }
+    }
+    if (tm.navFresh && submittedGoal_.isEmpty() &&
+        (tm.navStatus == QLatin1String("accepting") || executing))
         clearDraftGoal();
+    if (goalCancelRequested_ && tm.navFresh && tm.navRevision > goalCancelNavRevision_ &&
+        (terminal || tm.navStatus == QLatin1String("idle"))) {
+        clearDraftGoal();
+        clearSubmittedGoal();
     }
     if (!draftGoal_.isEmpty()) map_->view()->setDraftGoal(draftGoal_);
-    const bool estopChanged = estop_->isEngaged() != tm.estop;
+    const bool safetyKnown = !qobject_cast<net::BridgeClient *>(robot_) || tm.safetyFresh;
+    const bool estopChanged = safetyKnown && estop_->isEngaged() != tm.estop;
     if (estopChanged) {
         estop_->setEngaged(tm.estop);
         alert_->setActive(tm.estop);
         if (tm.estop) {
             requestedDriveMode_.reset();
             clearDraftGoal();
+            clearSubmittedGoal();
             map_->view()->clearGoal();
             status_->setMode({}, true);
             teleop_->setJogEnabled(false);
@@ -2692,13 +2996,17 @@ void MainWindow::onTelemetry(const Telemetry &tm)
         refreshGoalAvailability();
     }
 
+    const bool controlsAvailable = robot_->isConnected() && safetyKnown && safetyReadinessReason().isEmpty();
+    teleop_->setJogEnabled(controlsAvailable);
+    arm_->setControlsEnabled(controlsAvailable);
+    showReportedDriveMode();
     refreshGoalAvailability();
     auto *view = map_->view();
 
     view->setRobotPose(tm.x, tm.y, tm.theta, !tm.poseFresh);
     view->setTrail(requestedMapId_.isEmpty() ? tm.trail : QList<QPointF>{});
     view->setPlan(requestedMapId_.isEmpty() ? tm.plan : QList<QPointF>{});
-    if (requestedMapId_.isEmpty() && robot_->isConnected() &&
+    if (requestedMapId_.isEmpty() && robot_->isConnected() && tm.navFresh &&
         tm.navGoal.contains(QStringLiteral("x")) &&
         tm.navGoal.contains(QStringLiteral("y"))) {
         view->setGoal(tm.navGoal.value(QStringLiteral("x")).toDouble(),
