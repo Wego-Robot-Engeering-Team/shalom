@@ -1,0 +1,24 @@
+/**:
+  ros__parameters:
+    image_transport: raw
+    # The MuJoCo camera publishes BEST_EFFORT sensor data.
+    qos_profile: sensor_data
+    family: '36h11'
+    # Current test panel is 0.32 m wide. Its 701x704 texture includes white
+    # margins: the detected black/white boundary is approximately 0.3125 m.
+    # This is NOT the full panel width; remeasure if the texture/geom changes.
+    size: 0.3125
+    max_hamming: 0
+    profile: false
+    pose_estimation_method: pnp
+    detector:
+      threads: 1
+      decimate: 1.0
+      blur: 0.0
+      refine: true
+      sharpening: 0.25
+      debug: false
+    tag:
+      ids: [0]
+      frames: ['b2/dock_tag_0']
+      sizes: [0.3125]

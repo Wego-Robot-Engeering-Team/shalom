@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>shalom_docking</name>
+  <version>0.1.0</version>
+  <description>Generate and reload Nav2 dock databases from map-owned locations.</description>
+  <maintainer email="junoyoo@wego-robotics.com">Wego Robotics</maintainer>
+  <license>Proprietary</license>
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>lifecycle_msgs</test_depend>
+  <test_depend>rcl_interfaces</test_depend>
+  <test_depend>ament_index_python</test_depend>
+  <test_depend>launch</test_depend>
+  <test_depend>launch_ros</test_depend>
+  <test_depend>opennav_docking</test_depend>
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

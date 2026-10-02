@@ -498,10 +498,11 @@ docking_server:
     dock_plugins: ['simple_charging_dock']
     simple_charging_dock:
       plugin: 'opennav_docking::SimpleChargingDock'
-      use_external_detection_pose: true
+      use_external_detection_pose: false
       use_battery_status: false
       use_stall_detection: false
     controller:
+      transform_tolerance: 0.5
       use_collision_detection: true
       projection_time: 5.0
       simulation_step: 0.1
