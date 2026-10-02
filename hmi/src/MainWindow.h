@@ -158,7 +158,11 @@ private:
     void setMode(const QString &mode);
     void refreshGoalAvailability();
     bool canPlaceGoal() const;
+    bool canStartGoal() const;
     void showReportedDriveMode();
+    void setDraftGoal(const QVariantMap &goal);
+    void clearDraftGoal();
+    void startDraftGoal();
 
     /// Sends the robot to a taught pose (dock or home). Autonomous driving is
     /// what carries it there, so this switches the mode rather than failing on
@@ -210,6 +214,11 @@ private:
     QTabWidget *driveTabs_ = nullptr;
     MapCard *map_ = nullptr;
     QString navigationStatus_;
+    hmi::robot::Telemetry navigationTelemetry_;
+    QVariantMap draftGoal_;
+    QString draftGoalMapId_;
+    QString navigationError_;
+    bool goalStartPending_ = false;
 
     BatteryPill *headerBattery_ = nullptr;
     NotificationBell *bell_ = nullptr;
@@ -283,6 +292,7 @@ private:
     QString requestedMapId_;
     QList<QVariantMap> missionDefinitions_;
     QString activeMissionId_;
+    QString missionNavigationLabel_;
     int activeMissionIndex_ = -1;
     int activeMissionTotal_ = 0;
 };

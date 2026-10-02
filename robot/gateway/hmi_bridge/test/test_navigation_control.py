@@ -30,6 +30,7 @@ class NavigationControlTest(fixture.NavigationSpeedTest):
         self.closing = threading.Event()
         self.reject_cancel = False
         self.reject_goal = False
+        self.publish_feedback = True
         self.goals = []
         self.holds = []
         self.hold_sub = self.node.create_subscription(Twist, "/motion/manual_hold/cmd_vel",
@@ -48,6 +49,13 @@ class NavigationControlTest(fixture.NavigationSpeedTest):
         def execute(handle):
             self.goals.append(handle.request.pose)
             while not self.closing.is_set():
+                if self.publish_feedback:
+                    feedback = NavigateToPose.Feedback()
+                    feedback.distance_remaining = 4.2
+                    feedback.estimated_time_remaining.sec = 18
+                    feedback.navigation_time.sec = 3
+                    feedback.number_of_recoveries = 2
+                    handle.publish_feedback(feedback)
                 if handle.is_cancel_requested and self.finish_cancel.is_set():
                     handle.canceled()
                     return NavigateToPose.Result()
@@ -173,6 +181,37 @@ class NavigationControlTest(fixture.NavigationSpeedTest):
         self.assertEqual(len(self.goals), 1)
         self.assertTrue(self.request({}, "cmd/nav_cancel")["ok"])
         self.nav_state("canceled")
+
+    def test_progress_and_lifecycle_status(self):
+        from lifecycle_msgs.srv import GetState
+        state = [3]
+
+        def lifecycle(_, response):
+            response.current_state.id = state[0]
+            return response
+
+        services = [self.node.create_service(GetState, name + "/get_state", lifecycle)
+                    for name in ("/planner_server", "/bt_navigator", "/amcl")]
+        self.receive(lambda e: e.get("ch") == "state/nav" and
+                     e["p"].get("navigation_state") == "active" and
+                     e["p"].get("localization_state") == "active")
+        self.assertTrue(self.request({"x": 2.0, "y": 1.0}, "cmd/goto")["ok"])
+        report = self.receive(lambda e: e.get("ch") == "state/nav" and
+                              e["p"].get("elapsed_s") == 3.0)["p"]
+        self.assertAlmostEqual(report["distance_remaining_m"], 4.2, places=5)
+        self.assertEqual(report["eta_s"], 18)
+        self.assertEqual(report["recoveries"], 2)
+        self.publish_feedback = False
+        self.receive(lambda e: e.get("ch") == "state/nav" and
+                     e["p"].get("status") == "navigating" and
+                     e["p"].get("distance_remaining_m") is None)
+        state[0] = 2
+        self.receive(lambda e: e.get("ch") == "state/nav" and
+                     e["p"].get("navigation_state") == "inactive")
+        for service in services:
+            self.node.destroy_service(service)
+        self.receive(lambda e: e.get("ch") == "state/nav" and
+                     e["p"].get("navigation_state") == "unknown")
 
 
 if __name__ == "__main__":

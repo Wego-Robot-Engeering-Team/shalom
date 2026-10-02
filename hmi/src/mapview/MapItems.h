@@ -117,12 +117,14 @@ private:
 class GoalMarker : public QGraphicsItem {
 public:
     explicit GoalMarker(double radius = 9.0);
+    void setDraft(bool draft) { draft_ = draft; update(); }
 
     QRectF boundingRect() const override;
     void paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) override;
 
 private:
     double r_;
+    bool draft_ = false;
 };
 
 }  // namespace hmi::map

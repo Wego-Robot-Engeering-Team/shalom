@@ -29,22 +29,11 @@ public:
     explicit MapCard(QWidget *parent = nullptr);
 
     hmi::map::MapView *view() const { return view_; }
-    QPushButton *goalButton() const { return goal_; }
-    QPushButton *navPauseButton() const { return navPause_; }
-    QPushButton *navCancelButton() const { return navCancel_; }
-    void setNavigationState(const QString &status, bool connected, bool canResume);
     QPushButton *poseEstimateButton() const { return poseEstimate_; }
     QPushButton *mapButton() const { return mapButton_; }
     IconButton *refreshButton() const { return refreshButton_; }
     void setMapListEnabled(bool enabled);
     MapLegend *legend() const { return legend_; }
-
-    /// Puts the drive-mode buttons at the left of the map's floating toolbar.
-    ///
-    /// Mode belongs on the surface it governs, not in the window chrome next
-    /// to the theme toggle. The toolbar floats over the map, so it stays
-    /// reachable from every view without costing map area.
-    void addModeButtons(QWidget *autoBtn, QWidget *manualBtn);
 
     void setMapLabel(const QString &mapId, const QString &extent);
 
@@ -62,10 +51,6 @@ protected:
 private:
     hmi::map::MapView *view_ = nullptr;
     QWidget *toolbar_ = nullptr;
-    QWidget *toolbarRow_ = nullptr;
-    QPushButton *goal_ = nullptr;
-    QPushButton *navPause_ = nullptr;
-    QPushButton *navCancel_ = nullptr;
     QPushButton *poseEstimate_ = nullptr;
     QPushButton *mapButton_ = nullptr;
     IconButton *refreshButton_ = nullptr;

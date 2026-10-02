@@ -160,6 +160,8 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
         auto *it = new QListWidgetItem(list_);
         it->setData(kWaypointRole, wp);
         auto *row = new CatalogRow(list_);
+        row->applyButton()->setText(QStringLiteral("목표 선택"));
+        row->applyButton()->setToolTip(QStringLiteral("운용에서 확인 후 주행 시작"));
         row->setName(wp.value(QStringLiteral("name"), id).toString());
         row->setDetails(QStringLiteral("X %1  ·  Y %2  ·  yaw %3°")
             .arg(wp.value(QStringLiteral("x")).toDouble(), 0, 'f', 2)

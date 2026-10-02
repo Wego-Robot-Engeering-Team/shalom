@@ -104,6 +104,7 @@ void MapView::setMap(const MapInfo &info, const QImage &image)
         setPlan({});
         setWaypoints({});
         clearGoal();
+        setDraftGoal({});
         robot_->setVisible(false);
     }
     info_ = info;
@@ -128,6 +129,7 @@ void MapView::clearMap()
     setDock({});
     setHome({});
     clearGoal();
+    setDraftGoal({});
     robot_->setVisible(false);
     info_.reset();
     mapItem_->setPixmap(QPixmap{});
@@ -308,6 +310,24 @@ void MapView::clearGoal()
 {
     if (goal_)
         goal_->setVisible(false);
+}
+
+void MapView::setDraftGoal(const QVariantMap &goal)
+{
+    draftGoal_ = goal;
+    if (goal.isEmpty() || !info_) {
+        if (draftMarker_) draftMarker_->hide();
+        return;
+    }
+    if (!draftMarker_) {
+        draftMarker_ = new GoalMarker;
+        draftMarker_->setDraft(true);
+        draftMarker_->setToolTip(QStringLiteral("후보 목표 · 주행 시작 전"));
+        scene_->addItem(draftMarker_);
+    }
+    draftMarker_->setPos(info_->toScene(goal.value("x").toDouble(), goal.value("y").toDouble()));
+    draftMarker_->setRotation(MapInfo::thetaToItemRotation(goal.value("theta").toDouble()));
+    draftMarker_->show();
 }
 
 // ================= 입력 =================

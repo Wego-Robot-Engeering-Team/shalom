@@ -363,6 +363,28 @@ E-Stop 과 정지의 차이는 게이트가 만든다. `controlled_stop`·`fault
 새 목표·미션 실행·지도 변경은 기존 목표 주행을 취소하거나 완료한 뒤 가능하다.
 이 명령은 미션 실행과 별개이며, 미션에는 `cmd/mission/*`를 사용한다.
 
+HMI의 지도·웨이포인트 목표 선택은 후보 표시만 갱신한다. `주행 시작`을 눌렀을 때
+`cmd/goto`를 전송한다. 시작 전 취소, 로봇 연결 변경, 지도 변경 시 후보를 지운다.
+
+`state/nav`의 표시 정보:
+
+| 필드 | 타입 | 내용 |
+|---|---|---|
+| `status` | string | `idle`, `accepting`, `navigating`, `pausing`, `paused`, `canceling`, `succeeded`, `canceled`, `rejected`, `failed` |
+| `goal` | object / null | 실행 목표의 `x`, `y`, `theta` |
+| `distance_remaining_m` | float64 / null | 남은 거리(m) |
+| `eta_s` | float64 / null | Nav2 예상 잔여 시간(s). 주행 중에 표시 |
+| `elapsed_s` | float64 / null | 현재 Nav2 목표 실행의 경과 시간(s). 재개 시 새 목표 기준 |
+| `recoveries` | int / null | 현재 Nav2 목표의 복구 횟수 |
+| `navigation_state` | string | Controller·Planner·BT Navigator의 lifecycle 상태 종합 |
+| `localization_state` | string | 저장 지도는 AMCL, 실시간 지도는 SLAM의 lifecycle 상태 |
+| `error` | string | 목표 거부·실행 실패·응답 시간초과 사유 |
+
+Lifecycle 값은 `active`, `inactive`, `unconfigured`, `finalized`, `unknown`이다.
+브리지는 1초마다 조회한다. Nav2 피드백이 2초 이상 없으면 진행 수치를 `null`로 보낸다.
+HMI는 값이 없거나 상태 수신이 끊기면 `—`로 표시한다. 미션에서는 단계 진행 정보와
+미션 제어 버튼을 표시하고, 개별 목표의 진행 수치는 숨긴다.
+
 ## 촬영 데이터·위치·건강 상태
 
 - 미리보기는 `capture/preview`로 관제에 보낸다. 원본은 로봇에서 NAS로 직접 전송한다.

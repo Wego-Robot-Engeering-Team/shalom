@@ -110,6 +110,9 @@ private:
     void publishPose();
     void publishHealth();
     void publishNav();
+    void pollNavigationReadiness();
+    std::string navigationReadiness() const;
+    std::string localizationReadiness() const;
     void publishNavigationSpeed();
     void publishSpeedLimit();
     json navigationSpeedSettings() const;
@@ -345,8 +348,22 @@ private:
     rclcpp_action::GoalUUID navGoalId_{};
     std::string navStatus_ = "idle";
     json navGoalPoint_;               ///< the goal echoed back, or null
-    double navDistance_ = 0.0;        ///< m, from Nav2 feedback
+    json navDistance_ = nullptr;     ///< m, or null until Nav2 feedback arrives
     json navEta_ = nullptr;           ///< s, or null when Nav2 does not estimate one
+    json navElapsed_ = nullptr;
+    json navRecoveries_ = nullptr;
+    std::string navError_;
+    std::chrono::steady_clock::time_point navFeedbackAt_{};
+
+    struct LifecycleObservation {
+        rclcpp::Client<lifecycle_msgs::srv::GetState>::SharedPtr client;
+        std::string state = "unknown";
+        std::chrono::steady_clock::time_point requested{}, received{};
+        std::optional<int64_t> pending;
+        uint64_t generation = 0;
+    };
+    // Controller, planner, navigator, AMCL, SLAM. All queries are read-only.
+    std::vector<LifecycleObservation> navigationLifecycle_;
 
     /// 관제 화면에 뜨는 지도 이름. 저장된 지도와 구분되도록 이름을 붙인다.
     std::string mapId_ = "live";

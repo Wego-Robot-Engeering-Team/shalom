@@ -375,6 +375,17 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     if (controllerNode.back() != '/') controllerNode += '/';
     navigationSpeedGetClient_ = create_client<rcl_interfaces::srv::GetParameters>(controllerNode + "get_parameters");
     navigationSpeedStateClient_ = create_client<lifecycle_msgs::srv::GetState>(controllerNode + "get_state");
+    for (auto node : {controllerNode,
+            declare_parameter("navigation.planner_node", std::string("/planner_server")),
+            declare_parameter("navigation.navigator_node", std::string("/bt_navigator")),
+            declare_parameter("localization.amcl_node", std::string("/amcl")),
+            declare_parameter("localization.slam_node", std::string("/slam_toolbox"))}) {
+        if (node.empty()) throw std::invalid_argument("lifecycle node must not be empty");
+        if (node.back() != '/') node += '/';
+        LifecycleObservation observation;
+        observation.client = create_client<lifecycle_msgs::srv::GetState>(node + "get_state");
+        navigationLifecycle_.push_back(std::move(observation));
+    }
     navigationSpeedSetClient_ = create_client<rcl_interfaces::srv::SetParametersAtomically>(
         controllerNode + "set_parameters_atomically");
     armExecutionEnabled_ = declare_parameter("arm.execution_enabled", false);
@@ -618,6 +629,7 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
         syncNavigationSpeed();
     });                                                               // 5 Hz
     systemTimer_ = create_wall_timer(1s, [this] {
+        pollNavigationReadiness();
         publishSystem();
         publishNavigationSpeed();
         publishCaptureSpool();
@@ -3364,6 +3376,7 @@ void BridgeNode::startNavigation(const Envelope &request, bool resume)
         }
         navGoalPending_ = false;
         if (!handle) {
+            navError_ = "자율주행이 목표를 거부했습니다";
             navStatus_ = navStatus_ == "pausing" ? "paused" :
                          navStatus_ == "canceling" ? "canceled" :
                          resume ? "paused" : "rejected";
@@ -3393,6 +3406,9 @@ void BridgeNode::startNavigation(const Envelope &request, bool resume)
             !handle || handle->get_goal_id() != navGoalId_)
             return;
         navDistance_ = fb->distance_remaining;
+        navFeedbackAt_ = std::chrono::steady_clock::now();
+        navElapsed_ = double(fb->navigation_time.sec) + double(fb->navigation_time.nanosec) * 1e-9;
+        navRecoveries_ = fb->number_of_recoveries;
 
         // Nav2 leaves estimated_time_remaining at zero with the controllers we
         // run - it is filled in by some plugins and not others. Reporting the
@@ -3415,8 +3431,11 @@ void BridgeNode::startNavigation(const Envelope &request, bool resume)
         default: navStatus_ = "failed"; break;
         }
         navGoal_.reset();
-        navDistance_ = 0.0;
+        navDistance_ = navStatus_ == "succeeded" ? json(0.0) : json(nullptr);
         navEta_ = nullptr;
+        if (navStatus_ == "failed")
+            navError_ = result.result && !result.result->error_msg.empty()
+                ? result.result->error_msg : "목표 주행 실패";
         clearPlan();
         // 목표가 끝났다는 사실은 이벤트로도 한 번 보낸다. state/nav 는 손실을
         // 허용하는 스트림이라, 마지막 상태 한 프레임이 떨어지면 관제 화면에
@@ -3432,8 +3451,12 @@ void BridgeNode::startNavigation(const Envelope &request, bool resume)
                          {"y", goal.pose.pose.position.y},
                          {"theta", request.p.value("theta", 0.0)}};
     navStatus_ = "accepting";
-    navDistance_ = 0.0;
+    navDistance_ = nullptr;
     navEta_ = nullptr;
+    navElapsed_ = nullptr;
+    navRecoveries_ = nullptr;
+    navError_.clear();
+    navFeedbackAt_ = {};
     pendingGoto_ = request;
     pendingGotoAt_ = std::chrono::steady_clock::now();
     navGoalPending_ = true;
@@ -3484,6 +3507,7 @@ void BridgeNode::publishNav()
 {
     // Goal acceptance must also time out when the simulation clock is paused.
     if (pendingGoto_ && std::chrono::steady_clock::now() - pendingGotoAt_ > kGoalAcceptTimeout) {
+        navError_ = "자율주행이 목표에 응답하지 않습니다";
         settleGoto(false, err::kUnreachable, "자율주행이 목표에 응답하지 않습니다");
         // A delayed acceptance must be canceled before any other motion is allowed.
         stopNavigation(false);
@@ -3492,11 +3516,18 @@ void BridgeNode::publishNav()
     if (!server_.isConnected())
         return;
 
+    const bool feedbackFresh = navStatus_ != "navigating" ||
+        std::chrono::steady_clock::now() - navFeedbackAt_ < std::chrono::seconds(2);
     sendEnvelope(makePublish(kChNav,
                              json{{"status", navStatus_},
                                   {"goal", navGoalPoint_},
-                                  {"distance_remaining_m", navDistance_},
-                                  {"eta_s", navEta_},
+                                  {"distance_remaining_m", feedbackFresh ? navDistance_ : json(nullptr)},
+                                  {"eta_s", navStatus_ == "navigating" && feedbackFresh ? navEta_ : json(nullptr)},
+                                  {"elapsed_s", feedbackFresh ? navElapsed_ : json(nullptr)},
+                                  {"recoveries", feedbackFresh ? navRecoveries_ : json(nullptr)},
+                                  {"navigation_state", navigationReadiness()},
+                                  {"localization_state", localizationReadiness()},
+                                  {"error", navError_},
                                   // 경유점 개념은 아직 이 노드에 없다. 필드를
                                   // 빼면 관제가 키 없음과 값 없음을 구분해야
                                   // 하므로 null 로 보낸다.

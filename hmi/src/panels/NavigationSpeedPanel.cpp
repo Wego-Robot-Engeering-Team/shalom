@@ -27,7 +27,7 @@ NavigationSpeedPanel::NavigationSpeedPanel(QWidget *parent, bool editRanges)
 {
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
-    auto *card = new Card(editRanges_ ? QStringLiteral("속도 범위") : QStringLiteral("주행 속도"));
+    auto *card = new Card(editRanges_ ? QStringLiteral("속도 범위") : QStringLiteral("속도 제한"));
     if (editRanges_)
         card->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     outer->addWidget(card);

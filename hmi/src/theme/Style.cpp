@@ -361,7 +361,7 @@ QSplitter::handle:vertical   { height: @s3; }
 
 /* ===================== 배지 ===================== */
 /* 남용하지 않는다. 상태가 '변할 때'만 의미가 있는 자리에만 쓴다. */
-#Badge {
+#Badge, #NavigationState {
     background: transparent;
     border: 1px solid @borderHi;
     border-radius: @rSm;
@@ -370,15 +370,23 @@ QSplitter::handle:vertical   { height: @s3; }
     font-weight: 500;
     color: @textDim;
 }
-#Badge[tone="ok"]     { color: @success; border-color: @successFaint; }
-#Badge[tone="warn"]   { color: @warning; border-color: @warningFaint; }
-#Badge[tone="danger"] { color: @danger;  border-color: @dangerFaint; }
-#Badge[tone="info"]   { color: @accent;  border-color: @accentFaint; }
+#Badge[tone="ok"], #NavigationState[tone="ok"]         { color: @success; border-color: @successFaint; }
+#Badge[tone="warn"], #NavigationState[tone="warn"]     { color: @warning; border-color: @warningFaint; }
+#Badge[tone="danger"], #NavigationState[tone="danger"] { color: @danger;  border-color: @dangerFaint; }
+#Badge[tone="info"], #NavigationState[tone="info"]     { color: @accent;  border-color: @accentFaint; }
 
 /* ===================== 수치 ===================== */
 #Mono      { font-family: @mono; color: @textDim; font-size: @fsSm; }
 #Readout   { font-family: @mono; color: @text; font-size: @fsMd; font-weight: 500; }
 #ReadoutLg { font-family: @mono; color: @text; font-size: @fsLg; font-weight: 600; }
+#NavigationDistance, #NavigationEta {
+    font-family: @mono; font-size: @fsLg; font-weight: 600;
+}
+#NavigationCurrentPose, #NavigationActualVelocity, #NavigationElapsed, #NavigationRecoveries {
+    font-family: @mono; font-size: @fsSm;
+}
+#NavigationUnavailableReason { color: @textMute; font-size: @fsSm; }
+#NavigationError { color: @danger; font-size: @fsSm; }
 
 /* ===================== 지도 오버레이 ===================== */
 #MapOverlay {

@@ -213,6 +213,7 @@ private:
     QHash<qint64, qint64> heartbeatSentAt_;   ///< seq -> monotonic ms
     qint64 lastHeartbeatMs_ = 0;
     qint64 lastPoseMs_ = 0;
+    qint64 lastNavMs_ = 0;
     qint64 lastArmMs_ = 0;
     QElapsedTimer clock_;
 

@@ -303,9 +303,8 @@ MainWindow::MainWindow(hmi::robot::RobotLink *link, QWidget *parent)
     body->setSpacing(metrics::s3);
 
     map_ = new MapCard;
-    map_->addModeButtons(autoBtn_, manualBtn_);
     context_ = qobject_cast<QStackedWidget *>(buildContextColumn());
-    map_->goalButton()->setEnabled(false);
+    status_->goalButton()->setEnabled(false);
     waypoints_->setEditingEnabled(false);
 
     // 레일 바로 옆에 그 레일이 바꾸는 열을 둔다. 레일은 왼쪽 끝인데
@@ -419,9 +418,7 @@ QWidget *MainWindow::buildTopBar()
 
     lay->addStretch(1);
 
-    // 주행 모드 버튼은 여기서 만들되 상단 바에 두지 않는다. 지도 툴바로
-    // 보내 로봇이 움직이는 면 위에 얹는다. 설정·테마와 나란히 두면
-    // 화면에서 두 번째로 무거운 조작이 도구처럼 보인다.
+    // 주행 모드 버튼은 여기서 만들고 주행 운용 패널에 배치한다.
     autoBtn_ = new QPushButton(QStringLiteral("자율"));
     manualBtn_ = new QPushButton(QStringLiteral("수동"));
     for (auto *b : {autoBtn_, manualBtn_}) {
@@ -495,16 +492,28 @@ QWidget *MainWindow::buildDriveContext()
     lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(metrics::s3);
 
+    auto *modes = new QHBoxLayout;
+    for (auto *button : {manualBtn_, autoBtn_}) {
+        button->setMinimumWidth(0);
+        button->setMaximumWidth(QWIDGETSIZE_MAX);
+        button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        modes->addWidget(button);
+    }
+    lay->addLayout(modes);
     status_ = new StatusPanel;
+    status_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     lay->addWidget(status_);
 
-    navigationSpeed_ = new NavigationSpeedPanel;
-    lay->addWidget(navigationSpeed_);
 
     // 본체의 수동 이동과 자세는 주행의 한 방식이다. 여러 장치를 쓰는
     // 미션의 진행·제어는 미션 탭에서 맡는다.
     teleop_ = new TeleopPanel;
+    teleop_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     lay->addWidget(teleop_);
+    teleop_->hide();
+    navigationSpeed_ = new NavigationSpeedPanel;
+    navigationSpeed_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+    lay->addWidget(navigationSpeed_);
     lay->addStretch(1);
 
     // 스크롤로 감싸지 않으면 이 열의 최소 높이가 카드 높이의 합이 된다.
@@ -514,6 +523,7 @@ QWidget *MainWindow::buildDriveContext()
     operationScroll->setWidgetResizable(true);
     operationScroll->setFrameShape(QFrame::NoFrame);
     operationScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    lay->setSizeConstraint(QLayout::SetMinAndMaxSize);
     driveTabs_->addTab(operationScroll, QStringLiteral("운용"));
     driveTabs_->addTab(buildLocationsContext(), QStringLiteral("위치 관리"));
     connect(driveTabs_, &QTabWidget::currentChanged, this, [this](int index) {
@@ -524,7 +534,7 @@ QWidget *MainWindow::buildDriveContext()
         // 위치를 지도에 찍는 도중 운용 화면으로 돌아오면 다음 지도 클릭이
         // 의도치 않게 위치를 추가하지 않도록 편집 상태를 끝낸다.
         pendingPlacementKind_.clear();
-        map_->goalButton()->setChecked(false);
+        status_->goalButton()->setChecked(false);
         map_->poseEstimateButton()->setChecked(false);
         map_->view()->setMode(MapMode::View);
         map_->setPlacementHint({});
@@ -679,8 +689,8 @@ void MainWindow::openSettings()
             saidName_.clear();
             maps_.clear();
             map_->setMapListEnabled(false);
-            map_->goalButton()->setChecked(false);
-            map_->goalButton()->setEnabled(false);
+            status_->goalButton()->setChecked(false);
+            status_->goalButton()->setEnabled(false);
             map_->poseEstimateButton()->setChecked(false);
             map_->poseEstimateButton()->setEnabled(false);
             waypoints_->setEditingEnabled(false);
@@ -792,6 +802,9 @@ void MainWindow::wireRobotSignals()
                         (requestedMapId_.isEmpty() && !activeMapId_.isEmpty() &&
                          !sameActiveMap))
                         return;  // 지도 전환 중 도착한 이전 지도의 프레임
+                    if (const auto *previous = map_->view()->mapInfo();
+                        previous && previous->mapId != info->mapId)
+                        clearDraftGoal();
                     map_->view()->setMap(*info, img);
                     // 현재 화면 목록만 새 좌표계에 다시 놓는다. 지도 전환 중
                     // RobotLink에 남아 있는 이전 지도 지점을 재표시하면 안 된다.
@@ -823,6 +836,9 @@ void MainWindow::wireRobotSignals()
                     const QString name = map.value(QStringLiteral("name")).toString();
                     const bool wasLive = activeMapId_ == QLatin1String("live");
                     if (activeMapId_ != mapId) {
+                        clearDraftGoal();
+                        goalStartPending_ = false;
+                        navigationError_.clear();
                         missionDefinitions_.clear();
                         refreshMissionProgress();
                     }
@@ -876,7 +892,12 @@ void MainWindow::wireRobotSignals()
             maps_.clear();
             activeMapId_.clear();
             navigationStatus_.clear();
-            map_->setNavigationState({}, false, false);
+            clearDraftGoal();
+            goalStartPending_ = false;
+            navigationError_.clear();
+            navigationTelemetry_ = {};
+            status_->setTelemetry({}, false);
+            refreshGoalAvailability();
             activeMapName_.clear();
             mapExtent_.clear();
             requestedMapId_.clear();
@@ -902,8 +923,8 @@ void MainWindow::wireRobotSignals()
             locations_->setMarkers({});
             map_->view()->setTags({});
             map_->setMapListEnabled(false);
-            map_->goalButton()->setChecked(false);
-            map_->goalButton()->setEnabled(false);
+            status_->goalButton()->setChecked(false);
+            status_->goalButton()->setEnabled(false);
             map_->poseEstimateButton()->setChecked(false);
             map_->poseEstimateButton()->setEnabled(false);
             map_->setMapLabel(QStringLiteral("지도 없음"), {});
@@ -1115,7 +1136,7 @@ void MainWindow::wireMapSignals()
 {
     auto *view = map_->view();
     connect(map_->mapButton(), &QPushButton::clicked, this, &MainWindow::showMapPicker);
-    connect(map_->navPauseButton(), &QPushButton::clicked, this, [this] {
+    connect(status_->navPauseButton(), &QPushButton::clicked, this, [this] {
         if (!robot_->isConnected())
             return;
         if (navigationStatus_ == QLatin1String("paused"))
@@ -1123,13 +1144,37 @@ void MainWindow::wireMapSignals()
         else
             robot_->pauseNav();
     });
-    connect(map_->navCancelButton(), &QPushButton::clicked, robot_, &robot::RobotLink::cancelNav);
+    connect(status_->startButton(), &QPushButton::clicked, this, &MainWindow::startDraftGoal);
+    connect(status_, &StatusPanel::missionRequested, this, [this] { showView(NavItem::Mission); });
+    connect(status_->navCancelButton(), &QPushButton::clicked, this, [this] {
+        if (!draftGoal_.isEmpty() && !goalStartPending_) {
+            status_->goalButton()->setChecked(false);
+            clearDraftGoal();
+            navigationError_.clear();
+            refreshGoalAvailability();
+        } else {
+            robot_->cancelNav();
+        }
+    });
+    connect(robot_, &robot::RobotLink::commandResult, this,
+            [this](const QString &channel, bool ok, const QString &code, const QString &message) {
+        if (channel != QLatin1String(ch::kCmdGoto) && channel != QLatin1String(ch::kCmdNavResume) &&
+            channel != QLatin1String(ch::kCmdNavPause) && channel != QLatin1String(ch::kCmdNavCancel))
+            return;
+        if (!ok) {
+            if (channel == QLatin1String(ch::kCmdGoto)) goalStartPending_ = false;
+            navigationError_ = message.isEmpty() ? code : message;
+        } else {
+            navigationError_.clear();
+        }
+        refreshGoalAvailability();
+    });
     connect(map_->refreshButton(), &QPushButton::clicked, this, [this] {
         if (auto *bridge = qobject_cast<net::BridgeClient *>(robot_))
             bridge->requestMapCatalog();
     });
 
-    connect(map_->goalButton(), &QPushButton::toggled, this, [this, view](bool on) {
+    connect(status_->goalButton(), &QPushButton::toggled, this, [this, view](bool on) {
         if (on)
             map_->poseEstimateButton()->setChecked(false);
         pendingPlacementKind_.clear();
@@ -1142,7 +1187,7 @@ void MainWindow::wireMapSignals()
     connect(map_->poseEstimateButton(), &QPushButton::toggled, this,
             [this, view](bool on) {
         if (on) {
-            map_->goalButton()->setChecked(false);
+            status_->goalButton()->setChecked(false);
             pendingPlacementKind_.clear();
             view->setMode(MapMode::EstimatePose);
             map_->setPlacementHint(
@@ -1154,14 +1199,11 @@ void MainWindow::wireMapSignals()
     });
 
     connect(view, &MapView::goalRequested, this, [this](double x, double y, double th) {
-        map_->goalButton()->setChecked(false);
+        status_->goalButton()->setChecked(false);
         map_->setPlacementHint({});
         if (!canPlaceGoal())
             return;  // 모드나 지도가 바뀐 뒤 도착한 지도 클릭은 명령이 아니다.
-        robot_->requestGoal(x, y, th);
-        log_->note(diag::Severity::Info, QStringLiteral("목표 지정"),
-                   QJsonObject{{"x", x}, {"y", y}, {"theta_deg", qRadiansToDegrees(th)},
-                               {"channel", QStringLiteral("cmd/goto")}});
+        setDraftGoal({{"x", x}, {"y", y}, {"theta", th}});
     });
 
     connect(view, &MapView::poseEstimateRequested, this,
@@ -1222,7 +1264,7 @@ void MainWindow::wireLocationSignals()
     connect(locations_, &LocationPanel::captureFromRobot, this, &MainWindow::captureLocation);
     connect(locations_, &LocationPanel::captureFromMap, this, [this](const QString &kind) {
         pendingPlacementKind_ = kind;
-        map_->goalButton()->setChecked(false);
+        status_->goalButton()->setChecked(false);
         map_->poseEstimateButton()->setChecked(false);
         map_->view()->setMode(MapMode::AddWaypoint);
         map_->setPlacementHint(
@@ -1231,7 +1273,7 @@ void MainWindow::wireLocationSignals()
     // 지도에서 태그 중심을 찍고, 드래그 방향을 앞면의 수평 법선으로 쓴다.
     // 클릭만 한 경우 방향은 비워 두고 등록 창에서 직접 입력받는다.
     connect(locations_, &LocationPanel::addMarkerFromMap, this, [this] {
-        map_->goalButton()->setChecked(false);
+        status_->goalButton()->setChecked(false);
         map_->view()->setMode(MapMode::AddTag);
         map_->setPlacementHint(
             QStringLiteral("마커 중심을 클릭하고 앞면 방향으로 드래그하십시오"));
@@ -1335,6 +1377,7 @@ void MainWindow::wirePanelSignals()
                 navigationSpeedLimits_ = std::array<double, 6>{linear, minimum, maximum,
                                                               angular, angularMinimum, angularMaximum};
                 navigationSpeedApplied_ = applied;
+                refreshGoalAvailability();
                 if (settings_)
                     settings_->setNavigationSpeedState(linear, minimum, maximum, angular,
                                                        angularMinimum, angularMaximum, applied);
@@ -1447,7 +1490,7 @@ void MainWindow::wireMissionSignals()
             });
     connect(waypoints_, &WaypointPanel::addRequested, this, [this] {
         pendingPlacementKind_ = QStringLiteral("inspection");
-        map_->goalButton()->setChecked(false);
+        status_->goalButton()->setChecked(false);
         map_->poseEstimateButton()->setChecked(false);
         map_->view()->setMode(MapMode::AddWaypoint);
         map_->setPlacementHint(
@@ -1534,18 +1577,19 @@ void MainWindow::driveTo(const QVariantMap &pose, const QString &label)
                                             "시도하십시오."));
         return;
     }
-    // 목적지로 데려가는 것은 자율주행이다. 수동에서 눌렀다고 거절하면
-    // 조작자는 목적지를 말한 것뿐인데 모드를 탓하는 창을 보게 된다.
-    if (robot_->mode() != DriveMode::Auto)
-        setMode(QStringLiteral("auto"));
-
-    robot_->requestGoal(pose.value(QStringLiteral("x")).toDouble(),
-                        pose.value(QStringLiteral("y")).toDouble(),
-                        pose.value(QStringLiteral("theta")).toDouble());
-    log_->note(diag::Severity::Info, QStringLiteral("%1 로 이동").arg(label),
-               QJsonObject{{"channel", QStringLiteral("cmd/goto")},
-                           {"x", pose.value(QStringLiteral("x")).toDouble()},
-                           {"y", pose.value(QStringLiteral("y")).toDouble()}});
+    if (!robot_->isConnected() || !requestedMapId_.isEmpty() || goalStartPending_)
+        return;
+    const auto mission = robot_->missionState();
+    if ((mission != MissionState::Idle && mission != MissionState::Completed && mission != MissionState::Failed) ||
+        navigationStatus_ == QLatin1String("accepting") || navigationStatus_ == QLatin1String("navigating") ||
+        navigationStatus_ == QLatin1String("paused") || navigationStatus_ == QLatin1String("pausing") ||
+        navigationStatus_ == QLatin1String("canceling"))
+        return;
+    showView(NavItem::Drive);
+    driveTabs_->setCurrentIndex(0);
+    QVariantMap target = pose;
+    target["name"] = label;
+    setDraftGoal(target);
 }
 
 void MainWindow::onMissionStateChanged(MissionState state)
@@ -1566,6 +1610,9 @@ void MainWindow::onMissionStateChanged(MissionState state)
     }
     mission_->setMissionState(displayState);
     missionLibrary_->setMissionState(state);
+    if (state != MissionState::Idle && state != MissionState::Completed && state != MissionState::Failed)
+        clearDraftGoal();
+    refreshGoalAvailability();
 }
 
 void MainWindow::refreshMissionProgress()
@@ -1607,6 +1654,10 @@ void MainWindow::refreshMissionProgress()
         name = QStringLiteral("실행 중인 경로");
     }
     mission_->setProgress(name, activeMissionIndex_, activeMissionTotal_, labels);
+    missionNavigationLabel_ = name;
+    if (activeMissionIndex_ >= 0 && activeMissionIndex_ < labels.size())
+        missionNavigationLabel_ += QStringLiteral("\n%1").arg(labels.at(activeMissionIndex_));
+    refreshGoalAvailability();
 }
 
 void MainWindow::onLogAppended(const diag::LogEntry &entry)
@@ -1683,7 +1734,7 @@ void MainWindow::navigate(NavItem item)
         // 지도는 탭 전환 뒤에도 계속 보인다. 편집 모드를 남기면 사용자가
         // 다른 화면을 보는 사이 지도 클릭이 숨은 편집 명령이 된다.
         pendingPlacementKind_.clear();
-        map_->goalButton()->setChecked(false);
+        status_->goalButton()->setChecked(false);
         map_->poseEstimateButton()->setChecked(false);
         map_->view()->setMode(MapMode::View);
         map_->setPlacementHint({});
@@ -1698,6 +1749,43 @@ void MainWindow::showLocationAssets()
     showView(NavItem::Drive);
     if (driveTabs_)
         driveTabs_->setCurrentIndex(1);
+}
+
+void MainWindow::clearDraftGoal()
+{
+    draftGoal_.clear();
+    draftGoalMapId_.clear();
+    map_->view()->setDraftGoal({});
+}
+
+void MainWindow::setDraftGoal(const QVariantMap &goal)
+{
+    const auto *info = map_->view()->mapInfo();
+    if (!info || goalStartPending_ || !goal.contains("x") || !goal.contains("y") ||
+        !goal.contains("theta") || !std::isfinite(goal.value("x").toDouble()) ||
+        !std::isfinite(goal.value("y").toDouble()) || !std::isfinite(goal.value("theta").toDouble()))
+        return;
+    draftGoal_ = goal;
+    draftGoalMapId_ = info->mapId;
+    navigationError_.clear();
+    map_->view()->setDraftGoal(draftGoal_);
+    refreshGoalAvailability();
+}
+
+void MainWindow::startDraftGoal()
+{
+    const auto *info = map_->view()->mapInfo();
+    if (!canStartGoal() || !info || info->mapId != draftGoalMapId_)
+        return;
+    status_->goalButton()->setChecked(false);
+    goalStartPending_ = true;
+    navigationError_.clear();
+    refreshGoalAvailability();
+    const QVariantMap target = draftGoal_;
+    robot_->requestGoal(target.value("x").toDouble(), target.value("y").toDouble(),
+                        target.value("theta").toDouble());
+    log_->note(diag::Severity::Info, QStringLiteral("주행 시작"),
+        QJsonObject::fromVariantMap(target));
 }
 
 void MainWindow::setInspectionDirectory(const QString &path)
@@ -1730,7 +1818,15 @@ bool MainWindow::canPlaceGoal() const
     return robot_->isConnected() && !estop_->isEngaged() &&
            driveModeConfirmed_ && !requestedDriveMode_ &&
            robot_->mode() == DriveMode::Auto && matchingMap &&
-           requestedMapId_.isEmpty() && !navigating && !missionBusy;
+           requestedMapId_.isEmpty() && !goalStartPending_ && !navigating && !missionBusy;
+}
+
+bool MainWindow::canStartGoal() const
+{
+    return canPlaceGoal() && !draftGoal_.isEmpty() && navigationTelemetry_.navFresh &&
+        (!navigationSpeedLimits_ || navigationSpeedApplied_) &&
+        (navigationTelemetry_.navigationLifecycle.isEmpty() ||
+         navigationTelemetry_.navigationLifecycle == QLatin1String("active"));
 }
 
 void MainWindow::refreshGoalAvailability()
@@ -1738,16 +1834,13 @@ void MainWindow::refreshGoalAvailability()
     const auto mission = robot_->missionState();
     const bool missionBusy = mission != MissionState::Idle && mission != MissionState::Completed &&
                              mission != MissionState::Failed;
-    map_->setNavigationState(navigationStatus_, robot_->isConnected() && !missionBusy,
-        !estop_->isEngaged() && driveModeConfirmed_ && !requestedDriveMode_ &&
-        robot_->mode() == DriveMode::Auto && requestedMapId_.isEmpty());
     const bool available = canPlaceGoal();
     if (!available)
-        map_->goalButton()->setChecked(false);
-    map_->goalButton()->setEnabled(available);
+        status_->goalButton()->setChecked(false);
+    status_->goalButton()->setEnabled(available);
     QString reason;
     if (available)
-        reason = QStringLiteral("켠 뒤 지도를 클릭해 목표를 지정합니다");
+        reason.clear();
     else if (!robot_->isConnected())
         reason = QStringLiteral("로봇 연결 후 사용할 수 있습니다");
     else if (estop_->isEngaged())
@@ -1761,7 +1854,9 @@ void MainWindow::refreshGoalAvailability()
     else if (!requestedMapId_.isEmpty())
         reason = QStringLiteral("지도 전환을 기다리는 중입니다");
     else if (missionBusy)
-        reason = QStringLiteral("미션 종료 후 사용할 수 있습니다");
+        reason.clear();
+    else if (goalStartPending_)
+        reason = QStringLiteral("로봇 응답 대기 중");
     else if (navigationStatus_ == QLatin1String("accepting") ||
              navigationStatus_ == QLatin1String("navigating") ||
              navigationStatus_ == QLatin1String("pausing") ||
@@ -1770,11 +1865,44 @@ void MainWindow::refreshGoalAvailability()
         reason = QStringLiteral("현재 목표 주행을 취소한 뒤 새 목표를 지정하십시오");
     else
         reason = QStringLiteral("현재 지도를 불러오는 중입니다");
-    map_->goalButton()->setToolTip(reason);
+    const bool paused = navigationStatus_ == QLatin1String("paused");
+    const bool moving = navigationStatus_ == QLatin1String("accepting") ||
+                        navigationStatus_ == QLatin1String("navigating");
+    const bool stopping = navigationStatus_ == QLatin1String("pausing") ||
+                          navigationStatus_ == QLatin1String("canceling");
+    if (paused || moving || stopping)
+        reason.clear();
+    const bool resume = !estop_->isEngaged() && driveModeConfirmed_ && !requestedDriveMode_ &&
+                        robot_->mode() == DriveMode::Auto && requestedMapId_.isEmpty() && navigationTelemetry_.navFresh;
+    QString missionLabel = robot::missionStateLabel(mission);
+    if (activeMissionIndex_ >= 0)
+        missionLabel += QStringLiteral(" · 단계 %1 / %2").arg(activeMissionIndex_ + 1).arg(activeMissionTotal_);
+    if (!missionNavigationLabel_.isEmpty()) missionLabel += '\n' + missionNavigationLabel_;
+    status_->setTelemetry(navigationTelemetry_, robot_->isConnected());
+    status_->setGoalState(robot_->isConnected() ? navigationStatus_ : QStringLiteral("disconnected"),
+        draftGoal_.isEmpty() ? navigationTelemetry_.navGoal : draftGoal_,
+        !draftGoal_.isEmpty(), goalStartPending_, missionBusy, missionLabel,
+        missionBusy ? QString{} : !navigationError_.isEmpty() ? navigationError_ :
+        draftGoal_.isEmpty() ? navigationTelemetry_.navError : QString{});
+    if (available && !draftGoal_.isEmpty()) {
+        if (!navigationTelemetry_.navFresh) reason = QStringLiteral("주행 상태 수신 대기");
+        else if (!navigationTelemetry_.navigationLifecycle.isEmpty() &&
+                 navigationTelemetry_.navigationLifecycle != QLatin1String("active"))
+            reason = QStringLiteral("내비게이션 준비 중");
+        else if (navigationSpeedLimits_ && !navigationSpeedApplied_)
+            reason = QStringLiteral("속도 제한 적용 대기 중");
+    }
+    status_->setActions(available, canStartGoal(),
+        robot_->isConnected() && !missionBusy && (paused ? resume : moving),
+        robot_->isConnected() && !missionBusy && (goalStartPending_ || paused || moving || stopping || !draftGoal_.isEmpty()),
+        reason);
 }
 
 void MainWindow::showReportedDriveMode()
 {
+    teleop_->setVisible(driveModeConfirmed_ && robot_->mode() == DriveMode::Manual &&
+                        !requestedDriveMode_ && !estop_->isEngaged());
+    if (!teleop_->isVisible()) teleop_->cancelJog();
     const bool modeSelectable = robot_->isConnected() && !estop_->isEngaged() &&
                                 !requestedDriveMode_;
     autoBtn_->setEnabled(modeSelectable);
@@ -2221,10 +2349,11 @@ void MainWindow::showMapPicker()
                 return;
             }
             if (auto *bridge = qobject_cast<net::BridgeClient *>(robot_)) {
+                clearDraftGoal();
                 requestedMapId_ = id;
                 map_->setMapListEnabled(false);
-                map_->goalButton()->setChecked(false);
-                map_->goalButton()->setEnabled(false);
+                status_->goalButton()->setChecked(false);
+                status_->goalButton()->setEnabled(false);
                 map_->poseEstimateButton()->setChecked(false);
                 map_->poseEstimateButton()->setEnabled(false);
                 waypoints_->setEditingEnabled(false);
@@ -2530,13 +2659,21 @@ void MainWindow::startSession()
 
 void MainWindow::onTelemetry(const Telemetry &tm)
 {
+    navigationTelemetry_ = tm;
     navigationStatus_ = tm.navStatus;
+    if (tm.navFresh && (tm.navStatus == QLatin1String("accepting") ||
+                       tm.navStatus == QLatin1String("navigating"))) {
+        goalStartPending_ = false;
+        clearDraftGoal();
+    }
+    if (!draftGoal_.isEmpty()) map_->view()->setDraftGoal(draftGoal_);
     const bool estopChanged = estop_->isEngaged() != tm.estop;
     if (estopChanged) {
         estop_->setEngaged(tm.estop);
         alert_->setActive(tm.estop);
         if (tm.estop) {
             requestedDriveMode_.reset();
+            clearDraftGoal();
             map_->view()->clearGoal();
             status_->setMode({}, true);
             teleop_->setJogEnabled(false);
@@ -2590,8 +2727,7 @@ void MainWindow::onTelemetry(const Telemetry &tm)
 
     // 배터리와 좌표는 내비게이션 레일이, 시스템 지표는 진단 화면이 맡는다.
     // 여기서 또 그리면 한 화면에 같은 숫자가 두 번 뜬다.
-    status_->setMotion(tm.speed);
-    status_->setPose(tm.x, tm.y, qRadiansToDegrees(tm.theta));
+
     arm_->setFeedbackFresh(tm.armFresh);
     if (tm.armFresh)
         arm_->setArmState(tm.joints, tm.manipulability, tm.sigmaMin, tm.armState);

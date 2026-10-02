@@ -34,6 +34,7 @@ add_executable(hmi_bridge_node
     src/main.cpp
     src/bridge_node.cpp
     src/navigation_speed.cpp
+    src/navigation_status.cpp
 )
 
 # 프레이밍은 관제와 공유하는 헤더 하나에서 나온다. 같은 바이트 배치를 두 번

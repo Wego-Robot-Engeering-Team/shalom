@@ -59,6 +59,7 @@ QString missionStateLabel(MissionState state);
 struct Telemetry {
     double x = 0, y = 0, theta = 0;
     double speed = 0;                 ///< m/s, magnitude
+    double angularSpeed = std::numeric_limits<double>::quiet_NaN();
     QList<QPointF> trail;
     QList<QPointF> plan;
     double soc = 0;
@@ -83,6 +84,13 @@ struct Telemetry {
     bool estop = false;
     QString navStatus;                ///< "idle" | "driving" | "arrived" | "blocked"
     QVariantMap navGoal;              ///< Robot-reported active goal, empty when none
+    bool navFresh = false;
+    QString navigationLifecycle, localizationLifecycle;
+    double navDistance = std::numeric_limits<double>::quiet_NaN();
+    double navEta = std::numeric_limits<double>::quiet_NaN();
+    double navElapsed = std::numeric_limits<double>::quiet_NaN();
+    int navRecoveries = -1;
+    QString navError;
 
     /// False once the link has been quiet long enough that the pose can no
     /// longer be trusted. Everything that acts on position must check this.

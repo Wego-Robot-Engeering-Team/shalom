@@ -1,44 +1,37 @@
 // Copyright (c) 2026 WeGo Robotics. All rights reserved.
 // SPDX-License-Identifier: LicenseRef-Wego-Proprietary
-
 #pragma once
-
-// Base-driving state only. Robot-wide health belongs in the top bar and
-// diagnostics; arm state belongs on the arm screen.
-
 #include <QWidget>
+#include "robot/RobotTypes.h"
 
 class QLabel;
-
+class QPushButton;
 namespace hmi::ui {
-
-class Card;
 class Badge;
-
 class StatusPanel : public QWidget {
     Q_OBJECT
 public:
     explicit StatusPanel(QWidget *parent = nullptr);
-
-    /// estop overrides mode: while engaged, the drive mode is not what the
-    /// operator needs to see.
+    QPushButton *goalButton() const { return goal_; }
+    QPushButton *startButton() const { return start_; }
+    QPushButton *navPauseButton() const { return pause_; }
+    QPushButton *navCancelButton() const { return cancel_; }
     void setMode(const QString &mode, bool estop);
-
-    /// Base movement, in m/s. Shown as words first, number second - "is it
-    /// moving" is the question, the speed is the detail.
-    void setMotion(double speedMps);
-
-    /// Map-frame pose. Degrees, so the operator never sees radians.
-    void setPose(double x, double y, double thetaDeg);
-
+    void setTelemetry(const robot::Telemetry &telemetry, bool connected);
+    void setGoalState(const QString &state, const QVariantMap &goal, bool draft,
+                      bool pending, bool mission, const QString &missionLabel, const QString &error);
+    void setActions(bool select, bool start, bool pause, bool cancel, const QString &reason);
+signals:
+    void missionRequested();
 private:
-    /// One "label ....... value" row. Returns the value label to update.
-    QLabel *addRow(const QString &label);
-
-    Card *card_ = nullptr;
-    Badge *mode_ = nullptr;
-    QLabel *motion_ = nullptr;
-    QLabel *pose_ = nullptr;
+    QLabel *navigation_, *localization_, *target_, *distance_, *eta_, *reason_, *error_;
+    QLabel *pose_, *velocity_, *elapsed_, *recoveries_;
+    Badge *state_;
+    QWidget *goalArea_;
+    QPushButton *goal_, *start_, *pause_, *cancel_, *mission_;
+    bool manual_ = false;
+    bool estop_ = false;
+    bool draft_ = false;
+    bool missionActive_ = false;
 };
-
-}  // namespace hmi::ui
+}

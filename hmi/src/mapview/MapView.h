@@ -81,6 +81,8 @@ public:
 
     void setGoal(double x, double y, double theta);
     void clearGoal();
+    void setDraftGoal(const QVariantMap &goal);
+    QVariantMap draftGoal() const { return draftGoal_; }
 
     /// Re-applies theme colors to scene items. Pens are stored on the items,
     /// so unlike stylesheet-driven widgets they do not follow a theme switch
@@ -124,6 +126,8 @@ private:
     QGraphicsPathItem *planItem_ = nullptr;
     RobotMarker *robot_ = nullptr;
     GoalMarker *goal_ = nullptr;
+    GoalMarker *draftMarker_ = nullptr;
+    QVariantMap draftGoal_;
     StationMarker *dock_ = nullptr;
     StationMarker *home_ = nullptr;
     // The locations can arrive before the map does. Hold on to the

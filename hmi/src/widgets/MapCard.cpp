@@ -41,29 +41,6 @@ MapCard::MapCard(QWidget *parent) : QWidget(parent)
     auto *tb = new QHBoxLayout(toolbar_);
     tb->setContentsMargins(metrics::s2, metrics::s2, metrics::s2, metrics::s2);
     tb->setSpacing(metrics::s2);
-    toolbarRow_ = toolbar_;
-
-    // 목표 지정은 켜고 끄는 도구다. 주행 모드 버튼과 같은 모양이면 둘이
-    // 같은 성격으로 보이는데, 하나는 로봇의 동작 방식을 바꾸고 하나는
-    // 지도에서 클릭이 무엇을 뜻하는지만 바꾼다.
-    goal_ = new QPushButton(QStringLiteral("목표 지정"));
-    goal_->setProperty("size", "sm");
-    goal_->setCheckable(true);
-    goal_->setToolTip(QStringLiteral("켠 뒤 지도를 클릭해 목표를 지정합니다"));
-    tb->addWidget(goal_);
-
-    navPause_ = new QPushButton(QStringLiteral("정지"));
-    navPause_->setObjectName(QStringLiteral("NavigationPauseButton"));
-    navPause_->setProperty("size", "sm");
-    navPause_->setEnabled(false);
-    navPause_->setToolTip(QStringLiteral("목적지를 유지하고 목표 주행을 일시정지합니다"));
-    tb->addWidget(navPause_);
-    navCancel_ = new QPushButton(QStringLiteral("취소"));
-    navCancel_->setObjectName(QStringLiteral("NavigationCancelButton"));
-    navCancel_->setProperty("size", "sm");
-    navCancel_->setEnabled(false);
-    navCancel_->setToolTip(QStringLiteral("목적지를 지우고 목표 주행을 종료합니다"));
-    tb->addWidget(navCancel_);
 
     poseEstimate_ = new QPushButton(QStringLiteral("초기 위치"));
     poseEstimate_->setProperty("size", "sm");
@@ -123,39 +100,6 @@ MapCard::MapCard(QWidget *parent) : QWidget(parent)
         readout_->move(width() - readout_->width() - metrics::s3,
                        mapControls_->y() + mapControls_->height() + metrics::s1);
     });
-}
-
-void MapCard::setNavigationState(const QString &status, bool connected, bool canResume)
-{
-    const bool paused = status == QLatin1String("paused");
-    const bool moving = status == QLatin1String("accepting") || status == QLatin1String("navigating");
-    const bool stopping = status == QLatin1String("pausing") || status == QLatin1String("canceling");
-    const QString label = paused ? QStringLiteral("재개") :
-                          stopping ? QStringLiteral("정지 중") : QStringLiteral("정지");
-    if (navPause_->text() != label) {
-        navPause_->setText(label);
-        toolbar_->adjustSize();
-        positionMapControls();
-    }
-    navPause_->setToolTip(paused ? QStringLiteral("자율 모드에서 같은 목적지로 주행을 재개합니다") :
-                         QStringLiteral("목적지를 유지하고 목표 주행을 일시정지합니다"));
-    navPause_->setEnabled(connected && (paused ? canResume : moving));
-    navCancel_->setEnabled(connected && (paused || moving || stopping));
-}
-
-void MapCard::addModeButtons(QWidget *autoBtn, QWidget *manualBtn)
-{
-    auto *tb = qobject_cast<QHBoxLayout *>(toolbarRow_->layout());
-    if (!tb)
-        return;
-    // 맨 앞에 수동 → 자율 순서로 놓고 선으로 떼어 놓는다. 주행 모드와
-    // 지도 클릭 도구(목표 지정)는 다른 종류의 조작이다.
-    tb->insertWidget(0, manualBtn);
-    tb->insertWidget(1, autoBtn);
-    tb->insertSpacing(2, metrics::s1);
-    tb->insertWidget(3, new VLine(nullptr, metrics::s1));
-    tb->insertSpacing(4, metrics::s1);
-    toolbar_->adjustSize();
 }
 
 void MapCard::setMapLabel(const QString &mapId, const QString &extent)

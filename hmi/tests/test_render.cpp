@@ -37,6 +37,7 @@
 #include "Config.h"
 #include "RobotDef.h"
 #include "MainWindow.h"
+#include "mapview/MapView.h"
 #include "net/BridgeClient.h"
 #include "net/Channels.h"
 #include "panels/ArmPanel.h"
@@ -154,6 +155,153 @@ class TestRender : public QObject {
     Q_OBJECT
 
 private slots:
+    void goalSelectionRequiresExplicitStart()
+    {
+        CatalogBridge bridge;
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), bridge.server.serverPort());
+        ui::MainWindow window(link);
+        window.resize(1400, 900);
+        window.show();
+        link->connectToBridge();
+        QTRY_VERIFY(bridge.peer && link->isConnected());
+        auto *panel = window.findChild<ui::StatusPanel *>();
+        auto *map = window.findChild<ui::MapCard *>();
+        QImage image(100, 100, QImage::Format_RGB32);
+        image.fill(Qt::white);
+        QByteArray png;
+        QBuffer buffer(&png);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QVERIFY(image.save(&buffer, "PNG"));
+        const auto setMap = [&](const QString &id) {
+            emit link->activeMapReceived({{"id", id}, {"name", id}});
+            emit link->mapReceived(png, {{"width", 100}, {"height", 100}, {"resolution", 0.1}, {"map_id", id}});
+        };
+        setMap(QStringLiteral("map-1"));
+        bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}}));
+        bridge.send(net::makePublish(QLatin1String(ch::kNav), {{"status", "idle"}}));
+        QTRY_VERIFY(panel->goalButton()->isEnabled());
+        QVERIFY(!panel->startButton()->isEnabled());
+        panel->goalButton()->click();
+        emit map->view()->goalRequested(4.2, 1.8, 1.2);
+        QTRY_VERIFY(panel->startButton()->isEnabled());
+        QCOMPARE(map->view()->draftGoal().value("theta").toDouble(), 1.2);
+        bridge.send(net::makePublish(QLatin1String(ch::kNav), {{"status", "idle"}}));
+        QTest::qWait(150);
+        QVERIFY(bridge.lastRequest(ch::kCmdGoto).id.isEmpty());
+        QVERIFY(!map->view()->draftGoal().isEmpty());
+
+        bridge.send(net::makePublish(QLatin1String(ch::kNav), {{"status", "idle"}, {"navigation_state", "inactive"}}));
+        QTRY_VERIFY(!panel->startButton()->isEnabled());
+        QVERIFY(panel->goalButton()->isEnabled());
+        bridge.send(net::makePublish(QLatin1String(ch::kNav), {{"status", "idle"}, {"navigation_state", "active"}}));
+        QTRY_VERIFY(panel->startButton()->isEnabled());
+        QTRY_VERIFY_WITH_TIMEOUT(!panel->startButton()->isEnabled(), 2000);
+        QVERIFY(!map->view()->draftGoal().isEmpty());
+        bridge.send(net::makePublish(QLatin1String(ch::kNav), {{"status", "idle"}, {"navigation_state", "active"}}));
+        QTRY_VERIFY(panel->startButton()->isEnabled());
+
+        // Cancel before starting is local: no robot command or movement.
+        panel->navCancelButton()->click();
+        QVERIFY(map->view()->draftGoal().isEmpty());
+        QVERIFY(!panel->startButton()->isEnabled());
+        QTest::qWait(30);
+        QVERIFY(bridge.lastRequest(ch::kCmdNavCancel).id.isEmpty());
+
+        emit map->view()->goalRequested(2.5, -1.0, -0.7);
+        panel->startButton()->click();
+        panel->startButton()->click();
+        QTRY_VERIFY(!bridge.lastRequest(ch::kCmdGoto).id.isEmpty());
+        auto request = bridge.lastRequest(ch::kCmdGoto);
+        QCOMPARE(request.p.value("x").toDouble(), 2.5);
+        QCOMPARE(request.p.value("y").toDouble(), -1.0);
+        QCOMPARE(request.p.value("theta").toDouble(), -0.7);
+        int count = 0;
+        for (const auto &e : bridge.received) if (e.ch == QLatin1String(ch::kCmdGoto)) ++count;
+        QCOMPARE(count, 1);
+        QVERIFY(!panel->startButton()->isEnabled());
+        bridge.send(net::makeResponse(request, false, QStringLiteral("E_BUSY"), QStringLiteral("속도 설정 중")));
+        QTRY_VERIFY(panel->startButton()->isEnabled());
+        QCOMPARE(panel->findChild<QLabel *>(QStringLiteral("NavigationError"))->text(), QStringLiteral("속도 설정 중"));
+        panel->startButton()->click();
+        QTRY_VERIFY(bridge.lastRequest(ch::kCmdGoto).id != request.id);
+        bridge.send(net::makeResponse(bridge.lastRequest(ch::kCmdGoto), true));
+        bridge.send(net::makePublish(QLatin1String(ch::kNav),
+            {{"status", "navigating"}, {"goal", request.p}, {"navigation_state", "active"},
+             {"localization_state", "active"}, {"distance_remaining_m", 4.2}, {"eta_s", 18.0},
+             {"elapsed_s", 3.0}, {"recoveries", 1}}));
+        QTRY_VERIFY(map->view()->draftGoal().isEmpty());
+        QTRY_COMPARE(panel->findChild<QLabel *>(QStringLiteral("NavigationDistance"))->text(), QStringLiteral("4.2 m"));
+        QCOMPARE(panel->findChild<QLabel *>(QStringLiteral("NavigationEta"))->text(), QStringLiteral("18 s"));
+        QVERIFY(panel->navPauseButton()->isEnabled());
+
+        bridge.send(net::makePublish(QLatin1String(ch::kNav), {{"status", "succeeded"}}));
+        QTRY_VERIFY(panel->goalButton()->isEnabled());
+        emit map->view()->goalRequested(1.0, 2.0, 0.0);
+        setMap(QStringLiteral("map-2"));
+        QVERIFY(map->view()->draftGoal().isEmpty());
+        QVERIFY(!panel->startButton()->isEnabled());
+        emit map->view()->goalRequested(1.0, 2.0, 0.0);
+        link->disconnectFromBridge();
+        QTRY_VERIFY(map->view()->draftGoal().isEmpty());
+        QVERIFY(!panel->startButton()->isEnabled());
+    }
+
+    void waypointSelectionStagesGoalInOperationPanel()
+    {
+        theme::setTheme(QStringLiteral("light"));
+        qApp->setStyleSheet(theme::buildQss());
+        CatalogBridge bridge;
+        auto *link = new net::BridgeClient(QStringLiteral("127.0.0.1"), bridge.server.serverPort());
+        ui::MainWindow window(link);
+        window.resize(1400, 900);
+        window.show();
+        link->connectToBridge();
+        QTRY_VERIFY(bridge.peer && link->isConnected());
+        QImage image(100, 100, QImage::Format_RGB32);
+        image.fill(Qt::white);
+        QByteArray png;
+        QBuffer buffer(&png);
+        buffer.open(QIODevice::WriteOnly);
+        QVERIFY(image.save(&buffer, "PNG"));
+        emit link->activeMapReceived({{"id", "map-1"}, {"name", "map-1"}});
+        emit link->mapReceived(png, {{"width", 100}, {"height", 100}, {"resolution", 0.1}, {"map_id", "map-1"}});
+        bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "manual"}}));
+        bridge.send(net::makePublish(QLatin1String(ch::kNav), {{"status", "idle"}, {"navigation_state", "active"}, {"localization_state", "active"}}));
+        QTRY_COMPARE(link->mode(), robot::DriveMode::Manual);
+        auto *waypoints = window.findChild<ui::WaypointPanel *>();
+        waypoints->setWaypoints({{{"id", "wp-1"}, {"name", "입구"}, {"x", 2.0}, {"y", 3.0}, {"theta", 0.9}}});
+        emit waypoints->gotoRequested(QStringLiteral("wp-1"));
+        auto *panel = window.findChild<ui::StatusPanel *>();
+        auto *map = window.findChild<ui::MapCard *>();
+        QTRY_VERIFY(!map->view()->draftGoal().isEmpty());
+        QCOMPARE(map->view()->draftGoal().value("theta").toDouble(), 0.9);
+        QVERIFY(panel->findChild<QLabel *>(QStringLiteral("NavigationTarget"))->isVisible());
+        QVERIFY(!panel->startButton()->isEnabled());
+        bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}}));
+        QTRY_VERIFY(panel->startButton()->isEnabled());
+        QVERIFY(bridge.lastRequest(ch::kCmdGoto).id.isEmpty());
+        const auto snapshot = qEnvironmentVariable("HMI_NAV_SCREENSHOT");
+        QTest::qWait(60);
+        if (!snapshot.isEmpty()) {
+            QVERIFY(window.grab().save(snapshot));
+            theme::setTheme(QStringLiteral("dark"));
+            qApp->setStyleSheet(theme::buildQss());
+            window.resize(1100, 780);
+            QTest::qWait(60);
+            QVERIFY(window.grab().save(snapshot + QStringLiteral("-dark.png")));
+        }
+        bridge.send(net::makePublish(QLatin1String(ch::kMission),
+            {{"state", "running"}, {"mission_id", "mission-1"}, {"current_index", 0}, {"total", 2}}));
+        auto *mission = panel->findChild<QPushButton *>(QStringLiteral("NavigationMissionButton"));
+        QTRY_VERIFY(mission->isVisible());
+        QVERIFY(map->view()->draftGoal().isEmpty());
+        QVERIFY(!panel->startButton()->isEnabled());
+        QVERIFY(panel->goalButton()->isHidden());
+        QCOMPARE(panel->findChild<QLabel *>(QStringLiteral("NavigationDistance"))->text(), QStringLiteral("—"));
+        theme::setTheme(QStringLiteral("light"));
+        qApp->setStyleSheet(theme::buildQss());
+    }
+
     void mapSwitchRestoresCatalogPublishedBeforeAcknowledgement()
     {
         CatalogBridge bridge;
@@ -236,7 +384,7 @@ private slots:
         ui::MainWindow window(link);
         link->connectToBridge();
         QTRY_VERIFY(bridge.peer && link->isConnected());
-        auto *card = window.findChild<ui::MapCard *>();
+        auto *card = window.findChild<ui::StatusPanel *>();
         auto *pause = card->navPauseButton();
         auto *cancel = card->navCancelButton();
         QVERIFY(!pause->isEnabled());
@@ -260,7 +408,7 @@ private slots:
         pause->click();
         QTRY_VERIFY(!bridge.lastRequest(ch::kCmdNavResume).id.isEmpty());
         report("navigating");
-        QTRY_COMPARE(pause->text(), QStringLiteral("정지"));
+        QTRY_COMPARE(pause->text(), QStringLiteral("일시정지"));
         cancel->click();
         QTRY_VERIFY(!bridge.lastRequest(ch::kCmdNavCancel).id.isEmpty());
         report("canceled");
@@ -290,7 +438,7 @@ private slots:
         emit link->mapReceived(png, {{"width", 8}, {"height", 8}, {"resolution", 0.1}, {"map_id", "map-1"}});
         const auto automatic = net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}});
         bridge.send(automatic);
-        auto *goal = window.findChild<ui::MapCard *>()->goalButton();
+        auto *goal = window.findChild<ui::StatusPanel *>()->goalButton();
         QTRY_VERIFY(goal->isEnabled());
         window.setDriveMode(QStringLiteral("manual"));
         window.setDriveMode(QStringLiteral("auto"));
@@ -1226,7 +1374,7 @@ private slots:
         ui::MainWindow window(link);
         auto *map = window.findChild<ui::MapCard *>();
         QVERIFY(map);
-        QVERIFY(!map->goalButton()->isEnabled());
+        QVERIFY(!window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());
 
         link->connectToBridge();
         QTRY_VERIFY(server.hasPendingConnections());
@@ -1245,7 +1393,7 @@ private slots:
                                      {QStringLiteral("height"), 8},
                                      {QStringLiteral("resolution"), 0.1},
                                      {QStringLiteral("map_id"), QStringLiteral("map-1")}});
-        QVERIFY(!map->goalButton()->isEnabled());  // 지도가 있어도 모드 미확인
+        QVERIFY(!window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());  // 지도가 있어도 모드 미확인
 
         const auto reportMode = [peer](const char *mode) {
             const auto state = net::makePublish(QLatin1String(hmi::ch::kSafety),
@@ -1254,26 +1402,26 @@ private slots:
             peer->flush();
         };
         reportMode("auto");
-        QTRY_VERIFY(map->goalButton()->isEnabled());
+        QTRY_VERIFY(window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());
         window.showView(ui::NavItem::Arm);
-        QVERIFY(map->goalButton()->isEnabled()); // 지도 툴바는 다른 탭에서도 보인다.
+        QVERIFY(window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled()); // 숨은 운용 패널도 보고 상태를 유지한다.
         window.showView(ui::NavItem::Drive);
         auto *driveTabs = window.findChild<QTabWidget *>(QStringLiteral("DriveTabs"));
         QVERIFY(driveTabs);
         driveTabs->setCurrentIndex(1);
-        QVERIFY(map->goalButton()->isEnabled());
+        QVERIFY(window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());
         driveTabs->setCurrentIndex(0);
 
         window.setDriveMode(QStringLiteral("manual"));
-        QVERIFY(!map->goalButton()->isEnabled());
+        QVERIFY(!window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());
         reportMode("manual");
         QTRY_VERIFY(link->mode() == robot::DriveMode::Manual);
-        QVERIFY(!map->goalButton()->isEnabled());
+        QVERIFY(!window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());
 
         window.setDriveMode(QStringLiteral("auto"));
-        QVERIFY(!map->goalButton()->isEnabled());
+        QVERIFY(!window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());
         reportMode("auto");
-        QTRY_VERIFY(map->goalButton()->isEnabled());
+        QTRY_VERIFY(window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());
     }
 
     void goalButtonAcceptsLiveSlamMapWithoutSavedMapId()
@@ -1300,12 +1448,12 @@ private slots:
                                      {QStringLiteral("height"), 8},
                                      {QStringLiteral("resolution"), 0.1},
                                      {QStringLiteral("map_id"), QString()}});
-        QVERIFY(!map->goalButton()->isEnabled());
+        QVERIFY(!window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());
         const auto state = net::makePublish(QLatin1String(hmi::ch::kSafety),
                                             {{QStringLiteral("mode"), QStringLiteral("auto")}});
         peer->write(net::encodeFrame(state.toHeader(), state.payload));
         peer->flush();
-        QTRY_VERIFY(map->goalButton()->isEnabled());
+        QTRY_VERIFY(window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());
     }
 
     void driveModeButtonsRunFromManualToAuto()

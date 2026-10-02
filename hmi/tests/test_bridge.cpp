@@ -308,6 +308,34 @@ private slots:
         QVERIFY(latest.navGoal.isEmpty());
     }
 
+    void navigationProgressIsOptionalAndExpires()
+    {
+        connectPair();
+        Telemetry latest;
+        connect(client_, &BridgeClient::telemetry, this, [&](const Telemetry &tm) { latest = tm; });
+        server_->send(pub(hmi::ch::kNav, {{"status", "navigating"}, {"distance_remaining_m", 4.2},
+            {"eta_s", 18.0}, {"elapsed_s", 3.0}, {"recoveries", 2},
+            {"navigation_state", "active"}, {"localization_state", "inactive"}}));
+        QVERIFY(waitFor([&] { return latest.navFresh; }));
+        QCOMPARE(latest.navDistance, 4.2);
+        QCOMPARE(latest.navEta, 18.0);
+        QCOMPARE(latest.navElapsed, 3.0);
+        QCOMPARE(latest.navRecoveries, 2);
+        QCOMPARE(latest.navigationLifecycle, QStringLiteral("active"));
+        QCOMPARE(latest.localizationLifecycle, QStringLiteral("inactive"));
+        QVERIFY(waitFor([&] { return !latest.navFresh; }, 2000));
+        server_->send(pub(hmi::ch::kNav, {{"status", "failed"}, {"eta_s", QJsonValue::Null},
+            {"distance_remaining_m", -1}, {"error", "planner unavailable"}}));
+        QVERIFY(waitFor([&] { return latest.navFresh && latest.navStatus == QLatin1String("failed"); }));
+        QVERIFY(std::isnan(latest.navDistance));
+        QVERIFY(std::isnan(latest.navEta));
+        QVERIFY(std::isnan(latest.navElapsed));
+        QCOMPARE(latest.navRecoveries, -1);
+        QCOMPARE(latest.navError, QStringLiteral("planner unavailable"));
+        server_->send(pub(hmi::ch::kPose, {{"yaw_rate", 0.3}}));
+        QVERIFY(waitFor([&] { return latest.angularSpeed == 0.3; }));
+    }
+
     void setEndpoint_discardsPreviousRobotNavigation()
     {
         connectPair();

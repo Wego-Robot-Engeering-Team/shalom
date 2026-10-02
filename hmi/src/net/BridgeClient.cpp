@@ -328,6 +328,7 @@ void BridgeClient::resetLinkState()
     telemetry_ = hmi::robot::Telemetry{};
     telemetry_.link = link;
     lastPoseMs_ = 0;
+    lastNavMs_ = 0;
     lastArmMs_ = 0;
     heartbeatSentAt_.clear();
     lastSeq_.clear();
@@ -614,6 +615,9 @@ void BridgeClient::handlePublish(const Envelope &env)
         telemetry_.y = p.value(QStringLiteral("y")).toDouble();
         telemetry_.theta = p.value(QStringLiteral("theta")).toDouble();
         telemetry_.speed = p.value(QStringLiteral("speed")).toDouble();
+        const auto angular = p.value(QStringLiteral("yaw_rate"));
+        telemetry_.angularSpeed = angular.isDouble() ? angular.toDouble()
+            : std::numeric_limits<double>::quiet_NaN();
         lastPoseMs_ = clock_.elapsed();
         telemetry_.poseFresh = true;
     } else if (ch == QLatin1String(hmi::ch::kBattery)) {
@@ -685,6 +689,20 @@ void BridgeClient::handlePublish(const Envelope &env)
             emit navigationSpeedLimitsChanged(limit.toDouble(), minimum.toDouble(), maximum.toDouble(),
                 angular.toDouble(), angularMinimum.toDouble(), angularMaximum.toDouble(), applied.toBool());
     } else if (ch == QLatin1String(hmi::ch::kNav)) {
+        lastNavMs_ = clock_.elapsed();
+        telemetry_.navFresh = true;
+        const auto metric = [&p](const char *key) {
+            const auto value = p.value(QLatin1String(key));
+            return value.isDouble() && std::isfinite(value.toDouble()) && value.toDouble() >= 0
+                ? value.toDouble() : std::numeric_limits<double>::quiet_NaN();
+        };
+        telemetry_.navDistance = metric("distance_remaining_m");
+        telemetry_.navEta = metric("eta_s");
+        telemetry_.navElapsed = metric("elapsed_s");
+        telemetry_.navRecoveries = p.value("recoveries").isDouble() ? p.value("recoveries").toInt(-1) : -1;
+        telemetry_.navigationLifecycle = p.value("navigation_state").toString();
+        telemetry_.localizationLifecycle = p.value("localization_state").toString();
+        telemetry_.navError = p.value("error").toString();
         telemetry_.navStatus = p.value(QStringLiteral("status")).toString();
         const bool active = telemetry_.navStatus == QLatin1String("accepting") ||
                             telemetry_.navStatus == QLatin1String("navigating") ||
@@ -836,6 +854,8 @@ void BridgeClient::checkTimeouts()
         telemetry_.poseFresh = false;
     if (telemetry_.armFresh && now - lastArmMs_ > kPoseStaleMs)
         telemetry_.armFresh = false;
+    if (telemetry_.navFresh && now - lastNavMs_ > kPoseStaleMs)
+        telemetry_.navFresh = false;
 
     if (isConnected() && now - lastHeartbeatMs_ > kLinkSilentMs) {
         emit robotEvent(QStringLiteral("LINK_HEARTBEAT_TIMEOUT"),

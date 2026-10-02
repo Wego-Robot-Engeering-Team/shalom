@@ -358,20 +358,21 @@ QRectF GoalMarker::boundingRect() const
 void GoalMarker::paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *)
 {
     p->setRenderHint(QPainter::Antialiasing);
-    const QColor col(colors().accent);
+    const QColor col(draft_ ? colors().warning : colors().accent);
 
-    p->setPen(QPen(col, 1.5, Qt::DashLine));
+    p->setPen(QPen(col, 1.8, draft_ ? Qt::DashLine : Qt::SolidLine));
     p->setBrush(Qt::NoBrush);
     p->drawEllipse(QPointF(0, 0), r_ * 1.7, r_ * 1.7);
 
     p->setPen(Qt::NoPen);
-    p->setBrush(col);
+    p->setBrush(draft_ ? QBrush(Qt::NoBrush) : QBrush(col));
     p->drawEllipse(QPointF(0, 0), r_ * 0.32, r_ * 0.32);
 
     // 목표 방향 화살표 — 로컬 +x
     p->setPen(QPen(col, 1.8));
     p->drawLine(QPointF(0, 0), QPointF(r_ * 2.4, 0));
     p->setPen(Qt::NoPen);
+    p->setBrush(col);
     p->drawPolygon(QPolygonF{{r_ * 3.0, 0.0}, {r_ * 2.1, -r_ * 0.5}, {r_ * 2.1, r_ * 0.5}});
 }
 
