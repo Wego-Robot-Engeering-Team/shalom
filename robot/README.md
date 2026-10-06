@@ -19,7 +19,8 @@ robot/
 │   └── motion_interlock_manager/      # base/arm 운용 권한
 ├── l2_control/
 │   ├── docking/                       # 지도 충전 위치 → Nav2 Dock DB
-│   ├── navigation/                    # Nav2·AMCL·SLAM·KISS-ICP 설정·lidar_slam
+│   ├── navigation/                    # 주행 실행·설정·Nav2 BT·RViz
+│   ├── lidar_slam/                    # 점군 지면분리·필터·2D SLAM
 │   ├── joint_mux/                     # 관절 명령 source 선택
 │   └── safety_gate/                   # 최종 명령 통과·차단
 ├── l1_drivers/
@@ -39,6 +40,26 @@ L1은 센서·장치 연결을 담당한다. `common` 인터페이스와 bringup
 시뮬레이터 실행 조립과 예시 지도는 [`../simulation/`](../simulation/)에 있다.
 `simulation_bringup`은 이 디렉터리의 navigation·HMI bridge·mission core를 그대로
 포함한다. MuJoCo 자체는 `third_party/b2_simulation/`에 남는다.
+
+## 실행 구성
+
+실기는 `drivers.launch.py`와 공통 `runtime.launch.py`를 실행한다.
+시뮬레이터는 MuJoCo·시뮬 전용 어댑터와 같은 `runtime.launch.py`를 실행한다.
+
+| launch | 역할 |
+|---|---|
+| `robot_bringup/bringup.launch.py` | 실기 전체 실행, 로봇 ID 설정 |
+| `robot_bringup/drivers.launch.py` | L1: B2·XT32·선택 센서 |
+| `robot_bringup/runtime.launch.py` | 공통 L2–L4 실행, 기본 지도 선택 |
+| `robot_bringup/control.launch.py` | L2: twist_mux·joint_mux·safety_gate |
+| `robot_bringup/system.launch.py` | L3: Mission·Safety·Motion Authority·정지 상태 감시 |
+| `robot_bringup/communication.launch.py` | L4: HMI·E-Stop TCP·수동 조작 UDP |
+| `navigation/navigation.launch.py` | 점군 처리·KISS-ICP·SLAM·AMCL·Nav2 |
+| `robot_bringup/rviz.launch.py` | 내비게이션 RViz 화면 |
+
+내비게이션 launch·설정·BT·RViz 파일은 `l2_control/navigation` 패키지가 설치한다.
+로봇 ID는 실기 bringup에서 읽어 통신 노드에 전달한다.
+`control.launch.py`만 실행하면 L3 관리자와 외부 통신은 실행되지 않는다.
 
 ## 실기 실행
 
@@ -124,7 +145,7 @@ source install/setup.bash
 
 ## 경로 변경 후 빌드
 
-기존 CMake 캐시에는 이동 전 소스 경로가 남을 수 있다. 별도 build/install 경로로 빌드한다.
+기존 CMake 캐시와 설치 파일을 재사용하지 않고 별도 build/install 경로로 빌드한다.
 
 ```bash
 cd ~/shalom_ws

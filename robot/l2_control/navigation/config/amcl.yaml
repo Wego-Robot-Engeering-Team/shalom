@@ -1,6 +1,6 @@
 # AMCL for B2, used only when the robot localises in a saved map
-# (`b2_navigation.launch.py map:=<file.yaml>`). While mapping, slam_toolbox owns
-# map -> odom and this node is not started at all.
+# (`navigation navigation.launch.py map:=<absolute map.yaml>`). While mapping,
+# slam_toolbox owns map -> odom and AMCL remains unconfigured.
 #
 # The scan it works from is the same one slam_toolbox used to build the map:
 # /obstacle_scan, produced by flattening the ground-segmented 3D cloud. Feeding

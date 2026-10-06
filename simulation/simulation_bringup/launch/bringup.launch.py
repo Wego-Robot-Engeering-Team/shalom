@@ -3,19 +3,18 @@
 
 """Run the B2 simulation as a robot-shaped HMI endpoint."""
 
-import json
 from pathlib import Path
 
 from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, GroupAction, IncludeLaunchDescription,
-                            OpaqueFunction, ResetLaunchConfigurations,
-                            SetEnvironmentVariable, SetLaunchConfiguration)
+                            OpaqueFunction, ResetLaunchConfigurations, SetEnvironmentVariable)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, OrSubstitution, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from ament_index_python.packages import get_package_share_directory
+from robot_bringup.map_selection import resolve_default_map
 
 
 def _writable_maps_dir():
@@ -29,35 +28,9 @@ def _writable_robot_data_dir():
     return str(Path(_writable_maps_dir()).parent / "robot_data")
 
 
-def _resolve_default_map(context):
-    requested = LaunchConfiguration("map").perform(context)
-    if requested == "none":
-        return [SetLaunchConfiguration("map", "")]
-    if requested != "auto":
-        return []
-    maps_dir = Path(LaunchConfiguration("maps_dir").perform(context))
-    setting = maps_dir / "default_map.json"
-    if not setting.is_file():
-        return [SetLaunchConfiguration("map", "")]
-    try:
-        map_id = json.loads(setting.read_text(encoding="utf-8"))["map_id"]
-    except (OSError, KeyError, ValueError, TypeError) as exc:
-        raise RuntimeError(f"invalid default map setting: {setting}") from exc
-    if map_id == "":
-        return [SetLaunchConfiguration("map", "")]
-    if (not isinstance(map_id, str) or Path(map_id).name != map_id or
-            map_id in (".", "..") or ".." in map_id):
-        raise RuntimeError(f"invalid default map id in {setting}")
-    map_yaml = maps_dir / map_id / "map.yaml"
-    if not map_yaml.is_file():
-        raise RuntimeError(f"default map is missing: {map_yaml}")
-    return [SetLaunchConfiguration("map", str(map_yaml))]
-
-
 def generate_launch_description():
     sim = FindPackageShare("simulation_bringup")
     robot = FindPackageShare("robot_bringup")
-    bridge = FindPackageShare("hmi_bridge")
     mujoco = FindPackageShare("b2_mujoco")
 
     platform = IncludeLaunchDescription(
@@ -81,36 +54,18 @@ def generate_launch_description():
         scoped=True,
         condition=IfCondition(LaunchConfiguration("apriltag")),
     )
-    navigation = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(PathJoinSubstitution([robot, "launch", "navigation.launch.py"])),
+    runtime = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([robot, "launch", "runtime.launch.py"])),
         launch_arguments={
             "use_sim_time": "true",
             "pointcloud_topic": LaunchConfiguration("pointcloud_topic"),
-            "map": LaunchConfiguration("map"),
-            "slam": LaunchConfiguration("slam"),
-            "nav2": LaunchConfiguration("nav2"),
-        }.items(),
-    )
-    control = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(PathJoinSubstitution([robot, "launch", "control.launch.py"])),
-        launch_arguments={
-            "use_sim_time": "true",
             "base_output_topic": "/cmd_vel",
             "base_odometry_topic": "/b2/odom_gt",
             "teleop_allowed_peer": "127.0.0.1",
-            "robot_id": LaunchConfiguration("robot_id"),
-        }.items(),
-    )
-    station_bridge = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(PathJoinSubstitution([bridge, "launch", "bridge.launch.py"])),
-        launch_arguments={
-            "config": LaunchConfiguration("bridge_config"),
-            "use_sim_time": "true",
-            "robot_id": LaunchConfiguration("robot_id"),
-            "robot_name": LaunchConfiguration("robot_name"),
-            "maps_dir": LaunchConfiguration("maps_dir"),
-            "robot_data_dir": LaunchConfiguration("robot_data_dir"),
-            "initial_map": LaunchConfiguration("map"),
+            **{name: LaunchConfiguration(name) for name in (
+                "map", "slam", "nav2", "robot_id", "robot_name", "maps_dir",
+                "robot_data_dir", "bridge_config", "rviz", "rviz_profile",
+            )},
         }.items(),
     )
     # The bridge calls the same B2 posture services for hardware and MuJoCo.
@@ -122,14 +77,6 @@ def generate_launch_description():
         name="base_posture_adapter",
         output="screen",
         parameters=[{"use_sim_time": True}],
-    )
-    rviz = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(PathJoinSubstitution([robot, "launch", "rviz.launch.py"])),
-        launch_arguments={
-            "use_sim_time": "true",
-            "profile": LaunchConfiguration("rviz_profile"),
-        }.items(),
-        condition=IfCondition(LaunchConfiguration("rviz")),
     )
 
     return LaunchDescription([
@@ -158,7 +105,6 @@ def generate_launch_description():
             default_value="auto",
             description="auto(기본 지도), none(SLAM), 절대 경로의 map.yaml",
         ),
-        OpaqueFunction(function=_resolve_default_map),
         DeclareLaunchArgument("slam", default_value="true"),
         DeclareLaunchArgument("nav2", default_value="true"),
         DeclareLaunchArgument("viewer", default_value="true"),
@@ -176,5 +122,6 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "bridge_config",
             default_value=PathJoinSubstitution([sim, "config", "bridge_sim.yaml"])),
-        platform, apriltag, navigation, control, posture_adapter, station_bridge, rviz,
+        OpaqueFunction(function=resolve_default_map),
+        platform, apriltag, posture_adapter, runtime,
     ])

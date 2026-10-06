@@ -16,7 +16,7 @@ from docking.config import DockConfigError
 
 
 ROBOT_ROOT = Path(__file__).resolve().parents[3]
-LAUNCH_PATH = ROBOT_ROOT / "bringup/robot_bringup/launch/navigation.launch.py"
+LAUNCH_PATH = ROBOT_ROOT / "l2_control/navigation/launch/navigation.launch.py"
 
 
 class NavigationLaunchTests(unittest.TestCase):
@@ -27,8 +27,8 @@ class NavigationLaunchTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("navigation_launch_test", LAUNCH_PATH)
         self.launch = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.launch)
-        self.share = self.root / "robot_bringup"
-        config_dir = self.share / "navigation/config"
+        self.share = self.root / "navigation"
+        config_dir = self.share / "config"
         config_dir.mkdir(parents=True)
         source = ROBOT_ROOT / "l2_control/navigation/config/nav2.yaml"
         (config_dir / "nav2.yaml").write_bytes(source.read_bytes())

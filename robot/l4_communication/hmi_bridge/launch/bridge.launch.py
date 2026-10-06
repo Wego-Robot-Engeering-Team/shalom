@@ -1,32 +1,16 @@
 # Copyright (c) 2026 WeGo Robotics. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
-"""브릿지 노드 기동.
-
-안전 노드는 여기서 함께 띄우지 않는다. 브릿지가 죽어도 안전 노드는 살아
-있어야 하고, 같은 launch 로 묶어 두면 한쪽 실패가 다른 쪽을 끌고 내려갈
-여지가 생긴다. 두 프로세스는 각각 감시·재기동되어야 한다.
-"""
+"""HMI·E-Stop TCP 실행. 안전 관리자는 L3 system launch가 실행한다."""
 
 from pathlib import Path
 
-import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.actions import Node
-
-
-def _robot_id_from_metadata():
-    metadata_path = Path(get_package_share_directory("hmi_bridge")) / "config" / "robot_metadata.yaml"
-    with metadata_path.open(encoding="utf-8") as metadata_file:
-        metadata = yaml.safe_load(metadata_file) or {}
-    robot_id = metadata.get("robot", {}).get("id", "")
-    if not robot_id:
-        raise RuntimeError(f"robot id is missing from {metadata_path}")
-    return str(robot_id)
 
 
 def generate_launch_description():
@@ -53,11 +37,9 @@ def generate_launch_description():
         description="시뮬레이터와 함께 돌 때만 true",
     )
 
-    # 로봇 식별자. 지금은 한 대뿐이라 화면에 이름을 띄우는 데만 쓰지만,
-    # 여러 대가 되면 관제가 값을 가르는 근거가 된다.
+    # 상위 실행 구성이 로봇 ID를 결정하고 두 TCP 노드에 동일하게 전달한다.
     robot_id_arg = DeclareLaunchArgument(
-        "robot_id", default_value=_robot_id_from_metadata(),
-        description="로봇 식별자. 여러 대가 되면 관제가 이것으로 구분한다.")
+        "robot_id", description="상위 bringup에서 전달하는 로봇 식별자")
     robot_name_arg = DeclareLaunchArgument(
         "robot_name", default_value="1호기",
         description="화면에 보일 이름")

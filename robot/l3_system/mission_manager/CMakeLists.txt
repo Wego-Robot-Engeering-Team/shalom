@@ -53,10 +53,6 @@ install(
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 install(DIRECTORY include/ DESTINATION include)
-install(FILES src/bt/navigate_to_pose_w_replanning_and_recovery.xml
-  DESTINATION share/${PROJECT_NAME}/behavior_trees)
-install(FILES src/bt/LICENSE-APACHE-2.0.txt
-  DESTINATION share/${PROJECT_NAME}/licenses)
 
 ament_export_include_directories(include)
 ament_export_libraries(mission_logic)

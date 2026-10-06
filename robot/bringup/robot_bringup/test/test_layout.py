@@ -32,7 +32,8 @@ PACKAGES = {
     "joint_mux": "robot/l2_control/joint_mux",
     "docking": "robot/l2_control/docking",
     "safety_gate": "robot/l2_control/safety_gate",
-    "lidar_slam": "robot/l2_control/navigation/lidar_slam",
+    "lidar_slam": "robot/l2_control/lidar_slam",
+    "navigation": "robot/l2_control/navigation",
     "mission_manager": "robot/l3_system/mission_manager",
     "motion_interlock_manager": "robot/l3_system/motion_interlock_manager",
     "safety_manager": "robot/l3_system/safety_manager",
@@ -120,7 +121,7 @@ class LayoutTest(unittest.TestCase):
         metadata = share / "config/robot_metadata.yaml"
         expected = str(yaml.safe_load(metadata.read_text(encoding="utf-8"))["robot"]["id"])
         self.assertTrue(expected)
-        for name in ("bringup.launch.py", "control.launch.py"):
+        for name in ("bringup.launch.py",):
             self.assertEqual(helper(share / "launch" / name, "_robot_id_from_metadata",
                                     {"robot_bringup": share}), expected)
 
@@ -174,7 +175,7 @@ class LayoutTest(unittest.TestCase):
             source = self.source_share(package)
             share = self.installed_share(package)
             self.assertTrue((share / "package.xml").is_file(), str(share))
-            for directory in ("launch", "config", "rviz"):
+            for directory in ("launch", "config", "rviz", "behavior_trees", "licenses"):
                 if not (source / directory).is_dir():
                     continue
                 for original in (source / directory).rglob("*"):
@@ -183,18 +184,17 @@ class LayoutTest(unittest.TestCase):
                     installed = share / original.relative_to(source)
                     self.assertTrue(installed.is_file(), f"missing resource: {installed}")
                     self.assertEqual(installed.read_bytes(), original.read_bytes(), str(installed))
-        navigation = ROOT / "robot/l2_control/navigation"
-        bringup = self.installed_share("robot_bringup")
-        for directory in ("config", "rviz"):
-            for original in (navigation / directory).rglob("*"):
-                if original.is_file():
-                    installed = bringup / "navigation" / original.relative_to(navigation)
-                    self.assertTrue(installed.is_file(), str(installed))
-                    self.assertEqual(installed.read_bytes(), original.read_bytes(), str(installed))
         metadata = self.source_share("robot_bringup") / "config/robot_metadata.yaml"
-        for package in ("robot_bringup", "hmi_bridge"):
-            self.assertEqual((self.installed_share(package) / "config/robot_metadata.yaml").read_bytes(),
-                             metadata.read_bytes())
+        self.assertEqual((self.installed_share("robot_bringup") / "config/robot_metadata.yaml").read_bytes(),
+                         metadata.read_bytes())
+        for prefix in (INSTALL_ROOT / "robot_bringup", INSTALL_ROOT):
+            module = prefix / f"lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages/robot_bringup/map_selection.py"
+            if module.is_file():
+                self.assertEqual(module.read_bytes(),
+                                 (self.source_share("robot_bringup") / "robot_bringup/map_selection.py").read_bytes())
+                break
+        else:
+            self.fail("installed robot_bringup.map_selection module is missing")
         gateway_prefix = self.installed_share("gateway_transport").parent.parent
         self.assertEqual((gateway_prefix / "include/inspection/framing.hpp").read_bytes(),
                          (ROOT / "common/protocol/include/inspection/framing.hpp").read_bytes())
@@ -206,8 +206,7 @@ class LayoutTest(unittest.TestCase):
                   for name in ("robot_bringup", "hmi_bridge", "simulation_bringup")}
         expected = str(yaml.safe_load((shares["robot_bringup"] / "config/robot_metadata.yaml")
                                     .read_text(encoding="utf-8"))["robot"]["id"])
-        for package, names in (("robot_bringup", ("bringup.launch.py", "control.launch.py")),
-                               ("hmi_bridge", ("bridge.launch.py",))):
+        for package, names in (("robot_bringup", ("bringup.launch.py",)),):
             for name in names:
                 self.assertEqual(helper(shares[package] / "launch" / name,
                                         "_robot_id_from_metadata", shares), expected)
@@ -217,6 +216,39 @@ class LayoutTest(unittest.TestCase):
         data = Path(helper(launch, "_writable_robot_data_dir", shares))
         self.assertTrue((maps / "README.md").is_file())
         self.assertEqual(data, maps.parent / "robot_data")
+
+    def test_launch_resources_are_owned_by_their_package(self):
+        bringup = self.source_share("robot_bringup")
+        navigation = self.source_share("navigation")
+        self.assertTrue((navigation / "launch/navigation.launch.py").is_file())
+        self.assertTrue((navigation / "behavior_trees/navigate_to_pose_w_replanning_and_recovery.xml").is_file())
+        for obsolete in ("platform.launch.py", "slam.launch.py", "navigation.launch.py"):
+            self.assertFalse((bringup / "launch" / obsolete).exists())
+        for path in (bringup / "launch").glob("*.launch.py"):
+            functions = [node.name for node in ast.parse(path.read_text()).body
+                         if isinstance(node, ast.FunctionDef)]
+            self.assertIn("generate_launch_description", functions, str(path))
+        for package in ("robot_bringup", "hmi_bridge"):
+            cmake = (self.source_share(package) / "CMakeLists.txt").read_text()
+            self.assertNotIn("/../../l2_control/navigation", cmake)
+            self.assertNotIn("/../../bringup/robot_bringup", cmake)
+
+    def test_launch_node_dependencies_are_declared(self):
+        for package in ("robot_bringup", "hmi_bridge", "navigation", "lidar_slam"):
+            share = self.source_share(package)
+            dependencies = {element.text for element in ET.parse(share / "package.xml").getroot()
+                            if element.tag in ("depend", "exec_depend")}
+            for path in (share / "launch").glob("*.launch.py"):
+                for call in ast.walk(ast.parse(path.read_text())):
+                    if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name):
+                        continue
+                    if call.func.id != "Node":
+                        continue
+                    for keyword in call.keywords:
+                        if keyword.arg == "package" and isinstance(keyword.value, ast.Constant):
+                            target = keyword.value.value
+                            if target != package:
+                                self.assertIn(target, dependencies, f"{path}: missing {target}")
 
 
 if __name__ == "__main__":

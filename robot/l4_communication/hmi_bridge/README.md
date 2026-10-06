@@ -38,6 +38,18 @@ colcon build --base-paths src/shalom --packages-up-to hmi_bridge
 
 의존성: `rclcpp`, `tf2_ros`, `nav_msgs`, `sensor_msgs`, `nlohmann-json-dev`
 
+## 실행
+
+전체 실행은 `robot_bringup bringup.launch.py`를 사용한다.
+브리지만 실행할 때는 로봇 ID를 전달한다.
+
+```bash
+ros2 launch hmi_bridge bridge.launch.py robot_id:=SE-0001
+```
+
+이 launch는 HMI·E-Stop TCP 노드를 실행한다. UDP 수동 조작은
+`robot_bringup/communication.launch.py`, 안전 관리자는 `robot_bringup/system.launch.py`가 실행한다.
+
 ## 전송 계층 테스트
 
 소켓·스레드·프레이밍이 얽히는 부분이 실제 위험이 있는 곳이다.

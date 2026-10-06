@@ -10,9 +10,9 @@
     │   ├── l4_communication/                  HMI·SDK 통신 어댑터
     │   ├── l3_system/                         Mission·Safety·Motion Authority FSM
     │   ├── l2_control/
-    │   │   ├── navigation/config/            Nav2·위치추정·SLAM 설정
-    │   │   ├── navigation/rviz/              주행·지도화 화면 설정
-    │   │   ├── navigation/lidar_slam/        점군 지면분리·2D SLAM
+    │   │   ├── navigation/                   주행 launch·설정·Nav2 BT·RViz
+    │   │   ├── lidar_slam/                   점군 지면분리·2D SLAM
+    │   │   ├── docking/                      지도 충전 위치 → Nav2 Dock DB
     │   │   ├── joint_mux/                    관절 명령 source 선택
     │   │   └── safety_gate/                  최종 명령 통과·차단
     │   ├── l1_drivers/sensors/                XT32·VLP-16·VN-100·Aurora 연동

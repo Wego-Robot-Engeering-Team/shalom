@@ -9,8 +9,9 @@ add_executable(ground_filter src/ground_filter.cpp)
 ament_target_dependencies(ground_filter rclcpp sensor_msgs)
 install(TARGETS ground_filter DESTINATION lib/${PROJECT_NAME})
 
-# 설정은 부르는 쪽이 소유한다 (navigation/config/). 이 패키지는 코드와
+# 설정은 navigation 패키지가 소유한다. 이 패키지는 코드와
 # launch 만 낸다.
-install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE)
 
 ament_package()

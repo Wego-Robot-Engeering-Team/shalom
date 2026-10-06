@@ -11,15 +11,24 @@ source ~/shalom_ws/install/setup.bash
 
 # 실기: B2와 현장 지도
 ros2 launch robot_bringup bringup.launch.py \
-  network_interface:=enp3s0 maps_dir:=/var/lib/shalom/maps map:=latest
+  network_interface:=enp3s0 maps_dir:=/var/lib/shalom/maps map:=auto
 
 # 시뮬레이터: MuJoCo와 저장된 지도
-ros2 launch simulation_bringup bringup.launch.py viewer:=false map:=2026-09-07
+ros2 launch simulation_bringup bringup.launch.py viewer:=false map:=auto
 ```
 
 실기에는 MuJoCo·VLP-16이 들어가지 않는다. 시뮬레이터의 플랫폼 구현은
 `robot/third_party/b2_simulation/`에, 시뮬레이션 실행 조립과 지도는
 `simulation/simulation_bringup/`에 있다.
+
+드라이버가 이미 실행 중이면 내비게이션만 별도로 실행할 수 있다.
+
+```bash
+ros2 launch navigation navigation.launch.py pointcloud_topic:=/b2/points
+```
+
+시뮬 데이터에는 `use_sim_time:=true`, 저장 지도에는 `map:=<map.yaml 절대 경로>`를 지정한다.
+명령 선택·안전 게이트·시스템 관리자·HMI 통신은 공통 `robot_bringup/runtime.launch.py`가 실행한다.
 
 ## 지도 전환
 

@@ -27,13 +27,13 @@ kiss_icp (같은 PointCloud2) → odom → base_link
 ```bash
 source /opt/ros/jazzy/setup.bash
 source ~/shalom_ws/install/setup.bash
-ros2 launch robot_bringup navigation.launch.py robot:=sim
+ros2 launch simulation_bringup bringup.launch.py map:=none
 ```
 
 Nav2까지 같이 뜬다. 지도만 만들려면 `nav2:=false`로 끈다.
 
 ```bash
-ros2 launch robot_bringup navigation.launch.py robot:=sim nav2:=false
+ros2 launch simulation_bringup bringup.launch.py map:=none nav2:=false
 ```
 
 RViz의 **SLAM Map**에 `/map`이 그려진다. 로봇을 움직여야 채워지므로 HMI의
@@ -47,7 +47,7 @@ RViz의 **SLAM Map**에 `/map`이 그려진다. 로봇을 움직여야 채워지
 ros2 run nav2_map_server map_saver_cli -f /var/lib/shalom/maps/inspection_a/map
 ```
 
-`.pgm`과 `.yaml`이 생긴다. 저장된 지도로 주행할 때는 `slam:=false`로 slam_toolbox를 끈다.
+`.pgm`과 `.yaml`이 생긴다. 저장된 지도는 `map:=<map.yaml 절대 경로>`로 선택한다.
 
 ## 튜닝
 
@@ -67,5 +67,8 @@ LiDAR 실제 장착 높이와 반드시 맞춰야 한다** (B2는 `-0.74`).
 
 ```bash
 ros2 launch lidar_slam ground_slam.launch.py \
-  pointcloud_topic:=/velodyne_points base_frame:=base_link
+  pointcloud_topic:=/velodyne_points base_frame:=base_link \
+  gseg_params_file:=<ground_segmentation.yaml 절대 경로> \
+  ground_filter_params_file:=<ground_filter.yaml 절대 경로> \
+  slam_params_file:=<slam_toolbox.yaml 절대 경로>
 ```

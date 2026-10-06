@@ -29,8 +29,7 @@ def generate_launch_description():
     )
 
     config = PathJoinSubstitution([
-        FindPackageShare("robot_bringup"),
-        "navigation",
+        FindPackageShare("navigation"),
         "rviz",
         PythonExpression(["'", LaunchConfiguration("profile"), ".rviz'"]),
     ])

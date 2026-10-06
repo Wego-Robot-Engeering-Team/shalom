@@ -68,6 +68,7 @@ def _includes(entities, context):
 
 @pytest.fixture
 def source_package_lookup(monkeypatch):
+    monkeypatch.syspath_prepend(str(PACKAGE_DIR.parents[1] / "robot/bringup/robot_bringup"))
     # Resolve this package to its source tree, even before a colcon installation.
     def package_share(self, context):
         name = perform_substitutions(context, self.package)

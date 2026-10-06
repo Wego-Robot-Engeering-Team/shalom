@@ -27,7 +27,7 @@ robot/l2_control/navigation/config/nav2.yaml (도킹 플러그인·제어 정책
 
 ## 시작 시 적용
 
-`robot_bringup/navigation.launch.py`는 선택한 `map.yaml` 옆의 `locations.json`을
+`navigation/navigation.launch.py`는 선택한 `map.yaml` 옆의 `locations.json`을
 읽고 임시 디렉터리에 DB와 실행용 Nav2 설정을 생성한다. 생성 설정에는
 `docking_server.ros__parameters.dock_database` 경로만 주입하며 기존 MPPI,
 속도, tolerance, 센서·도킹 플러그인 설정은 유지한다. 실행 종료 시 생성 파일을
