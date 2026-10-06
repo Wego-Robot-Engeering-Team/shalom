@@ -26,7 +26,7 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(gateway_transport REQUIRED)
-find_package(shalom_interfaces REQUIRED)
+find_package(interfaces REQUIRED)
 # 점유격자를 PNG 로 눌러 보낸다 (map/occupancy).
 find_package(ZLIB REQUIRED)
 
@@ -46,7 +46,7 @@ target_include_directories(hmi_bridge_node PRIVATE
 )
 
 ament_target_dependencies(hmi_bridge_node
-    rclcpp rcl_interfaces rclcpp_action std_msgs shalom_interfaces std_srvs sensor_msgs geometry_msgs nav_msgs nav2_msgs lifecycle_msgs
+    rclcpp rcl_interfaces rclcpp_action std_msgs interfaces std_srvs sensor_msgs geometry_msgs nav_msgs nav2_msgs lifecycle_msgs
     tf2 tf2_ros tf2_geometry_msgs
 )
 target_link_libraries(hmi_bridge_node nlohmann_json::nlohmann_json)

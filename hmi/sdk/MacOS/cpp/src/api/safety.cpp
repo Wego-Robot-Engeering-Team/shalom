@@ -1,9 +1,9 @@
 // Copyright (c) 2026 WeGo Robotics. All rights reserved.
 // SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
-#include "shalom/api.hpp"
+#include "robot_sdk/api.hpp"
 
-namespace shalom {
+namespace robot_sdk {
 
 RobotApi::RobotApi(Client &client) : client_(client) {}
 
@@ -33,4 +33,4 @@ std::string RobotApi::request(const std::string &channel, const std::string &pay
     return client_.sendRequest(channel, payloadJson, err);
 }
 
-}  // namespace shalom
+}  // namespace robot_sdk

@@ -26,7 +26,7 @@
    └─ VERSION.txt
 
 3. 연동 SDK                           4. 임치본
-   shalom-sdk/                           ├─ 전체 소스
+   robot-sdk/                           ├─ 전체 소스
    ├─ include/inspection_hmi/  헤더 7개  ├─ 서브모듈 고정 커밋
    ├─ include/inspection/  framing.hpp   ├─ ROS·Qt·컴파일러 버전
    ├─ bin/hmi_core.dll                   └─ 빌드 이미지

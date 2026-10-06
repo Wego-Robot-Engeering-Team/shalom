@@ -1,4 +1,4 @@
-# Shalom Python SDK
+# Robot Python SDK
 
 Python 3.9 이상과 표준 라이브러리만 사용한다. ROS, Qt, 별도 TCP·JSON package는
 필요 없다.

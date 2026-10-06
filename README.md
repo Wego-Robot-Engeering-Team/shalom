@@ -33,10 +33,11 @@ Mission·Safety·Motion Authority의 목표 상태와 B2 시뮬레이션 검증 
 cd ~/shalom_ws
 source /opt/ros/jazzy/setup.bash
 MAKEFLAGS=-j2 colcon build --executor parallel --parallel-workers 2 --base-paths src/shalom --symlink-install \
-  --packages-select shalom_interfaces b2_mujoco vectornav_driver vectornav_vn100 \
-  hmi_bridge mission_manager motion_interlock_manager robot_bringup simulation_bringup
+  --cmake-clean-cache --packages-up-to robot_bringup simulation_bringup
 source install/setup.bash
 ```
+
+공통 메시지 패키지는 `interfaces`다. 의존 패키지까지 함께 빌드한다.
 
 ## 로봇 실행
 

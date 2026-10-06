@@ -12,37 +12,37 @@ Visual Studio 2019 이상(“C++를 사용한 데스크톱 개발” 구성 요�
 개발자 명령 프롬프트에서:
 
 ```bat
-cd shalom-robot-sdk\Windows
+cd robot-sdk\Windows
 cmake -S cpp -B build -A x64
 cmake --build build --config Release
 ```
 
-예제가 `build\Release\shalom_monitor.exe` 로 나온다.
+예제가 `build\Release\robot_monitor.exe` 로 나온다.
 
 ```bat
-build\Release\shalom_monitor.exe 192.168.210.88
-build\Release\shalom_api_example.exe 192.168.210.88
+build\Release\robot_monitor.exe 192.168.210.88
+build\Release\robot_api_example.exe 192.168.210.88
 ```
 
 ## 내 프로그램에 붙이기
 
 ```cmake
-find_package(ShalomSdk CONFIG REQUIRED)
-target_link_libraries(my_app PRIVATE shalom::sdk)
+find_package(RobotSdk CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE robot_sdk::sdk)
 ```
 
 SDK가 시스템 경로 밖에 있으면 고객 application을 구성할 때 설치 prefix를 준다.
 
 ```bat
-cmake -S . -B build -DCMAKE_PREFIX_PATH=C:\ShalomSDK
+cmake -S . -B build -DCMAKE_PREFIX_PATH=C:\RobotSDK
 ```
 
-`shalom::sdk` 가 DLL import library와 `ws2_32` 의존성을 함께 제공하므로 따로
-링크하지 않는다. 릴리스에서는 `include/`, `bin\shalom_sdk.dll`,
-`lib\shalom_sdk.lib`만 고객에게 제공하고 `src\`는 넣지 않는다.
+`robot_sdk::sdk` 가 DLL import library와 `ws2_32` 의존성을 함께 제공하므로 따로
+링크하지 않는다. 릴리스에서는 `include/`, `bin\robot_sdk.dll`,
+`lib\robot_sdk.lib`만 고객에게 제공하고 `src\`는 넣지 않는다.
 
 ```bat
-cmake --install build --config Release --prefix shalom-sdk-windows
+cmake --install build --config Release --prefix robot-sdk-windows
 ```
 
 ## 알아 둘 것

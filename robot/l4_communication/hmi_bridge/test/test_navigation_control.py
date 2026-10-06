@@ -16,8 +16,8 @@ from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
-from shalom_interfaces.msg import SafetyState, MotionAuthority, SafetyEvent
-from shalom_interfaces.srv import SafetyCommand, AuthorityRequest
+from interfaces.msg import SafetyState, MotionAuthority, SafetyEvent
+from interfaces.srv import SafetyCommand, AuthorityRequest
 from rclpy.qos import QoSProfile, DurabilityPolicy
 
 

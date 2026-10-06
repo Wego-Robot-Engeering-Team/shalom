@@ -9,14 +9,14 @@ resume 후에만 `NORMAL`이 된다. ROS 노드와 단위 테스트 모두 이 F
 
 | Input | Type | Meaning |
 |---|---|---|
-| `/safety/event` | `shalom_interfaces/SafetyEvent` | 내부 stop/fault 사건 |
+| `/safety/event` | `interfaces/SafetyEvent` | 내부 stop/fault 사건 |
 | `/safety/physical_estop_active` | `std_msgs/Bool` | physical E-stop state |
-| `/safety/heartbeat` | `shalom_interfaces/SafetyHeartbeat` | external watchdog heartbeat (required by default) |
-| `/safety/command` | `shalom_interfaces/SafetyCommand` | operator E-stop/release/resume/fault clear |
+| `/safety/heartbeat` | `interfaces/SafetyHeartbeat` | external watchdog heartbeat (required by default) |
+| `/safety/command` | `interfaces/SafetyCommand` | operator E-stop/release/resume/fault clear |
 
 | Output | Type |
 |---|---|
-| `/safety/state` | `shalom_interfaces/SafetyState` (motion permit 포함) |
+| `/safety/state` | `interfaces/SafetyState` (motion permit 포함) |
 
 heartbeat 감시는 기본 활성화되며, `alive=false`이거나 750 ms 동안 유효한 heartbeat가
 오지 않으면 `controlled_stop`으로 전환한다. E-stop과 fault는 명시적 절차 없이는

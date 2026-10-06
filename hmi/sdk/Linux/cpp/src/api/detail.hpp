@@ -3,13 +3,13 @@
 
 #pragma once
 
-#include "shalom/types.hpp"
+#include "robot_sdk/types.hpp"
 
 #include <cmath>
 #include <cstdio>
 #include <string>
 
-namespace shalom::api::detail {
+namespace robot_sdk::api::detail {
 
 inline bool finite(double value)
 {
@@ -67,4 +67,4 @@ inline std::string escape(const std::string &value)
     return out;
 }
 
-}  // namespace shalom::api::detail
+}  // namespace robot_sdk::api::detail

@@ -8,6 +8,6 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>rclcpp</depend>
   <depend>gateway_transport</depend>
-  <depend>shalom_interfaces</depend>
+  <depend>interfaces</depend>
   <export><build_type>ament_cmake</build_type></export>
 </package>

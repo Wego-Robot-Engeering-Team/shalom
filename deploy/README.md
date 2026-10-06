@@ -6,6 +6,12 @@
 자동 릴리스 구현 전에 필요한 GitHub runner·서명키·빌드 장비·권한 설정은
 [SETUP.md](SETUP.md)에 정리한다.
 
+런타임 패키지와 서비스 이름은 `robot-runtime`, SDK는 `robot-sdk`이다.
+기존 `/opt/shalom`, `/etc/shalom`, `/var/lib/shalom` 경로와 서비스 계정은 유지한다.
+런타임 업그레이드는 기존 서비스를 정지한 뒤 새 서비스로 전환한다.
+
+이름·SDK 버전·서비스 전환 검증: `python3 -B deploy/test/test_naming.py`.
+
 목표는 다음 세 가지다.
 
 - Wego 구현 코드는 실행 파일·공유 라이브러리·패키지 형태로 제공한다.
@@ -15,10 +21,10 @@
 ## 릴리스 단위
 
 한 버전의 전달 매체는 다음 하나의 최상위 디렉터리로 만든다. 실제 전달 시 이
-디렉터리를 `shalom-release-<version>.tar.zst`로 압축한다.
+디렉터리를 `robot-release-<version>.tar.zst`로 압축한다.
 
 ```text
-shalom-release-0.1.0/
+robot-release-0.1.0/
 ├── RELEASE.md                 # 버전, 대상 장비, 변경 사항, 알려진 제한
 ├── manifest.json              # 파일 hash, Git/submodule commit, 빌드 환경, SBOM 참조
 ├── checksums.txt              # 전달 파일 SHA-256
@@ -62,7 +68,7 @@ shalom-release-0.1.0/
 robot/
 ├── install.sh
 ├── packages/
-│   ├── shalom-runtime_0.1.0_arm64.deb
+│   ├── robot-runtime_0.1.0_arm64.deb
 │   ├── ros-jazzy-*.deb
 │   ├── libboost-*.deb
 │   ├── libyaml-cpp*.deb
@@ -78,7 +84,7 @@ robot/
     └── gateway.yaml
 ```
 
-### `shalom-runtime`에 포함하는 것
+### `robot-runtime`에 포함하는 것
 
 - Wego ROS 2 노드 실행 파일: control, navigation, mission, gateway, HMI bridge
 - B2·XT32·Aurora·FR3에 필요한 **승인된** 런타임 어댑터와 라이브러리
@@ -90,7 +96,7 @@ robot/
 납품 프리셋에서 제외한다.
 
 systemd unit을 runtime 패키지에 포함하는 것과 개발 PC에서 서비스를 등록하는 것은
-별개다. `shalom-robot.service`는 실제 Jetson 제어기 또는 격리된 대상 검증 환경에서만
+별개다. `robot-runtime.service`는 실제 Jetson 제어기 또는 격리된 대상 검증 환경에서만
 설치·enable한다. 개발 PC에서는 같은 ROS graph를 수동 launch하며, 자동 시작 서비스가
 개발 중인 노드와 중복 실행되지 않도록 systemd 등록을 하지 않는다.
 
@@ -170,9 +176,9 @@ SDK는 HMI와 별도 제품이다. 고객 프로그램은 ROS 2 라이브러리�
 
 ```text
 sdk/
-├── include/shalom/            # api.hpp, client.hpp, export.hpp, types.hpp
-├── lib/                       # Linux: libshalom_sdk.so + CMake package
-├── bin/                       # Windows: shalom_sdk.dll
+├── include/robot_sdk/            # api.hpp, client.hpp, export.hpp, types.hpp
+├── lib/                       # Linux: librobot_sdk.so + CMake package
+├── bin/                       # Windows: robot_sdk.dll
 ├── samples/                   # C++ 및 Python 예제
 ├── docs/                      # API, transport, state, command, error, security
 ├── LICENSE
@@ -180,8 +186,8 @@ sdk/
 └── VERSION
 ```
 
-- Windows에는 `lib/shalom_sdk.lib` import library도 함께 제공한다.
-- Linux에는 `.dll`·`.lib`가 아니라 `lib/libshalom_sdk.so`를 제공한다.
+- Windows에는 `lib/robot_sdk.lib` import library도 함께 제공한다.
+- Linux에는 `.dll`·`.lib`가 아니라 `lib/librobot_sdk.so`를 제공한다.
 - Python SDK는 소스 형태로 제공된다. Python 구현 자체를 비공개 자산으로 취급하지
   않는다.
 - 현재 고객 SDK에는 UDP manual teleop을 제공하지 않는다. 수동 주행은 승인된 HMI
@@ -251,16 +257,16 @@ hidden visibility를 기본으로 하고 공개 API만 export한다.
 
 로봇 runtime과 site-config의 첫 기반은 추가되어 있다.
 `scripts/build_robot_runtime.sh`는 Jetson arm64에서 별도 Release install tree를 만들고
-`shalom-runtime_<version>_arm64.deb`를 생성한다.
+`robot-runtime_<version>_arm64.deb`를 생성한다.
 `scripts/build_site_config.sh`는 업데이트가 현장 설정을 덮어쓰지 않는 conffile 기반
-`shalom-site-config_<version>_all.deb`를 생성한다.
+`robot-site-config_<version>_all.deb`를 생성한다.
 
 `scripts/build_robot_release.sh`는 위 두 패키지와 apt runtime 의존 `.deb`를 수집해
 다음 파일을 만든다.
 
 ```text
-dist/shalom-release-<version>-arm64.tar.zst
-└── shalom-release-<version>/
+dist/robot-release-<version>-arm64.tar.zst
+└── robot-release-<version>/
     ├── robot/install.sh
     ├── robot/packages/*.deb
     ├── robot/site-config/robot.env.example
@@ -274,7 +280,7 @@ dist/shalom-release-<version>-arm64.tar.zst
 Debian copyright를 수집한다. 하나라도 선언된 고지가 없으면 번들 생성을 실패시킨다.
 `build_sdk_linux_release.sh`는 Linux x86_64에서 공개 C++ `.so`·헤더·CMake package,
 Python client, C++/Python sample, API 문서, LICENSE를 묶은
-`shalom-sdk-<version>-linux-x86_64.tar.zst`를 만든다. 이 스크립트는 압축 파일 안의
+`robot-sdk-<version>-linux-x86_64.tar.zst`를 만든다. 이 스크립트는 압축 파일 안의
 C++ sample을 다시 빌드해 고객 SDK 단독 사용을 확인한다. Windows HMI/SDK release,
 SBOM 생성은 아직 구현 전이다.
 

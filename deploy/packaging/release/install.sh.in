@@ -34,4 +34,4 @@ dpkg --configure -a
 
 echo "Shalom @VERSION@ 설치가 완료되었습니다."
 echo "설정: /etc/shalom/robot.env"
-echo "서비스: systemctl status shalom-robot"
+echo "서비스: systemctl status robot-runtime"

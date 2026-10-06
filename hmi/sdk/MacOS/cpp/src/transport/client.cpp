@@ -1,7 +1,7 @@
 // Copyright (c) 2026 WeGo Robotics. All rights reserved.
 // SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
-#include "shalom/client.hpp"
+#include "robot_sdk/client.hpp"
 
 #include "transport/framing.hpp"
 #include "transport/socket.hpp"
@@ -10,7 +10,7 @@
 #include <cstdio>
 #include <utility>
 
-namespace shalom {
+namespace robot_sdk {
 namespace {
 
 constexpr auto kHeartbeatPeriod = std::chrono::milliseconds{200};
@@ -177,4 +177,4 @@ bool Client::publish(const std::string &channel, const std::string &payloadJson,
     return impl_->socket.sendAll(inspection::encodeFrame(header), err);
 }
 
-}  // namespace shalom
+}  // namespace robot_sdk

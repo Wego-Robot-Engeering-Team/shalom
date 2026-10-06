@@ -16,16 +16,16 @@
 
 #include <rclcpp/rclcpp.hpp>
 
-#include <shalom_interfaces/msg/safety_heartbeat.hpp>
-#include <shalom_interfaces/srv/safety_command.hpp>
+#include <interfaces/msg/safety_heartbeat.hpp>
+#include <interfaces/srv/safety_command.hpp>
 
 #include "gateway_transport/envelope.hpp"
 #include "gateway_transport/tcp_server.hpp"
 
 namespace {
 
-using SafetyCommand = shalom_interfaces::srv::SafetyCommand;
-using SafetyHeartbeat = shalom_interfaces::msg::SafetyHeartbeat;
+using SafetyCommand = interfaces::srv::SafetyCommand;
+using SafetyHeartbeat = interfaces::msg::SafetyHeartbeat;
 using gateway_transport::Envelope;
 using gateway_transport::LinkEvents;
 using gateway_transport::TcpServer;

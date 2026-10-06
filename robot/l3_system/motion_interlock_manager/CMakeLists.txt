@@ -5,7 +5,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
-find_package(shalom_interfaces REQUIRED)
+find_package(interfaces REQUIRED)
 
 add_library(motion_interlock_logic src/motion_interlock.cpp)
 target_compile_features(motion_interlock_logic PUBLIC cxx_std_17)
@@ -21,12 +21,12 @@ target_include_directories(base_stop_detector PUBLIC
 
 add_executable(motion_interlock_manager_node src/motion_interlock_manager_node.cpp)
 target_link_libraries(motion_interlock_manager_node motion_interlock_logic)
-ament_target_dependencies(motion_interlock_manager_node rclcpp shalom_interfaces)
+ament_target_dependencies(motion_interlock_manager_node rclcpp interfaces)
 
 add_executable(base_motion_monitor_node src/base_motion_monitor_node.cpp)
 target_link_libraries(base_motion_monitor_node base_stop_detector)
 ament_target_dependencies(base_motion_monitor_node
-  rclcpp geometry_msgs nav_msgs shalom_interfaces)
+  rclcpp geometry_msgs nav_msgs interfaces)
 
 if(BUILD_TESTING)
   enable_testing()

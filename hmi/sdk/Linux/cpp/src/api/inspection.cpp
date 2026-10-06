@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
 #include "api/detail.hpp"
-#include "shalom/api.hpp"
+#include "robot_sdk/api.hpp"
 
-namespace shalom {
+namespace robot_sdk {
 
 std::string RobotApi::triggerCapture(const std::string &vehicleNumber, const std::string &carNumber,
                                      const std::string &pointId, std::optional<int> tagId,
@@ -45,4 +45,4 @@ std::string RobotApi::armStop(std::string *err)
     return client_.sendRequest("cmd/arm/stop", "{}", err);
 }
 
-}  // namespace shalom
+}  // namespace robot_sdk

@@ -13,38 +13,38 @@ C++17 을 지원하는 컴파일러면 된다 (GCC 7 이상, Clang 5 이상).
 ## 빌드
 
 ```bash
-cd shalom-robot-sdk/Linux
+cd robot-sdk/Linux
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-예제가 `build/shalom_monitor` 로 나온다.
+예제가 `build/robot_monitor` 로 나온다.
 
 ```bash
-./build/shalom_monitor 192.168.210.88
-./build/shalom_api_example 192.168.210.88   # SDK API 조회 예제
+./build/robot_monitor 192.168.210.88
+./build/robot_api_example 192.168.210.88   # SDK API 조회 예제
 ```
 
 ## 내 프로그램에 붙이기
 
-릴리스에서는 `include/`와 `lib/libshalom_sdk.so`만 고객에게 제공한다. 소스
+릴리스에서는 `include/`와 `lib/librobot_sdk.so`만 고객에게 제공한다. 소스
 `src/`는 배포물에 넣지 않는다.
 
 ```cmake
-find_package(ShalomSdk CONFIG REQUIRED)
-target_link_libraries(my_app PRIVATE shalom::sdk)
+find_package(RobotSdk CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE robot_sdk::sdk)
 ```
 
 SDK가 시스템 경로 밖에 있으면 고객 application을 구성할 때 설치 prefix를 준다.
 
 ```bash
-cmake -S . -B build -DCMAKE_PREFIX_PATH=/opt/shalom-sdk
+cmake -S . -B build -DCMAKE_PREFIX_PATH=/opt/robot-sdk
 ```
 
 개발·릴리스 패키지 설치는 다음과 같다.
 
 ```bash
-cmake --install build --prefix "$PWD/shalom-sdk-linux"
+cmake --install build --prefix "$PWD/robot-sdk-linux"
 ```
 
 ## 알아 둘 것

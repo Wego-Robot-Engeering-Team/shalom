@@ -5,9 +5,9 @@ usage() {
   cat <<'EOF'
 Usage: deploy/scripts/build_robot_release.sh --version <version> [--allow-dirty]
 
-Builds shalom-runtime and shalom-site-config, downloads their arm64 apt runtime
+Builds robot-runtime and robot-site-config, downloads their arm64 apt runtime
 dependencies, collects notices, generates manifest/checksums, and creates
-dist/shalom-release-<version>-arm64.tar.zst. Run on the dedicated Jetson
+dist/robot-release-<version>-arm64.tar.zst. Run on the dedicated Jetson
 Ubuntu 24.04 / ROS 2 Jazzy release runner.
 EOF
 }
@@ -34,7 +34,7 @@ fi
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 dist_root="$repo_root/dist"
 robot_dist="$dist_root/robot"
-release_name="shalom-release-$version"
+release_name="robot-release-$version"
 release_root="$dist_root/$release_name"
 archive="$dist_root/$release_name-arm64.tar.zst"
 apt_cache="$(mktemp -d "${TMPDIR:-/tmp}/shalom-apt.$version.XXXXXX")"
@@ -47,8 +47,8 @@ fi
 "$repo_root/deploy/scripts/build_robot_runtime.sh" "${runtime_args[@]}"
 "$repo_root/deploy/scripts/build_site_config.sh" --version "$version"
 
-runtime_deb="$robot_dist/shalom-runtime_${version}_arm64.deb"
-site_config_deb="$robot_dist/shalom-site-config_${version}_all.deb"
+runtime_deb="$robot_dist/robot-runtime_${version}_arm64.deb"
+site_config_deb="$robot_dist/robot-site-config_${version}_all.deb"
 for file in "$runtime_deb" "$site_config_deb"; do
   [[ -f "$file" ]] || { echo "패키지가 생성되지 않았습니다: $file" >&2; exit 1; }
 done
@@ -82,7 +82,7 @@ if [[ ${#apt_debs[@]} -eq 0 ]]; then
   exit 1
 fi
 install -m 0644 "${apt_debs[@]}" "$release_root/robot/packages/"
-install -m 0644 "$repo_root/deploy/packaging/site-config/etc/shalom/robot.env" \
+install -m 0644 "$repo_root/deploy/packaging/site-config/etc/robot-runtime/robot.env" \
   "$release_root/robot/site-config/robot.env.example"
 
 "$repo_root/deploy/scripts/collect_licenses.sh" \

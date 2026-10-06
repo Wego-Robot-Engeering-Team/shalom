@@ -3,6 +3,15 @@ set -eu
 
 VERSION='@VERSION@'
 RELEASES=/opt/shalom/releases
+legacy_was_active=0
+
+# Stop the previous unit before installing the renamed service. Both units
+# control the same robot and must never run together. Preserve site data.
+if systemctl is-active --quiet shalom-robot.service; then
+    legacy_was_active=1
+    systemctl stop shalom-robot.service
+fi
+systemctl disable shalom-robot.service >/dev/null 2>&1 || true
 
 if ! getent passwd shalom >/dev/null; then
     adduser --system --group --no-create-home --home /nonexistent shalom
@@ -13,10 +22,14 @@ fi
 ln -sfn "$VERSION" "$RELEASES/current"
 
 systemctl daemon-reload
-systemctl enable shalom-robot.service >/dev/null || true
+systemctl enable robot-runtime.service >/dev/null || true
 # On an upgrade, switch a running service to the new versioned release tree.
 # On first install this is a no-op; commissioning must supply site config
 # before an operator explicitly starts the service.
-systemctl try-restart shalom-robot.service >/dev/null || true
+if [ "$legacy_was_active" -eq 1 ]; then
+    systemctl start robot-runtime.service
+else
+    systemctl try-restart robot-runtime.service >/dev/null || true
+fi
 
 exit 0

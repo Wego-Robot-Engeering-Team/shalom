@@ -7,11 +7,12 @@ import json
 from pathlib import Path
 
 from launch import LaunchDescription
-from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
-                            OpaqueFunction, SetEnvironmentVariable, SetLaunchConfiguration)
+from launch.actions import (DeclareLaunchArgument, GroupAction, IncludeLaunchDescription,
+                            OpaqueFunction, ResetLaunchConfigurations,
+                            SetEnvironmentVariable, SetLaunchConfiguration)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, OrSubstitution, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from ament_index_python.packages import get_package_share_directory
@@ -65,7 +66,20 @@ def generate_launch_description():
             "viewer": LaunchConfiguration("viewer"),
             "scene_file": LaunchConfiguration("scene_file"),
             "ground_truth_tf": "false",
+            "front_camera": OrSubstitution(
+                LaunchConfiguration("front_camera"), LaunchConfiguration("apriltag")),
         }.items(),
+    )
+    # Do not share generic child arguments such as params_file with Nav2 or
+    # ground segmentation. The detector gets its own defaults and sim clock.
+    apriltag = GroupAction(
+        actions=[ResetLaunchConfigurations(), IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                PathJoinSubstitution([sim, "launch", "apriltag.launch.py"])),
+            launch_arguments={"use_sim_time": "true"}.items(),
+        )],
+        scoped=True,
+        condition=IfCondition(LaunchConfiguration("apriltag")),
     )
     navigation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([robot, "launch", "navigation.launch.py"])),
@@ -148,11 +162,19 @@ def generate_launch_description():
         DeclareLaunchArgument("slam", default_value="true"),
         DeclareLaunchArgument("nav2", default_value="true"),
         DeclareLaunchArgument("viewer", default_value="true"),
+        DeclareLaunchArgument(
+            "front_camera", default_value="false",
+            description="Publish the simulated front RGB camera and CameraInfo.",
+        ),
+        DeclareLaunchArgument(
+            "apriltag", default_value="false",
+            description="Detect the front-camera test tag and enable the camera.",
+        ),
         DeclareLaunchArgument("rviz", default_value="true"),
         DeclareLaunchArgument("rviz_profile", default_value="slam_nav2",
                               choices=["slam", "nav2", "slam_nav2"]),
         DeclareLaunchArgument(
             "bridge_config",
             default_value=PathJoinSubstitution([sim, "config", "bridge_sim.yaml"])),
-        platform, navigation, control, posture_adapter, station_bridge, rviz,
+        platform, apriltag, navigation, control, posture_adapter, station_bridge, rviz,
     ])

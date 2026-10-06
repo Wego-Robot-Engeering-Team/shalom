@@ -9,11 +9,11 @@ from __future__ import annotations
 import argparse
 import json
 
-from shalom_sdk import Client, ClientError
+from robot_sdk import Client, ClientError
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Shalom robot read-only monitor")
+    parser = argparse.ArgumentParser(description="robot read-only monitor")
     parser.add_argument("host")
     parser.add_argument("--port", type=int, default=9090)
     args = parser.parse_args()

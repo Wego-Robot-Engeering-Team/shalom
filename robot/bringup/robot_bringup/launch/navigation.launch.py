@@ -12,9 +12,11 @@ from launch.actions import (
     GroupAction,
     IncludeLaunchDescription,
     OpaqueFunction,
+    RegisterEventHandler,
     SetLaunchConfiguration,
 )
 from launch.conditions import IfCondition
+from launch.event_handlers import OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node, SetRemap
@@ -23,6 +25,34 @@ from launch_ros.substitutions import FindPackageShare
 
 
 BASE_FRAME = "base_link"
+
+
+def _prepare_docking(context, *_args, **_kwargs):
+    """Derive the dock database without adding control settings to map files."""
+    import tempfile
+
+    from ament_index_python.packages import get_package_share_directory
+    from docking.config import generate_nav2_config
+
+    runtime = tempfile.TemporaryDirectory(prefix="docking_")
+    try:
+        source = Path(get_package_share_directory("robot_bringup")) / "navigation/config/nav2.yaml"
+        params = generate_nav2_config(
+            source, LaunchConfiguration("map").perform(context), runtime.name,
+        )
+    except Exception:
+        runtime.cleanup()
+        raise
+
+    def cleanup(_event, _context):
+        runtime.cleanup()
+        return []
+
+    get_logger("robot_bringup.navigation").info(f"생성된 도킹 DB 설정: {params}")
+    return [
+        SetLaunchConfiguration("nav2_params", str(params)),
+        RegisterEventHandler(OnShutdown(on_shutdown=cleanup)),
+    ]
 
 
 def _resolve_map(context, *_args, **_kwargs):
@@ -108,7 +138,7 @@ def generate_launch_description():
                     "autostart": "True",
                     "use_composition": "False",
                     "use_respawn": "False",
-                    "params_file": PathJoinSubstitution([config, "nav2.yaml"]),
+                    "params_file": LaunchConfiguration("nav2_params"),
                 }.items(),
                 condition=IfCondition(LaunchConfiguration("nav2")),
             ),
@@ -147,5 +177,6 @@ def generate_launch_description():
         DeclareLaunchArgument("slam", default_value="true"),
         DeclareLaunchArgument("nav2", default_value="true"),
         OpaqueFunction(function=_resolve_map),
+        OpaqueFunction(function=_prepare_docking, condition=IfCondition(LaunchConfiguration("nav2"))),
         perception, odometry, map_server, amcl, localisation_manager, nav2,
     ])

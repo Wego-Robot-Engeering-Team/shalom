@@ -37,37 +37,37 @@ if [[ $allow_dirty -eq 0 ]] && [[ -n "$(git -C "$repo_root" status --porcelain -
 fi
 
 dist_root="$repo_root/dist"
-release_name="shalom-sdk-$version-linux-x86_64"
+release_name="robot-sdk-$version-linux-x86_64"
 stage_root="$dist_root/$release_name"
 archive="$dist_root/$release_name.tar.zst"
-build_root="$(mktemp -d "${TMPDIR:-/tmp}/shalom-sdk-build.XXXXXX")"
+build_root="$(mktemp -d "${TMPDIR:-/tmp}/robot-sdk-build.XXXXXX")"
 trap 'rm -rf "$build_root"' EXIT
 
 rm -rf "$stage_root" "$archive"
-mkdir -p "$stage_root/shalom-sdk/samples/cpp" "$stage_root/shalom-sdk/samples/python"
+mkdir -p "$stage_root/robot-sdk/samples/cpp" "$stage_root/robot-sdk/samples/python"
 
 cmake -S "$sdk_root/Linux/cpp" -B "$build_root" -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX="$stage_root/shalom-sdk"
+  -DCMAKE_INSTALL_PREFIX="$stage_root/robot-sdk"
 cmake --build "$build_root" --parallel
 cmake --install "$build_root"
 
 install -m 0644 "$sdk_root/Linux/cpp/examples/monitor.cpp" \
-  "$sdk_root/Linux/cpp/examples/api_example.cpp" "$stage_root/shalom-sdk/samples/cpp/"
+  "$sdk_root/Linux/cpp/examples/api_example.cpp" "$stage_root/robot-sdk/samples/cpp/"
 install -m 0644 "$repo_root/deploy/packaging/sdk/CMakeLists.txt.in" \
-  "$stage_root/shalom-sdk/samples/cpp/CMakeLists.txt"
-cp -a "$sdk_root/Linux/python/." "$stage_root/shalom-sdk/python/"
-find "$stage_root/shalom-sdk/python" -type f -path '*/__pycache__/*' -delete
-find "$stage_root/shalom-sdk/python" -type d -name __pycache__ -empty -delete
+  "$stage_root/robot-sdk/samples/cpp/CMakeLists.txt"
+cp -a "$sdk_root/Linux/python/." "$stage_root/robot-sdk/python/"
+find "$stage_root/robot-sdk/python" -type f -path '*/__pycache__/*' -delete
+find "$stage_root/robot-sdk/python" -type d -name __pycache__ -empty -delete
 install -m 0644 "$sdk_root/Linux/python/examples/monitor.py" \
-  "$stage_root/shalom-sdk/samples/python/monitor.py"
-cp -a "$sdk_root/docs" "$stage_root/shalom-sdk/docs"
-install -m 0644 "$sdk_root/LICENSE" "$sdk_root/NOTICE" "$sdk_root/VERSION" "$stage_root/shalom-sdk/"
+  "$stage_root/robot-sdk/samples/python/monitor.py"
+cp -a "$sdk_root/docs" "$stage_root/robot-sdk/docs"
+install -m 0644 "$sdk_root/LICENSE" "$sdk_root/NOTICE" "$sdk_root/VERSION" "$stage_root/robot-sdk/"
 sed "s/@VERSION@/$version/g" "$repo_root/deploy/packaging/sdk/README.md.in" \
-  > "$stage_root/shalom-sdk/README.md"
+  > "$stage_root/robot-sdk/README.md"
 
 sample_build="$build_root/sample-check"
-cmake -S "$stage_root/shalom-sdk/samples/cpp" -B "$sample_build" \
-  -DCMAKE_PREFIX_PATH="$stage_root/shalom-sdk"
+cmake -S "$stage_root/robot-sdk/samples/cpp" -B "$sample_build" \
+  -DCMAKE_PREFIX_PATH="$stage_root/robot-sdk"
 cmake --build "$sample_build" --parallel
 
 (cd "$stage_root" && find . -type f ! -name checksums.txt -print0 | sort -z | xargs -0 sha256sum > checksums.txt)

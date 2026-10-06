@@ -19,15 +19,15 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
-#include "shalom_interfaces/msg/mission_plan.hpp"
-#include "shalom_interfaces/msg/mission_state.hpp"
-#include "shalom_interfaces/msg/motion_authority.hpp"
-#include "shalom_interfaces/msg/motion_stopped.hpp"
-#include "shalom_interfaces/msg/safety_state.hpp"
-#include "shalom_interfaces/srv/authority_request.hpp"
-#include "shalom_interfaces/srv/configure_mission.hpp"
-#include "shalom_interfaces/srv/mission_control.hpp"
-#include "shalom_interfaces/srv/safety_command.hpp"
+#include "interfaces/msg/mission_plan.hpp"
+#include "interfaces/msg/mission_state.hpp"
+#include "interfaces/msg/motion_authority.hpp"
+#include "interfaces/msg/motion_stopped.hpp"
+#include "interfaces/msg/safety_state.hpp"
+#include "interfaces/srv/authority_request.hpp"
+#include "interfaces/srv/configure_mission.hpp"
+#include "interfaces/srv/mission_control.hpp"
+#include "interfaces/srv/safety_command.hpp"
 
 #include "mission_manager/bt/nav2_bt.hpp"
 #include "mission_manager/mission_state_machine.hpp"
@@ -37,16 +37,16 @@ namespace
 {
 
   using namespace std::chrono_literals;
-  using ConfigureMission = shalom_interfaces::srv::ConfigureMission;
-  using MissionControl = shalom_interfaces::srv::MissionControl;
-  using MissionPlan = shalom_interfaces::msg::MissionPlan;
-  using MissionState = shalom_interfaces::msg::MissionState;
-  using MissionWaypoint = shalom_interfaces::msg::MissionWaypoint;
-  using MotionAuthority = shalom_interfaces::msg::MotionAuthority;
-  using MotionStopped = shalom_interfaces::msg::MotionStopped;
-  using SafetyState = shalom_interfaces::msg::SafetyState;
-  using AuthorityRequest = shalom_interfaces::srv::AuthorityRequest;
-  using SafetyCommand = shalom_interfaces::srv::SafetyCommand;
+  using ConfigureMission = interfaces::srv::ConfigureMission;
+  using MissionControl = interfaces::srv::MissionControl;
+  using MissionPlan = interfaces::msg::MissionPlan;
+  using MissionState = interfaces::msg::MissionState;
+  using MissionWaypoint = interfaces::msg::MissionWaypoint;
+  using MotionAuthority = interfaces::msg::MotionAuthority;
+  using MotionStopped = interfaces::msg::MotionStopped;
+  using SafetyState = interfaces::msg::SafetyState;
+  using AuthorityRequest = interfaces::srv::AuthorityRequest;
+  using SafetyCommand = interfaces::srv::SafetyCommand;
   using NavigateToPose = nav2_msgs::action::NavigateToPose;
   using NavGoalHandle = rclcpp_action::ClientGoalHandle<NavigateToPose>;
 

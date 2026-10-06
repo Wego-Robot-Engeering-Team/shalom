@@ -39,7 +39,7 @@
 #  include <cstring>
 #endif
 
-namespace shalom {
+namespace robot_sdk {
 
 #if defined(_WIN32)
 using NativeSocket = SOCKET;
@@ -276,4 +276,4 @@ private:
     NativeSocket fd_ = kInvalidSocket;
 };
 
-}  // namespace shalom
+}  // namespace robot_sdk

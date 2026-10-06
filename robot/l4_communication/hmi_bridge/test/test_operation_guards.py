@@ -15,7 +15,7 @@ from sensor_msgs.msg import Image
 from geometry_msgs.msg import TransformStamped
 from geometry_msgs.msg import Twist
 from tf2_ros import TransformBroadcaster
-from shalom_interfaces.srv import ConfigureMission, MissionControl
+from interfaces.srv import ConfigureMission, MissionControl
 
 
 class OperationGuardsTest(storage.OperationStorageTest):

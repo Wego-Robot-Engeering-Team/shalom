@@ -1,4 +1,6 @@
-Package: shalom-runtime
+Package: robot-runtime
+Conflicts: shalom-runtime
+Replaces: shalom-runtime
 Version: @VERSION@
 Section: robotics
 Priority: optional

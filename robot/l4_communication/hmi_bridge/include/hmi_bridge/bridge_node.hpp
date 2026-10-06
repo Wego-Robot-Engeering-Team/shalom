@@ -43,15 +43,15 @@
 #include <unordered_map>
 
 #include <std_srvs/srv/trigger.hpp>
-#include <shalom_interfaces/msg/mission_plan.hpp>
-#include <shalom_interfaces/msg/mission_state.hpp>
-#include <shalom_interfaces/msg/motion_authority.hpp>
-#include <shalom_interfaces/msg/safety_state.hpp>
-#include <shalom_interfaces/msg/safety_event.hpp>
-#include <shalom_interfaces/srv/authority_request.hpp>
-#include <shalom_interfaces/srv/configure_mission.hpp>
-#include <shalom_interfaces/srv/mission_control.hpp>
-#include <shalom_interfaces/srv/safety_command.hpp>
+#include <interfaces/msg/mission_plan.hpp>
+#include <interfaces/msg/mission_state.hpp>
+#include <interfaces/msg/motion_authority.hpp>
+#include <interfaces/msg/safety_state.hpp>
+#include <interfaces/msg/safety_event.hpp>
+#include <interfaces/srv/authority_request.hpp>
+#include <interfaces/srv/configure_mission.hpp>
+#include <interfaces/srv/mission_control.hpp>
+#include <interfaces/srv/safety_command.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
@@ -265,13 +265,13 @@ private:
 
     // ---- mission adapter ------------------------------------------------
     /// Converts the robot-owned map bundle into an immutable typed plan.
-    std::optional<shalom_interfaces::msg::MissionPlan> makeMissionPlan(
+    std::optional<interfaces::msg::MissionPlan> makeMissionPlan(
         const json *mission = nullptr, std::string *error = nullptr);
     void configureAndStartMission(const Envelope &request);
     void finishMissionStart(bool ok, const std::string &code = {}, const std::string &detail = {});
     void sendMissionControl(const Envelope &request, uint8_t operation);
     void pauseMissionForManualTakeover();
-    void onMissionState(const shalom_interfaces::msg::MissionState::SharedPtr message);
+    void onMissionState(const interfaces::msg::MissionState::SharedPtr message);
     /// 등록된 위치에서 충전 스테이션을 찾는다. 없으면 -1.
     int findDock() const;
     void publishMission();
@@ -401,7 +401,7 @@ private:
     bool wasConnected_ = false;
     uint64_t linkGeneration_ = 0;
 
-    shalom_interfaces::msg::MissionState missionState_;
+    interfaces::msg::MissionState missionState_;
     bool haveMissionState_ = false;
     uint64_t missionPlanRevision_ = 0;
     uint64_t rosRequestSequence_ = 0;
@@ -518,19 +518,19 @@ private:
     rclcpp::Client<nav2_msgs::srv::LoadMap>::SharedPtr mapLoadClient_;
     rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr localizationManagerClient_;
     rclcpp::Client<lifecycle_msgs::srv::ChangeState>::SharedPtr slamLifecycleClient_;
-    rclcpp::Client<shalom_interfaces::srv::ConfigureMission>::SharedPtr missionConfigureClient_;
-    rclcpp::Client<shalom_interfaces::srv::MissionControl>::SharedPtr missionControlClient_;
-    rclcpp::Client<shalom_interfaces::srv::SafetyCommand>::SharedPtr safetyCommandClient_;
-    rclcpp::Publisher<shalom_interfaces::msg::SafetyEvent>::SharedPtr safetyEventPub_;
-    rclcpp::Client<shalom_interfaces::srv::AuthorityRequest>::SharedPtr authorityRequestClient_;
+    rclcpp::Client<interfaces::srv::ConfigureMission>::SharedPtr missionConfigureClient_;
+    rclcpp::Client<interfaces::srv::MissionControl>::SharedPtr missionControlClient_;
+    rclcpp::Client<interfaces::srv::SafetyCommand>::SharedPtr safetyCommandClient_;
+    rclcpp::Publisher<interfaces::msg::SafetyEvent>::SharedPtr safetyEventPub_;
+    rclcpp::Client<interfaces::srv::AuthorityRequest>::SharedPtr authorityRequestClient_;
 
     rclcpp::Subscription<sensor_msgs::msg::BatteryState>::SharedPtr batterySub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr jointSub_;
     rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr planSub_;
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr mapSub_;
-    rclcpp::Subscription<shalom_interfaces::msg::SafetyState>::SharedPtr safetyStateSub_;
-    rclcpp::Subscription<shalom_interfaces::msg::MotionAuthority>::SharedPtr authoritySub_;
-    rclcpp::Subscription<shalom_interfaces::msg::MissionState>::SharedPtr missionStateSub_;
+    rclcpp::Subscription<interfaces::msg::SafetyState>::SharedPtr safetyStateSub_;
+    rclcpp::Subscription<interfaces::msg::MotionAuthority>::SharedPtr authoritySub_;
+    rclcpp::Subscription<interfaces::msg::MissionState>::SharedPtr missionStateSub_;
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr amclPoseSub_;
 
     std::unique_ptr<tf2_ros::Buffer> tfBuffer_;

@@ -1,9 +1,12 @@
-# Shalom Robot SDK
+# Robot SDK
 
-Shalom 로봇 브릿지(protocol `v:1`)를 외부 application에서 연동하는 고객 SDK다.
+로봇 브릿지(protocol `v:1`)를 외부 application에서 연동하는 고객 SDK다.
 HMI와 같은 TCP `9090` API를 사용하며, 별도의 숨은 제어 경로는 없다.
 
-현재 SDK 버전은 [`VERSION`](VERSION)의 `0.2.0`이다.
+현재 SDK 버전은 [`VERSION`](VERSION)의 `0.3.0`이다.
+
+C++는 `RobotSdk`·`robot_sdk::sdk`·`robot_sdk` namespace를 사용하고,
+Python은 `robot_sdk`를 import한다. 기존 SDK 연동 코드는 새 이름으로 갱신한다.
 
 ## 시작
 
@@ -14,7 +17,7 @@ HMI와 같은 TCP `9090` API를 사용하며, 별도의 숨은 제어 경로는 
 cd <SDK_ROOT>/Linux
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
-./build/shalom_monitor <robot-host>
+./build/robot_monitor <robot-host>
 
 # Linux Python
 cd <SDK_ROOT>/Linux/python
@@ -44,7 +47,7 @@ types / errors           공개 값과 오류
 RobotApi                 명령별 facade (safety/navigation/mission/configuration/inspection)
 ```
 
-일반 C++ 연동은 `<shalom/api.hpp>`를 포함한다. Python은 `Client`를 만들고
+일반 C++ 연동은 `<robot_sdk/api.hpp>`를 포함한다. Python은 `Client`를 만들고
 `RobotApi(client)`로 명령을 보낸다. 두 언어 모두 facade 내부를 safety,
 navigation, mission, configuration, inspection 도메인으로 나눈다. TCP, framing,
 heartbeat와 명령 구현은 C++ shared library 안에 있으며 공개 헤더에는 포함되지

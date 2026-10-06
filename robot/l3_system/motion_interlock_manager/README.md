@@ -6,10 +6,10 @@ feedback을 받은 뒤에만 완료된다. 안전 상태를 소유하지 않으�
 
 | Input | Value |
 |---|---|
-| `/motion/authority/request` | `shalom_interfaces/AuthorityRequest` service |
-| `/motion/stopped` | `shalom_interfaces/MotionStopped` topic |
+| `/motion/authority/request` | `interfaces/AuthorityRequest` service |
+| `/motion/stopped` | `interfaces/MotionStopped` topic |
 
-`/motion/authority`는 typed `shalom_interfaces/MotionAuthority`를 상태 전이 즉시 발행하고,
+`/motion/authority`는 typed `interfaces/MotionAuthority`를 상태 전이 즉시 발행하고,
 기본 200 ms 주기로도 반복 발행한다. 반복 snapshot은 `sequence`를 증가시키지 않고
 새 `stamp`만 사용한다. 소비자는 수신 시각을 기준으로 authority 신선도를 검사한다.
 

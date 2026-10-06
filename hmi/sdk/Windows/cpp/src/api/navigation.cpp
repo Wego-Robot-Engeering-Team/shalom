@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
 #include "api/detail.hpp"
-#include "shalom/api.hpp"
+#include "robot_sdk/api.hpp"
 
-namespace shalom {
+namespace robot_sdk {
 
 std::string RobotApi::navigateTo(const Pose2D &goal, std::string *err)
 {
@@ -28,4 +28,4 @@ bool RobotApi::publishVelocity(const Twist2D &velocity, std::string *err)
     return false;
 }
 
-}  // namespace shalom
+}  // namespace robot_sdk

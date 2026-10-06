@@ -6,7 +6,7 @@
 ~/shalom_ws/src/
 └── shalom/
     ├── robot/
-    │   ├── common/shalom_interfaces/          공통 ROS 2 인터페이스
+    │   ├── common/interfaces/          공통 ROS 2 인터페이스
     │   ├── l4_communication/                  HMI·SDK 통신 어댑터
     │   ├── l3_system/                         Mission·Safety·Motion Authority FSM
     │   ├── l2_control/

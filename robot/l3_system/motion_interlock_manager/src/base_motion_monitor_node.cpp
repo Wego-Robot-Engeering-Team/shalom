@@ -10,14 +10,14 @@
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "shalom_interfaces/msg/motion_stopped.hpp"
+#include "interfaces/msg/motion_stopped.hpp"
 
 #include "motion_interlock_manager/base_stop_detector.hpp"
 
 namespace {
 
 using namespace std::chrono_literals;
-using MotionStopped = shalom_interfaces::msg::MotionStopped;
+using MotionStopped = interfaces::msg::MotionStopped;
 using BaseStopDetector = motion_interlock_manager::BaseStopDetector;
 
 class BaseMotionMonitorNode final : public rclcpp::Node {

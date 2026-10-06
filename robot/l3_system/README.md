@@ -58,7 +58,7 @@ pause한다. teleop deadman 또는 lease가 끝나면 teleop source는 만료된
 `safety_manager`·`motion_interlock_manager`·`safety_gate`·`teleop_bridge`도
 `control.launch.py`에서 함께 기동한다. Mission과 Safety 런타임은 각 패키지의
 단일 목표 FSM을 사용한다. Mission Manager는 독립 프로세스로 실행되며 Mission,
-Safety, Motion Authority 경계는 `shalom_interfaces`의 typed topic/service를 사용한다.
+Safety, Motion Authority 경계는 `interfaces`의 typed topic/service를 사용한다.
 `base_motion_monitor`는 최종 명령과 B2 odometry를 결합해 `/motion/stopped`를
 발행하며, Mission pause 완료와 base/arm authority 전환은 이 피드백을 사용한다.
 시뮬레이션 bringup은 `/b2/odom_gt`와 simulation time을, 실물 bringup은

@@ -24,12 +24,13 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[4]
 INSTALL_ROOT = None
 PACKAGES = {
-    "shalom_interfaces": "robot/common/shalom_interfaces",
+    "interfaces": "robot/common/interfaces",
     "pandar_xt32": "robot/l1_drivers/sensors/pandar_xt32",
     "slamtec_aurora": "robot/l1_drivers/sensors/slamtec_aurora",
     "vectornav_vn100": "robot/l1_drivers/sensors/vectornav_vn100",
     "velodyne_vlp16": "robot/l1_drivers/sensors/velodyne_vlp16",
     "joint_mux": "robot/l2_control/joint_mux",
+    "docking": "robot/l2_control/docking",
     "safety_gate": "robot/l2_control/safety_gate",
     "lidar_slam": "robot/l2_control/navigation/lidar_slam",
     "mission_manager": "robot/l3_system/mission_manager",
@@ -105,6 +106,9 @@ class LayoutTest(unittest.TestCase):
         pattern = re.compile(r"\$\{CMAKE_CURRENT_SOURCE_DIR\}/([A-Za-z0-9_./-]+)")
         for relative in PACKAGES.values():
             directory = ROOT / relative
+            if ET.parse(directory / "package.xml").findtext("export/build_type") == "ament_python":
+                self.assertTrue((directory / "setup.py").is_file(), str(directory))
+                continue
             cmake = directory / "CMakeLists.txt"
             self.assertTrue(cmake.is_file(), str(cmake))
             for match in pattern.finditer(cmake.read_text(encoding="utf-8")):
@@ -126,8 +130,31 @@ class LayoutTest(unittest.TestCase):
         for platform in ("Linux", "MacOS", "Windows"):
             sdk = ROOT / "hmi/sdk" / platform
             self.assertTrue((sdk / "python/pyproject.toml").is_file())
-            self.assertTrue((sdk / "python/shalom_sdk/client.py").is_file())
+            self.assertTrue((sdk / "python/robot_sdk/client.py").is_file())
             self.assertTrue((sdk / "python/examples/monitor.py").is_file())
+            self.assertTrue((sdk / "cpp/include/robot_sdk/api.hpp").is_file())
+            self.assertTrue((sdk / "cpp/cmake/RobotSdkConfig.cmake.in").is_file())
+            cmake = (sdk / "cpp/CMakeLists.txt").read_text(encoding="utf-8")
+            self.assertIn("add_library(robot_sdk::sdk ALIAS robot_sdk)", cmake)
+            self.assertIn("RobotSdkConfig.cmake.in", cmake)
+
+    def test_owned_source_names_use_roles(self):
+        roots = [ROOT / "robot" / layer for layer in LAYERS]
+        roots += [ROOT / "hmi/sdk", ROOT / "deploy/packaging"]
+        for root in roots:
+            for path in root.rglob("*"):
+                relative = path.relative_to(ROOT)
+                if any(part in ("build", "__pycache__") or part.endswith(".egg-info")
+                       for part in relative.parts):
+                    continue
+                self.assertNotIn("shalom", relative.as_posix().lower(), str(relative))
+
+    def test_package_dependencies_have_no_duplicates(self):
+        for relative in PACKAGES.values():
+            package = ET.parse(ROOT / relative / "package.xml")
+            dependencies = [(element.tag, element.text) for element in package.getroot()
+                            if element.tag.endswith("depend")]
+            self.assertEqual(len(dependencies), len(set(dependencies)), relative)
 
     def test_simulation_writable_paths_remain_simulation_owned(self):
         share = self.source_share("simulation_bringup")

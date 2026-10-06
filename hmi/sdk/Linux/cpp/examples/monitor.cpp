@@ -1,7 +1,7 @@
 // Copyright (c) 2026 WeGo Robotics. All rights reserved.
 // SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
-// Read-only monitor for the Shalom inspection robot.
+// Read-only monitor for the Robot inspection robot.
 //
 // Connects, keeps the heartbeat going, and prints one line per frame. Builds
 // unchanged on Linux, macOS and Windows.
@@ -12,7 +12,7 @@
 //
 //     monitor <host> [port]
 
-#include "shalom/client.hpp"
+#include "robot_sdk/client.hpp"
 
 #include <cstdint>
 #include <cstdio>
@@ -45,7 +45,7 @@ int main(int argc, char **argv)
     const std::string host = argv[1];
     const auto port = static_cast<std::uint16_t>(argc > 2 ? std::atoi(argv[2]) : 9090);
 
-    shalom::Client client;
+    robot_sdk::Client client;
     std::string err;
     if (!client.connect(host, port, &err)) {
         std::fprintf(stderr, "연결 실패: %s\n", err.c_str());
@@ -55,7 +55,7 @@ int main(int argc, char **argv)
 
     long long frames = 0;
     const auto stop = client.run(
-        [&](const shalom::Message &msg) {
+        [&](const robot_sdk::Message &msg) {
             const std::string type = field(msg.envelope, "t");
             if (type == "hb")
                 return true;   // 5 Hz in both directions; printing it is noise
@@ -79,16 +79,16 @@ int main(int argc, char **argv)
         &err);
 
     switch (stop) {
-    case shalom::Stop::Requested:
+    case robot_sdk::Stop::Requested:
         std::printf("종료: 요청됨\n");
         return 0;
-    case shalom::Stop::PeerClosed:
+    case robot_sdk::Stop::PeerClosed:
         std::printf("종료: 로봇이 연결을 닫았습니다\n");
         return 0;
-    case shalom::Stop::ProtocolError:
+    case robot_sdk::Stop::ProtocolError:
         std::fprintf(stderr, "종료: %s\n", err.c_str());
         return 1;
-    case shalom::Stop::SocketError:
+    case robot_sdk::Stop::SocketError:
         std::fprintf(stderr, "종료: %s\n", err.c_str());
         return 1;
     }

@@ -30,31 +30,31 @@ SDK `0.2.0`은 HMI와 동일한 TCP `9090`/protocol `v:1` 브릿지에 연결한
 고객 C++ application의 공개 include 경계는 각 OS의 `cpp/include/`다.
 
 ```cpp
-#include <shalom/api.hpp>  // 권장: Client와 RobotApi를 함께 제공
+#include <robot_sdk/api.hpp>  // 권장: Client와 RobotApi를 함께 제공
 ```
 
-빌드된 `shalom_api_example`은 `cmd/maps/list`만 보내는 안전한 요청·응답 예제다.
-이 예제는 `cpp/examples/api_example.cpp`에 있으며, 제공된 `shalom::sdk` shared
+빌드된 `robot_api_example`은 `cmd/maps/list`만 보내는 안전한 요청·응답 예제다.
+이 예제는 `cpp/examples/api_example.cpp`에 있으며, 제공된 `robot_sdk::sdk` shared
 library를 고객 프로젝트에 링크하는 방식과 동일하게 빌드된다.
 
-`shalom::Client`는 연결·5 Hz heartbeat·프레임 수신을 맡고,
-`shalom::RobotApi`는 명령별 편의 함수를 제공한다. C++ API의 명령은 **비동기**다.
+`robot_sdk::Client`는 연결·5 Hz heartbeat·프레임 수신을 맡고,
+`robot_sdk::RobotApi`는 명령별 편의 함수를 제공한다. C++ API의 명령은 **비동기**다.
 반환값은 request id이며, 일치하는 `res`와 실제 동작 상태는 `Client::run()`의
 콜백에서 확인한다.
 
 ```cpp
-#include <shalom/api.hpp>
+#include <robot_sdk/api.hpp>
 
-shalom::Client client;
+robot_sdk::Client client;
 std::string error;
 if (!client.connect("192.168.210.88", 9090, &error)) {
     // 연결 오류 처리
 }
 
-shalom::RobotApi robot(client);
+robot_sdk::RobotApi robot(client);
 const std::string id = robot.listMaps(&error);  // cmd/maps/list
 
-client.run([&](const shalom::Message &message) {
+client.run([&](const robot_sdk::Message &message) {
     // state/*, evt/*, id가 같은 res를 고객 JSON library로 처리한다.
     return true;
 }, &error);
@@ -74,7 +74,7 @@ heartbeat를 유지하고, 일치하지 않는 상태·이벤트는 `on_message`
 전달할 수 있다.
 
 ```python
-from shalom_sdk import Client, RobotApi
+from robot_sdk import Client, RobotApi
 
 client = Client()
 client.connect("192.168.210.88")
@@ -100,7 +100,7 @@ Python `RobotApi`는 `emergency_stop`, `release_emergency_stop`, `set_mode`,
 ## 최소 연동
 
 각 OS 폴더의 `monitor` 예제를 빌드해 연결·하트비트·프레임 수신을 먼저 확인한다.
-그 다음 고객 프로그램에서 `shalom::sdk` 인터페이스 타깃을 링크하거나 C++
+그 다음 고객 프로그램에서 `robot_sdk::sdk` 인터페이스 타깃을 링크하거나 C++
 `include/` 헤더를 직접 포함한다. C++ JSON 파서는 SDK가 강제하지 않으므로 고객
 프로그램의 기존 라이브러리를 사용한다. Python API는 JSON envelope를 `dict`로
 제공한다.

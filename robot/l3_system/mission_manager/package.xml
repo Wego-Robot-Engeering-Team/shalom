@@ -13,7 +13,7 @@
   <depend>nav_msgs</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
-  <depend>shalom_interfaces</depend>
+  <depend>interfaces</depend>
   <test_depend>rclpy</test_depend>
   <test_depend>ament_index_python</test_depend>
   <test_depend>motion_interlock_manager</test_depend>

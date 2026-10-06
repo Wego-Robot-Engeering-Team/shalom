@@ -22,8 +22,8 @@ os.environ.pop("ROS_LOCALHOST_ONLY", None)
 import rclpy
 from nav2_msgs.msg import SpeedLimit
 from sensor_msgs.msg import JointState
-from shalom_interfaces.msg import MotionAuthority, SafetyState, MissionState
-from shalom_interfaces.srv import AuthorityRequest, SafetyCommand, MissionControl
+from interfaces.msg import MotionAuthority, SafetyState, MissionState
+from interfaces.srv import AuthorityRequest, SafetyCommand, MissionControl
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from rcl_interfaces.msg import ParameterType, ParameterValue
 from rcl_interfaces.srv import GetParameters, SetParametersAtomically

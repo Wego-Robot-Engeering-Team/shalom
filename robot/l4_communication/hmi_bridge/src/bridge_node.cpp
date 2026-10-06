@@ -138,7 +138,7 @@ const char *navResultCode(const std::string &status)
 
 const char *safetyStateName(uint8_t state)
 {
-    using State = shalom_interfaces::msg::SafetyState;
+    using State = interfaces::msg::SafetyState;
     switch (state) {
     case State::INITIALIZING: return "initializing";
     case State::CONTROLLED_STOP: return "controlled_stop";
@@ -151,7 +151,7 @@ const char *safetyStateName(uint8_t state)
 
 const char *authorityName(uint8_t state)
 {
-    using Authority = shalom_interfaces::msg::MotionAuthority;
+    using Authority = interfaces::msg::MotionAuthority;
     switch (state) {
     case Authority::NONE: return "none";
     case Authority::BASE_ACTIVE: return "base_active";
@@ -164,7 +164,7 @@ const char *authorityName(uint8_t state)
 
 const char *missionStateName(uint8_t state)
 {
-    using State = shalom_interfaces::msg::MissionState;
+    using State = interfaces::msg::MissionState;
     switch (state) {
     case State::IDLE: return "idle";
     case State::READY: return "ready";
@@ -477,14 +477,14 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
                         mapId.c_str(), detail.c_str());
         }
     }
-    safetyCommandClient_ = create_client<shalom_interfaces::srv::SafetyCommand>(
+    safetyCommandClient_ = create_client<interfaces::srv::SafetyCommand>(
         "/safety/command");
-    safetyEventPub_ = create_publisher<shalom_interfaces::msg::SafetyEvent>("/safety/event", 20);
-    authorityRequestClient_ = create_client<shalom_interfaces::srv::AuthorityRequest>(
+    safetyEventPub_ = create_publisher<interfaces::msg::SafetyEvent>("/safety/event", 20);
+    authorityRequestClient_ = create_client<interfaces::srv::AuthorityRequest>(
         "/motion/authority/request");
-    missionConfigureClient_ = create_client<shalom_interfaces::srv::ConfigureMission>(
+    missionConfigureClient_ = create_client<interfaces::srv::ConfigureMission>(
         "/mission/configure");
-    missionControlClient_ = create_client<shalom_interfaces::srv::MissionControl>(
+    missionControlClient_ = create_client<interfaces::srv::MissionControl>(
         "/mission/control");
 
     batterySub_ = create_subscription<sensor_msgs::msg::BatteryState>(
@@ -604,9 +604,9 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
 
     // 모션 권한을 듣는다. 팔이 움직이는 중에는 자세 전환을 받지 않는다.
     // transient_local 이라 나중에 붙어도 마지막 값을 받는다.
-    authoritySub_ = create_subscription<shalom_interfaces::msg::MotionAuthority>(
+    authoritySub_ = create_subscription<interfaces::msg::MotionAuthority>(
         "/motion/authority", rclcpp::QoS(1).transient_local(),
-        [this](const shalom_interfaces::msg::MotionAuthority::SharedPtr msg) {
+        [this](const interfaces::msg::MotionAuthority::SharedPtr msg) {
             const std::string next = authorityName(msg->state);
             authorityReceived_ = std::chrono::steady_clock::now();
             if (motionAuthority_ == next)
@@ -619,9 +619,9 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
             if (server_.isConnected())
                 publishBase();
         });
-    safetyStateSub_ = create_subscription<shalom_interfaces::msg::SafetyState>(
+    safetyStateSub_ = create_subscription<interfaces::msg::SafetyState>(
         "/safety/state", rclcpp::QoS(1).transient_local(),
-        [this](const shalom_interfaces::msg::SafetyState::SharedPtr msg) {
+        [this](const interfaces::msg::SafetyState::SharedPtr msg) {
             const std::string next = safetyStateName(msg->state);
             const bool estop_active = msg->software_estop_active || msg->physical_estop_active;
             safetyReceived_ = std::chrono::steady_clock::now();
@@ -640,7 +640,7 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
                 return;
             publishSafety();
         });
-    missionStateSub_ = create_subscription<shalom_interfaces::msg::MissionState>(
+    missionStateSub_ = create_subscription<interfaces::msg::MissionState>(
         "/mission/state", rclcpp::QoS(1).transient_local(),
         std::bind(&BridgeNode::onMissionState, this, std::placeholders::_1));
     amclPoseSub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
@@ -1087,9 +1087,9 @@ void BridgeNode::handleRequest(const Envelope &request)
             respond(request, false, err::kBusy, "지도 전환이 끝난 뒤 웨이포인트를 변경하십시오");
             return;
         }
-        if (haveMissionState_ && missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
-            missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
-            missionState_.state != shalom_interfaces::msg::MissionState::FAILED) {
+        if (haveMissionState_ && missionState_.state != interfaces::msg::MissionState::IDLE &&
+            missionState_.state != interfaces::msg::MissionState::COMPLETED &&
+            missionState_.state != interfaces::msg::MissionState::FAILED) {
             respond(request, false, err::kBusy, "미션이 끝난 뒤 점검 지점을 변경하십시오");
             return;
         }
@@ -1324,9 +1324,9 @@ void BridgeNode::handleRequest(const Envelope &request)
             return;
         }
         if (navigationBusy() || (haveMissionState_ &&
-            missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
-            missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
-            missionState_.state != shalom_interfaces::msg::MissionState::FAILED)) {
+            missionState_.state != interfaces::msg::MissionState::IDLE &&
+            missionState_.state != interfaces::msg::MissionState::COMPLETED &&
+            missionState_.state != interfaces::msg::MissionState::FAILED)) {
             respond(request, false, err::kBusy, "주행 또는 미션 실행 중에는 미션을 편집할 수 없습니다");
             return;
         }
@@ -1434,9 +1434,9 @@ void BridgeNode::handleRequest(const Envelope &request)
 
     if (request.ch == kCmdMissionsArchive) {
         if (mapId_ == "live" || !pendingMapId_.empty() || navigationBusy() || (haveMissionState_ &&
-            missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
-            missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
-            missionState_.state != shalom_interfaces::msg::MissionState::FAILED)) {
+            missionState_.state != interfaces::msg::MissionState::IDLE &&
+            missionState_.state != interfaces::msg::MissionState::COMPLETED &&
+            missionState_.state != interfaces::msg::MissionState::FAILED)) {
             respond(request, false, err::kBusy, "저장된 지도에서 주행과 미션이 끝난 뒤 보관할 수 있습니다");
             return;
         }
@@ -1464,9 +1464,9 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdLocationsSet) {
-        if (haveMissionState_ && missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
-            missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
-            missionState_.state != shalom_interfaces::msg::MissionState::FAILED) {
+        if (haveMissionState_ && missionState_.state != interfaces::msg::MissionState::IDLE &&
+            missionState_.state != interfaces::msg::MissionState::COMPLETED &&
+            missionState_.state != interfaces::msg::MissionState::FAILED) {
             respond(request, false, err::kBusy, "미션이 끝난 뒤 위치를 변경하십시오");
             return;
         }
@@ -1595,9 +1595,9 @@ void BridgeNode::handleRequest(const Envelope &request)
             return;
         }
         const std::string id = request.p.value("id", std::string{});
-        if (!haveMissionState_ || (missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
-            missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
-            missionState_.state != shalom_interfaces::msg::MissionState::FAILED) ||
+        if (!haveMissionState_ || (missionState_.state != interfaces::msg::MissionState::IDLE &&
+            missionState_.state != interfaces::msg::MissionState::COMPLETED &&
+            missionState_.state != interfaces::msg::MissionState::FAILED) ||
             navigationBusy() || !pendingMapId_.empty()) {
             respond(request, false, err::kBusy,
                     "주행 또는 점검이 끝난 뒤에 지도를 전환하십시오");
@@ -1627,9 +1627,9 @@ void BridgeNode::handleRequest(const Envelope &request)
     if (request.ch == kCmdMapsRename) {
         const std::string id = request.p.value("id", std::string{});
         const std::string name = request.p.value("name", std::string{});
-        if (!haveMissionState_ || (missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
-            missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
-            missionState_.state != shalom_interfaces::msg::MissionState::FAILED) ||
+        if (!haveMissionState_ || (missionState_.state != interfaces::msg::MissionState::IDLE &&
+            missionState_.state != interfaces::msg::MissionState::COMPLETED &&
+            missionState_.state != interfaces::msg::MissionState::FAILED) ||
             navigationBusy() || !pendingMapId_.empty()) {
             respond(request, false, err::kBusy,
                     "주행 또는 점검이 끝난 뒤에 지도 이름을 바꾸십시오");
@@ -1825,9 +1825,9 @@ void BridgeNode::handleRequest(const Envelope &request)
 
     if (request.ch == kCmdMapsDelete) {
         const std::string id = request.p.value("id", std::string{});
-        if (!haveMissionState_ || (missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
-            missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
-            missionState_.state != shalom_interfaces::msg::MissionState::FAILED) ||
+        if (!haveMissionState_ || (missionState_.state != interfaces::msg::MissionState::IDLE &&
+            missionState_.state != interfaces::msg::MissionState::COMPLETED &&
+            missionState_.state != interfaces::msg::MissionState::FAILED) ||
             navigationBusy() || !pendingMapId_.empty()) {
             respond(request, false, err::kBusy, "주행과 미션이 끝난 뒤 지도를 삭제하십시오");
             return;
@@ -1883,7 +1883,7 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdMissionPause) {
-        sendMissionControl(request, shalom_interfaces::srv::MissionControl::Request::PAUSE);
+        sendMissionControl(request, interfaces::srv::MissionControl::Request::PAUSE);
         return;
     }
 
@@ -1892,10 +1892,10 @@ void BridgeNode::handleRequest(const Envelope &request)
             respond(request, false, err::kMode, "지도 전환 완료 후 자율 모드에서 충전소로 복귀하십시오");
             return;
         }
-        if (haveMissionState_ && missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
-            missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
-            missionState_.state != shalom_interfaces::msg::MissionState::FAILED) {
-            sendMissionControl(request, shalom_interfaces::srv::MissionControl::Request::RETURN_DOCK);
+        if (haveMissionState_ && missionState_.state != interfaces::msg::MissionState::IDLE &&
+            missionState_.state != interfaces::msg::MissionState::COMPLETED &&
+            missionState_.state != interfaces::msg::MissionState::FAILED) {
+            sendMissionControl(request, interfaces::srv::MissionControl::Request::RETURN_DOCK);
             return;
         }
         const int dock = findDock();
@@ -1915,16 +1915,16 @@ void BridgeNode::handleRequest(const Envelope &request)
                     "비상정지 상태입니다. 해제한 뒤 재개하십시오");
             return;
         }
-        sendMissionControl(request, shalom_interfaces::srv::MissionControl::Request::RESUME);
+        sendMissionControl(request, interfaces::srv::MissionControl::Request::RESUME);
         return;
     }
 
     if (request.ch == kCmdMissionStop) {
         const uint8_t operation = haveMissionState_ &&
-            (missionState_.state == shalom_interfaces::msg::MissionState::COMPLETED ||
-             missionState_.state == shalom_interfaces::msg::MissionState::FAILED)
-            ? shalom_interfaces::srv::MissionControl::Request::RESET
-            : shalom_interfaces::srv::MissionControl::Request::STOP;
+            (missionState_.state == interfaces::msg::MissionState::COMPLETED ||
+             missionState_.state == interfaces::msg::MissionState::FAILED)
+            ? interfaces::srv::MissionControl::Request::RESET
+            : interfaces::srv::MissionControl::Request::STOP;
         sendMissionControl(request, operation);
         return;
     }
@@ -1992,9 +1992,9 @@ void BridgeNode::handleRequest(const Envelope &request)
             return;
         }
         if (haveMissionState_ &&
-            missionState_.state != shalom_interfaces::msg::MissionState::IDLE &&
-            missionState_.state != shalom_interfaces::msg::MissionState::COMPLETED &&
-            missionState_.state != shalom_interfaces::msg::MissionState::FAILED) {
+            missionState_.state != interfaces::msg::MissionState::IDLE &&
+            missionState_.state != interfaces::msg::MissionState::COMPLETED &&
+            missionState_.state != interfaces::msg::MissionState::FAILED) {
             respond(request, false, err::kBusy, "미션이 끝난 뒤 개별 목표를 지정하십시오");
             return;
         }
@@ -2146,10 +2146,10 @@ bool BridgeNode::applyArmGoal(const Envelope &request, const std::vector<double>
         respond(request, false, err::kUnreachable, "로봇팔 관절 피드백이 끊겼습니다");
         return false;
     }
-    if (haveMissionState_ && (missionState_.state == shalom_interfaces::msg::MissionState::RUNNING ||
-                             missionState_.state == shalom_interfaces::msg::MissionState::RETURNING ||
-                             missionState_.state == shalom_interfaces::msg::MissionState::RECOVERING ||
-                             missionState_.state == shalom_interfaces::msg::MissionState::PAUSING)) {
+    if (haveMissionState_ && (missionState_.state == interfaces::msg::MissionState::RUNNING ||
+                             missionState_.state == interfaces::msg::MissionState::RETURNING ||
+                             missionState_.state == interfaces::msg::MissionState::RECOVERING ||
+                             missionState_.state == interfaces::msg::MissionState::PAUSING)) {
         respond(request, false, err::kBusy, "미션을 일시정지한 뒤 로봇팔을 조작하십시오");
         return false;
     }
@@ -2157,12 +2157,12 @@ bool BridgeNode::applyArmGoal(const Envelope &request, const std::vector<double>
     pendingArmPositions_ = positions;
     armGoalRequestedAt_ = std::chrono::steady_clock::now();
     armAuthorityAccepted_ = false;
-    auto authority = std::make_shared<shalom_interfaces::srv::AuthorityRequest::Request>();
+    auto authority = std::make_shared<interfaces::srv::AuthorityRequest::Request>();
     authority->request_id = "hmi-arm-" + request.id;
     authority->requester = "hmi_bridge";
-    authority->operation = shalom_interfaces::srv::AuthorityRequest::Request::REQUEST_ARM;
+    authority->operation = interfaces::srv::AuthorityRequest::Request::REQUEST_ARM;
     const auto pending = authorityRequestClient_->async_send_request(authority,
-        [this, id = request.id](rclcpp::Client<shalom_interfaces::srv::AuthorityRequest>::SharedFuture future) {
+        [this, id = request.id](rclcpp::Client<interfaces::srv::AuthorityRequest>::SharedFuture future) {
             if (!pendingArmGoal_ || pendingArmGoal_->id != id)
                 return;
             const auto result = future.get();
@@ -2224,9 +2224,9 @@ void BridgeNode::publishWaypoints()
     json points = waypoints_;
     for (auto &point : points)
         if (point.is_object()) point["status"] = "todo";
-    if (haveMissionState_ && missionState_.state != shalom_interfaces::msg::MissionState::IDLE) {
-        const bool completed = missionState_.state == shalom_interfaces::msg::MissionState::COMPLETED ||
-                               (missionState_.state == shalom_interfaces::msg::MissionState::RETURNING &&
+    if (haveMissionState_ && missionState_.state != interfaces::msg::MissionState::IDLE) {
+        const bool completed = missionState_.state == interfaces::msg::MissionState::COMPLETED ||
+                               (missionState_.state == interfaces::msg::MissionState::RETURNING &&
                                 missionState_.current_step < 0);
         const auto mission = std::find_if(missions_.begin(), missions_.end(), [this](const json &item) {
             return item.is_object() &&
@@ -2249,7 +2249,7 @@ void BridgeNode::publishWaypoints()
                 for (auto &point : points)
                     if (point.value("id", std::string{}) == locationId)
                         point["status"] = completed || beforeCurrent ? "done"
-                            : current && missionState_.state == shalom_interfaces::msg::MissionState::FAILED
+                            : current && missionState_.state == interfaces::msg::MissionState::FAILED
                                 ? "error" : current ? "current" : "todo";
                 ++stepIndex;
             }
@@ -2261,7 +2261,7 @@ void BridgeNode::publishWaypoints()
                 const bool current = missionState_.current_step >= 0 &&
                     i == std::size_t(missionState_.current_step);
                 points[i]["status"] = completed || beforeCurrent ? "done"
-                    : current && missionState_.state == shalom_interfaces::msg::MissionState::FAILED
+                    : current && missionState_.state == interfaces::msg::MissionState::FAILED
                         ? "error" : current ? "current" : "todo";
             }
         }
@@ -2982,11 +2982,11 @@ void BridgeNode::handleCapture(const Envelope &request)
 
 // ================= mission adapter =================
 
-std::optional<shalom_interfaces::msg::MissionPlan> BridgeNode::makeMissionPlan(
+std::optional<interfaces::msg::MissionPlan> BridgeNode::makeMissionPlan(
     const json *mission, std::string *error)
 {
     const auto fail = [error](const std::string &message)
-        -> std::optional<shalom_interfaces::msg::MissionPlan> {
+        -> std::optional<interfaces::msg::MissionPlan> {
         if (error)
             *error = message;
         return std::nullopt;
@@ -3040,7 +3040,7 @@ std::optional<shalom_interfaces::msg::MissionPlan> BridgeNode::makeMissionPlan(
     if (!steps.is_array() || steps.empty())
         return fail("미션에 실행 가능한 navigate 단계가 없습니다");
 
-    shalom_interfaces::msg::MissionPlan plan;
+    interfaces::msg::MissionPlan plan;
     plan.created_at = now();
     plan.revision = mission ? mission->value("revision", uint64_t{1})
                             : (missionPlanRevision_ == 0 ? ++missionPlanRevision_ : missionPlanRevision_);
@@ -3054,7 +3054,7 @@ std::optional<shalom_interfaces::msg::MissionPlan> BridgeNode::makeMissionPlan(
             !point["x"].is_number() || !point["y"].is_number()) {
             return fail("점검포인트 " + std::to_string(i + 1) + "의 좌표가 올바르지 않습니다");
         }
-        shalom_interfaces::msg::MissionWaypoint waypoint;
+        interfaces::msg::MissionWaypoint waypoint;
         waypoint.waypoint_id = point.value("id", "P" + std::to_string(i + 1));
         waypoint.target_pose.header.frame_id = mapFrame_;
         waypoint.target_pose.header.stamp = now();
@@ -3066,7 +3066,7 @@ std::optional<shalom_interfaces::msg::MissionPlan> BridgeNode::makeMissionPlan(
         waypoint.target_pose.pose.orientation.y = q.y();
         waypoint.target_pose.pose.orientation.z = q.z();
         waypoint.target_pose.pose.orientation.w = q.w();
-        waypoint.operation = shalom_interfaces::msg::MissionWaypoint::NAVIGATE_ONLY;
+        waypoint.operation = interfaces::msg::MissionWaypoint::NAVIGATE_ONLY;
         plan.waypoints.push_back(std::move(waypoint));
     }
 
@@ -3091,7 +3091,7 @@ std::optional<shalom_interfaces::msg::MissionPlan> BridgeNode::makeMissionPlan(
         waypoint.target_pose.pose.orientation.y = q.y();
         waypoint.target_pose.pose.orientation.z = q.z();
         waypoint.target_pose.pose.orientation.w = q.w();
-        waypoint.operation = shalom_interfaces::msg::MissionWaypoint::NAVIGATE_ONLY;
+        waypoint.operation = interfaces::msg::MissionWaypoint::NAVIGATE_ONLY;
     }
     return plan;
 }
@@ -3149,7 +3149,7 @@ void BridgeNode::configureAndStartMission(const Envelope &request)
         return;
     }
 
-    auto configure = std::make_shared<shalom_interfaces::srv::ConfigureMission::Request>();
+    auto configure = std::make_shared<interfaces::srv::ConfigureMission::Request>();
     const std::string request_id = request.id.empty()
         ? "hmi-" + std::to_string(++rosRequestSequence_) : request.id;
     configure->request_id = request_id + ":configure";
@@ -3163,7 +3163,7 @@ void BridgeNode::configureAndStartMission(const Envelope &request)
     missionConfigureRequestId_ = missionConfigureClient_->async_send_request(
         configure,
         [this, generation, selectedMap, request_id](
-            rclcpp::Client<shalom_interfaces::srv::ConfigureMission>::SharedFuture future) {
+            rclcpp::Client<interfaces::srv::ConfigureMission>::SharedFuture future) {
             if (!missionStartPending_ || generation != missionStartGeneration_) return;
             missionConfigureRequestId_.reset();
             if (!server_.isConnected() || mapId_ != selectedMap || !pendingMapId_.empty() || manualMode_ || estopActive()) {
@@ -3175,16 +3175,16 @@ void BridgeNode::configureAndStartMission(const Envelope &request)
                 finishMissionStart(false, configured->reason_code.empty() ? err::kMode : configured->reason_code, configured->detail);
                 return;
             }
-            onMissionState(std::make_shared<shalom_interfaces::msg::MissionState>(configured->state));
-            auto control = std::make_shared<shalom_interfaces::srv::MissionControl::Request>();
+            onMissionState(std::make_shared<interfaces::msg::MissionState>(configured->state));
+            auto control = std::make_shared<interfaces::srv::MissionControl::Request>();
             control->request_id = request_id + ":start";
             control->operator_id = "hmi";
             control->mission_id = configured->state.mission_id;
-            control->operation = shalom_interfaces::srv::MissionControl::Request::START;
+            control->operation = interfaces::srv::MissionControl::Request::START;
             missionStartControlRequestId_ = missionControlClient_->async_send_request(
                 control,
                 [this, generation, selectedMap](
-                    rclcpp::Client<shalom_interfaces::srv::MissionControl>::SharedFuture result) {
+                    rclcpp::Client<interfaces::srv::MissionControl>::SharedFuture result) {
                     if (!missionStartPending_ || generation != missionStartGeneration_) return;
                     missionStartControlRequestId_.reset();
                     const auto started = result.get();
@@ -3193,7 +3193,7 @@ void BridgeNode::configureAndStartMission(const Envelope &request)
                         finishMissionStart(false, err::kBusy, "미션 시작 중 로봇·지도 상태가 변경되었습니다");
                         return;
                     }
-                    onMissionState(std::make_shared<shalom_interfaces::msg::MissionState>(started->state));
+                    onMissionState(std::make_shared<interfaces::msg::MissionState>(started->state));
                     if (started->accepted) linkMissionResumePending_ = true;
                     // READY 동안에는 안전·동작 권한을 기다릴 수 있다. 실제 RUNNING
                     // 전환은 onMissionState가 확인하고 그때 경로를 초기화한다.
@@ -3218,14 +3218,14 @@ void BridgeNode::finishMissionStart(bool ok, const std::string &code, const std:
 
 void BridgeNode::sendMissionControl(const Envelope &request, uint8_t operation)
 {
-    if (missionStartPending_ && (operation == shalom_interfaces::srv::MissionControl::Request::STOP ||
-        operation == shalom_interfaces::srv::MissionControl::Request::PAUSE))
+    if (missionStartPending_ && (operation == interfaces::srv::MissionControl::Request::STOP ||
+        operation == interfaces::srv::MissionControl::Request::PAUSE))
         finishMissionStart(false, err::kMode, "미션 시작 요청을 취소했습니다");
     if (!missionControlClient_->service_is_ready()) {
         respond(request, false, err::kUnreachable, "Mission Manager가 준비되지 않았습니다");
         return;
     }
-    auto control = std::make_shared<shalom_interfaces::srv::MissionControl::Request>();
+    auto control = std::make_shared<interfaces::srv::MissionControl::Request>();
     control->request_id = (request.id.empty()
         ? "hmi-" + std::to_string(++rosRequestSequence_) : request.id) + ":control";
     control->operator_id = "hmi";
@@ -3234,12 +3234,12 @@ void BridgeNode::sendMissionControl(const Envelope &request, uint8_t operation)
     const auto linkGeneration = linkGeneration_;
     missionControlClient_->async_send_request(
         control,
-        [this, request, operation, linkGeneration](rclcpp::Client<shalom_interfaces::srv::MissionControl>::SharedFuture future) {
+        [this, request, operation, linkGeneration](rclcpp::Client<interfaces::srv::MissionControl>::SharedFuture future) {
             if (!server_.isConnected() || linkGeneration != linkGeneration_) return;
             const auto result = future.get();
-            onMissionState(std::make_shared<shalom_interfaces::msg::MissionState>(result->state));
-            if (result->accepted && (operation == shalom_interfaces::srv::MissionControl::Request::RESUME ||
-                operation == shalom_interfaces::srv::MissionControl::Request::RETURN_DOCK))
+            onMissionState(std::make_shared<interfaces::msg::MissionState>(result->state));
+            if (result->accepted && (operation == interfaces::srv::MissionControl::Request::RESUME ||
+                operation == interfaces::srv::MissionControl::Request::RETURN_DOCK))
                 linkMissionResumePending_ = true;
             respond(request, result->accepted,
                     result->accepted ? std::string() : err::kMode, result->detail);
@@ -3249,25 +3249,25 @@ void BridgeNode::sendMissionControl(const Envelope &request, uint8_t operation)
 void BridgeNode::pauseMissionForManualTakeover()
 {
     if (!haveMissionState_ ||
-        (missionState_.state != shalom_interfaces::msg::MissionState::RUNNING &&
-         missionState_.state != shalom_interfaces::msg::MissionState::RETURNING &&
-         missionState_.state != shalom_interfaces::msg::MissionState::READY))
+        (missionState_.state != interfaces::msg::MissionState::RUNNING &&
+         missionState_.state != interfaces::msg::MissionState::RETURNING &&
+         missionState_.state != interfaces::msg::MissionState::READY))
         return;
     if (!missionControlClient_->service_is_ready()) {
         RCLCPP_ERROR(get_logger(), "수동 전환 중 Mission Manager에 일시정지를 요청하지 못했습니다");
         return;
     }
-    auto control = std::make_shared<shalom_interfaces::srv::MissionControl::Request>();
+    auto control = std::make_shared<interfaces::srv::MissionControl::Request>();
     control->request_id = "hmi-manual-" + std::to_string(++rosRequestSequence_);
     control->operator_id = "hmi_manual_takeover";
     control->mission_id = missionState_.mission_id;
-    control->operation = missionState_.state == shalom_interfaces::msg::MissionState::READY
-        ? shalom_interfaces::srv::MissionControl::Request::STOP : shalom_interfaces::srv::MissionControl::Request::PAUSE;
+    control->operation = missionState_.state == interfaces::msg::MissionState::READY
+        ? interfaces::srv::MissionControl::Request::STOP : interfaces::srv::MissionControl::Request::PAUSE;
     missionControlClient_->async_send_request(control);
 }
 
 void BridgeNode::onMissionState(
-    const shalom_interfaces::msg::MissionState::SharedPtr message)
+    const interfaces::msg::MissionState::SharedPtr message)
 {
     // Service snapshots can arrive after a newer transient-local state report.
     // A manager restart may reset sequence, but has a newer source timestamp.
@@ -3276,25 +3276,25 @@ void BridgeNode::onMissionState(
         rclcpp::Time(message->stamp) <= rclcpp::Time(missionState_.stamp))
         return;
     const uint8_t previous = haveMissionState_ ? missionState_.state
-                                               : shalom_interfaces::msg::MissionState::IDLE;
-    if (message->state == shalom_interfaces::msg::MissionState::RUNNING &&
-        (previous == shalom_interfaces::msg::MissionState::IDLE ||
-         previous == shalom_interfaces::msg::MissionState::READY ||
-         previous == shalom_interfaces::msg::MissionState::COMPLETED ||
-         previous == shalom_interfaces::msg::MissionState::FAILED))
+                                               : interfaces::msg::MissionState::IDLE;
+    if (message->state == interfaces::msg::MissionState::RUNNING &&
+        (previous == interfaces::msg::MissionState::IDLE ||
+         previous == interfaces::msg::MissionState::READY ||
+         previous == interfaces::msg::MissionState::COMPLETED ||
+         previous == interfaces::msg::MissionState::FAILED))
         resetTrail();
     missionState_ = *message;
     haveMissionState_ = true;
-    const bool terminal = message->state == shalom_interfaces::msg::MissionState::IDLE ||
-                          message->state == shalom_interfaces::msg::MissionState::COMPLETED ||
-                          message->state == shalom_interfaces::msg::MissionState::FAILED;
+    const bool terminal = message->state == interfaces::msg::MissionState::IDLE ||
+                          message->state == interfaces::msg::MissionState::COMPLETED ||
+                          message->state == interfaces::msg::MissionState::FAILED;
     if (terminal && previous != message->state &&
-        (previous != shalom_interfaces::msg::MissionState::IDLE ||
-         message->state != shalom_interfaces::msg::MissionState::IDLE))
+        (previous != interfaces::msg::MissionState::IDLE ||
+         message->state != interfaces::msg::MissionState::IDLE))
         clearPlan();
     publishWaypoints();
     publishMission();
-    if (message->state == shalom_interfaces::msg::MissionState::COMPLETED &&
+    if (message->state == interfaces::msg::MissionState::COMPLETED &&
         previous != message->state) {
         sendEnvelope(makeEvent(kChLog, json{{"code", "MISSION_COMPLETE"}}));
     }
@@ -3314,7 +3314,7 @@ int BridgeNode::findDock() const
 void BridgeNode::publishMission()
 {
     const uint8_t state = haveMissionState_ ? missionState_.state
-        : shalom_interfaces::msg::MissionState::IDLE;
+        : interfaces::msg::MissionState::IDLE;
     sendEnvelope(makePublish(kChMission,
                              json{{"state", missionStateName(state)},
                                   {"mission_id", haveMissionState_
@@ -3612,16 +3612,16 @@ void BridgeNode::startNavigation(const Envelope &request, bool resume)
     navReadyDetail_ = "안전·주행 권한 승인 대기";
     navError_.clear();
     navDistance_ = navEta_ = navElapsed_ = navRecoveries_ = nullptr;
-    auto safety = std::make_shared<shalom_interfaces::srv::SafetyCommand::Request>();
+    auto safety = std::make_shared<interfaces::srv::SafetyCommand::Request>();
     safety->request_id = "hmi-nav-safety-" + std::to_string(++rosRequestSequence_);
     safety->operator_id = "hmi";
-    safety->operation = shalom_interfaces::srv::SafetyCommand::Request::RESUME;
-    auto authority = std::make_shared<shalom_interfaces::srv::AuthorityRequest::Request>();
+    safety->operation = interfaces::srv::SafetyCommand::Request::RESUME;
+    auto authority = std::make_shared<interfaces::srv::AuthorityRequest::Request>();
     authority->request_id = "hmi-nav-authority-" + std::to_string(++rosRequestSequence_);
     authority->requester = "hmi_bridge";
-    authority->operation = shalom_interfaces::srv::AuthorityRequest::Request::REQUEST_BASE;
+    authority->operation = interfaces::srv::AuthorityRequest::Request::REQUEST_BASE;
     navSafetyRequestId_ = safetyCommandClient_->async_send_request(safety,
-        [this, generation](rclcpp::Client<shalom_interfaces::srv::SafetyCommand>::SharedFuture future) {
+        [this, generation](rclcpp::Client<interfaces::srv::SafetyCommand>::SharedFuture future) {
             if (!navPreparing_ || generation != navGeneration_) return;
             navSafetyRequestId_.reset();
             try {
@@ -3638,7 +3638,7 @@ void BridgeNode::startNavigation(const Envelope &request, bool resume)
             }
         }).request_id;
     navAuthorityRequestId_ = authorityRequestClient_->async_send_request(authority,
-        [this, generation](rclcpp::Client<shalom_interfaces::srv::AuthorityRequest>::SharedFuture future) {
+        [this, generation](rclcpp::Client<interfaces::srv::AuthorityRequest>::SharedFuture future) {
             if (!navPreparing_ || generation != navGeneration_) return;
             navAuthorityRequestId_.reset();
             try {
@@ -3928,8 +3928,8 @@ void BridgeNode::tickSafety()
          authorityReceived_ == std::chrono::steady_clock::time_point{} || wall - authorityReceived_ > std::chrono::seconds(1)))
         stopNavigation(true);
     if (linkMissionResumePending_ && server_.isConnected() && haveMissionState_ &&
-        (missionState_.state == shalom_interfaces::msg::MissionState::RUNNING ||
-         missionState_.state == shalom_interfaces::msg::MissionState::RETURNING) &&
+        (missionState_.state == interfaces::msg::MissionState::RUNNING ||
+         missionState_.state == interfaces::msg::MissionState::RETURNING) &&
         safetyState_ == "normal" && safetyMotionPermitted_ && motionAuthority_ == "base_active" &&
         wall - safetyReceived_ <= std::chrono::seconds(1) && wall - authorityReceived_ <= std::chrono::seconds(1)) {
         linkHold_ = false;
@@ -3972,10 +3972,10 @@ void BridgeNode::requestBaseAuthority()
 {
     if (!authorityRequestClient_->service_is_ready())
         return;
-    auto request = std::make_shared<shalom_interfaces::srv::AuthorityRequest::Request>();
+    auto request = std::make_shared<interfaces::srv::AuthorityRequest::Request>();
     request->request_id = "hmi-authority-" + std::to_string(++rosRequestSequence_);
     request->requester = "hmi_bridge";
-    request->operation = shalom_interfaces::srv::AuthorityRequest::Request::REQUEST_BASE;
+    request->operation = interfaces::srv::AuthorityRequest::Request::REQUEST_BASE;
     authorityRequestClient_->async_send_request(request);
 }
 
@@ -3983,10 +3983,10 @@ void BridgeNode::requestSafetyResume()
 {
     if (!safetyCommandClient_->service_is_ready())
         return;
-    auto request = std::make_shared<shalom_interfaces::srv::SafetyCommand::Request>();
+    auto request = std::make_shared<interfaces::srv::SafetyCommand::Request>();
     request->request_id = "hmi-safety-" + std::to_string(++rosRequestSequence_);
     request->operator_id = "hmi";
-    request->operation = shalom_interfaces::srv::SafetyCommand::Request::RESUME;
+    request->operation = interfaces::srv::SafetyCommand::Request::RESUME;
     safetyCommandClient_->async_send_request(request);
 }
 
@@ -4004,10 +4004,10 @@ void BridgeNode::publishSafety()
 
 void BridgeNode::requestSafetyStop(const std::string &reason, const std::string &detail)
 {
-    shalom_interfaces::msg::SafetyEvent event;
+    interfaces::msg::SafetyEvent event;
     event.stamp = now();
     event.sequence = ++rosRequestSequence_;
-    event.event = shalom_interfaces::msg::SafetyEvent::REQUEST_STOP;
+    event.event = interfaces::msg::SafetyEvent::REQUEST_STOP;
     event.source = "hmi_bridge";
     event.reason_code = reason;
     event.detail = detail;

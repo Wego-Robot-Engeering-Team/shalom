@@ -7,7 +7,7 @@ find_package(nav2_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
-find_package(shalom_interfaces REQUIRED)
+find_package(interfaces REQUIRED)
 
 add_library(mission_logic
   src/mission_state_machine.cpp
@@ -27,7 +27,7 @@ add_executable(mission_manager_node src/mission_manager_node.cpp)
 target_link_libraries(mission_manager_node mission_logic)
 target_compile_features(mission_manager_node PRIVATE cxx_std_17)
 ament_target_dependencies(mission_manager_node
-  geometry_msgs nav2_msgs nav_msgs rclcpp rclcpp_action shalom_interfaces)
+  geometry_msgs nav2_msgs nav_msgs rclcpp rclcpp_action interfaces)
 
 if(BUILD_TESTING)
   enable_testing()
@@ -60,5 +60,5 @@ install(FILES src/bt/LICENSE-APACHE-2.0.txt
 
 ament_export_include_directories(include)
 ament_export_libraries(mission_logic)
-ament_export_dependencies(shalom_interfaces)
+ament_export_dependencies(interfaces)
 ament_package()

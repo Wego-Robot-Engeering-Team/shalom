@@ -4,7 +4,7 @@ project(safety_manager)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(shalom_interfaces REQUIRED)
+find_package(interfaces REQUIRED)
 
 add_library(safety_logic src/safety_state_machine.cpp)
 target_compile_features(safety_logic PUBLIC cxx_std_17)
@@ -14,7 +14,7 @@ target_include_directories(safety_logic PUBLIC
 
 add_executable(safety_manager_node src/safety_manager_node.cpp)
 target_link_libraries(safety_manager_node safety_logic)
-ament_target_dependencies(safety_manager_node rclcpp std_msgs shalom_interfaces)
+ament_target_dependencies(safety_manager_node rclcpp std_msgs interfaces)
 
 if(BUILD_TESTING)
   enable_testing()

@@ -10,20 +10,20 @@
 #include <unordered_map>
 
 #include "rclcpp/rclcpp.hpp"
-#include "shalom_interfaces/msg/motion_authority.hpp"
-#include "shalom_interfaces/msg/motion_stopped.hpp"
-#include "shalom_interfaces/msg/safety_event.hpp"
-#include "shalom_interfaces/srv/authority_request.hpp"
+#include "interfaces/msg/motion_authority.hpp"
+#include "interfaces/msg/motion_stopped.hpp"
+#include "interfaces/msg/safety_event.hpp"
+#include "interfaces/srv/authority_request.hpp"
 
 #include "motion_interlock_manager/motion_interlock.hpp"
 
 namespace {
 
 using namespace std::chrono_literals;
-using AuthorityRequest = shalom_interfaces::srv::AuthorityRequest;
-using MotionAuthorityMsg = shalom_interfaces::msg::MotionAuthority;
-using MotionStopped = shalom_interfaces::msg::MotionStopped;
-using SafetyEvent = shalom_interfaces::msg::SafetyEvent;
+using AuthorityRequest = interfaces::srv::AuthorityRequest;
+using MotionAuthorityMsg = interfaces::msg::MotionAuthority;
+using MotionStopped = interfaces::msg::MotionStopped;
+using SafetyEvent = interfaces::msg::SafetyEvent;
 using CoreAuthority = motion_interlock_manager::MotionAuthority;
 
 uint8_t wire_authority(CoreAuthority state) {

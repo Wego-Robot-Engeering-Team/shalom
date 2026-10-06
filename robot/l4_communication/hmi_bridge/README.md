@@ -33,7 +33,7 @@ UDP 수동 조작은 같은 gateway 그룹의 sibling 패키지
 
 ```bash
 # ROS 2 워크스페이스에서
-colcon build --base-paths src/shalom --packages-select hmi_bridge
+colcon build --base-paths src/shalom --packages-up-to hmi_bridge
 ```
 
 의존성: `rclcpp`, `tf2_ros`, `nav_msgs`, `sensor_msgs`, `nlohmann-json-dev`
@@ -73,7 +73,7 @@ colcon test-result --verbose
 
 남은 실제 장치 연동은 MoveIt2 로봇팔 명령과 조작성 지수 계산이다. 독립
 `mission_manager`가 Nav2 `NavigateToPose` 액션과 Mission FSM을 소유하며,
-브릿지는 `shalom_interfaces` typed API로만 미션을 요청한다.
+브릿지는 `interfaces` typed API로만 미션을 요청한다.
 - OccupancyGrid → PNG 인코딩 (행 순서 반전 필요, 프로토콜 §2.2)
 - 야코비안 기반 조작성 지수 계산
 - 센서별 실측 주기 측정과 끊김 판정

@@ -7,7 +7,7 @@ VLP-16 시험 자산은 어느 기본 bringup에도 포함하지 않는다.
 ```text
 robot/
 ├── common/
-│   └── shalom_interfaces/             # Mission·Safety·Motion Authority 계약
+│   └── interfaces/                    # Mission·Safety·Motion Authority 계약
 ├── l4_communication/
 │   ├── gateway_transport/             # TCP framing·전송
 │   ├── hmi_bridge/                    # 지도·미션·상태 API
@@ -18,6 +18,7 @@ robot/
 │   ├── safety_manager/                # Safety FSM·동작 허가
 │   └── motion_interlock_manager/      # base/arm 운용 권한
 ├── l2_control/
+│   ├── docking/                       # 지도 충전 위치 → Nav2 Dock DB
 │   ├── navigation/                    # Nav2·AMCL·SLAM·KISS-ICP 설정·lidar_slam
 │   ├── joint_mux/                     # 관절 명령 source 선택
 │   └── safety_gate/                   # 최종 명령 통과·차단
@@ -31,7 +32,8 @@ robot/
 
 L3는 미션·안전·운용 권한을 판단하고, L2의 mux와 gate는 실제 명령을 선택·차단한다.
 L1은 센서·장치 연결을 담당한다. `common` 인터페이스와 bringup은 계층 간 공유 영역이다.
-ROS 패키지명·토픽·서비스는 기존 이름을 유지한다.
+공통 ROS 패키지는 `interfaces`, 도킹 DB 패키지는 `docking`이다.
+토픽·서비스 이름은 유지한다.
 로봇 ID 설정은 `bringup/robot_bringup/config/robot_metadata.yaml`에 있다.
 
 시뮬레이터 실행 조립과 예시 지도는 [`../simulation/`](../simulation/)에 있다.
@@ -116,8 +118,7 @@ ros2 launch simulation_bringup bringup.launch.py
 cd ~/shalom_ws
 source /opt/ros/jazzy/setup.bash
 colcon build --base-paths src/shalom --symlink-install \
-  --packages-select shalom_interfaces vectornav_driver vectornav_vn100 \
-  robot_bringup simulation_bringup hmi_bridge mission_manager motion_interlock_manager
+  --cmake-clean-cache --packages-up-to robot_bringup simulation_bringup
 source install/setup.bash
 ```
 

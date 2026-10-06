@@ -335,7 +335,7 @@ MissionSequence
 ## ROS 인터페이스 방향
 
 최종 구현에서는 제어 상태에 `std_msgs/String`과 의미 없는 Bool을 사용하지 않는다.
-공통 `shalom_interfaces` 패키지에 최소한 다음 typed interface를 둔다.
+공통 `interfaces` 패키지에 최소한 다음 typed interface를 둔다.
 
 - `MissionWaypoint.msg`: waypoint ID, pose, operation, 요구 capability
 - `MissionPlan.msg`: immutable plan revision, map, waypoint와 dock approach
@@ -435,7 +435,7 @@ systemd와 별도 `watchdog` daemon이 동일한 `/dev/watchdog`을 동시에 �
 ## 구현 순서
 
 1. 이 계약의 상태·이벤트·시간 기준을 리뷰하고 기준선으로 고정한다.
-2. `shalom_interfaces`의 typed message/service 초안을 만든다.
+2. `interfaces`의 typed message/service 초안을 만든다.
 3. 순수 C++ Mission/Safety/Interlock FSM과 전이표 단위 테스트를 구현한다.
 4. Safety Manager, Interlock, Mux, Gate를 먼저 B2 시뮬레이터에 연결한다.
 5. HMI 수동 주행과 link-loss 1초 정지를 검증한다.

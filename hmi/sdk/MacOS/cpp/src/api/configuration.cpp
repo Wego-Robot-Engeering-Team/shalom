@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
 #include "api/detail.hpp"
-#include "shalom/api.hpp"
+#include "robot_sdk/api.hpp"
 
-namespace shalom {
+namespace robot_sdk {
 
 std::string RobotApi::listMaps(std::string *err)
 {
@@ -66,4 +66,4 @@ std::string RobotApi::setMarkers(const std::vector<Marker> &markers, std::string
     return client_.sendRequest("cmd/markers/set", json + "]}", err);
 }
 
-}  // namespace shalom
+}  // namespace robot_sdk

@@ -211,12 +211,21 @@ controller_server:
 
       critics: ["ConstraintCritic", "CostCritic", "GoalCritic", "GoalAngleCritic",
                 "PathAlignCritic", "PathFollowCritic", "PathAngleCritic",
-                "PreferForwardCritic"]
+                "PreferForwardCritic", "VelocityDeadbandCritic"]
 
       ConstraintCritic:
         enabled: true
         cost_power: 1
         cost_weight: 4.0
+
+      # Initial B2 gait reference: norm([vx, vy, wz]) < 0.1 uses zero gait phase
+      # in the simulator. These per-axis costs are not an equivalent norm
+      # constraint or a hard minimum speed; retune using hardware measurements.
+      VelocityDeadbandCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 35.0
+        deadband_velocities: [0.1, 0.1, 0.1]  # vx/vy: m/s, wz: rad/s
 
       # The obstacle term. CostCritic reads the costmap directly rather than
       # doing its own footprint check, which is what we want: the inflation
@@ -455,8 +464,8 @@ collision_monitor:
       # obstacle stream for a physical robot.
       enabled: False
 
-# controller_server -> /cmd_vel_nav -> velocity_smoother -> /cmd_vel, so this is
-# the last gate before the policy runner.  It had no section here, which meant
+# controller_server -> velocity_smoother -> collision_monitor -> twist_mux ->
+# safety_gate -> /cmd_vel. It had no smoother section here, which meant
 # Nav2's default ceiling of 0.5 m/s -- desired_linear_vel was being clipped
 # before it ever reached the robot.  Anything set upstream must fit inside this.
 #
@@ -467,16 +476,16 @@ collision_monitor:
 # place a mis-set velocity upstream can be caught. Keeping it at the contract
 # figure rather than the policy's makes that catch meaningful.
 #
-# Lateral (y) is zero: RPP never commands a strafe, though the policy can do one.
+# Match MPPI's Omni limits, including lateral velocity and acceleration.
 velocity_smoother:
   ros__parameters:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
-    max_velocity: [0.6, 0.0, 0.8]
-    min_velocity: [-0.4, 0.0, -0.8]
-    max_accel: [1.5, 0.0, 3.2]
-    max_decel: [-1.5, 0.0, -3.2]
+    max_velocity: [0.6, 0.4, 0.8]
+    min_velocity: [-0.4, -0.4, -0.8]
+    max_accel: [1.5, 1.0, 3.2]
+    max_decel: [-1.5, -1.0, -3.2]
     odom_topic: kiss/odometry
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
@@ -489,10 +498,11 @@ docking_server:
     dock_plugins: ['simple_charging_dock']
     simple_charging_dock:
       plugin: 'opennav_docking::SimpleChargingDock'
-      use_external_detection_pose: true
+      use_external_detection_pose: false
       use_battery_status: false
       use_stall_detection: false
     controller:
+      transform_tolerance: 0.5
       use_collision_detection: true
       projection_time: 5.0
       simulation_step: 0.1

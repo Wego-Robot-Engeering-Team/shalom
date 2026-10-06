@@ -6,7 +6,7 @@ usage() {
 Usage: deploy/scripts/build_robot_runtime.sh --version <version> [--allow-dirty]
 
 Builds a non-symlinked, arm64 Release install tree and wraps it in
-shalom-runtime_<version>_arm64.deb under dist/robot/.  Run only on the
+robot-runtime_<version>_arm64.deb under dist/robot/.  Run only on the
 dedicated Jetson release runner (Ubuntu 24.04 + ROS 2 Jazzy).
 EOF
 }
@@ -85,20 +85,20 @@ colcon build \
   --packages-up-to robot_bringup \
   --cmake-args -DCMAKE_BUILD_TYPE=Release
 
-install -m 0755 "$template_root/bin/shalom-robot.in" \
-  "$stage_root/opt/shalom/releases/$VERSION/bin/shalom-robot"
+install -m 0755 "$template_root/bin/robot-runtime.in" \
+  "$stage_root/opt/shalom/releases/$VERSION/bin/robot-runtime"
 sed -i "s/@VERSION@/$VERSION/g" \
-  "$stage_root/opt/shalom/releases/$VERSION/bin/shalom-robot"
+  "$stage_root/opt/shalom/releases/$VERSION/bin/robot-runtime"
 
 cp -a "$install_root/." "$stage_root/opt/shalom/releases/$VERSION/"
-install -D -m 0644 "$template_root/systemd/shalom-robot.service" \
-  "$stage_root/lib/systemd/system/shalom-robot.service"
+install -D -m 0644 "$template_root/systemd/robot-runtime.service" \
+  "$stage_root/lib/systemd/system/robot-runtime.service"
 install -m 0755 "$template_root/debian/postinst.in" "$stage_root/DEBIAN/postinst"
 sed -i "s/@VERSION@/$VERSION/g" "$stage_root/DEBIAN/postinst"
 sed "s/@VERSION@/$VERSION/g" "$template_root/debian/control.in" \
   > "$stage_root/DEBIAN/control"
 
 dpkg-deb --root-owner-group --build "$stage_root" \
-  "$dist_root/shalom-runtime_${VERSION}_arm64.deb"
+  "$dist_root/robot-runtime_${VERSION}_arm64.deb"
 
-printf '%s\n' "Built: $dist_root/shalom-runtime_${VERSION}_arm64.deb"
+printf '%s\n' "Built: $dist_root/robot-runtime_${VERSION}_arm64.deb"

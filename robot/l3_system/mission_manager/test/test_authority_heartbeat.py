@@ -21,8 +21,8 @@ from nav_msgs.msg import Odometry
 from rclpy.action import ActionServer, CancelResponse
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from rclpy.task import Future
-from shalom_interfaces.msg import MissionState, MissionWaypoint, MotionAuthority, MotionStopped, SafetyState
-from shalom_interfaces.srv import ConfigureMission, MissionControl, SafetyCommand
+from interfaces.msg import MissionState, MissionWaypoint, MotionAuthority, MotionStopped, SafetyState
+from interfaces.srv import ConfigureMission, MissionControl, SafetyCommand
 
 MISSION_BINARY = sys.argv.pop(1)
 

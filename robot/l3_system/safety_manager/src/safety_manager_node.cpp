@@ -8,10 +8,10 @@
 #include <unordered_map>
 
 #include "rclcpp/rclcpp.hpp"
-#include "shalom_interfaces/msg/safety_event.hpp"
-#include "shalom_interfaces/msg/safety_heartbeat.hpp"
-#include "shalom_interfaces/msg/safety_state.hpp"
-#include "shalom_interfaces/srv/safety_command.hpp"
+#include "interfaces/msg/safety_event.hpp"
+#include "interfaces/msg/safety_heartbeat.hpp"
+#include "interfaces/msg/safety_state.hpp"
+#include "interfaces/srv/safety_command.hpp"
 #include "std_msgs/msg/bool.hpp"
 
 #include "safety_manager/safety_state_machine.hpp"
@@ -19,10 +19,10 @@
 namespace {
 
 using namespace std::chrono_literals;
-using SafetyCommand = shalom_interfaces::srv::SafetyCommand;
-using SafetyEvent = shalom_interfaces::msg::SafetyEvent;
-using SafetyHeartbeat = shalom_interfaces::msg::SafetyHeartbeat;
-using SafetyState = shalom_interfaces::msg::SafetyState;
+using SafetyCommand = interfaces::srv::SafetyCommand;
+using SafetyEvent = interfaces::msg::SafetyEvent;
+using SafetyHeartbeat = interfaces::msg::SafetyHeartbeat;
+using SafetyState = interfaces::msg::SafetyState;
 
 uint8_t wire_state(safety_manager::core::State state) {
   using State = safety_manager::core::State;
