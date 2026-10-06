@@ -110,32 +110,33 @@ StatusPanel::StatusPanel(QWidget *parent) : QWidget(parent)
     goals->addWidget(error_);
     body->addWidget(goalArea_);
 
-    auto *toggle = new QPushButton(QStringLiteral("▸ 상세 정보"));
-    toggle->setObjectName(QStringLiteral("NavigationDetailsButton"));
-    toggle->setCheckable(true);
-    toggle->setProperty("size", "sm");
-    body->addWidget(toggle);
+    body->addWidget(new HLine);
     auto *details = new QWidget;
-    auto *detailLayout = new QVBoxLayout(details);
+    details->setObjectName(QStringLiteral("NavigationDetails"));
+    auto *detailLayout = new QGridLayout(details);
     detailLayout->setContentsMargins(0, 0, 0, 0);
-    const auto add = [detailLayout](const QString &title, const char *name) {
-        detailLayout->addWidget(sectionLabel(title));
+    detailLayout->setHorizontalSpacing(metrics::s3);
+    detailLayout->setVerticalSpacing(metrics::s1);
+    detailLayout->setColumnStretch(0, 1);
+    detailLayout->setColumnStretch(1, 1);
+    const auto add = [detailLayout](const QString &title, const char *name,
+                                    int row, int column, int span = 1) {
+        detailLayout->addWidget(sectionLabel(title), row, column, 1, span);
         auto *value = readout();
         value->setObjectName(QLatin1String(name));
+        value->setTextFormat(Qt::PlainText);
         value->setWordWrap(true);
-        detailLayout->addWidget(value);
+        detailLayout->addWidget(value, row + 1, column, 1, span);
         return value;
     };
-    pose_ = add(QStringLiteral("현재 위치"), "NavigationCurrentPose");
-    velocity_ = add(QStringLiteral("실제 속도 · 선속도 / 각속도"), "NavigationActualVelocity");
-    elapsed_ = add(QStringLiteral("경과 시간"), "NavigationElapsed");
-    recoveries_ = add(QStringLiteral("복구 횟수"), "NavigationRecoveries");
+    pose_ = add(QStringLiteral("현재 위치"), "NavigationCurrentPose", 0, 0, 2);
+    detailLayout->setRowMinimumHeight(2, metrics::s1);
+    linearVelocity_ = add(QStringLiteral("실제 선속도"), "NavigationLinearVelocity", 3, 0);
+    angularVelocity_ = add(QStringLiteral("실제 각속도"), "NavigationAngularVelocity", 3, 1);
+    detailLayout->setRowMinimumHeight(5, metrics::s1);
+    elapsed_ = add(QStringLiteral("경과 시간"), "NavigationElapsed", 6, 0);
+    recoveries_ = add(QStringLiteral("복구 횟수"), "NavigationRecoveries", 6, 1);
     body->addWidget(details);
-    details->hide();
-    connect(toggle, &QPushButton::toggled, this, [toggle, details](bool on) {
-        details->setVisible(on);
-        toggle->setText(on ? QStringLiteral("▾ 상세 정보") : QStringLiteral("▸ 상세 정보"));
-    });
     setTelemetry({}, false);
 }
 
@@ -161,8 +162,10 @@ void StatusPanel::setTelemetry(const robot::Telemetry &tm, bool connected)
     recoveries_->setText(progress && tm.navRecoveries >= 0 ? QString::number(tm.navRecoveries) : QStringLiteral("—"));
     pose_->setText(connected && tm.poseFresh ? QStringLiteral("X %1 m  ·  Y %2 m  ·  %3°")
         .arg(tm.x, 0, 'f', 2).arg(tm.y, 0, 'f', 2).arg(qRadiansToDegrees(tm.theta), 0, 'f', 1) : QStringLiteral("—"));
-    velocity_->setText(connected && tm.poseFresh ? formatMetric(tm.speed, QStringLiteral("m/s"), 2) +
-        QStringLiteral("  /  ") + formatMetric(tm.angularSpeed, QStringLiteral("rad/s"), 2) : QStringLiteral("—"));
+    linearVelocity_->setText(formatMetric(connected && tm.poseFresh ? tm.speed : missing,
+                                         QStringLiteral("m/s"), 2));
+    angularVelocity_->setText(formatMetric(connected && tm.poseFresh ? tm.angularSpeed : missing,
+                                          QStringLiteral("rad/s"), 2));
 }
 
 void StatusPanel::setGoalState(const QString &state, const QVariantMap &goal, bool draft,

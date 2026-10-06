@@ -382,8 +382,11 @@ QSplitter::handle:vertical   { height: @s3; }
 #NavigationDistance, #NavigationEta {
     font-family: @mono; font-size: @fsLg; font-weight: 600;
 }
-#NavigationCurrentPose, #NavigationActualVelocity, #NavigationElapsed, #NavigationRecoveries {
-    font-family: @mono; font-size: @fsSm;
+#NavigationCurrentPose {
+    font-family: @mono; color: @text; font-size: @fsSm;
+}
+#NavigationLinearVelocity, #NavigationAngularVelocity, #NavigationElapsed, #NavigationRecoveries {
+    font-family: @mono; color: @text; font-size: @fsMd; font-weight: 500;
 }
 #NavigationUnavailableReason { color: @textMute; font-size: @fsSm; }
 #NavigationError { color: @danger; font-size: @fsSm; }

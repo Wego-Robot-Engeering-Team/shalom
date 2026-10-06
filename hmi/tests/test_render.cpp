@@ -322,6 +322,86 @@ private slots:
         QCOMPARE(state->text(), QStringLiteral("안전 오류"));
     }
 
+    void navigationDetailsAreAlwaysVisible_data()
+    {
+        QTest::addColumn<QString>("themeName");
+        QTest::addColumn<int>("width");
+        QTest::newRow("light-narrow") << QStringLiteral("light") << 380;
+        QTest::newRow("light-wide") << QStringLiteral("light") << 430;
+        QTest::newRow("dark-narrow") << QStringLiteral("dark") << 380;
+    }
+
+    void navigationDetailsAreAlwaysVisible()
+    {
+        QFETCH(QString, themeName);
+        QFETCH(int, width);
+        theme::setTheme(themeName);
+        qApp->setStyleSheet(theme::buildQss());
+        ui::StatusPanel panel;
+        panel.setActions(false, false, false, false, {});
+        panel.setGoalState(QStringLiteral("idle"), {}, false, false, false, {}, {});
+        panel.resize(width, panel.sizeHint().height());
+        panel.show();
+        QCoreApplication::processEvents();
+
+        QVERIFY(!panel.findChild<QPushButton *>(QStringLiteral("NavigationDetailsButton")));
+        auto *details = panel.findChild<QWidget *>(QStringLiteral("NavigationDetails"));
+        auto *pose = panel.findChild<QLabel *>(QStringLiteral("NavigationCurrentPose"));
+        auto *linear = panel.findChild<QLabel *>(QStringLiteral("NavigationLinearVelocity"));
+        auto *angular = panel.findChild<QLabel *>(QStringLiteral("NavigationAngularVelocity"));
+        auto *elapsed = panel.findChild<QLabel *>(QStringLiteral("NavigationElapsed"));
+        auto *recoveries = panel.findChild<QLabel *>(QStringLiteral("NavigationRecoveries"));
+        QVERIFY(details && pose && linear && angular && elapsed && recoveries);
+        QVERIFY(details->isVisible());
+
+        robot::Telemetry tm;
+        tm.poseFresh = tm.navFresh = true;
+        tm.x = -12.34;
+        tm.y = 56.78;
+        tm.theta = qDegreesToRadians(90.0);
+        tm.speed = 0.27;
+        tm.angularSpeed = -0.45;
+        tm.navElapsed = 18;
+        tm.navRecoveries = 2;
+        panel.setTelemetry(tm, true);
+        QCOMPARE(pose->text(), QStringLiteral("X -12.34 m  ·  Y 56.78 m  ·  90.0°"));
+        QCOMPARE(linear->text(), QStringLiteral("0.27 m/s"));
+        QCOMPARE(angular->text(), QStringLiteral("-0.45 rad/s"));
+        QCOMPARE(elapsed->text(), QStringLiteral("18 s"));
+        QCOMPARE(recoveries->text(), QStringLiteral("2"));
+        QCoreApplication::processEvents();
+
+        QCOMPARE(linear->y(), angular->y());
+        QCOMPARE(elapsed->y(), recoveries->y());
+        QVERIFY(linear->geometry().right() < angular->x());
+        QVERIFY(elapsed->geometry().right() < recoveries->x());
+        QVERIFY(pose->width() > linear->width());
+        for (auto *value : {pose, linear, angular, elapsed, recoveries}) {
+            QVERIFY(value->isVisible());
+            QVERIFY(details->rect().contains(value->geometry()));
+        }
+        QVERIFY(!panel.grab().isNull());
+
+        panel.setMode(QStringLiteral("manual"), false);
+        panel.setGoalState(QStringLiteral("idle"), {}, false, false, false, {}, {});
+        QVERIFY(details->isVisible());
+        QVERIFY(pose->isVisible() && linear->isVisible() && angular->isVisible());
+        panel.setMode(QStringLiteral("auto"), false);
+        QVERIFY(details->isVisible());
+
+        tm.poseFresh = tm.navFresh = false;
+        panel.setTelemetry(tm, true);
+        for (auto *value : {pose, linear, angular, elapsed, recoveries})
+            QCOMPARE(value->text(), QStringLiteral("—"));
+        tm.poseFresh = tm.navFresh = true;
+        panel.setTelemetry(tm, false);
+        for (auto *value : {pose, linear, angular, elapsed, recoveries})
+            QCOMPARE(value->text(), QStringLiteral("—"));
+        QVERIFY(details->isVisible());
+        theme::setTheme(QStringLiteral("light"));
+        qApp->setStyleSheet(theme::buildQss());
+    }
+
 
     void goalResponseSettlesFastTerminalReports_data()
     {
