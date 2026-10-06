@@ -36,7 +36,7 @@ def _prepare_docking(context, *_args, **_kwargs):
 
     runtime = tempfile.TemporaryDirectory(prefix="docking_")
     try:
-        source = Path(get_package_share_directory("robot_bringup")) / "navigation/config/nav2.yaml"
+        source = Path(get_package_share_directory("navigation")) / "config/nav2.yaml"
         params = generate_nav2_config(
             source, LaunchConfiguration("map").perform(context), runtime.name,
         )
@@ -48,7 +48,7 @@ def _prepare_docking(context, *_args, **_kwargs):
         runtime.cleanup()
         return []
 
-    get_logger("robot_bringup.navigation").info(f"생성된 도킹 DB 설정: {params}")
+    get_logger("navigation").info(f"생성된 도킹 DB 설정: {params}")
     return [
         SetLaunchConfiguration("nav2_params", str(params)),
         RegisterEventHandler(OnShutdown(on_shutdown=cleanup)),
@@ -59,7 +59,7 @@ def _resolve_map(context, *_args, **_kwargs):
     """Validate an explicitly selected map path before nodes start."""
     raw = LaunchConfiguration("map").perform(context).strip()
     if not raw:
-        get_logger("robot_bringup.navigation").warning(
+        get_logger("navigation").warning(
             "저장된 지도 경로가 없습니다. 지도 없이 SLAM으로 시작합니다.")
         return [SetLaunchConfiguration("map", "")]
 
@@ -79,8 +79,8 @@ def _resolve_map(context, *_args, **_kwargs):
 
 
 def generate_launch_description():
-    pkg = FindPackageShare("robot_bringup")
-    config = PathJoinSubstitution([pkg, "navigation", "config"])
+    pkg = FindPackageShare("navigation")
+    config = PathJoinSubstitution([pkg, "config"])
     lidar_slam = FindPackageShare("lidar_slam")
     kiss_icp = FindPackageShare("kiss_icp")
     nav2_bringup = FindPackageShare("nav2_bringup")

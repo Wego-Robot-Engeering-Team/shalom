@@ -26,12 +26,6 @@ PointCloud2
 
 ## 실행
 
-```bash
-ros2 launch lidar_slam ground_slam.launch.py \
-  pointcloud_topic:=/b2/points \
-  base_frame:=base_link
-```
-
 로봇별 값은 파라미터 파일로 넘긴다. 특히 `gseg3d`의 `robot_frame`과
 `lidar_to_ground`(LiDAR 장착 높이)는 반드시 맞춰야 한다.
 
@@ -40,7 +34,7 @@ ros2 launch lidar_slam ground_slam.launch.py \
 부르는 쪽이 준다.
 
 ```bash
-CFG=$(ros2 pkg prefix robot_bringup)/share/robot_bringup/navigation/config
+CFG=$(ros2 pkg prefix navigation)/share/navigation/config
 
 ros2 launch lidar_slam ground_slam.launch.py \
   pointcloud_topic:=/b2/points \
@@ -49,7 +43,7 @@ ros2 launch lidar_slam ground_slam.launch.py \
   slam_params_file:=$CFG/slam_toolbox.yaml
 ```
 
-보통은 이렇게 부를 일이 없다. `navigation.launch.py`가 세 파일을 모두 넘긴다.
+통합 실행은 `ros2 launch navigation navigation.launch.py`이며 세 설정 파일을 모두 넘긴다.
 
 저장된 맵으로 위치추정만 할 때는 `slam:=false`로 slam_toolbox를 끈다.
 
@@ -60,7 +54,7 @@ src/ground_filter.cpp          지역 지면 기준 밴드 필터 (C++ 노드)
 launch/ground_slam.launch.py   지면분리 · 필터 · 스캔변환 · SLAM 조립
 ```
 
-설정은 `../config/` 에 있다 (robot_bringup 이 설치한다).
+설정은 `../navigation/config/`에 있으며 navigation 패키지가 설치한다.
 
 ## 튜닝
 

@@ -55,8 +55,10 @@ gate만 `/cmd_vel`을 발행한다. 각 입력의 lease는 300 ms이고 우선�
 않게 한다. 동시에 Mission Manager에 manual takeover를 전달해 현재 BT를 안전하게
 pause한다. teleop deadman 또는 lease가 끝나면 teleop source는 만료된다.
 
-`safety_manager`·`motion_interlock_manager`·`safety_gate`·`teleop_bridge`도
-`control.launch.py`에서 함께 기동한다. Mission과 Safety 런타임은 각 패키지의
+`system.launch.py`는 `mission_manager`·`safety_manager`·`motion_interlock_manager`·
+`base_motion_monitor`를 기동한다. `control.launch.py`는 mux·`safety_gate`,
+`communication.launch.py`는 외부 통신을 기동한다. `runtime.launch.py`가 세 구성을
+내비게이션과 함께 실행한다. Mission과 Safety 런타임은 각 패키지의
 단일 목표 FSM을 사용한다. Mission Manager는 독립 프로세스로 실행되며 Mission,
 Safety, Motion Authority 경계는 `interfaces`의 typed topic/service를 사용한다.
 `base_motion_monitor`는 최종 명령과 B2 odometry를 결합해 `/motion/stopped`를

@@ -42,7 +42,7 @@ bt_navigator:
   ros__parameters:
     robot_base_frame: base_link
     odom_topic: kiss/odometry
-    default_nav_to_pose_bt_xml: $(find-pkg-share mission_manager)/behavior_trees/navigate_to_pose_w_replanning_and_recovery.xml
+    default_nav_to_pose_bt_xml: $(find-pkg-share navigation)/behavior_trees/navigate_to_pose_w_replanning_and_recovery.xml
 
 # ---------------------------------------------------------------------------
 # Velocity ceiling
