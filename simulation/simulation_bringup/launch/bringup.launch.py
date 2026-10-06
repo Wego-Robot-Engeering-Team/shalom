@@ -7,14 +7,13 @@ from pathlib import Path
 
 from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, GroupAction, IncludeLaunchDescription,
-                            OpaqueFunction, ResetLaunchConfigurations, SetEnvironmentVariable)
+                            ResetLaunchConfigurations, SetEnvironmentVariable)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, OrSubstitution, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from ament_index_python.packages import get_package_share_directory
-from robot_bringup.map_selection import resolve_default_map
 
 
 def _writable_maps_dir():
@@ -33,7 +32,7 @@ def generate_launch_description():
     robot = FindPackageShare("robot_bringup")
     mujoco = FindPackageShare("b2_mujoco")
 
-    platform = IncludeLaunchDescription(
+    platform = GroupAction(actions=[IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([mujoco, "launch", "b2_sim.launch.py"])),
         launch_arguments={
             "viewer": LaunchConfiguration("viewer"),
@@ -42,7 +41,7 @@ def generate_launch_description():
             "front_camera": OrSubstitution(
                 LaunchConfiguration("front_camera"), LaunchConfiguration("apriltag")),
         }.items(),
-    )
+    )], scoped=True)
     # Do not share generic child arguments such as params_file with Nav2 or
     # ground segmentation. The detector gets its own defaults and sim clock.
     apriltag = GroupAction(
@@ -54,20 +53,54 @@ def generate_launch_description():
         scoped=True,
         condition=IfCondition(LaunchConfiguration("apriltag")),
     )
-    runtime = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(PathJoinSubstitution([robot, "launch", "runtime.launch.py"])),
+    # Navigation chooses the startup map before communication is configured.
+    navigation = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare("navigation"), "launch", "navigation.launch.py",
+        ])),
         launch_arguments={
             "use_sim_time": "true",
-            "pointcloud_topic": LaunchConfiguration("pointcloud_topic"),
-            "base_output_topic": "/cmd_vel",
-            "base_odometry_topic": "/b2/odom_gt",
-            "teleop_allowed_peer": "127.0.0.1",
             **{name: LaunchConfiguration(name) for name in (
-                "map", "slam", "nav2", "robot_id", "robot_name", "maps_dir",
-                "robot_data_dir", "bridge_config", "rviz", "rviz_profile",
+                "pointcloud_topic", "maps_dir", "map", "slam", "nav2",
             )},
         }.items(),
     )
+    system = GroupAction(actions=[IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([robot, "launch", "system.launch.py"])),
+        launch_arguments={
+            "use_sim_time": "true",
+            "base_output_topic": "/cmd_vel",
+            "base_odometry_topic": "/b2/odom_gt",
+            **{name: LaunchConfiguration(name) for name in (
+                "mission_manager_config", "require_external_heartbeat",
+            )},
+        }.items(),
+    )], scoped=True)
+    control = GroupAction(actions=[IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([robot, "launch", "control.launch.py"])),
+        launch_arguments={
+            "use_sim_time": "true",
+            "base_output_topic": "/cmd_vel",
+            "twist_mux_config": LaunchConfiguration("twist_mux_config"),
+        }.items(),
+    )], scoped=True)
+    communication = GroupAction(actions=[IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([robot, "launch", "communication.launch.py"])),
+        launch_arguments={
+            "use_sim_time": "true",
+            "teleop_allowed_peer": "127.0.0.1",
+            **{name: LaunchConfiguration(name) for name in (
+                "robot_id", "robot_name", "maps_dir", "robot_data_dir", "map", "bridge",
+                "bridge_config", "estop_port", "teleop_udp_port",
+            )},
+        }.items(),
+    )], scoped=True)
+    rviz = GroupAction(actions=[IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([robot, "launch", "rviz.launch.py"])),
+        launch_arguments={
+            "use_sim_time": "true", "profile": LaunchConfiguration("rviz_profile"),
+        }.items(),
+    )], scoped=True, condition=IfCondition(LaunchConfiguration("rviz")))
     # The bridge calls the same B2 posture services for hardware and MuJoCo.
     # This adapter is the simulator-side implementation of that platform
     # contract; hmi_bridge has no simulation fallback.
@@ -107,6 +140,16 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument("slam", default_value="true"),
         DeclareLaunchArgument("nav2", default_value="true"),
+        DeclareLaunchArgument("mission_manager_config", default_value=PathJoinSubstitution([
+            robot, "config", "mission_manager.yaml",
+        ])),
+        DeclareLaunchArgument("twist_mux_config", default_value=PathJoinSubstitution([
+            robot, "config", "twist_mux.yaml",
+        ])),
+        DeclareLaunchArgument("require_external_heartbeat", default_value="true"),
+        DeclareLaunchArgument("bridge", default_value="true"),
+        DeclareLaunchArgument("estop_port", default_value="9091"),
+        DeclareLaunchArgument("teleop_udp_port", default_value="9090"),
         DeclareLaunchArgument("viewer", default_value="true"),
         DeclareLaunchArgument(
             "front_camera", default_value="false",
@@ -122,6 +165,6 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "bridge_config",
             default_value=PathJoinSubstitution([sim, "config", "bridge_sim.yaml"])),
-        OpaqueFunction(function=resolve_default_map),
-        platform, apriltag, posture_adapter, runtime,
+        # Navigation validates the map before MuJoCo or its adapters start.
+        navigation, system, control, communication, rviz, platform, apriltag, posture_adapter,
     ])

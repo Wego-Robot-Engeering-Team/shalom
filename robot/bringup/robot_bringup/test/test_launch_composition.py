@@ -11,8 +11,9 @@ import xml.etree.ElementTree as ET
 
 import pytest
 import yaml
-from launch import LaunchContext
-from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction
+from launch import LaunchContext, LaunchDescription, LaunchService
+from launch.actions import (DeclareLaunchArgument, GroupAction, IncludeLaunchDescription,
+                            OpaqueFunction, SetLaunchConfiguration)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.utilities import normalize_to_list_of_substitutions, perform_substitutions
 from launch_ros.actions import Node
@@ -80,9 +81,55 @@ def node_id(node, context):
     return node.node_package, resolve(context, node.node_executable)
 
 
+def nodes(entities, context):
+    for entity in entities:
+        if entity.condition is not None and not entity.condition.evaluate(context):
+            continue
+        if isinstance(entity, Node):
+            yield entity
+        elif isinstance(entity, GroupAction):
+            yield from nodes(entity.get_sub_entities(), context)
+
+
+def resolve_navigation(context, monkeypatch):
+    module = load("navigation", "navigation.launch.py", monkeypatch)
+    for action in module._resolve_map(context):
+        action.execute(context)
+
+
+def walk_launch(entities, context, monkeypatch, started, on_node=None):
+    """Execute launch wiring in order, recording nodes without starting them."""
+    for entity in entities:
+        if entity.condition is not None and not entity.condition.evaluate(context):
+            continue
+        if isinstance(entity, Node):
+            started.append({"node": node_id(entity, context),
+                            "parameters": evaluate_parameters(context, entity._Node__parameters)})
+            if on_node:
+                on_node(entity, context)
+        elif isinstance(entity, IncludeLaunchDescription):
+            path = Path(resolve(context, entity.launch_description_source.declared_location))
+            package = next((name for name, share in SHARES.items() if path.parent == share / "launch"), None)
+            if package is None:
+                started.append({"external_launch": path.name})
+                continue
+            context.launch_configurations.update(forwarded(entity, context))
+            module = load(package, path.name, monkeypatch)
+            if package == "navigation":
+                # Dock DB generation has separate package tests; use a marker to
+                # check that its launch configuration stays navigation-local.
+                monkeypatch.setattr(module, "_prepare_docking", lambda _context: [
+                    SetLaunchConfiguration("nav2_params", "/navigation/generated.yaml"),
+                ])
+            walk_launch(module.generate_launch_description().entities, context, monkeypatch, started, on_node)
+        else:
+            children = entity.execute(context)
+            if children:
+                walk_launch(children, context, monkeypatch, started, on_node)
+
+
 @pytest.fixture(autouse=True)
 def source_lookup(monkeypatch):
-    monkeypatch.syspath_prepend(str(SHARES["robot_bringup"]))
     def share(self, context):
         package = perform_substitutions(context, self.package)
         return str(SHARES.get(package, Path("/test/share") / package))
@@ -103,30 +150,35 @@ def test_launch_roles_are_separate(monkeypatch, filename, expected):
     ("robot_bringup", "false", "/b2/odom", "", "false"),
     ("simulation_bringup", "true", "/b2/odom_gt", "127.0.0.1", "true"),
 ])
-def test_entrypoints_share_runtime_and_preserve_platform_defaults(
+def test_entrypoints_include_subsystems_directly_and_preserve_defaults(
     monkeypatch, package, time, odometry, peer, rviz,
 ):
     description = load(package, "bringup.launch.py", monkeypatch).generate_launch_description()
     context = configure(description)
     children = includes(description.entities, context)
-    assert "runtime.launch.py" in children
-    assert "navigation.launch.py" not in children
-    assert "control.launch.py" not in children
-    arguments = forwarded(children["runtime.launch.py"], context)
-    assert arguments["use_sim_time"] == time
-    assert arguments["base_odometry_topic"] == odometry
-    assert arguments["base_output_topic"] == "/cmd_vel"
-    assert arguments["teleop_allowed_peer"] == peer
-    assert arguments["rviz"] == rviz
-    assert arguments["map"] == "auto"
+    assert "runtime.launch.py" not in children
+    assert {"navigation.launch.py", "system.launch.py", "control.launch.py",
+            "communication.launch.py"} <= children.keys()
+    assert context.launch_configurations["rviz"] == rviz
+    navigation = forwarded(children["navigation.launch.py"], context)
+    system = forwarded(children["system.launch.py"], context)
+    control = forwarded(children["control.launch.py"], context)
+    communication = forwarded(children["communication.launch.py"], context)
+    for arguments in (navigation, system, control, communication):
+        assert arguments["use_sim_time"] == time
+    assert system["base_odometry_topic"] == odometry
+    assert system["base_output_topic"] == control["base_output_topic"] == "/cmd_vel"
+    assert communication["teleop_allowed_peer"] == peer
+    assert navigation["map"] == communication["map"] == "auto"
+    assert navigation["maps_dir"] == communication["maps_dir"]
     if package == "robot_bringup":
         assert "drivers.launch.py" in children
         metadata = yaml.safe_load((SHARES[package] / "config/robot_metadata.yaml").read_text())
-        assert arguments["robot_id"] == metadata["robot"]["id"]
+        assert communication["robot_id"] == metadata["robot"]["id"]
     else:
         assert "b2_sim.launch.py" in children
-        assert arguments["robot_id"] == "SIM-B2-1"
-        assert arguments["bridge_config"].endswith("config/bridge_sim.yaml")
+        assert communication["robot_id"] == "SIM-B2-1"
+        assert communication["bridge_config"].endswith("config/bridge_sim.yaml")
 
 
 @pytest.mark.parametrize("package", ["robot_bringup", "simulation_bringup"])
@@ -134,34 +186,35 @@ def test_map_preflight_runs_before_drivers(monkeypatch, tmp_path, package):
     description = load(package, "bringup.launch.py", monkeypatch).generate_launch_description()
     context = configure(description, maps_dir=str(tmp_path))
     (tmp_path / "default_map.json").write_text('{"map_id": "missing"}')
-    actions = description.entities
-    preflight = next(action for action in actions if isinstance(action, OpaqueFunction))
-    first_process = next(action for action in actions if isinstance(action, (IncludeLaunchDescription, Node)))
-    assert actions.index(preflight) < actions.index(first_process)
+    assert not any(isinstance(action, OpaqueFunction) for action in description.entities)
+    started = []
     with pytest.raises(RuntimeError):
-        preflight.execute(context)
+        walk_launch(description.entities, context, monkeypatch, started)
+    assert started == []
 
 
-@pytest.mark.parametrize("time,odometry", [("false", "/b2/odom"), ("true", "/b2/odom_gt")])
-def test_runtime_has_each_endpoint_once_and_preserves_parameters(monkeypatch, time, odometry):
-    module = load("robot_bringup", "runtime.launch.py", monkeypatch)
+@pytest.mark.parametrize("package,time,odometry,peer", [
+    ("robot_bringup", "false", "/b2/odom", "192.0.2.10"),
+    ("simulation_bringup", "true", "/b2/odom_gt", "127.0.0.1"),
+])
+def test_bringup_has_each_endpoint_once_and_preserves_parameters(monkeypatch, package, time, odometry, peer):
+    module = load(package, "bringup.launch.py", monkeypatch)
     description = module.generate_launch_description()
-    context = configure(description, robot_id="TEST-42", use_sim_time=time,
-                        base_odometry_topic=odometry, teleop_allowed_peer="192.0.2.10",
+    context = configure(description, robot_id="TEST-42", teleop_allowed_peer=peer,
                         map="none", rviz="true")
-    for action in module._resolve_default_map(context):
-        action.execute(context)
+    resolve_navigation(context, monkeypatch)
     children = includes(description.entities, context)
-    assert set(children) == {"navigation.launch.py", "system.launch.py", "control.launch.py",
-                             "communication.launch.py", "rviz.launch.py"}
+    assert {"navigation.launch.py", "system.launch.py", "control.launch.py",
+            "communication.launch.py", "rviz.launch.py"} <= children.keys()
     collected = []
     for filename, child in children.items():
+        if filename not in {"navigation.launch.py", "system.launch.py", "control.launch.py",
+                            "communication.launch.py", "rviz.launch.py"}:
+            continue
         package = "navigation" if filename == "navigation.launch.py" else "robot_bringup"
         leaf = load(package, filename, monkeypatch).generate_launch_description()
         leaf_context = configure(leaf, **forwarded(child, context))
-        for node in leaf.entities:
-            if not isinstance(node, Node):
-                continue
+        for node in nodes(leaf.entities, leaf_context):
             collected.append(node_id(node, leaf_context))
             params = evaluate_parameters(leaf_context, node._Node__parameters)
             assert params[-1]["use_sim_time"] is (time == "true")
@@ -174,7 +227,7 @@ def test_runtime_has_each_endpoint_once_and_preserves_parameters(monkeypatch, ti
                 assert params[-1]["odometry_topic"] == odometry
             if node.node_package == "teleop_bridge":
                 assert params[-1]["robot_id"] == "TEST-42"
-                assert params[-1]["allowed_peer"] == "192.0.2.10"
+                assert params[-1]["allowed_peer"] == peer
                 assert params[-1]["output_topic"] == "/motion/teleop/cmd_vel"
         if filename == "communication.launch.py":
             tcp = includes(leaf.entities, leaf_context)["bridge.launch.py"]
@@ -206,11 +259,14 @@ def test_bridge_disabled_preserves_udp_and_system_safety(monkeypatch):
     assert [entity.node_package for entity in description.entities if isinstance(entity, Node)] == ["teleop_bridge"]
 
 
-def test_runtime_scopes_do_not_leak_child_configuration(monkeypatch):
-    description = load("robot_bringup", "runtime.launch.py", monkeypatch).generate_launch_description()
+@pytest.mark.parametrize("package", ["robot_bringup", "simulation_bringup"])
+def test_bringup_scopes_do_not_leak_child_configuration(monkeypatch, package):
+    description = load(package, "bringup.launch.py", monkeypatch).generate_launch_description()
     context = configure(description, robot_id="TEST", map="none", rviz="true")
     for group in description.entities:
         if not isinstance(group, GroupAction):
+            continue
+        if group.condition is not None and not group.condition.evaluate(context):
             continue
         baseline = dict(context.launch_configurations)
         for action in group.execute(context):
@@ -224,7 +280,7 @@ def test_runtime_scopes_do_not_leak_child_configuration(monkeypatch):
 
 @pytest.mark.parametrize("mode", ["auto", "none", "", "explicit"])
 def test_shared_map_resolution(monkeypatch, tmp_path, mode):
-    module = load("robot_bringup", "runtime.launch.py", monkeypatch)
+    module = load("navigation", "navigation.launch.py", monkeypatch)
     directory = tmp_path / "maps" / "inspection"
     directory.mkdir(parents=True)
     map_file = directory / "map.yaml"
@@ -233,27 +289,192 @@ def test_shared_map_resolution(monkeypatch, tmp_path, mode):
     requested = str(map_file) if mode == "explicit" else mode
     context = LaunchContext()
     context.launch_configurations.update(map=requested, maps_dir=str(directory.parent))
-    for action in module._resolve_default_map(context):
+    for action in module._resolve_map(context):
         action.execute(context)
     assert context.launch_configurations["map"] == (str(map_file) if mode in ("auto", "explicit") else "")
 
 
-@pytest.mark.parametrize("map_id", ["../outside", "missing", 1, None, "nested/map"])
-def test_invalid_default_map_fails_before_runtime(monkeypatch, tmp_path, map_id):
-    module = load("robot_bringup", "runtime.launch.py", monkeypatch)
+@pytest.mark.parametrize("map_id", ["../outside", "missing", 1, None, "nested/map", ".", "..", True])
+def test_invalid_default_map_fails_before_nodes(monkeypatch, tmp_path, map_id):
+    module = load("navigation", "navigation.launch.py", monkeypatch)
     (tmp_path / "default_map.json").write_text(json.dumps({"map_id": map_id}))
     context = LaunchContext()
     context.launch_configurations.update(map="auto", maps_dir=str(tmp_path))
     with pytest.raises(RuntimeError):
-        module._resolve_default_map(context)
+        module._resolve_map(context)
 
 
 def test_missing_default_map_starts_mapless(monkeypatch, tmp_path):
-    module = load("robot_bringup", "runtime.launch.py", monkeypatch)
+    module = load("navigation", "navigation.launch.py", monkeypatch)
     context = LaunchContext()
     context.launch_configurations.update(map="auto", maps_dir=str(tmp_path))
-    for action in module._resolve_default_map(context):
+    for action in module._resolve_map(context):
         action.execute(context)
+    assert context.launch_configurations["map"] == ""
+
+
+@pytest.mark.parametrize("document", ["{}", "[]", "null", "{bad json"])
+def test_malformed_default_setting_is_rejected(monkeypatch, tmp_path, document):
+    module = load("navigation", "navigation.launch.py", monkeypatch)
+    (tmp_path / "default_map.json").write_text(document)
+    context = LaunchContext()
+    context.launch_configurations.update(map="auto", maps_dir=str(tmp_path))
+    with pytest.raises(RuntimeError, match="invalid default map setting"):
+        module._resolve_map(context)
+
+
+@pytest.mark.parametrize("mode", ["none", "", "explicit"])
+def test_explicit_selection_does_not_read_default(monkeypatch, tmp_path, mode):
+    module = load("navigation", "navigation.launch.py", monkeypatch)
+    (tmp_path / "default_map.json").write_text("{bad json")
+    selected = tmp_path / "map.yaml"
+    selected.write_text("image: map.pgm\n")
+    context = LaunchContext()
+    context.launch_configurations.update(map=str(selected) if mode == "explicit" else mode,
+                                         maps_dir=str(tmp_path))
+    for action in module._resolve_map(context):
+        action.execute(context)
+    assert context.launch_configurations["map"] == (str(selected) if mode == "explicit" else "")
+
+
+@pytest.mark.parametrize("requested", ["relative/map.yaml", "/missing/map.yaml", "wrong_filename"])
+def test_invalid_explicit_map_is_rejected(monkeypatch, tmp_path, requested):
+    module = load("navigation", "navigation.launch.py", monkeypatch)
+    if requested == "wrong_filename":
+        selected = tmp_path / "other.yaml"
+        selected.write_text("image: map.pgm\n")
+        requested = str(selected)
+    context = LaunchContext()
+    context.launch_configurations.update(map=requested, maps_dir=str(tmp_path))
+    with pytest.raises(RuntimeError):
+        module._resolve_map(context)
+
+
+@pytest.mark.parametrize("package", ["robot_bringup", "simulation_bringup"])
+@pytest.mark.parametrize("mode", ["auto", "explicit", "none", "empty-default", "missing-default"])
+def test_startup_map_matches_navigation_and_bridge(monkeypatch, tmp_path, package, mode):
+    directory = tmp_path / "inspection"
+    directory.mkdir()
+    selected = directory / "map.yaml"
+    selected.write_text("image: map.pgm\n")
+    setting = tmp_path / "default_map.json"
+    if mode != "missing-default":
+        setting.write_text(json.dumps({"map_id": "" if mode == "empty-default" else "inspection"}))
+    requested = str(selected) if mode == "explicit" else "none" if mode == "none" else "auto"
+    description = load(package, "bringup.launch.py", monkeypatch).generate_launch_description()
+    context = configure(description, map=requested, maps_dir=str(tmp_path))
+    expected = str(selected) if mode in ("auto", "explicit") else ""
+    started = []
+    walk_launch(description.entities, context, monkeypatch, started)
+    server = next(item for item in started if item.get("node") == ("nav2_map_server", "map_server"))
+    bridge = next(item for item in started if item.get("node") == ("hmi_bridge", "hmi_bridge_node"))
+    manager = next(item for item in started if item.get("node") == ("nav2_lifecycle_manager", "lifecycle_manager"))
+    assert server["parameters"][-1]["yaml_filename"] == expected
+    assert bridge["parameters"][-1]["initial_map"] == expected
+    assert bridge["parameters"][-1]["maps_dir"] == str(tmp_path)
+    assert manager["parameters"][-1]["autostart"] is bool(expected)
+    assert "nav2_params" not in context.launch_configurations
+
+
+@pytest.mark.parametrize("package", ["robot_bringup", "simulation_bringup"])
+def test_default_is_read_once_even_if_setting_changes_during_startup(monkeypatch, tmp_path, package):
+    for name in ("first", "second"):
+        directory = tmp_path / name
+        directory.mkdir()
+        (directory / "map.yaml").write_text("image: map.pgm\n")
+    setting = tmp_path / "default_map.json"
+    setting.write_text('{"map_id": "first"}')
+    reads = []
+    original = Path.read_text
+
+    def read(path, *args, **kwargs):
+        if path == setting:
+            reads.append(path)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read)
+    description = load(package, "bringup.launch.py", monkeypatch).generate_launch_description()
+    context = configure(description, robot_id="TEST", maps_dir=str(tmp_path))
+
+    def change_setting(node, _context):
+        if node.node_package == "nav2_map_server":
+            setting.write_text('{"map_id": "second"}')
+
+    started = []
+    walk_launch(description.entities, context, monkeypatch, started, change_setting)
+    bridge = next(item for item in started if item.get("node") == ("hmi_bridge", "hmi_bridge_node"))
+    assert bridge["parameters"][-1]["initial_map"] == str(tmp_path / "first/map.yaml")
+    assert reads == [setting]
+
+
+@pytest.mark.parametrize("package", ["robot_bringup", "simulation_bringup"])
+def test_launch_service_forwards_resolved_map_and_dds_before_nodes(monkeypatch, tmp_path, package):
+    directory = tmp_path / "inspection"
+    directory.mkdir()
+    selected = directory / "map.yaml"
+    selected.write_text("image: map.pgm\n")
+    (tmp_path / "default_map.json").write_text('{"map_id": "inspection"}')
+
+    def description(source, context):
+        path = Path(resolve(context, source.declared_location))
+        package = next((name for name, share in SHARES.items() if path.parent == share / "launch"), None)
+        if package is None:
+            return LaunchDescription()
+        module = load(package, path.name, monkeypatch)
+        if package == "navigation":
+            monkeypatch.setattr(module, "_prepare_docking", lambda _context: [
+                SetLaunchConfiguration("nav2_params", "/navigation/generated.yaml"),
+            ])
+        return module.generate_launch_description()
+
+    monkeypatch.setattr(SourceWithLocation, "get_launch_description", description)
+    monkeypatch.setattr(SourceWithLocation, "try_get_launch_description_without_context", lambda self: None)
+    reported = {}
+    domains = []
+
+    def record(node, context):
+        domains.append(context.environment.get("ROS_DOMAIN_ID"))
+        assert context.environment["RMW_IMPLEMENTATION"] == "rmw_cyclonedds_cpp"
+        assert context.environment["CYCLONEDDS_URI"].endswith("/config/cyclonedds.xml")
+        if node.node_package in ("nav2_map_server", "hmi_bridge"):
+            reported[node.node_package] = evaluate_parameters(context, node._Node__parameters)[-1]
+        if node.node_package == "hmi_bridge":
+            assert "nav2_params" not in context.launch_configurations
+        return None
+
+    # Exercise ROS launch's real depth-first action traversal and scope stack,
+    # while replacing all processes with parameter capture.
+    monkeypatch.setattr(Node, "execute", record)
+    bringup = load(package, "bringup.launch.py", monkeypatch).generate_launch_description()
+    service = LaunchService()
+    service.include_launch_description(LaunchDescription([
+        SetLaunchConfiguration("robot_id", "TEST"),
+        SetLaunchConfiguration("domain_id", "37"),
+        SetLaunchConfiguration("maps_dir", str(tmp_path)),
+        bringup,
+    ]))
+    assert service.run() == 0
+    assert reported["nav2_map_server"]["yaml_filename"] == str(selected)
+    assert reported["hmi_bridge"]["initial_map"] == str(selected)
+    assert domains and set(domains) == {"37"}
+
+
+def test_navigation_exports_only_resolved_map(monkeypatch, tmp_path):
+    module = load("navigation", "navigation.launch.py", monkeypatch)
+    description = module.generate_launch_description()
+    context = configure(description, map="none", maps_dir=str(tmp_path), params_file="/parent/params.yaml")
+    for action in module._resolve_map(context):
+        action.execute(context)
+    baseline = dict(context.launch_configurations)
+    group = next(entity for entity in description.entities if isinstance(entity, GroupAction))
+    for action in group.execute(context):
+        if isinstance(action, IncludeLaunchDescription):
+            context.launch_configurations["nav2_params"] = "/child/generated.yaml"
+            context.launch_configurations["params_file"] = "/child/params.yaml"
+            context.launch_configurations["use_sim_time"] = "opposite"
+        elif not isinstance(action, (Node, OpaqueFunction, GroupAction)):
+            action.execute(context)
+    assert context.launch_configurations == baseline
     assert context.launch_configurations["map"] == ""
 
 

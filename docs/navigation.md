@@ -28,7 +28,8 @@ ros2 launch navigation navigation.launch.py pointcloud_topic:=/b2/points
 ```
 
 시뮬 데이터에는 `use_sim_time:=true`, 저장 지도에는 `map:=<map.yaml 절대 경로>`를 지정한다.
-명령 선택·안전 게이트·시스템 관리자·HMI 통신은 공통 `robot_bringup/runtime.launch.py`가 실행한다.
+`map:=auto`가 기본이며 `maps_dir:=<지도 폴더>`의 기본 지도를 사용한다.
+실기·시뮬의 `bringup.launch.py`가 내비게이션·시스템 관리자·명령 선택·안전 게이트·HMI 통신을 직접 실행한다.
 
 ## 지도 전환
 
@@ -45,7 +46,10 @@ ros2 launch navigation navigation.launch.py pointcloud_topic:=/b2/points
 ```
 
 실기·시뮬 모두 `map:=auto`가 기본이며 `maps_dir/default_map.json`의 `map_id`를
-읽는다. 기본 지도 파일이 없거나 ID가 비어 있으면 SLAM으로 시작한다. 명시적으로
+`navigation.launch.py`가 읽고 지도 경로를 검증한다. 선택한 경로는 브리지에도
+전달되어 같은 지도의 웨이포인트·미션을 불러온다.
+기본 지도 설정 파일이 없거나 ID가 비어 있으면 SLAM으로 시작한다. 설정된 지도 파일이
+없거나 설정 형식이 잘못되면 기동을 중단한다. 명시적으로
 SLAM을 선택하려면 `map:=none`을 쓴다. HMI에서 SLAM 중 저장 지도를 고르면
 SLAM을 비활성화하고 map_server·AMCL을 활성화해 해당 지도를 불러온다.
 주행·미션 중에는 전환 요청이 거절된다.

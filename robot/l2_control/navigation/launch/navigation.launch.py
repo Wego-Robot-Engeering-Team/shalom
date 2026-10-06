@@ -3,9 +3,11 @@
 
 """Bring up the navigation stack for either a physical robot or a simulator."""
 
+import json
+from pathlib import Path
+
 from launch import LaunchDescription
 from launch.logging import get_logger
-from pathlib import Path
 
 from launch.actions import (
     DeclareLaunchArgument,
@@ -56,11 +58,27 @@ def _prepare_docking(context, *_args, **_kwargs):
 
 
 def _resolve_map(context, *_args, **_kwargs):
-    """Validate an explicitly selected map path before nodes start."""
+    """Resolve the startup map and expose its path to sibling subsystems."""
     raw = LaunchConfiguration("map").perform(context).strip()
+    if raw == "none":
+        raw = ""
+    elif raw == "auto":
+        maps_dir = Path(LaunchConfiguration("maps_dir").perform(context))
+        setting = maps_dir / "default_map.json"
+        raw = ""
+        if setting.is_file():
+            try:
+                map_id = json.loads(setting.read_text(encoding="utf-8"))["map_id"]
+            except (OSError, KeyError, ValueError, TypeError) as exc:
+                raise RuntimeError(f"invalid default map setting: {setting}") from exc
+            if (not isinstance(map_id, str) or (map_id and (
+                    Path(map_id).name != map_id or map_id in (".", "..") or ".." in map_id))):
+                raise RuntimeError(f"invalid default map id in {setting}")
+            if map_id:
+                raw = str(maps_dir / map_id / "map.yaml")
     if not raw:
         get_logger("navigation").warning(
-            "저장된 지도 경로가 없습니다. 지도 없이 SLAM으로 시작합니다.")
+            "저장된 지도 경로가 없습니다. 지도 없이 시작합니다.")
         return [SetLaunchConfiguration("map", "")]
 
     resolved = Path(raw).expanduser()
@@ -68,7 +86,7 @@ def _resolve_map(context, *_args, **_kwargs):
         raise RuntimeError(
             "map에는 절대 경로의 map.yaml을 지정해야 합니다. "
             "예: map:=/var/lib/shalom/maps/inspection_a/map.yaml "
-            "(지도 없이 시작하려면 map 인자를 생략)"
+            "(지도 없이 시작하려면 map:=none)"
         )
 
     if not resolved.is_file():
@@ -172,11 +190,16 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("use_sim_time", default_value="false"),
         DeclareLaunchArgument("pointcloud_topic", default_value="/b2/points"),
-        DeclareLaunchArgument("map", default_value="",
-                              description="절대 경로의 map.yaml 또는 빈 값"),
+        DeclareLaunchArgument("maps_dir", default_value="/var/lib/shalom/maps"),
+        DeclareLaunchArgument("map", default_value="auto",
+                              description="auto(기본 지도), none(SLAM), 절대 경로의 map.yaml"),
         DeclareLaunchArgument("slam", default_value="true"),
         DeclareLaunchArgument("nav2", default_value="true"),
         OpaqueFunction(function=_resolve_map),
-        OpaqueFunction(function=_prepare_docking, condition=IfCondition(LaunchConfiguration("nav2"))),
-        perception, odometry, map_server, amcl, localisation_manager, nav2,
+        # Only the resolved `map` belongs to the caller's scope. Generated Nav2
+        # parameters and defaults from child launches remain navigation-local.
+        GroupAction(actions=[
+            OpaqueFunction(function=_prepare_docking, condition=IfCondition(LaunchConfiguration("nav2"))),
+            perception, odometry, map_server, amcl, localisation_manager, nav2,
+        ], scoped=True),
     ])

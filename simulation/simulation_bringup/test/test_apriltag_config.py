@@ -68,7 +68,6 @@ def _includes(entities, context):
 
 @pytest.fixture
 def source_package_lookup(monkeypatch):
-    monkeypatch.syspath_prepend(str(PACKAGE_DIR.parents[1] / "robot/bringup/robot_bringup"))
     # Resolve this package to its source tree, even before a colcon installation.
     def package_share(self, context):
         name = perform_substitutions(context, self.package)
@@ -173,7 +172,11 @@ def test_full_bringup_enables_camera_when_detector_is_requested(
     assert camera_enabled == str(front_camera == "true" or apriltag == "true").lower()
 
     detector = includes["apriltag.launch.py"]
-    groups = [entity for entity in description.entities if isinstance(entity, GroupAction)]
+    groups = [
+        entity for entity in description.entities
+        if isinstance(entity, GroupAction)
+        and "apriltag.launch.py" in _includes(entity.get_sub_entities(), context)
+    ]
     assert len(groups) == 1
     assert groups[0].condition.evaluate(context) is (apriltag == "true")
     assert detector.condition is None
@@ -202,7 +205,11 @@ def test_detector_scope_isolates_parameters_but_preserves_dds_environment(
             context.launch_configurations["params_file"] = parent_params_file
         parent_configurations = dict(context.launch_configurations)
         context.environment.update(expected_environment)
-        group = next(entity for entity in description.entities if isinstance(entity, GroupAction))
+        group = next(
+            entity for entity in description.entities
+            if isinstance(entity, GroupAction)
+            and "apriltag.launch.py" in _includes(entity.get_sub_entities(), context)
+        )
         assert group.condition.evaluate(context)
         detector_checked = False
 
