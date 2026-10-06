@@ -28,7 +28,7 @@ private:
     bool safetyFresh_ = false;
     bool safetyMotionPermitted_ = false;
     QLabel *navigation_, *localization_, *target_, *distance_, *eta_, *reason_, *error_;
-    QLabel *pose_, *velocity_, *elapsed_, *recoveries_;
+    QLabel *pose_, *linearVelocity_, *angularVelocity_, *elapsed_, *recoveries_;
     Badge *state_;
     QWidget *goalArea_;
     QPushButton *goal_, *start_, *pause_, *cancel_, *mission_;

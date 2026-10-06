@@ -2,10 +2,6 @@ cmake_minimum_required(VERSION 3.16)
 project(robot_bringup)
 
 find_package(ament_cmake REQUIRED)
-find_package(ament_cmake_python REQUIRED)
-
-ament_python_install_package(${PROJECT_NAME})
-
 # 시스템 전체 실행에 필요한 DDS 설정과 launch는 robot_bringup이 소유한다.
 install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME}
   PATTERN "__pycache__" EXCLUDE)

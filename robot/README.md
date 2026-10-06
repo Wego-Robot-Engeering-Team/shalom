@@ -43,18 +43,17 @@ L1은 센서·장치 연결을 담당한다. `common` 인터페이스와 bringup
 
 ## 실행 구성
 
-실기는 `drivers.launch.py`와 공통 `runtime.launch.py`를 실행한다.
-시뮬레이터는 MuJoCo·시뮬 전용 어댑터와 같은 `runtime.launch.py`를 실행한다.
+실기·시뮬의 `bringup.launch.py`가 내비게이션·시스템·제어·통신·RViz 런치를 직접 호출한다.
+실기는 `drivers.launch.py`, 시뮬레이터는 MuJoCo·시뮬 전용 어댑터를 함께 실행한다.
 
 | launch | 역할 |
 |---|---|
 | `robot_bringup/bringup.launch.py` | 실기 전체 실행, 로봇 ID 설정 |
 | `robot_bringup/drivers.launch.py` | L1: B2·XT32·선택 센서 |
-| `robot_bringup/runtime.launch.py` | 공통 L2–L4 실행, 기본 지도 선택 |
 | `robot_bringup/control.launch.py` | L2: twist_mux·joint_mux·safety_gate |
 | `robot_bringup/system.launch.py` | L3: Mission·Safety·Motion Authority·정지 상태 감시 |
 | `robot_bringup/communication.launch.py` | L4: HMI·E-Stop TCP·수동 조작 UDP |
-| `navigation/navigation.launch.py` | 점군 처리·KISS-ICP·SLAM·AMCL·Nav2 |
+| `navigation/navigation.launch.py` | 기본 지도 선택·검증, 점군 처리·KISS-ICP·SLAM·AMCL·Nav2 |
 | `robot_bringup/rviz.launch.py` | 내비게이션 RViz 화면 |
 
 내비게이션 launch·설정·BT·RViz 파일은 `l2_control/navigation` 패키지가 설치한다.

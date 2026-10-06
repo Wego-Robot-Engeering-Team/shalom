@@ -1023,6 +1023,18 @@
       "actions": ["취소를 다시 요청하십시오", "반복되면 Nav2 상태를 확인하십시오"]
     },
     {
+      "id": 3009,
+      "code": "NAV_SAFETY_RESUME_REJECTED",
+      "severity": "warn",
+      "category": "mission",
+      "origin": "안전 관리자",
+      "channel": "state/nav",
+      "clears": "momentary",
+      "title": "안전 상태 확인 필요",
+      "cause": "안전 관리자가 주행 재개를 승인하지 않았습니다.",
+      "actions": ["주행 상세 정보에서 거절 사유를 확인하십시오"]
+    },
+    {
       "id": 3101,
       "code": "MISSION_DOCK_MISSING",
       "severity": "error",

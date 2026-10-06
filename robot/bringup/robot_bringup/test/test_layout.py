@@ -187,14 +187,6 @@ class LayoutTest(unittest.TestCase):
         metadata = self.source_share("robot_bringup") / "config/robot_metadata.yaml"
         self.assertEqual((self.installed_share("robot_bringup") / "config/robot_metadata.yaml").read_bytes(),
                          metadata.read_bytes())
-        for prefix in (INSTALL_ROOT / "robot_bringup", INSTALL_ROOT):
-            module = prefix / f"lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages/robot_bringup/map_selection.py"
-            if module.is_file():
-                self.assertEqual(module.read_bytes(),
-                                 (self.source_share("robot_bringup") / "robot_bringup/map_selection.py").read_bytes())
-                break
-        else:
-            self.fail("installed robot_bringup.map_selection module is missing")
         gateway_prefix = self.installed_share("gateway_transport").parent.parent
         self.assertEqual((gateway_prefix / "include/inspection/framing.hpp").read_bytes(),
                          (ROOT / "common/protocol/include/inspection/framing.hpp").read_bytes())
@@ -220,10 +212,14 @@ class LayoutTest(unittest.TestCase):
     def test_launch_resources_are_owned_by_their_package(self):
         bringup = self.source_share("robot_bringup")
         navigation = self.source_share("navigation")
+        self.assertFalse((bringup / "robot_bringup/map_selection.py").exists())
         self.assertTrue((navigation / "launch/navigation.launch.py").is_file())
         self.assertTrue((navigation / "behavior_trees/navigate_to_pose_w_replanning_and_recovery.xml").is_file())
-        for obsolete in ("platform.launch.py", "slam.launch.py", "navigation.launch.py"):
+        for obsolete in ("platform.launch.py", "slam.launch.py", "navigation.launch.py", "runtime.launch.py"):
             self.assertFalse((bringup / "launch" / obsolete).exists())
+            if INSTALL_ROOT is not None:
+                installed = self.installed_share("robot_bringup") / "launch" / obsolete
+                self.assertFalse(installed.exists() or installed.is_symlink(), str(installed))
         for path in (bringup / "launch").glob("*.launch.py"):
             functions = [node.name for node in ast.parse(path.read_text()).body
                          if isinstance(node, ast.FunctionDef)]

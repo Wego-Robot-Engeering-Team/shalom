@@ -8,11 +8,12 @@ from pathlib import Path
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
+from launch.actions import (DeclareLaunchArgument, GroupAction, IncludeLaunchDescription,
+                            SetEnvironmentVariable)
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
-from robot_bringup.map_selection import resolve_default_map
 
 
 def _robot_id_from_metadata():
@@ -30,7 +31,7 @@ def generate_launch_description():
     pandar_xt32 = FindPackageShare("pandar_xt32")
     vectornav_vn100 = FindPackageShare("vectornav_vn100")
 
-    drivers = IncludeLaunchDescription(
+    drivers = GroupAction(actions=[IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([pkg, "launch", "drivers.launch.py"])),
         launch_arguments={
             name: LaunchConfiguration(name)
@@ -39,23 +40,62 @@ def generate_launch_description():
                          "xt32_pitch", "xt32_yaw", "aurora", "aurora_ip", "vn100",
                          "vn100_config_file", "vn100_port")
         }.items(),
-    )
-    runtime = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(PathJoinSubstitution([pkg, "launch", "runtime.launch.py"])),
+    )], scoped=True)
+    # Navigation exports its resolved map; its internal node group keeps other
+    # launch configuration local. Communication receives that map afterwards.
+    navigation = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare("navigation"), "launch", "navigation.launch.py",
+        ])),
         launch_arguments={
             "use_sim_time": "false",
-            "pointcloud_topic": LaunchConfiguration("pointcloud_topic"),
-            "base_output_topic": "/cmd_vel",
-            "base_odometry_topic": "/b2/odom",
             **{name: LaunchConfiguration(name) for name in (
-                "map", "slam", "nav2", "robot_id", "robot_name", "maps_dir",
-                "robot_data_dir", "teleop_allowed_peer", "bridge", "rviz", "rviz_profile",
+                "pointcloud_topic", "maps_dir", "map", "slam", "nav2",
             )},
         }.items(),
     )
+    system = GroupAction(actions=[IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([pkg, "launch", "system.launch.py"])),
+        launch_arguments={
+            "use_sim_time": "false",
+            "base_output_topic": "/cmd_vel",
+            "base_odometry_topic": "/b2/odom",
+            **{name: LaunchConfiguration(name) for name in (
+                "mission_manager_config", "require_external_heartbeat",
+            )},
+        }.items(),
+    )], scoped=True)
+    control = GroupAction(actions=[IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([pkg, "launch", "control.launch.py"])),
+        launch_arguments={
+            "use_sim_time": "false",
+            "base_output_topic": "/cmd_vel",
+            "twist_mux_config": LaunchConfiguration("twist_mux_config"),
+        }.items(),
+    )], scoped=True)
+    communication = GroupAction(actions=[IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([pkg, "launch", "communication.launch.py"])),
+        launch_arguments={
+            "use_sim_time": "false",
+            **{name: LaunchConfiguration(name) for name in (
+                "robot_id", "robot_name", "maps_dir", "robot_data_dir", "map", "bridge",
+                "bridge_config", "estop_port", "teleop_udp_port", "teleop_allowed_peer",
+            )},
+        }.items(),
+    )], scoped=True)
+    rviz = GroupAction(actions=[IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([pkg, "launch", "rviz.launch.py"])),
+        launch_arguments={
+            "use_sim_time": "false", "profile": LaunchConfiguration("rviz_profile"),
+        }.items(),
+    )], scoped=True, condition=IfCondition(LaunchConfiguration("rviz")))
 
     return LaunchDescription([
         DeclareLaunchArgument("domain_id", default_value="0"),
+        SetEnvironmentVariable("ROS_DOMAIN_ID", LaunchConfiguration("domain_id")),
+        SetEnvironmentVariable("RMW_IMPLEMENTATION", "rmw_cyclonedds_cpp"),
+        SetEnvironmentVariable("CYCLONEDDS_URI",
+                               ["file://", PathJoinSubstitution([pkg, "config", "cyclonedds.xml"])]),
         DeclareLaunchArgument("robot_id", default_value=_robot_id_from_metadata()),
         DeclareLaunchArgument("teleop_allowed_peer", default_value=""),
         DeclareLaunchArgument("robot_name", default_value="1호기"),
@@ -88,11 +128,22 @@ def generate_launch_description():
                               description="auto(기본 지도), none(SLAM), 절대 경로의 map.yaml"),
         DeclareLaunchArgument("slam", default_value="true"),
         DeclareLaunchArgument("nav2", default_value="true"),
+        DeclareLaunchArgument("mission_manager_config", default_value=PathJoinSubstitution([
+            pkg, "config", "mission_manager.yaml",
+        ])),
+        DeclareLaunchArgument("twist_mux_config", default_value=PathJoinSubstitution([
+            pkg, "config", "twist_mux.yaml",
+        ])),
+        DeclareLaunchArgument("require_external_heartbeat", default_value="true"),
         DeclareLaunchArgument("bridge", default_value="true"),
+        DeclareLaunchArgument("bridge_config", default_value=PathJoinSubstitution([
+            FindPackageShare("hmi_bridge"), "config", "bridge.yaml",
+        ])),
+        DeclareLaunchArgument("estop_port", default_value="9091"),
+        DeclareLaunchArgument("teleop_udp_port", default_value="9090"),
         DeclareLaunchArgument("rviz", default_value="false"),
         DeclareLaunchArgument("rviz_profile", default_value="slam_nav2",
                               choices=["slam", "nav2", "slam_nav2"]),
-        OpaqueFunction(function=resolve_default_map),
-        drivers,
-        runtime,
+        # Validate the selected map in navigation before starting hardware.
+        navigation, system, control, communication, rviz, drivers,
     ])

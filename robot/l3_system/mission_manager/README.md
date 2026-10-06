@@ -68,7 +68,7 @@ IDLE ─구성→ READY ─시작→ RUNNING ─점검 완료→ RETURNING(선�
 
 Nav2/HMI command source에서 `twist_mux → safety_gate → /cmd_vel`로 이어지는 경로와
 `safety_manager` 프로세스는 각각 `robot_bringup/control.launch.py`와
-`robot_bringup/system.launch.py`에서 실행한다. 공통 `runtime.launch.py`가 함께 조립한다.
+`robot_bringup/system.launch.py`에서 실행한다. 실기·시뮬의 `bringup.launch.py`가 두 런치를 직접 호출한다.
 
 ## 확인
 

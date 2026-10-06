@@ -17,7 +17,12 @@
 #include <QList>
 #include <QWidget>
 
+class QLabel;
+class QVBoxLayout;
+
 namespace hmi::ui {
+
+class IconButton;
 
 /// One entry in the notification list.
 struct Notification {
@@ -36,13 +41,22 @@ struct Notification {
 class NotificationPopup : public QWidget {
     Q_OBJECT
 public:
-    explicit NotificationPopup(const QList<Notification> &items);
+    explicit NotificationPopup(const QList<Notification> &items, QWidget *parent = nullptr);
+
+    void setItems(const QList<Notification> &items);
+
+signals:
+    void clearRequested();
 
 protected:
     void paintEvent(QPaintEvent *) override;
     void resizeEvent(QResizeEvent *) override;
 
 private:
+    QLabel *heading_ = nullptr;
+    IconButton *clearButton_ = nullptr;
+    QVBoxLayout *itemsLayout_ = nullptr;
+
     /// Height the list needs, capped so a long backlog scrolls instead of
     /// growing past the bottom of the screen.
     static constexpr int kMaxListHeight = 380;
@@ -55,6 +69,7 @@ public:
     explicit NotificationBell(QWidget *parent = nullptr);
 
     void add(const Notification &n);
+    void clear();
 
     /// Entries kept. Older ones are dropped: during an incident the recent
     /// ones are what the operator needs.
@@ -79,7 +94,7 @@ private:
     QList<Notification> items_;
     int unread_ = 0;
     bool hover_ = false;
-    QWidget *popup_ = nullptr;
+    NotificationPopup *popup_ = nullptr;
 };
 
 }  // namespace hmi::ui
