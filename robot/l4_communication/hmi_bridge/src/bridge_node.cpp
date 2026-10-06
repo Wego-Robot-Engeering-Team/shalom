@@ -3607,36 +3607,53 @@ void BridgeNode::startNavigation(const Envelope &request, bool resume)
     navStatus_ = "accepting";
     navGoalPending_ = navPreparing_ = true;
     navPreparingResume_ = resume;
-    navSafetyAccepted_ = navAuthorityAccepted_ = false;
+    // NORMAL already permits motion. safety_manager accepts RESUME only from
+    // CONTROLLED_STOP, so a redundant resume would reject an otherwise ready goal.
+    const auto wall = std::chrono::steady_clock::now();
+    navSafetyAccepted_ = safetyReceived_ != std::chrono::steady_clock::time_point{} &&
+        wall - safetyReceived_ <= std::chrono::seconds(1) &&
+        safetyState_ == "normal" && safetyMotionPermitted_;
+    navAuthorityAccepted_ = false;
     navReadyReason_ = "NAV_SAFETY_AUTHORITY_PENDING";
     navReadyDetail_ = "안전·주행 권한 승인 대기";
     navError_.clear();
     navDistance_ = navEta_ = navElapsed_ = navRecoveries_ = nullptr;
-    auto safety = std::make_shared<interfaces::srv::SafetyCommand::Request>();
-    safety->request_id = "hmi-nav-safety-" + std::to_string(++rosRequestSequence_);
-    safety->operator_id = "hmi";
-    safety->operation = interfaces::srv::SafetyCommand::Request::RESUME;
     auto authority = std::make_shared<interfaces::srv::AuthorityRequest::Request>();
     authority->request_id = "hmi-nav-authority-" + std::to_string(++rosRequestSequence_);
     authority->requester = "hmi_bridge";
     authority->operation = interfaces::srv::AuthorityRequest::Request::REQUEST_BASE;
-    navSafetyRequestId_ = safetyCommandClient_->async_send_request(safety,
-        [this, generation](rclcpp::Client<interfaces::srv::SafetyCommand>::SharedFuture future) {
-            if (!navPreparing_ || generation != navGeneration_) return;
-            navSafetyRequestId_.reset();
-            try {
-                const auto result = future.get();
-                if (!result->accepted) {
-                    finishNavigationPreparation(result->reason_code.empty() ? err::kMode : result->reason_code,
-                        result->detail.empty() ? "안전 재개 요청이 거절되었습니다" : result->detail);
-                    return;
+    if (!navSafetyAccepted_) {
+        auto safety = std::make_shared<interfaces::srv::SafetyCommand::Request>();
+        safety->request_id = "hmi-nav-safety-" + std::to_string(++rosRequestSequence_);
+        safety->operator_id = "hmi";
+        safety->operation = interfaces::srv::SafetyCommand::Request::RESUME;
+        navSafetyRequestId_ = safetyCommandClient_->async_send_request(safety,
+            [this, generation](rclcpp::Client<interfaces::srv::SafetyCommand>::SharedFuture future) {
+                if (!navPreparing_ || generation != navGeneration_) return;
+                navSafetyRequestId_.reset();
+                try {
+                    const auto result = future.get();
+                    // Another approved resume can reach NORMAL while this request
+                    // is in flight. Only a clean, motion-permitted NORMAL response
+                    // satisfies that race; explicit guard failures remain failures.
+                    const bool alreadyNormal = result->reason_code.empty() && result->detail.empty() &&
+                        result->state.state == interfaces::msg::SafetyState::NORMAL &&
+                        result->state.motion_permitted && !result->state.physical_estop_active &&
+                        !result->state.software_estop_active;
+                    if (!result->accepted && !alreadyNormal) {
+                        const std::string detail = !result->detail.empty() ? result->detail :
+                            !result->state.detail.empty() ? result->state.detail : "안전 재개 요청이 거절되었습니다";
+                        finishNavigationPreparation(result->reason_code.empty()
+                            ? "NAV_SAFETY_RESUME_REJECTED" : result->reason_code, detail);
+                        return;
+                    }
+                    navSafetyAccepted_ = true;
+                    tickNavigationPreparation();
+                } catch (const std::exception &e) {
+                    finishNavigationPreparation(err::kUnreachable, std::string("안전 서비스 응답 실패: ") + e.what());
                 }
-                navSafetyAccepted_ = true;
-                tickNavigationPreparation();
-            } catch (const std::exception &e) {
-                finishNavigationPreparation(err::kUnreachable, std::string("안전 서비스 응답 실패: ") + e.what());
-            }
-        }).request_id;
+            }).request_id;
+    }
     navAuthorityRequestId_ = authorityRequestClient_->async_send_request(authority,
         [this, generation](rclcpp::Client<interfaces::srv::AuthorityRequest>::SharedFuture future) {
             if (!navPreparing_ || generation != navGeneration_) return;

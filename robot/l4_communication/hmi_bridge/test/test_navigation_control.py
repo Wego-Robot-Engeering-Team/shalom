@@ -38,6 +38,9 @@ class NavigationControlTest(fixture.NavigationSpeedTest):
         self.holds = []
         self.safety_accepts = self.authority_accepts = True
         self.safety_reported = SafetyState.NORMAL
+        self.safety_motion_permitted = None
+        self.reject_redundant_resume = False
+        self.normal_on_resume = False
         self.authority_reported = MotionAuthority.BASE_ACTIVE
         self.report_dependencies = True
         self.safety_requests, self.authority_requests, self.safety_events = [], [], []
@@ -86,11 +89,21 @@ class NavigationControlTest(fixture.NavigationSpeedTest):
         self.safety_pub = self.node.create_publisher(SafetyState, "/safety/state", transient)
         self.authority_pub = self.node.create_publisher(MotionAuthority, "/motion/authority", transient)
         self.node.create_subscription(SafetyEvent, "/safety/event", self.safety_events.append, 20)
+        def safety_state():
+            permitted = (self.safety_reported == SafetyState.NORMAL
+                         if self.safety_motion_permitted is None else self.safety_motion_permitted)
+            return SafetyState(state=self.safety_reported, motion_permitted=permitted)
         def safety(request, response):
             self.safety_requests.append(request)
-            response.accepted = self.safety_accepts
+            if self.normal_on_resume:
+                self.safety_reported = SafetyState.NORMAL
+            redundant = self.reject_redundant_resume and self.safety_reported == SafetyState.NORMAL
+            response.accepted = self.safety_accepts and not redundant
+            response.state = safety_state()
             response.reason_code = "" if self.safety_accepts else "SAFETY_RESUME_GUARD_FAILED"
             response.detail = "" if self.safety_accepts else "Safety rejected resume"
+            if redundant:
+                response.state.detail = "event is invalid while normal"
             return response
         def authority(request, response):
             self.authority_requests.append(request)
@@ -102,8 +115,7 @@ class NavigationControlTest(fixture.NavigationSpeedTest):
         self.node.create_service(AuthorityRequest, "/motion/authority/request", authority)
         def report():
             if self.report_dependencies:
-                self.safety_pub.publish(SafetyState(state=self.safety_reported,
-                    motion_permitted=self.safety_reported == SafetyState.NORMAL))
+                self.safety_pub.publish(safety_state())
                 self.authority_pub.publish(MotionAuthority(state=self.authority_reported, owner="hmi_bridge"))
         self.dependency_timer = self.node.create_timer(0.05, report)
         self.expect_applied(0.3, 0.5)
@@ -131,6 +143,66 @@ class NavigationControlTest(fixture.NavigationSpeedTest):
             "id": request_id, "ch": channel, "p": payload}).encode()
         self.peer.sendall(fixture.struct.pack("<III", 0x4D4C4853, len(header) + 4, len(header)) + header)
         return request_id
+
+    def test_normal_safety_does_not_request_resume_for_each_goal(self):
+        self.reject_redundant_resume = True
+        for x in (1.0, 2.0):
+            result = self.request({"x": x, "y": 0.0}, "cmd/goto")
+            self.assertTrue(result["ok"], result)
+            self.nav_state("navigating")
+            self.assertTrue(self.request({}, "cmd/nav_cancel")["ok"])
+            self.nav_state("canceled")
+        self.assertEqual(self.safety_requests, [])
+        self.assertEqual(len(self.goals), 2)
+
+    def test_safety_becoming_normal_during_resume_request_is_not_a_mode_error(self):
+        self.safety_reported = SafetyState.CONTROLLED_STOP
+        self.spin_for(0.2)
+        self.reject_redundant_resume = True
+        self.normal_on_resume = True
+        result = self.request({"x": 1.0, "y": 0.0}, "cmd/goto")
+        self.assertTrue(result["ok"], result)
+        self.nav_state("navigating")
+        self.assertEqual(len(self.safety_requests), 1)
+
+    def test_explicit_safety_guard_failure_is_not_hidden_by_normal_response(self):
+        self.safety_reported = SafetyState.CONTROLLED_STOP
+        self.spin_for(0.2)
+        self.normal_on_resume = True
+        self.safety_accepts = False
+        result = self.request({"x": 1.0, "y": 0.0}, "cmd/goto")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["err"]["code"], "SAFETY_RESUME_GUARD_FAILED")
+        self.assertEqual(self.goals, [])
+
+    def test_normal_without_motion_permission_is_not_ready(self):
+        self.safety_motion_permitted = False
+        self.reject_redundant_resume = True
+        self.spin_for(0.2)
+        result = self.request({"x": 1.0, "y": 0.0}, "cmd/goto")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["err"]["code"], "NAV_SAFETY_RESUME_REJECTED")
+        self.assertEqual(self.goals, [])
+
+    def test_stale_normal_state_cannot_start_navigation(self):
+        self.report_dependencies = False
+        self.reject_redundant_resume = True
+        self.spin_for(1.2)
+        result = self.request({"x": 1.0, "y": 0.0}, "cmd/goto")
+        self.assertFalse(result["ok"])
+        self.assertIn("시간 초과", result["err"]["msg"])
+        self.assertEqual(len(self.safety_requests), 1)
+        self.assertEqual(self.goals, [])
+
+    def test_estop_and_fault_states_do_not_start_navigation(self):
+        self.safety_accepts = False
+        for state in (SafetyState.E_STOP_LATCHED, SafetyState.FAULT):
+            with self.subTest(state=state):
+                self.safety_reported = state
+                self.spin_for(0.2)
+                result = self.request({"x": 1.0, "y": 0.0}, "cmd/goto")
+                self.assertFalse(result["ok"])
+                self.assertEqual(self.goals, [])
 
     def test_pause_resume_cancel_retains_exact_goal(self):
         target = {"x": 1.5, "y": -2.0, "theta": 1.2}
@@ -246,6 +318,8 @@ class NavigationControlTest(fixture.NavigationSpeedTest):
                      e["p"].get("navigation_state") == "unknown")
 
     def test_safety_and_authority_denials_do_not_send_nav2_goal(self):
+        self.safety_reported = SafetyState.CONTROLLED_STOP
+        self.spin_for(0.2)
         for dependency in ("safety", "authority"):
             with self.subTest(dependency=dependency):
                 self.safety_accepts = dependency != "safety"
