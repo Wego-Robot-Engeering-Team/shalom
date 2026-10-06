@@ -4,33 +4,35 @@
 
 ```
 ~/shalom_ws/src/
-└── shalom/                             최상위 통합 저장소
+└── shalom/
     ├── robot/
-    │   ├── robot_bringup/              platform·navigation·inspection 실행 조립
-    │   ├── control/                    미션·안전·motion authority control plane
-    │   ├── interfaces/                 Mission·Safety·Motion Authority ROS 2 계약
-    │   ├── navigation/config/          B2 주행·위치추정·SLAM 설정
-    │   ├── navigation/maps/             저장 지도
-    │   ├── navigation/rviz/             주행·지도화 화면 설정
-    │   ├── navigation/lidar_slam/       점군 지면분리·2D SLAM
-    │   ├── sensors/slamtec_aurora/      SLAMTEC Aurora S 연동
-    │   ├── sensors/pandar_xt32/         Hesai Pandar XT32 연동
-    │   ├── sensors/velodyne_vlp16/      임시 VLP-16 연동
-    │   ├── hmi_bridge/                 HMI TCP ↔ ROS 2
-    │   └── common/                     로봇 전용 공유 코드 배치 기준 (현재 문서)
-    ├── hmi/                            관제 GUI와 HMI 전용 testbed
-    ├── common/                         HMI·로봇 공통 통신 계약
-    ├── docs/                           운용·통신 문서
-    └── robot/third_party/              독립 저장소를 고정한 Git submodule
-        ├── b2_driver/                  B2 실기 드라이버
-        ├── b2_simulation/              B2 시뮬레이터와 RL 학습
-        ├── frcobot_ros2/               FAIRINO FR3 ROS 2 드라이버
-        ├── ground_segmentation/
-        ├── ground_segmentation_ros2/
-        ├── kiss_icp/
-        ├── aurora_ros/                 Aurora S ROS 2 드라이버
-        ├── hesai_lidar_ros2/            Hesai Pandar ROS 2 드라이버
-        └── nav2_ground_consistency_costmap_plugin/
+    │   ├── common/shalom_interfaces/          공통 ROS 2 인터페이스
+    │   ├── l4_communication/                  HMI·SDK 통신 어댑터
+    │   ├── l3_system/                         Mission·Safety·Motion Authority FSM
+    │   ├── l2_control/
+    │   │   ├── navigation/config/            Nav2·위치추정·SLAM 설정
+    │   │   ├── navigation/rviz/              주행·지도화 화면 설정
+    │   │   ├── navigation/lidar_slam/        점군 지면분리·2D SLAM
+    │   │   ├── joint_mux/                    관절 명령 source 선택
+    │   │   └── safety_gate/                  최종 명령 통과·차단
+    │   ├── l1_drivers/sensors/                XT32·VLP-16·VN-100·Aurora 연동
+    │   ├── bringup/robot_bringup/             실행 조립·DDS·로봇 메타데이터
+    │   ├── tools/                            운영·개발 보조 스크립트
+    │   └── third_party/                      고정된 Git submodule
+    │       ├── b2_driver/
+    │       ├── b2_simulation/
+    │       ├── frcobot_ros2/
+    │       ├── ground_segmentation/
+    │       ├── ground_segmentation_ros2/
+    │       ├── kiss_icp/
+    │       ├── aurora_ros/
+    │       ├── hesai_lidar_ros2/
+    │       ├── vectornav/
+    │       └── nav2_ground_consistency_costmap_plugin/
+    ├── simulation/simulation_bringup/        시뮬레이션 실행·시나리오·예시 지도
+    ├── hmi/                                  관제 GUI·SDK·HMI 전용 testbed
+    ├── common/protocol/                      HMI·SDK·로봇 공통 통신 계약
+    └── docs/                                 개발·운용 문서
 ```
 
 `third_party`는 회사 밖에서 만든 코드만 뜻하지 않는다. `shalom`과 별도 이력을
@@ -40,7 +42,8 @@
 
 ROS 패키지는 폴더와 패키지 이름을 같게 하고, 분야 분류 폴더에는 `package.xml`을 두지
 않는다. 기존 작업공간을 갱신한 경우 [구조 변경 후 빌드](../robot/README.md#경로-변경-후-빌드)의
-CMake 캐시 갱신 절차를 먼저 따른다. 워크스페이스 안에는 소스 백업을 두지 않는다.
+별도 build/install 경로를 사용한다. 워크스페이스 안에는 소스 백업을 두지 않는다.
+실기 지도는 소스 트리와 별도로 `/var/lib/shalom/maps/`에 저장한다.
 
 ## 설치
 

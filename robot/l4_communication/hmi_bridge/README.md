@@ -9,20 +9,20 @@
 ## 구성
 
 ```
-hmi_bridge/          HMI gateway ROS 2 패키지 (ament_cmake)
-  include/hmi_bridge/
-    tcp_server.hpp        관제 연결 수락, 프레이밍 — ROS 2 비의존
-    envelope.hpp          JSON 봉투
-    bridge_node.hpp       TCP bridge ROS 2 노드
-  src/
-    hmi_bridge_node       HMI TCP protocol, telemetry, mission/map adapter (9090)
-  config/bridge.yaml      파라미터
-  launch/bridge.launch.py
-
+robot/l4_communication/
+├── gateway_transport/
+│   └── include/gateway_transport/
+│       ├── tcp_server.hpp             TCP 전송
+│       └── envelope.hpp               JSON 봉투
+└── hmi_bridge/
+    ├── include/hmi_bridge/bridge_node.hpp
+    ├── src/                          TCP protocol·telemetry·mission/map adapter
+    ├── config/bridge.yaml            파라미터
+    └── launch/bridge.launch.py
 ```
 
 UDP 수동 조작은 같은 gateway 그룹의 sibling 패키지
-`robot/gateway/teleop_bridge/`가 맡는다. ROS/colcon은 패키지 내부 하위 패키지를
+`robot/l4_communication/teleop_bridge/`가 맡는다. ROS/colcon은 패키지 내부 하위 패키지를
 탐색하지 않으므로 물리적으로는 별도 디렉터리다.
 
 프레이밍 구현은 `../../../common/protocol/include/inspection/framing.hpp` 하나뿐이며 관제와
@@ -51,9 +51,9 @@ colcon test-result --verbose
 
 ## 안전에 관한 책임 분담
 
-안전 정책은 별도 프로세스인 `control/safety_manager`가 소유한다. 일반
+안전 정책은 별도 프로세스인 `robot/l3_system/safety_manager`가 소유한다. 일반
 `hmi_bridge`(기본 TCP 9090)는 지도·상태·미션 API만 담당한다. sibling 패키지
-`robot/gateway/estop_bridge`는 기본 TCP 9091에서 E-Stop 요청과 전용 heartbeat만 받아 typed `/safety/command`와
+`robot/l4_communication/estop_bridge`는 기본 TCP 9091에서 E-Stop 요청과 전용 heartbeat만 받아 typed `/safety/command`와
 `/safety/heartbeat`로 변환한다. 따라서 일반 HMI 연결이 살아 있어도 E-Stop 연결이
 끊기면 Safety Manager가 통신 두절을 판정해 `safety_gate`의 motion permit을 닫는다.
 

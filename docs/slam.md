@@ -41,22 +41,24 @@ RViz의 **SLAM Map**에 `/map`이 그려진다. 로봇을 움직여야 채워지
 
 ## 지도 저장
 
+`maps_dir`의 지도 폴더를 준비한 뒤 `map` 이름으로 저장한다.
+
 ```bash
-ros2 run nav2_map_server map_saver_cli -f ~/shalom_ws/src/shalom/robot/navigation/maps/$(date +%F)
+ros2 run nav2_map_server map_saver_cli -f /var/lib/shalom/maps/inspection_a/map
 ```
 
 `.pgm`과 `.yaml`이 생긴다. 저장된 지도로 주행할 때는 `slam:=false`로 slam_toolbox를 끈다.
 
 ## 튜닝
 
-높이 밴드는 `robot/navigation/config/ground_filter.yaml`에서 조정한다.
+높이 밴드는 `robot/l2_control/navigation/config/ground_filter.yaml`에서 조정한다.
 
 | 파라미터 | 기본 | 뜻 |
 |---|---|---|
 | `min_height_above_ground` | 0.15 | 이 아래는 지면 잡음으로 버림 |
 | `max_height_above_ground` | 1.50 | 이 위는 무시. B2 키(0.7 m)보다 높게 잡아 머리 위 구조물도 반영 |
 
-지면 판정 자체는 `robot/navigation/config/ground_segmentation.yaml`이다. **`lidar_to_ground`는
+지면 판정 자체는 `robot/l2_control/navigation/config/ground_segmentation.yaml`이다. **`lidar_to_ground`는
 LiDAR 실제 장착 높이와 반드시 맞춰야 한다** (B2는 `-0.74`).
 
 ## 파이프라인만 따로 쓰기

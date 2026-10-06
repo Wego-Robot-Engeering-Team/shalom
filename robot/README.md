@@ -1,19 +1,38 @@
 # Robot
 
-`robot/`은 제품의 공통 로봇 동작 코드다. FSM·BT·미션·안전·HMI 브릿지·navigation은
-실기와 시뮬레이터가 같은 것을 사용한다. MuJoCo와 시나리오 같은 시뮬레이션 전용
-자산만 이 디렉터리 밖에 둔다. VLP-16 시험 자산은 어느 기본 bringup에도 포함하지 않는다.
+`robot/`은 통신·시스템 운용·제어 기능·장치 어댑터를 계층별로 관리한다.
+FSM·BT·미션·안전·HMI 브릿지·navigation은 실기와 시뮬레이터가 공유한다.
+VLP-16 시험 자산은 어느 기본 bringup에도 포함하지 않는다.
 
 ```text
 robot/
-├── robot_bringup/       # 실기 B2·XT32·Aurora 실행과 공통 navigation 조립
-├── navigation/          # Nav2·AMCL·SLAM·KISS-ICP 설정과 RViz profile
-├── hmi_bridge/          # HMI TCP ↔ ROS 2, 지도 카탈로그와 지도별 상태 소유
-├── interfaces/          # Mission·Safety·Motion Authority ROS 2 계약
-├── control/             # mission·safety·motion authority control plane
-├── sensors/             # 센서 어댑터 소스 (납품 여부는 runtime package에서 결정)
-└── tools/               # 운영·개발 보조 스크립트
+├── common/
+│   └── shalom_interfaces/             # Mission·Safety·Motion Authority 계약
+├── l4_communication/
+│   ├── gateway_transport/             # TCP framing·전송
+│   ├── hmi_bridge/                    # 지도·미션·상태 API
+│   ├── teleop_bridge/                 # UDP 수동 조작
+│   └── estop_bridge/                  # E-Stop·heartbeat 전용 TCP
+├── l3_system/
+│   ├── mission_manager/               # Mission FSM·BT
+│   ├── safety_manager/                # Safety FSM·동작 허가
+│   └── motion_interlock_manager/      # base/arm 운용 권한
+├── l2_control/
+│   ├── navigation/                    # Nav2·AMCL·SLAM·KISS-ICP 설정·lidar_slam
+│   ├── joint_mux/                     # 관절 명령 source 선택
+│   └── safety_gate/                   # 최종 명령 통과·차단
+├── l1_drivers/
+│   └── sensors/                       # XT32·VLP-16·VN-100·Aurora 어댑터
+├── third_party/                       # 별도 Git 이력을 가진 의존 저장소
+├── bringup/
+│   └── robot_bringup/                 # 실행 조립·DDS 설정·robot_metadata.yaml
+└── tools/                             # 운영·개발 보조 스크립트
 ```
+
+L3는 미션·안전·운용 권한을 판단하고, L2의 mux와 gate는 실제 명령을 선택·차단한다.
+L1은 센서·장치 연결을 담당한다. `common` 인터페이스와 bringup은 계층 간 공유 영역이다.
+ROS 패키지명·토픽·서비스는 기존 이름을 유지한다.
+로봇 ID 설정은 `bringup/robot_bringup/config/robot_metadata.yaml`에 있다.
 
 시뮬레이터 실행 조립과 예시 지도는 [`../simulation/`](../simulation/)에 있다.
 `simulation_bringup`은 이 디렉터리의 navigation·HMI bridge·mission core를 그대로
@@ -42,12 +61,12 @@ VN-100은 기본적으로 실행하지 않는다. 센서를 연결한 뒤 `vn100
 `vn100_port:=<시리얼 장치>`를 지정하면 raw 가속도·각속도가
 `/vn100/imu/data_ned`로 발행된다. 기존 B2 IMU와 내비게이션 입력은 변경하지
 않는다. 장치 설정과 좌표계 주의사항은
-[VN-100 래퍼](sensors/vectornav_vn100/README.md)를 참고한다.
+[VN-100 래퍼](l1_drivers/sensors/vectornav_vn100/README.md)를 참고한다.
 
 촬영 기능을 사용할 때는 로봇과 HMI에 동일한 NAS 공유 폴더를 `/mnt/nas`로
 마운트한다. 브리지는 `/mnt/nas/inspection`에 PNG와 JSON을 직접 저장하며,
 NAS 마운트가 없으면 촬영 요청을 거절한다. 경로를 바꾼다면
-`hmi_bridge/config/bridge.yaml`의 `capture.spool_dir`·`capture.mount_point`와
+`l4_communication/hmi_bridge/config/bridge.yaml`의 `capture.spool_dir`·`capture.mount_point`와
 HMI 설정의 촬영 데이터 경로를 함께 바꾼다. 오프라인 업로드 대기열은 없다.
 
 ```text
@@ -100,4 +119,17 @@ colcon build --base-paths src/shalom --symlink-install \
   --packages-select shalom_interfaces vectornav_driver vectornav_vn100 \
   robot_bringup simulation_bringup hmi_bridge mission_manager motion_interlock_manager
 source install/setup.bash
+```
+
+## 경로 변경 후 빌드
+
+기존 CMake 캐시에는 이동 전 소스 경로가 남을 수 있다. 별도 build/install 경로로 빌드한다.
+
+```bash
+cd ~/shalom_ws
+source /opt/ros/jazzy/setup.bash
+colcon build --base-paths src/shalom --symlink-install \
+  --build-base build-layers --install-base install-layers \
+  --packages-up-to robot_bringup simulation_bringup
+source install-layers/setup.bash
 ```

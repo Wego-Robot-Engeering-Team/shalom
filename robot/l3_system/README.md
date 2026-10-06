@@ -1,8 +1,10 @@
-# Supervisory control plane
+# L3 시스템 운용
 
-이 디렉터리의 `control`은 motor PID나 `ros2_control`을 뜻하지 않는다. 미션,
-운용 권한, software safety를 조정하는 supervisory control plane이다. 실제 B2·FR3
-저수준 드라이버는 `third_party/`에 있다.
+미션·운용 권한·software safety를 조정하는 supervisory control plane이다.
+`mission_manager`, `safety_manager`, `motion_interlock_manager`가 각 FSM을 소유한다.
+Nav2·joint mux·최종 safety gate는 `../l2_control/`, 외부 통신은
+`../l4_communication/`, 센서 어댑터는 `../l1_drivers/sensors/`에 있다.
+실제 B2·FR3 저수준 드라이버는 `../third_party/`에 있다.
 
 목표 FSM, 이벤트 우선순위, 1초 통신 단절 정지와 B2-only 검증 범위는
 [제어 아키텍처 계약](../../docs/control_architecture_contract.md)을 따른다. 아래 설명은
@@ -29,7 +31,7 @@ HMI arm / FR3 BT ─ joint_mux ─ safety_gate ─ FR3 driver
 | `safety_manager` | software safety state and motion permit | physical E-stop circuit |
 | `safety_gate` | final ROS command permission | physical safe stop |
 
-`robot_bringup/control.launch.py` connects `twist_mux → safety_gate` and accepts
+`robot/bringup/robot_bringup/launch/control.launch.py` connects `twist_mux → safety_gate` and accepts
 the final driver topic as `base_output_topic`. Physical and B2 simulation
 bringup both set it to `/cmd_vel`, so Safety Gate is the only publisher on the
 driver command topic. FR3 is intentionally blocked until its vendor stop/mode

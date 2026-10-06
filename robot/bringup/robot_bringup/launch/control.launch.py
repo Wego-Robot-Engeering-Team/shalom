@@ -20,7 +20,7 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def _robot_id_from_metadata():
-    metadata_path = Path(__file__).resolve().parent.parent.parent / "config" / "robot_metadata.yaml"
+    metadata_path = Path(get_package_share_directory("robot_bringup")) / "config" / "robot_metadata.yaml"
     with metadata_path.open(encoding="utf-8") as metadata_file:
         metadata = yaml.safe_load(metadata_file) or {}
     robot_id = metadata.get("robot", {}).get("id", "")

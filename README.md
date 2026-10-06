@@ -5,19 +5,20 @@ TCP 브릿지가 있는 로봇의 IP와 포트에만 연결한다.
 
 ```text
 shalom/
-├── robot/                  # 제품 공통 동작 코드와 실기 플랫폼 bringup
-│   ├── control/            # FSM·BT·미션·안전·motion authority
-│   ├── interfaces/         # Mission·Safety·Motion Authority ROS 2 계약
-│   ├── hmi_bridge/         # HMI TCP ↔ ROS 2, 지도 카탈로그 API
-│   ├── navigation/         # Nav2·AMCL·SLAM·KISS-ICP 설정
-│   └── robot_bringup/      # B2 실기·XT32·Aurora와 공통 stack 조립
-├── simulation/             # Wego 소유 시뮬레이션 조립·시나리오·예시 지도
-│   └── simulation_bringup/
-├── hmi/                    # Qt 관제 프로그램
-├── sdk/                    # 고객 연동 SDK 헤더·문서·샘플
-├── common/protocol/        # HMI·SDK·bridge 공통 TCP framing
-└── third_party/            # 독립 외부 저장소
-    └── b2_simulation/      # MuJoCo B2 자체 구현
+├── robot/
+│   ├── common/                         # 공통 ROS 2 인터페이스
+│   ├── l4_communication/               # HMI·SDK 통신과 명령 변환
+│   ├── l3_system/                      # Mission·Safety·Motion Authority FSM
+│   ├── l2_control/                     # navigation·joint mux·safety gate
+│   ├── l1_drivers/sensors/             # 센서 어댑터·설정·시험 RViz
+│   ├── third_party/                    # 드라이버·알고리즘·MuJoCo 독립 저장소
+│   ├── bringup/robot_bringup/          # 실기 실행 조립과 로봇 메타데이터
+│   └── tools/                          # 운영·개발 도구
+├── simulation/simulation_bringup/      # 시뮬레이션 실행·시나리오·예시 지도
+├── hmi/                                # Qt 관제 프로그램과 고객 SDK
+├── common/protocol/                    # HMI·SDK·bridge 공통 TCP framing
+├── docs/                               # 개발·운용 문서
+└── deploy/                             # 로봇 배포 패키징
 ```
 
 공통 FSM·BT·미션·navigation·HMI bridge는 `robot/`에 한 번만 둔다. 실기와

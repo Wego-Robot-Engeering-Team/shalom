@@ -9,7 +9,7 @@ typed `/motion/authority`가 `BASE_ACTIVE`일 때만 base 명령을 통과시킨
 500 ms 안에 갱신되지 않아도 fail-closed로 0 `Twist`를 출력한다.
 
 기본 `output_base_topic`은 단독 실행을 위한 `/motion/safe/cmd_vel`이다.
-`robot_bringup/control.launch.py`는 모든 command source를 mux에 모은 뒤 이 출력을
+`robot/bringup/robot_bringup/launch/control.launch.py`는 모든 command source를 mux에 모은 뒤 이 출력을
 실기와 B2 시뮬레이션의 `/cmd_vel`로 연결한다.
 
 FR3 position command는 0 `JointState`로 안전하게 멈출 수 없다. 그래서

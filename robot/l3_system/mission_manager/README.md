@@ -67,7 +67,7 @@ IDLE ─구성→ READY ─시작→ RUNNING ─점검 완료→ RETURNING(선�
   검증하는 system test.
 
 Nav2/HMI command source에서 `twist_mux → safety_gate → /cmd_vel`로 이어지는 경로와
-별도 `safety_manager` 프로세스는 `robot_bringup/control.launch.py`에 연결돼 있다.
+별도 `safety_manager` 프로세스는 `robot/bringup/robot_bringup/launch/control.launch.py`에 연결돼 있다.
 
 ## 확인
 

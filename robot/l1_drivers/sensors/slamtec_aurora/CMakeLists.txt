@@ -6,7 +6,7 @@ find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc)
 
-set(AURORA_SDK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/aurora_ros/src/aurora_remote_public")
+set(AURORA_SDK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/aurora_ros/src/aurora_remote_public")
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
   set(AURORA_SDK_ARCH linux_aarch64)
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")

@@ -30,9 +30,9 @@ push the change in its own repository first, then update only its gitlink in
 `shalom`:
 
 ```bash
-git -C third_party/<name> switch <branch>
-git -C third_party/<name> pull --ff-only
-git add third_party/<name>
+git -C robot/third_party/<name> switch <branch>
+git -C robot/third_party/<name> pull --ff-only
+git add robot/third_party/<name>
 ```
 
 `scripts/install.sh` applies the currently required Aurora Jazzy compatibility

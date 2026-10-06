@@ -1,7 +1,7 @@
 # VN-100 IMU
 
 VN-100의 가속도·각속도를 ROS 2로 전달하는 패키지다. 센서 통신은
-[`vectornav_driver`](../../third_party/vectornav/vectornav_driver)가 담당한다.
+[`vectornav_driver`](../../../third_party/vectornav/vectornav_driver)가 담당한다.
 
 ## 실행
 
@@ -131,4 +131,4 @@ pitch = atan2(-ax, sqrt(ay² + az²))
 | [`launch/vn100.launch.py`](launch/vn100.launch.py) | 드라이버·어댑터 실행 |
 | [`src/attitude_visualizer.cpp`](src/attitude_visualizer.cpp) | 기울기 계산·RViz 모형 |
 | [`rviz/vn100.rviz`](rviz/vn100.rviz) | RViz 화면 설정 |
-| [`vectornav_driver.cpp`](../../third_party/vectornav/vectornav_driver/src/vectornav_driver.cpp) | 센서 패킷 설정·ROS 메시지 발행 |
+| [`vectornav_driver.cpp`](../../../third_party/vectornav/vectornav_driver/src/vectornav_driver.cpp) | 센서 패킷 설정·ROS 메시지 발행 |

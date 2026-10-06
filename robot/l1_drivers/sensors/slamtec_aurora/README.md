@@ -3,7 +3,7 @@
 ```bash
 cd /home/juno/shalom_ws
 source /opt/ros/jazzy/setup.bash
-colcon build --base-paths src/shalom/robot/sensors/slamtec_aurora --packages-select slamtec_aurora --symlink-install
+colcon build --base-paths src/shalom/robot/l1_drivers/sensors/slamtec_aurora --packages-select slamtec_aurora --symlink-install
 source install/setup.bash
 ros2 launch slamtec_aurora person_cloud_test.launch.py
 ```
