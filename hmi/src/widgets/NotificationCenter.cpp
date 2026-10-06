@@ -5,6 +5,7 @@
 
 #include <QEvent>
 #include <QFont>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QMouseEvent>
 #include <QPainter>
@@ -13,6 +14,7 @@
 #include <QVBoxLayout>
 
 #include "theme/Tokens.h"
+#include "widgets/IconButton.h"
 #include "widgets/Primitives.h"
 
 namespace hmi::ui {
@@ -47,6 +49,7 @@ class NotificationRow : public QWidget {
 public:
     explicit NotificationRow(const Notification &n) : n_(n)
     {
+        setObjectName(QStringLiteral("NotificationRow"));
         QFont fb;
         fb.setPointSize(10);
         const QFontMetrics bm(fb);
@@ -118,8 +121,8 @@ private:
 
 // ========================== NotificationPopup ==========================
 
-NotificationPopup::NotificationPopup(const QList<Notification> &items)
-    : QWidget(nullptr, Qt::Popup | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint)
+NotificationPopup::NotificationPopup(const QList<Notification> &items, QWidget *parent)
+    : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint)
 {
     // 반투명 창(WA_TranslucentBackground)은 쓰지 않는다. 컴포지터가 없는
     // 우분투 세션에서는 투명 영역이 검게 칠해져, 부드러운 그림자를 그리려던
@@ -129,17 +132,43 @@ NotificationPopup::NotificationPopup(const QList<Notification> &items)
     lay->setContentsMargins(metrics::s3, metrics::s3, metrics::s3, metrics::s3);
     lay->setSpacing(metrics::s2);
 
-    auto *head = new QLabel(items.isEmpty()
-                                ? QStringLiteral("알림")
-                                : QStringLiteral("알림  %1건").arg(items.size()));
-    head->setObjectName(QStringLiteral("SectionLabel"));
-    lay->addWidget(head);
+    auto *header = new QHBoxLayout;
+    header->setContentsMargins(0, 0, 0, 0);
+    header->setSpacing(metrics::s2);
+    heading_ = new QLabel;
+    heading_->setObjectName(QStringLiteral("SectionLabel"));
+    header->addWidget(heading_, 1);
+    clearButton_ = new IconButton(IconButton::Glyph::Trash);
+    clearButton_->setObjectName(QStringLiteral("NotificationClearButton"));
+    clearButton_->setToolTip(QStringLiteral("알림 모두 삭제"));
+    clearButton_->setAccessibleName(QStringLiteral("알림 모두 삭제"));
+    header->addWidget(clearButton_);
+    lay->addLayout(header);
+    connect(clearButton_, &QPushButton::clicked, this, &NotificationPopup::clearRequested);
+
+    itemsLayout_ = new QVBoxLayout;
+    itemsLayout_->setContentsMargins(0, 0, 0, 0);
+    itemsLayout_->setSpacing(0);
+    lay->addLayout(itemsLayout_);
+    setFixedWidth(kPopupW);
+    setItems(items);
+}
+
+void NotificationPopup::setItems(const QList<Notification> &items)
+{
+    while (auto *item = itemsLayout_->takeAt(0)) {
+        delete item->widget();
+        delete item;
+    }
+    heading_->setText(items.isEmpty() ? QStringLiteral("알림")
+                                    : QStringLiteral("알림  %1건").arg(items.size()));
+    clearButton_->setEnabled(!items.isEmpty());
 
     if (items.isEmpty()) {
         auto *empty = new QLabel(QStringLiteral("알림 없음"));
         empty->setObjectName(QStringLiteral("Hint"));
         empty->setWordWrap(true);
-        lay->addWidget(empty);
+        itemsLayout_->addWidget(empty);
     } else {
         auto *inner = new QWidget;
         auto *list = new QVBoxLayout(inner);
@@ -161,10 +190,10 @@ NotificationPopup::NotificationPopup(const QList<Notification> &items)
         scroll->setStyleSheet(QStringLiteral("background: transparent;"));
         scroll->viewport()->setStyleSheet(QStringLiteral("background: transparent;"));
         scroll->setFixedHeight(qMin(wanted, kMaxListHeight));
-        lay->addWidget(scroll);
+        itemsLayout_->addWidget(scroll);
     }
 
-    setFixedWidth(kPopupW);
+    adjustSize();
 }
 
 void NotificationPopup::resizeEvent(QResizeEvent *ev)
@@ -206,6 +235,18 @@ void NotificationBell::add(const Notification &n)
     while (items_.size() > kMaxKept)
         items_.removeLast();
     ++unread_;
+    if (popup_ && popup_->isVisible())
+        popup_->setItems(items_);
+    update();
+    emit unreadChanged(unread_);
+}
+
+void NotificationBell::clear()
+{
+    items_.clear();
+    unread_ = 0;
+    if (popup_)
+        popup_->setItems(items_);
     update();
     emit unreadChanged(unread_);
 }
@@ -243,7 +284,8 @@ void NotificationBell::openPopup()
     emit opened();
 
     delete popup_;
-    popup_ = new NotificationPopup(items_);
+    popup_ = new NotificationPopup(items_, this);
+    connect(popup_, &NotificationPopup::clearRequested, this, &NotificationBell::clear);
     popup_->adjustSize();
 
     // 종 바로 아래, 오른쪽 끝을 맞춰 연다.

@@ -41,6 +41,7 @@
 #include "mapview/MapView.h"
 #include "net/BridgeClient.h"
 #include "net/Channels.h"
+#include "diag/LogStore.h"
 #include "panels/ArmPanel.h"
 #include "panels/CapturePanel.h"
 #include "panels/LocationPanel.h"
@@ -2105,6 +2106,92 @@ private slots:
         // 정말로 다른 각도는 순환이어도 잡아야 한다.
         s.setActual(0.0);
         QVERIFY2(s.diverged(), "순환 값이라고 실제로 다른 각도까지 놓치면 안 된다");
+    }
+
+    void notificationPopup_clearButtonTracksContents()
+    {
+        ui::NotificationPopup popup({});
+        auto *clear = popup.findChild<ui::IconButton *>(QStringLiteral("NotificationClearButton"));
+        auto *heading = popup.findChild<QLabel *>(QStringLiteral("SectionLabel"));
+        QVERIFY(clear && heading);
+        QCOMPARE(clear->accessibleName(), QStringLiteral("알림 모두 삭제"));
+        QVERIFY(!clear->isEnabled());
+        QSignalSpy requests(&popup, &ui::NotificationPopup::clearRequested);
+        clear->click();
+        QCOMPARE(requests.count(), 0);
+
+        popup.setItems({{QDateTime::currentDateTime(), QStringLiteral("테스트 알림"), {},
+                         QStringLiteral("warn")}});
+        QVERIFY(clear->isEnabled());
+        QCOMPARE(heading->text(), QStringLiteral("알림  1건"));
+        QCOMPARE(popup.findChildren<QWidget *>(QStringLiteral("NotificationRow")).size(), 1);
+        clear->click();
+        QCOMPARE(requests.count(), 1);
+
+        popup.setItems({});
+        QVERIFY(!clear->isEnabled());
+        QCOMPARE(heading->text(), QStringLiteral("알림"));
+        QVERIFY(popup.findChildren<QWidget *>(QStringLiteral("NotificationRow")).isEmpty());
+    }
+
+    void notificationBell_clearsHistoryAndAcceptsNewAlerts()
+    {
+        ui::NotificationBell bell;
+        bell.show();
+        QSignalSpy unread(&bell, &ui::NotificationBell::unreadChanged);
+        const ui::Notification alert{QDateTime::currentDateTime(), QStringLiteral("테스트 알림"),
+                                     {}, QStringLiteral("warn")};
+        bell.add(alert);
+        bell.add(alert);
+        QCOMPARE(unread.last().first().toInt(), 2);
+        QTest::mouseClick(&bell, Qt::LeftButton);
+        auto *popup = bell.findChild<ui::NotificationPopup *>();
+        QVERIFY(popup && popup->isVisible());
+        auto *clear = popup->findChild<ui::IconButton *>(QStringLiteral("NotificationClearButton"));
+        QVERIFY(clear && clear->isEnabled());
+        QCOMPARE(unread.last().first().toInt(), 0);
+
+        // Alerts received while the popup is open must also be visible/deletable.
+        bell.add(alert);
+        QCOMPARE(popup->findChildren<QWidget *>(QStringLiteral("NotificationRow")).size(), 3);
+        QTest::mouseClick(clear, Qt::LeftButton);
+        QVERIFY(popup->isVisible());
+        QVERIFY(!clear->isEnabled());
+        QCOMPARE(unread.last().first().toInt(), 0);
+        QVERIFY(popup->findChildren<QWidget *>(QStringLiteral("NotificationRow")).isEmpty());
+
+        popup->close();
+        QTest::mouseClick(&bell, Qt::LeftButton);
+        popup = bell.findChild<ui::NotificationPopup *>();
+        QVERIFY(popup && popup->isVisible());
+        QVERIFY(popup->findChildren<QWidget *>(QStringLiteral("NotificationRow")).isEmpty());
+        popup->close();
+        bell.add(alert);
+        QCOMPARE(unread.last().first().toInt(), 1);
+        QTest::mouseClick(&bell, Qt::LeftButton);
+        popup = bell.findChild<ui::NotificationPopup *>();
+        QCOMPARE(popup->findChildren<QWidget *>(QStringLiteral("NotificationRow")).size(), 1);
+        QVERIFY(popup->findChild<ui::IconButton *>(QStringLiteral("NotificationClearButton"))->isEnabled());
+    }
+
+    void notificationClear_preservesEventLog()
+    {
+        auto *robot = new test::TestRobot;
+        ui::MainWindow window(robot);
+        auto *log = window.findChild<diag::LogStore *>();
+        auto *bell = window.findChild<ui::NotificationBell *>();
+        QVERIFY(log && bell);
+        log->note(diag::Severity::Warn, QStringLiteral("보존할 알림 기록"));
+        const auto count = log->entries().size();
+        QTest::mouseClick(bell, Qt::LeftButton);
+        auto *popup = bell->findChild<ui::NotificationPopup *>();
+        QVERIFY(popup && popup->isVisible());
+        auto *clear = popup->findChild<ui::IconButton *>(QStringLiteral("NotificationClearButton"));
+        QVERIFY(clear && clear->isEnabled());
+        clear->click();
+        QCOMPARE(log->entries().size(), count);
+        QCOMPARE(log->entries().last().message, QStringLiteral("보존할 알림 기록"));
+        QVERIFY(popup->findChildren<QWidget *>(QStringLiteral("NotificationRow")).isEmpty());
     }
 
     /// 알림 목록은 항목이 있을 때와 없을 때 그리는 경로가 다르다.
