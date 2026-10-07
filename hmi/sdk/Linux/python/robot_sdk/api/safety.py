@@ -10,6 +10,14 @@ from ._base import _ApiBase
 
 
 class SafetyApi(_ApiBase):
+    def set_base_posture(self, posture: str, *, confirm: bool = False,
+                         timeout_s: float = 5.0) -> Response:
+        if posture not in ("stand_up", "stand_down", "balance_stand", "recovery_stand", "damp"):
+            raise ValueError("unsupported base posture")
+        if type(confirm) is not bool or (posture == "damp" and not confirm):
+            raise ValueError("damp requires confirm=True")
+        return self._client.request("cmd/base/posture", {"posture": posture, "confirm": confirm}, timeout_s)
+
     def emergency_stop(self, timeout_s: float = 3.0) -> Response:
         return self._client.request("cmd/estop", timeout_s=timeout_s)
 

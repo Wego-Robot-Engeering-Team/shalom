@@ -1,82 +1,33 @@
 // Copyright (c) 2026 WeGo Robotics. All rights reserved.
 // SPDX-License-Identifier: LicenseRef-Wego-Proprietary
-//
-// Public-header API example for an authorised customer application.
-//
-// This sample uses only cmd/maps/list, a read-only query. It demonstrates the
-// C++ request/response lifecycle without providing copy-and-run motion code.
-// See docs/API.md before enabling an operational command in a customer UI.
-
 #include <robot_sdk/api.hpp>
-
-#include <cstdint>
 #include <cstdio>
-#include <cstdlib>
 #include <string>
+#include <chrono>
 
-namespace {
-
-std::string stringField(const std::string &json, const std::string &key)
-{
-    const std::string needle = "\"" + key + "\":\"";
-    const auto at = json.find(needle);
-    if (at == std::string::npos)
-        return {};
-    const auto begin = at + needle.size();
-    const auto end = json.find('"', begin);
-    return end == std::string::npos ? std::string{} : json.substr(begin, end - begin);
-}
-
-}  // namespace
-
-int main(int argc, char **argv)
-{
-    if (argc < 2) {
-        std::fprintf(stderr, "Usage: robot_api_example <host> [port]\n");
-        return 2;
-    }
-
-    const std::string host = argv[1];
-    const auto port = static_cast<std::uint16_t>(argc > 2 ? std::atoi(argv[2]) : 9090);
-
+int main(int argc, char **argv) {
+    if (argc < 2 || argc > 3) { std::fprintf(stderr, "Usage: robot_api_example <host> [port]\n"); return 2; }
+    int port = 9090;
+    try {
+        if (argc == 3) { std::size_t used; port = std::stoi(argv[2], &used); if (used != std::string(argv[2]).size()) return 2; }
+    } catch (...) { return 2; }
+    if (port < 1 || port > 65535) return 2;
     robot_sdk::Client client;
     std::string error;
-    if (!client.connect(host, port, &error)) {
-        std::fprintf(stderr, "Connection failed: %s\n", error.c_str());
-        return 1;
+    if (!client.connect(argv[1], static_cast<std::uint16_t>(port), &error)) {
+        std::fprintf(stderr, "%s\n", error.c_str()); return 1;
     }
-
-    // RobotApi is the public command facade supplied in robot_sdk/api.hpp.
-    // The returned id correlates this request with the later `res` frame.
-    robot_sdk::RobotApi robot(client);
-    const std::string requestId = robot.listMaps(&error);
-    if (requestId.empty()) {
-        std::fprintf(stderr, "Request failed to send: %s\n", error.c_str());
-        return 1;
+    // Read-only query: responses and state publications can arrive in either order.
+    auto reply = client.request("cmd/maps/list", "{}", 3000, {}, &error);
+    if (!reply) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
+    if (!reply->ok) { std::fprintf(stderr, "%s: %s\n", reply->errorCode.c_str(), reply->errorMessage.c_str()); return 1; }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!client.latest("state/maps") && std::chrono::steady_clock::now() < deadline) {
+        std::vector<robot_sdk::Message> messages;
+        if (!client.poll(messages, 200, &error)) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
     }
-
-    std::printf("Requested map list (%s); waiting for response...\n", requestId.c_str());
-    const auto stop = client.run(
-        [&](const robot_sdk::Message &message) {
-            const std::string type = stringField(message.envelope, "t");
-            const std::string channel = stringField(message.envelope, "ch");
-
-            if (type == "pub" && channel == "state/maps") {
-                // Use the JSON library already used by the customer application
-                // to parse message.envelope and render the actual map list.
-                std::printf("Received state/maps: %s\n", message.envelope.c_str());
-                return true;
-            }
-            if (type == "res" && stringField(message.envelope, "id") == requestId) {
-                std::printf("Request response: %s\n", message.envelope.c_str());
-                return false;  // Client::run returns Stop::Requested.
-            }
-            return true;
-        },
-        &error);
-
-    if (stop == robot_sdk::Stop::Requested)
-        return 0;
-    std::fprintf(stderr, "Connection ended: %s\n", error.c_str());
-    return 1;
+    auto maps = client.latest("state/maps");
+    if (!maps) { std::fprintf(stderr, "map list was not received\n"); return 1; }
+    std::printf("%s\n", maps->envelope.c_str());
+    return 0;
 }

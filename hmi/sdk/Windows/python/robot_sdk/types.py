@@ -5,7 +5,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import time
 from typing import Any, Mapping, Optional
 
 
@@ -15,6 +16,7 @@ class Message:
 
     envelope: Mapping[str, Any]
     payload: bytes
+    received_monotonic_s: float = field(default_factory=time.monotonic)
 
     @property
     def type(self) -> str:
@@ -23,6 +25,10 @@ class Message:
     @property
     def channel(self) -> str:
         return str(self.envelope.get("ch", ""))
+
+    @property
+    def age_s(self) -> float:
+        return max(0.0, time.monotonic() - self.received_monotonic_s)
 
 
 @dataclass(frozen=True)
@@ -34,3 +40,7 @@ class Response:
     error_code: Optional[str]
     error_message: Optional[str]
     message: Message
+
+    @property
+    def data(self) -> Mapping[str, Any]:
+        return self.message.envelope["p"]

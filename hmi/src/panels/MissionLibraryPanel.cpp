@@ -11,13 +11,16 @@
 
 #include <QAbstractItemView>
 #include <QComboBox>
+#include <QEvent>
 #include <QFormLayout>
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QPointer>
 #include <QRegularExpression>
 #include <QSet>
 #include <QSignalBlocker>
@@ -35,6 +38,53 @@ namespace hmi::ui {
 using namespace hmi::theme;
 
 namespace {
+
+class MissionPages final : public QStackedWidget {
+public:
+    MissionPages()
+    {
+        layout()->setSizeConstraint(QLayout::SetNoConstraint);
+        connect(this, &QStackedWidget::currentChanged, this, [this] { updateGeometry(); });
+    }
+
+    QSize sizeHint() const override
+    {
+        return currentWidget() ? currentWidget()->sizeHint() : QSize();
+    }
+
+    QSize minimumSizeHint() const override
+    {
+        return currentWidget() ? currentWidget()->minimumSizeHint() : QSize();
+    }
+};
+
+class MissionNameLabel final : public QLabel {
+public:
+    explicit MissionNameLabel(const QString &name) : QLabel(name), name_(name)
+    {
+        setTextFormat(Qt::PlainText);
+        setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        setToolTip(name);
+        setAccessibleName(name);
+    }
+
+protected:
+    void resizeEvent(QResizeEvent *event) override
+    {
+        QLabel::resizeEvent(event);
+        setText(fontMetrics().elidedText(name_, Qt::ElideRight, contentsRect().width()));
+    }
+
+    void changeEvent(QEvent *event) override
+    {
+        QLabel::changeEvent(event);
+        if (event->type() == QEvent::FontChange || event->type() == QEvent::StyleChange)
+            setText(fontMetrics().elidedText(name_, Qt::ElideRight, contentsRect().width()));
+    }
+
+private:
+    QString name_;
+};
 
 QString stepReference(const QVariantMap &step)
 {
@@ -64,7 +114,7 @@ MissionLibraryPanel::MissionLibraryPanel(QWidget *parent) : QWidget(parent)
     outer->addWidget(card, 0, Qt::AlignTop);
     outer->addStretch(1);
 
-    pages_ = new QStackedWidget;
+    pages_ = new MissionPages;
     pages_->setObjectName(QStringLiteral("MissionLibraryPages"));
     card->body()->addWidget(pages_);
 
@@ -90,6 +140,7 @@ MissionLibraryPanel::MissionLibraryPanel(QWidget *parent) : QWidget(parent)
     list_->setObjectName(QStringLiteral("MissionList"));
     list_->setSelectionMode(QAbstractItemView::NoSelection);
     list_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     listLayout->addWidget(list_);
     empty_ = new QLabel(QStringLiteral("저장된 미션 없음"));
     empty_->setObjectName(QStringLiteral("MissionEmpty"));
@@ -107,10 +158,13 @@ MissionLibraryPanel::MissionLibraryPanel(QWidget *parent) : QWidget(parent)
     editorTitle_->setObjectName(QStringLiteral("MissionEditorTitle"));
     editorLayout->addWidget(editorTitle_);
     auto *nameForm = new QFormLayout;
+    nameForm->setRowWrapPolicy(QFormLayout::WrapAllRows);
+    nameForm->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     name_ = new QLineEdit;
     name_->setObjectName(QStringLiteral("MissionName"));
     name_->setPlaceholderText(QStringLiteral("예: 차량 하부 점검"));
     name_->setMaxLength(120);
+    name_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     nameForm->addRow(QStringLiteral("미션 이름"), name_);
     editorLayout->addLayout(nameForm);
 
@@ -125,7 +179,11 @@ MissionLibraryPanel::MissionLibraryPanel(QWidget *parent) : QWidget(parent)
     steps_->setObjectName(QStringLiteral("MissionSteps"));
     steps_->setSelectionMode(QAbstractItemView::NoSelection);
     steps_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    steps_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     editorLayout->addWidget(steps_);
+    stepsEmpty_ = new QLabel(QStringLiteral("단계를 추가하십시오."));
+    stepsEmpty_->setObjectName(QStringLiteral("MissionStepsEmpty"));
+    editorLayout->addWidget(stepsEmpty_);
     auto *editorActions = new QHBoxLayout;
     save_ = new QPushButton(QStringLiteral("저장"));
     save_->setProperty("variant", "primary");
@@ -138,6 +196,7 @@ MissionLibraryPanel::MissionLibraryPanel(QWidget *parent) : QWidget(parent)
 
     status_ = new QLabel;
     status_->setObjectName(QStringLiteral("MissionLibraryStatus"));
+    status_->setTextFormat(Qt::PlainText);
     status_->setWordWrap(true);
     status_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     status_->hide();
@@ -163,7 +222,7 @@ MissionLibraryPanel::MissionLibraryPanel(QWidget *parent) : QWidget(parent)
         rebuildSteps();
     });
     connect(save_, &QPushButton::clicked, this, [this] {
-        if (!editing_ || !canEdit() || !pendingSaveId_.isEmpty())
+        if (!editing_ || !canEdit() || !pendingSaveId_.isEmpty() || saveResultOutstanding_)
             return;
         if (name_->text().trimmed().isEmpty() || draftSteps_.isEmpty()) {
             setStatus(QStringLiteral("미션 이름과 작업을 하나 이상 입력하십시오."));
@@ -181,13 +240,19 @@ MissionLibraryPanel::MissionLibraryPanel(QWidget *parent) : QWidget(parent)
                 return;
             }
             ids.insert(step.id);
+            if (step.type != QLatin1String("navigate") && step.type != QLatin1String("capture") &&
+                step.type != QLatin1String("arm_move") && step.type != QLatin1String("dock")) {
+                setStatus(QStringLiteral("%1번 작업의 종류를 다시 선택하십시오.").arg(i + 1));
+                return;
+            }
             if (step.type != QLatin1String("dock") && step.reference.trimmed().isEmpty()) {
                 setStatus(QStringLiteral("%1번 작업의 대상을 선택하십시오.").arg(i + 1));
                 return;
             }
             if (step.type == QLatin1String("navigate") && std::none_of(
                     waypoints_.cbegin(), waypoints_.cend(), [&step](const QVariantMap &point) {
-                        return point.value(QStringLiteral("id")).toString() == step.reference;
+                        return point.value(QStringLiteral("id")).toString() == step.reference &&
+                               !point.value(QStringLiteral("archived")).toBool();
                     })) {
                 setStatus(QStringLiteral("%1번 작업의 웨이포인트가 없습니다. 다시 선택하십시오.").arg(i + 1));
                 return;
@@ -213,16 +278,21 @@ MissionLibraryPanel::MissionLibraryPanel(QWidget *parent) : QWidget(parent)
         pendingSaveId_ = editingId_;
         pendingMission_ = currentMission();
         pendingSaveAccepted_ = false;
+        saveResultOutstanding_ = true;
         const quint64 generation = ++pendingSaveGeneration_;
         updateControls();
         setStatus(QStringLiteral("저장 중…"));
         QTimer::singleShot(7000, this, [this, generation] {
-            if (pendingSaveId_.isEmpty() || pendingSaveGeneration_ != generation)
+            if (pendingSaveGeneration_ != generation ||
+                (pendingSaveId_.isEmpty() && !saveResultOutstanding_))
                 return;
+            const bool currentContext = !pendingSaveId_.isEmpty();
             pendingSaveId_.clear();
             pendingMission_.clear();
             pendingSaveAccepted_ = false;
-            setStatus(QStringLiteral("저장 결과를 확인하지 못했습니다. 목록을 새로 고친 뒤 확인하십시오."));
+            saveResultOutstanding_ = false;
+            if (currentContext)
+                setStatus(QStringLiteral("저장 결과를 확인하지 못했습니다. 목록을 새로 고친 뒤 확인하십시오."));
             updateControls();
         });
         const QVariantMap submitted = pendingMission_;
@@ -238,7 +308,7 @@ bool MissionLibraryPanel::canEdit() const
 
 void MissionLibraryPanel::startNew()
 {
-    if (!canEdit())
+    if (!canEdit() || !pendingSaveId_.isEmpty() || !pendingArchiveId_.isEmpty())
         return;
     editing_ = true;
     editingOriginal_.clear();
@@ -256,7 +326,7 @@ void MissionLibraryPanel::startNew()
 
 void MissionLibraryPanel::startEdit(const QVariantMap &mission)
 {
-    if (!canEdit() || !pendingSaveId_.isEmpty())
+    if (!canEdit() || !pendingSaveId_.isEmpty() || !pendingArchiveId_.isEmpty())
         return;
     editing_ = true;
     editingOriginal_ = mission;
@@ -287,6 +357,8 @@ void MissionLibraryPanel::closeEditor()
     pendingSaveId_.clear();
     pendingMission_.clear();
     pendingSaveAccepted_ = false;
+    // A map switch can close the editor while the save reply is still in flight.
+    // Keep saveResultOutstanding_ until that reply or its timeout is consumed.
     name_->clear();
     steps_->clear();
     pages_->setCurrentIndex(0);
@@ -297,6 +369,13 @@ void MissionLibraryPanel::setMapId(const QString &mapId)
 {
     if (mapId_ == mapId)
         return;
+    ++contextGeneration_;
+    pendingArchiveId_.clear();
+    pendingArchiveAccepted_ = false;
+    // Results carry a channel only. Keep the old request reserved until its
+    // reply arrives, so it cannot be mistaken for a delete on the new map.
+    if (!archiveResultOutstanding_)
+        ++pendingArchiveGeneration_;
     mapId_ = mapId;
     missions_.clear();
     closeEditor();
@@ -308,6 +387,7 @@ void MissionLibraryPanel::setMapId(const QString &mapId)
 void MissionLibraryPanel::setMissions(const QList<QVariantMap> &missions)
 {
     missions_ = missions;
+    confirmPendingArchive();
     if (editing_ && !pendingSaveId_.isEmpty()) {
         confirmPendingSave();
     } else if (editing_ && revisionValue_ > 0) {
@@ -326,6 +406,9 @@ void MissionLibraryPanel::setMissions(const QList<QVariantMap> &missions)
 
 void MissionLibraryPanel::setWaypoints(const QList<QVariantMap> &waypoints)
 {
+    // Repeated catalog reports must not replace the focused draft controls.
+    if (waypoints_ == waypoints)
+        return;
     waypoints_ = waypoints;
     if (editing_)
         rebuildSteps();
@@ -333,6 +416,8 @@ void MissionLibraryPanel::setWaypoints(const QList<QVariantMap> &waypoints)
 
 void MissionLibraryPanel::setArmPosePresets(const QList<QVariantMap> &presets)
 {
+    if (armPosePresets_ == presets)
+        return;
     armPosePresets_ = presets;
     if (editing_)
         rebuildSteps();
@@ -340,9 +425,12 @@ void MissionLibraryPanel::setArmPosePresets(const QList<QVariantMap> &presets)
 
 void MissionLibraryPanel::setMissionState(hmi::robot::MissionState state)
 {
-    missionBusy_ = state != hmi::robot::MissionState::Idle &&
-                   state != hmi::robot::MissionState::Completed &&
-                   state != hmi::robot::MissionState::Failed;
+    const bool busy = state != hmi::robot::MissionState::Idle &&
+                      state != hmi::robot::MissionState::Completed &&
+                      state != hmi::robot::MissionState::Failed;
+    if (missionBusy_ == busy)
+        return;
+    missionBusy_ = busy;
     updateControls();
     refreshList();
 }
@@ -351,6 +439,8 @@ void MissionLibraryPanel::setEditingEnabled(bool enabled)
 {
     if (editingEnabled_ == enabled)
         return;
+    if (!enabled)
+        ++contextGeneration_;
     editingEnabled_ = enabled;
     updateControls();
     refreshList();
@@ -392,12 +482,34 @@ bool MissionLibraryPanel::confirmPendingSave()
     return true;
 }
 
+bool MissionLibraryPanel::confirmPendingArchive()
+{
+    if (pendingArchiveId_.isEmpty() || !pendingArchiveAccepted_)
+        return false;
+    const bool stillPresent = std::any_of(missions_.cbegin(), missions_.cend(), [this](const QVariantMap &mission) {
+        return mission.value(QStringLiteral("id")).toString() == pendingArchiveId_ &&
+               !mission.value(QStringLiteral("archived")).toBool();
+    });
+    if (stillPresent)
+        return false;
+    pendingArchiveId_.clear();
+    pendingArchiveAccepted_ = false;
+    setStatus(QStringLiteral("미션 삭제됨"));
+    updateControls();
+    return true;
+}
+
 void MissionLibraryPanel::handleCommandResult(const QString &channel, bool ok,
                                               const QString &code, const QString &message)
 {
     if (channel == QLatin1String(hmi::ch::kCmdMissionsSave)) {
-        if (pendingSaveId_.isEmpty())
+        if (!saveResultOutstanding_)
             return;
+        saveResultOutstanding_ = false;
+        if (pendingSaveId_.isEmpty()) {
+            updateControls();
+            return;
+        }
         if (!ok) {
             pendingSaveId_.clear();
             pendingMission_.clear();
@@ -413,10 +525,25 @@ void MissionLibraryPanel::handleCommandResult(const QString &channel, bool ok,
         }
         updateControls();
     } else if (channel == QLatin1String(hmi::ch::kCmdMissionsArchive)) {
-        setStatus(ok ? QStringLiteral("미션 삭제됨")
-                     : QStringLiteral("삭제 실패 · %1 %2").arg(code, message));
-        if (ok)
+        if (!archiveResultOutstanding_)
+            return;
+        archiveResultOutstanding_ = false;
+        if (pendingArchiveId_.isEmpty()) {
+            refreshList();
+            return;
+        }
+        if (ok) {
+            pendingArchiveAccepted_ = true;
+            if (!confirmPendingArchive())
+                setStatus(QStringLiteral("삭제 확인 중…"));
             emit missionsRequested();
+        } else {
+            pendingArchiveId_.clear();
+            pendingArchiveAccepted_ = false;
+            setStatus(QStringLiteral("삭제 실패 · %1 %2").arg(code, message).trimmed());
+        }
+        updateControls();
+        refreshList();
     } else if (channel == QLatin1String(hmi::ch::kCmdMissionStart)) {
         setStatus(ok ? QStringLiteral("미션 실행 접수")
                      : QStringLiteral("실행 실패 · %1 %2").arg(code, message));
@@ -475,7 +602,7 @@ void MissionLibraryPanel::refreshList()
         layout->setSpacing(0);
         auto *top = new QHBoxLayout;
         top->setSpacing(metrics::s1);
-        auto *title = new QLabel(name);
+        auto *title = new MissionNameLabel(name);
         title->setObjectName(QStringLiteral("MissionSavedName"));
         title->setToolTip(name);
         title->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
@@ -485,13 +612,14 @@ void MissionLibraryPanel::refreshList()
         edit->setAccessibleName(QStringLiteral("%1 수정").arg(name));
         edit->setToolTip(QStringLiteral("미션 수정"));
         edit->setFixedSize(28, 28);
-        edit->setEnabled(canEdit());
+        edit->setEnabled(canEdit() && pendingArchiveId_.isEmpty() && pendingSaveId_.isEmpty());
         top->addWidget(edit);
         auto *run = new QPushButton(QStringLiteral("실행"));
         run->setObjectName(QStringLiteral("MissionRun_%1").arg(id));
         run->setProperty("size", "sm");
         const QString reason = runBlockReason(mission);
-        run->setEnabled(executionEnabled_ && !missionBusy_ && reason.isEmpty());
+        run->setEnabled(executionEnabled_ && !missionBusy_ && reason.isEmpty() &&
+                        pendingArchiveId_.isEmpty() && pendingSaveId_.isEmpty());
         run->setToolTip(!executionEnabled_ ? executionReason_
                        : missionBusy_ ? QStringLiteral("미션 실행 중") : reason);
         top->addWidget(run);
@@ -500,13 +628,17 @@ void MissionLibraryPanel::refreshList()
         remove->setAccessibleName(QStringLiteral("%1 삭제").arg(name));
         remove->setToolTip(QStringLiteral("미션 삭제"));
         remove->setFixedSize(28, 28);
-        remove->setEnabled(canEdit());
+        remove->setEnabled(canEdit() && pendingArchiveId_.isEmpty() && pendingSaveId_.isEmpty() &&
+                           !archiveResultOutstanding_);
+        if (archiveResultOutstanding_ && pendingArchiveId_.isEmpty())
+            remove->setToolTip(QStringLiteral("이전 삭제 결과 확인 중"));
         top->addWidget(remove);
         layout->addLayout(top);
         auto *summary = new QLabel(QStringLiteral("%1단계%2")
             .arg(mission.value(QStringLiteral("steps")).toList().size())
             .arg(reason.isEmpty() ? QString() : QStringLiteral(" · 실행 불가")));
         summary->setObjectName(QStringLiteral("MissionSavedSummary"));
+        summary->setTextFormat(Qt::PlainText);
         summary->setToolTip(reason);
         layout->addWidget(summary);
         item->setSizeHint(row->sizeHint());
@@ -514,19 +646,59 @@ void MissionLibraryPanel::refreshList()
         listHeight += item->sizeHint().height();
         connect(edit, &QPushButton::clicked, this, [this, mission] { startEdit(mission); });
         connect(run, &QPushButton::clicked, this, [this, mission] {
-            if (!executionEnabled_ || missionBusy_ || !runBlockReason(mission).isEmpty())
+            if (!executionEnabled_ || missionBusy_ || !runBlockReason(mission).isEmpty() ||
+                !pendingArchiveId_.isEmpty() || !pendingSaveId_.isEmpty())
                 return;
             emit runRequested(mission.value(QStringLiteral("id")).toString());
         });
         connect(remove, &QPushButton::clicked, this, [this, id, name, mission] {
-            if (!canEdit())
+            if (!canEdit() || !pendingArchiveId_.isEmpty() || !pendingSaveId_.isEmpty() ||
+                archiveResultOutstanding_)
                 return;
-            if (QMessageBox::question(this, QStringLiteral("미션 삭제"),
-                    QStringLiteral("'%1' 미션을 삭제하시겠습니까?").arg(name),
-                    QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
+            const QPointer<MissionLibraryPanel> panel(this);
+            const quint64 generation = contextGeneration_;
+            const QVariantMap target = mission;
+            const QString targetId = id;
+            auto *confirmation = new QMessageBox(QMessageBox::Question, QStringLiteral("미션 삭제"),
+                QStringLiteral("'%1' 미션을 삭제하시겠습니까?").arg(name),
+                QMessageBox::Yes | QMessageBox::No, this);
+            confirmation->setTextFormat(Qt::PlainText);
+            confirmation->setDefaultButton(QMessageBox::No);
+            const QPointer<QMessageBox> dialog(confirmation);
+            const int answer = confirmation->exec();
+            if (dialog)
+                delete dialog.data();
+            if (answer != QMessageBox::Yes)
                 return;
+            if (!panel || generation != contextGeneration_ || !canEdit() ||
+                !pendingArchiveId_.isEmpty() || !pendingSaveId_.isEmpty() || archiveResultOutstanding_)
+                return;
+            const auto current = std::find_if(missions_.cbegin(), missions_.cend(),
+                [&targetId](const QVariantMap &entry) { return entry.value("id").toString() == targetId; });
+            if (current == missions_.cend() || *current != target)
+                return;
+            pendingArchiveId_ = targetId;
+            pendingArchiveAccepted_ = false;
+            archiveResultOutstanding_ = true;
+            const quint64 archiveGeneration = ++pendingArchiveGeneration_;
             setStatus(QStringLiteral("삭제 중…"));
-            emit archiveRequested(id, mission.value(QStringLiteral("revision")).toULongLong());
+            updateControls();
+            for (auto *action : list_->findChildren<QPushButton *>())
+                action->setEnabled(false);
+            QTimer::singleShot(7000, this, [this, archiveGeneration] {
+                if (pendingArchiveGeneration_ != archiveGeneration ||
+                    (pendingArchiveId_.isEmpty() && !archiveResultOutstanding_))
+                    return;
+                const bool currentContext = !pendingArchiveId_.isEmpty();
+                pendingArchiveId_.clear();
+                pendingArchiveAccepted_ = false;
+                archiveResultOutstanding_ = false;
+                if (currentContext)
+                    setStatus(QStringLiteral("삭제 결과를 확인하지 못했습니다. 목록을 새로 고쳐 확인하십시오."));
+                updateControls();
+                refreshList();
+            });
+            emit archiveRequested(targetId, target.value(QStringLiteral("revision")).toULongLong());
         });
     }
     list_->setVisible(list_->count() > 0);
@@ -537,22 +709,25 @@ void MissionLibraryPanel::refreshList()
 
 void MissionLibraryPanel::updateStepTarget(int index, const QString &type)
 {
-    auto *row = index < steps_->count() ? steps_->itemWidget(steps_->item(index)) : nullptr;
+    auto *row = index >= 0 && index < steps_->count() ? steps_->itemWidget(steps_->item(index)) : nullptr;
     auto *target = row ? row->findChild<QComboBox *>(QStringLiteral("MissionStepTarget")) : nullptr;
     auto *none = row ? row->findChild<QLabel *>(QStringLiteral("MissionStepNoTarget")) : nullptr;
-    if (!target || !none || index >= draftSteps_.size())
+    if (!target || !none || index < 0 || index >= draftSteps_.size())
         return;
     const QSignalBlocker blocker(target);
     target->clear();
     target->setEditable(type == QLatin1String("capture"));
     target->setVisible(type != QLatin1String("dock"));
     none->setVisible(type == QLatin1String("dock"));
+    target->setToolTip({});
     if (type == QLatin1String("dock"))
         return;
     const QString reference = draftSteps_.at(index).reference;
     if (type == QLatin1String("capture")) {
         target->lineEdit()->setPlaceholderText(QStringLiteral("촬영 프리셋 ID"));
+        target->lineEdit()->setMaxLength(96);
         target->setCurrentText(reference);
+        target->setToolTip(reference);
         return;
     }
     const QList<QVariantMap> *assets = type == QLatin1String("navigate") ? &waypoints_
@@ -569,8 +744,11 @@ void MissionLibraryPanel::updateStepTarget(int index, const QString &type)
         if (asset.value(QStringLiteral("archived")).toBool())
             continue;
         const QString id = asset.value(QStringLiteral("id")).toString();
-        if (!id.isEmpty())
+        if (!id.isEmpty()) {
             target->addItem(asset.value(QStringLiteral("name"), id).toString(), id);
+            target->setItemData(target->count() - 1,
+                asset.value(QStringLiteral("name"), id).toString(), Qt::ToolTipRole);
+        }
     }
     int selected = target->findData(reference);
     if (selected < 0 && !reference.isEmpty()) {
@@ -578,13 +756,13 @@ void MissionLibraryPanel::updateStepTarget(int index, const QString &type)
         selected = target->count() - 1;
     }
     target->setCurrentIndex(std::max(0, selected));
+    target->setToolTip(target->currentText());
 }
 
 void MissionLibraryPanel::rebuildSteps()
 {
     const QSignalBlocker blocker(steps_);
     steps_->clear();
-    int listHeight = 4;
     for (int index = 0; index < draftSteps_.size(); ++index) {
         const auto &draft = draftSteps_.at(index);
         auto *item = new QListWidgetItem(steps_);
@@ -603,6 +781,7 @@ void MissionLibraryPanel::rebuildSteps()
         auto *type = new QComboBox;
         type->setObjectName(QStringLiteral("MissionStepType_%1").arg(index));
         type->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        type->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         type->addItem(QStringLiteral("주행"), QStringLiteral("navigate"));
         type->addItem(QStringLiteral("촬영"), QStringLiteral("capture"));
         type->addItem(QStringLiteral("로봇팔"), QStringLiteral("arm_move"));
@@ -618,6 +797,8 @@ void MissionLibraryPanel::rebuildSteps()
                                        const QString &objectName) {
             auto *button = new QPushButton(text, row);
             button->setFixedSize(28, 28);
+            button->setProperty("variant", "ghost");
+            button->setProperty("compact", true);
             button->setToolTip(hint);
             button->setAccessibleName(hint);
             button->setObjectName(objectName);
@@ -642,6 +823,7 @@ void MissionLibraryPanel::rebuildSteps()
         auto *target = new QComboBox;
         target->setObjectName(QStringLiteral("MissionStepTarget"));
         target->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        target->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         layout->addWidget(target);
         auto *none = new QLabel(QStringLiteral("대상 선택 없음"));
         none->setObjectName(QStringLiteral("MissionStepNoTarget"));
@@ -650,20 +832,28 @@ void MissionLibraryPanel::rebuildSteps()
         steps_->setItemWidget(item, row);
         updateStepTarget(index, draft.type);
         item->setSizeHint(row->sizeHint());
-        listHeight += item->sizeHint().height();
         connect(type, &QComboBox::currentIndexChanged, this, [this, index, type] {
+            if (!editing_ || !canEdit() || !pendingSaveId_.isEmpty() || index >= draftSteps_.size())
+                return;
             draftSteps_[index].type = type->currentData().toString();
             draftSteps_[index].reference.clear();
             updateStepTarget(index, draftSteps_[index].type);
+            resizeStepList();
         });
-        connect(target, &QComboBox::currentTextChanged, this, [this, index, target] {
-            if (index >= draftSteps_.size())
+        connect(target, &QComboBox::currentIndexChanged, this, [this, index, target] {
+            if (!editing_ || !canEdit() || !pendingSaveId_.isEmpty() || index >= draftSteps_.size())
                 return;
             const QString type = draftSteps_[index].type;
-            draftSteps_[index].reference = type == QLatin1String("capture") ||
-                (type != QLatin1String("navigate") && type != QLatin1String("arm_move") &&
-                 type != QLatin1String("dock"))
-                ? target->currentText() : target->currentData().toString();
+            if (type == QLatin1String("navigate") || type == QLatin1String("arm_move"))
+                draftSteps_[index].reference = target->currentData().toString();
+            target->setToolTip(target->currentText());
+        });
+        connect(target, &QComboBox::editTextChanged, this, [this, index, target](const QString &text) {
+            if (!editing_ || !canEdit() || !pendingSaveId_.isEmpty() || index >= draftSteps_.size())
+                return;
+            if (draftSteps_[index].type == QLatin1String("capture"))
+                draftSteps_[index].reference = text;
+            target->setToolTip(text);
         });
         connect(up, &QPushButton::clicked, this, [this, index] { moveStep(index, -1); });
         connect(down, &QPushButton::clicked, this, [this, index] { moveStep(index, 1); });
@@ -675,15 +865,32 @@ void MissionLibraryPanel::rebuildSteps()
         });
     }
     steps_->setVisible(!draftSteps_.isEmpty());
-    if (!draftSteps_.isEmpty())
-        steps_->setFixedHeight(std::min(360, listHeight));
+    stepsEmpty_->setVisible(draftSteps_.isEmpty());
+    resizeStepList();
     updateControls();
+}
+
+void MissionLibraryPanel::resizeStepList()
+{
+    int height = 4;
+    for (int index = 0; index < steps_->count(); ++index) {
+        auto *item = steps_->item(index);
+        auto *row = steps_->itemWidget(item);
+        if (!row)
+            continue;
+        row->layout()->invalidate();
+        item->setSizeHint(row->sizeHint());
+        height += item->sizeHint().height();
+    }
+    if (steps_->count() > 0)
+        steps_->setFixedHeight(std::min(360, height));
+    pages_->updateGeometry();
 }
 
 void MissionLibraryPanel::moveStep(int index, int delta)
 {
     const int next = index + delta;
-    if (!canEdit() || index < 0 || next < 0 || next >= draftSteps_.size())
+    if (!canEdit() || !pendingSaveId_.isEmpty() || index < 0 || next < 0 || next >= draftSteps_.size())
         return;
     std::swap(draftSteps_[index], draftSteps_[next]);
     rebuildSteps();
@@ -717,11 +924,15 @@ QString MissionLibraryPanel::runBlockReason(const QVariantMap &mission) const
 
 void MissionLibraryPanel::updateControls()
 {
-    new_->setEnabled(canEdit());
-    addStep_->setEnabled(editing_ && canEdit() && pendingSaveId_.isEmpty());
-    name_->setEnabled(editing_ && canEdit() && pendingSaveId_.isEmpty());
-    steps_->setEnabled(editing_ && canEdit() && pendingSaveId_.isEmpty());
-    save_->setEnabled(editing_ && canEdit() && pendingSaveId_.isEmpty());
+    const bool writable = canEdit() && pendingSaveId_.isEmpty() && pendingArchiveId_.isEmpty();
+    new_->setEnabled(writable);
+    addStep_->setEnabled(editing_ && writable);
+    name_->setEnabled(editing_ && writable);
+    steps_->setEnabled(editing_ && writable);
+    save_->setEnabled(editing_ && writable && !saveResultOutstanding_);
+    save_->setToolTip(saveResultOutstanding_ && pendingSaveId_.isEmpty()
+        ? QStringLiteral("이전 저장 결과 확인 중")
+        : !pendingSaveId_.isEmpty() ? QStringLiteral("로봇 저장 확인 중") : QString());
     cancel_->setEnabled(editing_ && pendingSaveId_.isEmpty());
 }
 

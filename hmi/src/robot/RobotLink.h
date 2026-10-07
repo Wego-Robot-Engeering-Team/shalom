@@ -79,6 +79,9 @@ public:
     /// wall, so this is a record of a survey, not a command to move anything -
     /// but the robot needs it to know which tag it is looking at.
     virtual void setMarkers(const QList<QVariantMap> &markers) = 0;
+    virtual void setMarkers(const QList<QVariantMap> &markers,
+                            const QList<QVariantMap> &expectedMarkers, const QString &mapId)
+    { Q_UNUSED(expectedMarkers); Q_UNUSED(mapId); setMarkers(markers); }
 
     /// Takes a photograph. The robot decides whether it may - it refuses while
     /// moving (statement of work 2.2.4) - and saves the original itself; only

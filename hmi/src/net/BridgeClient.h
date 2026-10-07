@@ -83,6 +83,8 @@ public:
                       const QList<QVariantMap> &expectedPoints, const QString &mapId) override;
     void setLocations(const QList<QVariantMap> &locations) override;
     void setMarkers(const QList<QVariantMap> &markers) override;
+    void setMarkers(const QList<QVariantMap> &markers,
+                    const QList<QVariantMap> &expectedMarkers, const QString &mapId) override;
     void triggerCapture(const QVariantMap &metadata) override;
     QList<QVariantMap> markers() const override { return markers_; }
     void setBatteryPolicy(double returnAt, double departAt) override;
@@ -217,6 +219,7 @@ private:
     QHash<qint64, qint64> heartbeatSentAt_;   ///< seq -> monotonic ms
     qint64 lastHeartbeatMs_ = 0;
     qint64 lastPoseMs_ = 0;
+    qint64 lastBatteryMs_ = 0;
     qint64 lastNavMs_ = 0;
     qint64 lastSafetyMs_ = 0;
     qint64 lastArmMs_ = 0;

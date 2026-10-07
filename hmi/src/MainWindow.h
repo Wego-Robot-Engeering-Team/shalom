@@ -27,6 +27,7 @@
 #include <QHash>
 #include <QMainWindow>
 #include <array>
+#include <limits>
 #include <optional>
 
 #include "robot/RobotLink.h"
@@ -199,6 +200,7 @@ private:
     /// their reason so a bad waypoint can be traced later.
     void captureLocation(const QString &kind);
     bool submitWaypoints(const QList<QVariantMap> &points);
+    bool mapEditContextValid(quint64 generation, const QString &mapId) const;
 
     void startSession();
 
@@ -220,6 +222,10 @@ private:
     QTabWidget *driveTabs_ = nullptr;
     MapCard *map_ = nullptr;
     QString navigationStatus_;
+    quint64 operationContextGeneration_ = 0;
+    QString waypointInfoId_, waypointInfoMapId_;
+    QPoint waypointInfoPosition_;
+    quint64 waypointInfoContext_ = 0;
     hmi::robot::Telemetry navigationTelemetry_;
     QVariantMap draftGoal_;
     QString draftGoalMapId_;
@@ -264,6 +270,10 @@ private:
     SettingsDialog *settings_ = nullptr;
 
     EStopButton *estop_ = nullptr;
+    // Local stop intent blocks motion while the robot's actual latch is unknown.
+    bool estopMotionHold_ = false;
+    QString estopRequestError_;
+    quint64 estopRequestGeneration_ = 0;
     AlertFrame *alert_ = nullptr;
     ToastHost *toasts_ = nullptr;
     QLabel *linkDot_ = nullptr;
@@ -297,7 +307,7 @@ private:
     RobotSnapshot snapshot_;
     /// Last reported charge. Kept out of RobotSnapshot, which exists to judge
     /// whether a location capture is valid and has nothing to do with power.
-    double lastSoc_ = 0.0;
+    double lastSoc_ = std::numeric_limits<double>::quiet_NaN();
 
     QVariantMap dock_;
     QVariantMap home_;

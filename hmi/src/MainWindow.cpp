@@ -23,6 +23,7 @@
 #include <QWidgetAction>
 #include <QPainter>
 #include <QPixmap>
+#include <QPointer>
 #include <QStyle>
 #include <QMessageBox>
 #include <QPushButton>
@@ -390,8 +391,10 @@ QWidget *MainWindow::buildTopBar()
     stack->setSpacing(0);
     robotNameLabel_ = new QLabel(QStringLiteral("로봇 선택"));
     robotNameLabel_->setObjectName(QStringLiteral("RobotPickerName"));
+    robotNameLabel_->setTextFormat(Qt::PlainText);
     robotAddrLabel_ = new QLabel;
     robotAddrLabel_->setObjectName(QStringLiteral("RobotPickerAddr"));
+    robotAddrLabel_->setTextFormat(Qt::PlainText);
     stack->addWidget(robotNameLabel_);
     stack->addWidget(robotAddrLabel_);
     pick->addLayout(stack);
@@ -586,7 +589,13 @@ QWidget *MainWindow::buildLocationsContext()
 QWidget *MainWindow::buildArmContext()
 {
     arm_ = new ArmPanel;
-    return arm_;
+    auto *scroll = new QScrollArea;
+    scroll->setObjectName(QStringLiteral("ArmContextScroll"));
+    scroll->setWidget(arm_);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    return scroll;
 }
 
 QWidget *MainWindow::buildCaptureContext()
@@ -836,6 +845,7 @@ void MainWindow::wireRobotSignals()
                     const QString name = map.value(QStringLiteral("name")).toString();
                     const bool wasLive = activeMapId_ == QLatin1String("live");
                     if (activeMapId_ != mapId) {
+                        ++operationContextGeneration_;
                         clearDraftGoal();
                         clearSubmittedGoal();
                         navigationError_.clear();
@@ -870,12 +880,16 @@ void MainWindow::wireRobotSignals()
     }
 
     connect(robot_, &robot::RobotLink::connectionChanged, this, [this](bool ok) {
+        ++operationContextGeneration_;
         setLinkTone(ok ? QStringLiteral("ok") : QStringLiteral("danger"));
         // 끊기면 로봇이 말하던 값을 놓는다. 화면에는 저장해 둔 이름이 남는다 —
         // 한 번 붙어 본 로봇이라면 그 이름이 그 주소의 로봇 이름이다.
         // 다시 붙을 때 로봇이 다시 말하므로, 그 사이에 로봇이 바뀌었다면
         // 그때 이름이 바뀌어 드러난다.
         if (!ok) {
+            estopMotionHold_ = false;
+            estopRequestError_.clear();
+            ++estopRequestGeneration_;
             if (!pendingCaptureMetadata_.isEmpty())
                 log_->note(diag::Severity::Warn,
                            QStringLiteral("로봇 연결이 끊어져 촬영 결과를 확인하지 못했습니다."));
@@ -970,6 +984,16 @@ void MainWindow::wireRobotSignals()
                     return;
                 requestedDriveMode_.reset();
                 showReportedDriveMode();
+                refreshGoalAvailability();
+            });
+    connect(robot_, &robot::RobotLink::commandResult, this,
+            [this](const QString &channel, bool ok, const QString &code, const QString &message) {
+                if (channel != QLatin1String(ch::kCmdEstop) || !estopMotionHold_)
+                    return;
+                if (!ok)
+                    estopRequestError_ = QStringLiteral("비상정지 확인 실패 · 다시 요청하십시오 (%1)")
+                        .arg(message.isEmpty() ? code : message);
+                // An accepted request is not confirmation of the physical stop.
                 refreshGoalAvailability();
             });
 
@@ -1327,8 +1351,13 @@ void MainWindow::wireMapSignals()
         const int n = wps.size() + 1;
         loc[QStringLiteral("id")] = QUuid::createUuid().toString(QUuid::WithoutBraces);
         loc[QStringLiteral("name")] = QStringLiteral("신규 포인트 %1").arg(n);
+        const quint64 generation = operationContextGeneration_;
+        const QString mapId = activeMapId_;
         if (!editWaypoint(this, loc, QStringLiteral("웨이포인트 추가")))
             return;
+        if (!mapEditContextValid(generation, mapId))
+            return;
+        wps = waypoints_->waypoints();
         wps << loc;
         if (submitWaypoints(wps))
             log_->log(QStringLiteral("SETUP_LOC_CAPTURED"), QJsonObject::fromVariantMap(loc));
@@ -1371,10 +1400,11 @@ void MainWindow::wireLocationSignals()
     connect(map_->view(), &MapView::tagPlaced, this,
             [this](double x, double y, double yaw, bool headingProvided) {
         map_->setPlacementHint({});
-
-        QList<QVariantMap> ms = locations_->markers();
+        const quint64 generation = operationContextGeneration_;
+        const QString mapId = activeMapId_;
+        const auto original = locations_->markers();
         int suggested = 0;
-        for (const auto &m : std::as_const(ms))
+        for (const auto &m : original)
             suggested = qMax(suggested, m.value(QStringLiteral("id")).toInt() + 1);
 
         QVariantMap marker{{QStringLiteral("id"), suggested},
@@ -1383,7 +1413,9 @@ void MainWindow::wireLocationSignals()
             marker[QStringLiteral("yaw")] = yaw;
         if (!editMarker(this, marker, headingProvided))
             return;
-
+        if (!mapEditContextValid(generation, mapId))
+            return;
+        auto ms = locations_->markers();
         const int id = marker.value(QStringLiteral("id")).toInt();
 
         // 같은 번호가 이미 있으면 자리를 옮긴 것으로 본다. 같은 ID 를 둘
@@ -1397,14 +1429,15 @@ void MainWindow::wireLocationSignals()
                                    "새 자리로 옮기시겠습니까?").arg(id))
                 != QMessageBox::Yes)
                 return;
+            if (!mapEditContextValid(generation, mapId) || locations_->markers() != ms)
+                return;
             ms.removeAt(i);
             break;
         }
 
+        const auto expected = locations_->markers();
         ms << marker;
-        locations_->setMarkers(ms);
-        robot_->setMarkers(ms);
-        map_->view()->setTags(ms);
+        robot_->setMarkers(ms, expected, mapId);
         log_->note(diag::Severity::Info, QStringLiteral("마커 #%1 등록").arg(id),
                    QJsonObject{{"channel", QStringLiteral("cmd/markers/set")},
                                {"x", marker.value(QStringLiteral("x")).toDouble()},
@@ -1413,24 +1446,37 @@ void MainWindow::wireLocationSignals()
                                {"yaw", marker.value(QStringLiteral("yaw")).toDouble()}});
     });
     connect(locations_, &LocationPanel::editMarkerRequested, this, [this](int row) {
-        QList<QVariantMap> ms = locations_->markers();
-        if (row < 0 || row >= ms.size())
+        const auto original = locations_->markers();
+        if (row < 0 || row >= original.size())
             return;
-        QVariantMap marker = ms.at(row);
+        const quint64 generation = operationContextGeneration_;
+        const QString mapId = activeMapId_;
+        const QVariantMap base = original.at(row);
+        QVariantMap marker = base;
         if (!editMarker(this, marker))
             return;
+        if (!mapEditContextValid(generation, mapId))
+            return;
+        auto ms = locations_->markers();
+        const auto target = std::find_if(ms.begin(), ms.end(), [&base](const QVariantMap &entry) {
+            return entry.value("id").toInt() == base.value("id").toInt();
+        });
+        if (target == ms.end() || *target != base) {
+            log_->note(diag::Severity::Warn, QStringLiteral("편집 중 마커가 변경되었습니다. 다시 편집하십시오."));
+            return;
+        }
+        const int currentRow = int(std::distance(ms.begin(), target));
         const int id = marker.value(QStringLiteral("id")).toInt();
         for (int i = 0; i < ms.size(); ++i) {
-            if (i != row && ms.at(i).value(QStringLiteral("id")).toInt() == id) {
+            if (i != currentRow && ms.at(i).value(QStringLiteral("id")).toInt() == id) {
                 QMessageBox::warning(this, QStringLiteral("마커 ID 중복"),
                                      QStringLiteral("마커 #%1이 이미 등록되어 있습니다.").arg(id));
                 return;
             }
         }
-        ms[row] = marker;
-        locations_->setMarkers(ms);
-        robot_->setMarkers(ms);
-        map_->view()->setTags(ms);
+        const auto expected = ms;
+        ms[currentRow] = marker;
+        robot_->setMarkers(ms, expected, mapId);
     });
     connect(locations_, &LocationPanel::markersChanged, this,
             [this](const QList<QVariantMap> &ms) {
@@ -1530,6 +1576,12 @@ void MainWindow::wirePanelSignals()
                                                                : diag::Severity::Info,
                            message);
             });
+    connect(data_, &DataPanel::recordsChanged, this, [this] {
+        if (QToolTip::isVisible() && !waypointInfoId_.isEmpty() &&
+            waypointInfoContext_ == operationContextGeneration_ &&
+            waypointInfoMapId_ == activeMapId_)
+            showWaypointInfo(waypointInfoId_, waypointInfoPosition_);
+    });
 
     // 촬영은 로봇이 한다. 원본이 관제를 거치지 않는 것과 같은 이유이고,
     // 정지 상태 여부도 로봇이 판단한다 — 화면만 막으면 다른 경로로 들어온
@@ -1552,6 +1604,7 @@ void MainWindow::wirePanelSignals()
                     capture_->setSavedFileName(message);
                     pendingCaptureMetadata_[QStringLiteral("file")] = message;
                     logAction(QStringLiteral("CAPTURE_OK"), pendingCaptureMetadata_);
+                    data_->refresh();
                 } else {
                     capture_->captureFailed(QStringLiteral("%1 %2").arg(code, message).trimmed());
                 }
@@ -1752,7 +1805,7 @@ void MainWindow::refreshMissionProgress()
         // waypoint catalog order as that plan's execution order.
         name = QStringLiteral("실행 중인 경로");
     }
-    mission_->setProgress(name, activeMissionIndex_, activeMissionTotal_, labels);
+    mission_->setProgress(name, activeMissionIndex_, activeMissionTotal_, labels, activeMissionId_);
     missionNavigationLabel_ = name;
     if (activeMissionIndex_ >= 0 && activeMissionIndex_ < labels.size())
         missionNavigationLabel_ += QStringLiteral("\n%1").arg(labels.at(activeMissionIndex_));
@@ -1798,13 +1851,13 @@ void MainWindow::showWaypointInfo(const QString &id, const QPoint &globalPos)
     if (found.isEmpty())
         return;
 
-    // 이 포인트로 이미 찍힌 사진을 함께 보여준다. 지도에서 포인트를 눌렀을 때
-    // 알고 싶은 것은 "여기 찍었나, 언제 찍었나" 이지 좌표가 아니다.
-    const auto scan = hmi::data::scanDirectory(Config::instance().nasMountPath());
-    QList<hmi::data::InspectionRecord> forPoint;
-    for (const auto &r : scan.records)
-        if (r.pointId == id)
-            forPoint << r;
+    // NAS는 DataPanel이 비동기로 읽고, 지도 클릭은 캐시만 조회한다.
+    waypointInfoId_ = id;
+    waypointInfoMapId_ = activeMapId_;
+    waypointInfoPosition_ = globalPos;
+    waypointInfoContext_ = operationContextGeneration_;
+    data_->refreshIfStale();
+    const auto forPoint = data_->recordsForPoint(id);
 
     QStringList lines;
     lines << QStringLiteral("<b>%1</b>")
@@ -1816,7 +1869,8 @@ void MainWindow::showWaypointInfo(const QString &id, const QPoint &globalPos)
                  .arg(qRadiansToDegrees(found.value(QStringLiteral("theta")).toDouble()),
                       0, 'f', 1);
     if (forPoint.isEmpty()) {
-        lines << QStringLiteral("<i>저장된 촬영 없음</i>");
+        lines << (data_->isScanning() ? QStringLiteral("<i>촬영 이력 불러오는 중</i>")
+                                    : QStringLiteral("<i>저장된 촬영 없음</i>"));
     } else {
         lines << QStringLiteral("촬영 %1건, 최근 %2")
                      .arg(forPoint.size())
@@ -1879,6 +1933,8 @@ QString MainWindow::safetyReadinessReason() const
 {
     if (!robot_->isConnected())
         return QStringLiteral("로봇 연결 후 사용할 수 있습니다");
+    if (estopMotionHold_)
+        return estopRequestError_.isEmpty() ? QStringLiteral("비상정지 확인 중") : estopRequestError_;
     const bool realLink = qobject_cast<net::BridgeClient *>(robot_);
     if (realLink && !navigationTelemetry_.safetyFresh)
         return QStringLiteral("안전 상태 수신 대기");
@@ -1925,6 +1981,8 @@ void MainWindow::refreshMissionAvailability()
     QString reason = !readiness.isEmpty() ? readiness
         : !mapReady ? QStringLiteral("저장된 지도를 불러오십시오")
         : !missionCommandPending_.isEmpty() ? QStringLiteral("로봇 응답 대기 중") : QString();
+    if (reason.isEmpty() && !std::isfinite(lastSoc_))
+        reason = QStringLiteral("배터리 상태 수신 대기");
     if (reason.isEmpty() && lastSoc_ < Config::instance().batteryDeparturePercent())
         reason = QStringLiteral("배터리 출발 기준을 확인하십시오");
     missionLibrary_->setEditingEnabled(robot_->isConnected() && requestedMapId_.isEmpty());
@@ -1978,6 +2036,11 @@ void MainWindow::startStoredMission(const QString &id, bool retry)
         return;
     }
     const double departAt = Config::instance().batteryDeparturePercent();
+    if (!std::isfinite(lastSoc_)) {
+        mission_->setMissionDetails(QStringLiteral("E_STATE_STALE"), QStringLiteral("배터리 상태 수신 대기"));
+        refreshMissionAvailability();
+        return;
+    }
     if (lastSoc_ < departAt) {
         mission_->setMissionDetails(QStringLiteral("E_LOW_BATTERY"),
             QStringLiteral("배터리 %1%% · 출발 기준 %2%%").arg(lastSoc_, 0, 'f', 0).arg(departAt, 0, 'f', 0));
@@ -2211,8 +2274,13 @@ void MainWindow::captureLocation(const QString &kind)
         const int n = wps.size() + 1;
         loc[QStringLiteral("id")] = QUuid::createUuid().toString(QUuid::WithoutBraces);
         loc[QStringLiteral("name")] = QStringLiteral("점검 위치 %1").arg(n);
+        const quint64 generation = operationContextGeneration_;
+        const QString mapId = activeMapId_;
         if (!editWaypoint(this, loc, QStringLiteral("웨이포인트 추가")))
             return;
+        if (!mapEditContextValid(generation, mapId))
+            return;
+        wps = waypoints_->waypoints();
         wps << loc;
         if (!submitWaypoints(wps))
             return;
@@ -2246,6 +2314,14 @@ void MainWindow::applyWaypointCatalog(const QList<QVariantMap> &points)
     waypoints_->setEditingEnabled(ready && activeMapId_ != QLatin1String("live"));
     if (saved)
         waypoints_->setSaveStatus(QStringLiteral("웨이포인트 저장됨"));
+}
+
+bool MainWindow::mapEditContextValid(quint64 generation, const QString &mapId) const
+{
+    const auto *shown = map_->view()->mapInfo();
+    return generation == operationContextGeneration_ && robot_->isConnected() &&
+        !mapId.isEmpty() && mapId != QLatin1String("live") && activeMapId_ == mapId &&
+        requestedMapId_.isEmpty() && shown && shown->mapId == mapId;
 }
 
 bool MainWindow::submitWaypoints(const QList<QVariantMap> &points)
@@ -2289,6 +2365,24 @@ bool MainWindow::submitWaypoints(const QList<QVariantMap> &points)
 
 void MainWindow::engageEstop()
 {
+    estopMotionHold_ = true;
+    estopRequestError_.clear();
+    const auto generation = ++estopRequestGeneration_;
+    clearDraftGoal();
+    clearSubmittedGoal();
+    requestedDriveMode_.reset();
+    status_->goalButton()->setChecked(false);
+    refreshGoalAvailability();
+    showReportedDriveMode();
+    teleop_->setJogEnabled(false);
+    arm_->setControlsEnabled(false);
+    capture_->setCaptureAllowed(false, QStringLiteral("비상정지 확인 중"));
+    QTimer::singleShot(7000, this, [this, generation] {
+        if (!estopMotionHold_ || generation != estopRequestGeneration_)
+            return;
+        estopRequestError_ = QStringLiteral("비상정지를 확인하지 못했습니다 · 다시 요청하십시오");
+        refreshGoalAvailability();
+    });
     robot_->engageEstop();
     // 빨간 래치와 테두리는 클릭 사실이 아니라 로봇이 state/safety로 확인한
     // 사실을 표시한다. 연결이 막 끊긴 순간에도 화면만 "발동"으로 바뀌면
@@ -2306,6 +2400,9 @@ void MainWindow::engageEstop()
 
 void MainWindow::releaseEstop()
 {
+    const QPointer<MainWindow> window(this);
+    const QPointer<robot::RobotLink> link(robot_);
+    const quint64 context = operationContextGeneration_;
     // 자동 해제 금지 (지시서 2.2.5). 사람이 확인하고, 관리자 권한을 요구한다.
     // 발동에는 어떤 인증도 걸지 않는다 — 급할 때 인증하다 못 누르면 안 된다.
     const auto answer = QMessageBox::question(
@@ -2315,10 +2412,18 @@ void MainWindow::releaseEstop()
                        "해제해도 자율주행은 저절로 이어지지 않습니다.\n"
                        "다시 시작하려면 재개를 눌러야 합니다."),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (answer != QMessageBox::Yes)
+    if (!window || answer != QMessageBox::Yes)
         return;
+    if (!link || link != robot_ || context != operationContextGeneration_ ||
+        !link->isConnected() || !estop_->isEngaged() ||
+        (qobject_cast<net::BridgeClient *>(link.data()) &&
+            (!navigationTelemetry_.safetyFresh || !navigationTelemetry_.estop))) {
+        log_->note(diag::Severity::Warn,
+                   QStringLiteral("로봇 연결 또는 비상정지 상태가 변경되었습니다. 다시 확인하십시오."));
+        return;
+    }
 
-    robot_->releaseEstop();
+    link->releaseEstop();
     // 해제도 safety_manager의 실제 상태가 내려온 뒤에만 화면에 반영한다.
     // 물리 E-Stop이 여전히 눌려 있으면 HMI 해제 요청으로 바뀌면 안 된다.
     logAction(QStringLiteral("SAFETY_ESTOP_RELEASED"));
@@ -2360,6 +2465,8 @@ void MainWindow::applyFixedLocations()
 
 void MainWindow::setMode(const QString &mode)
 {
+    if (estopMotionHold_)
+        return;
     if (qobject_cast<net::BridgeClient *>(robot_) && !navigationTelemetry_.safetyFresh)
         return;
     if (estop_->isEngaged()) {
@@ -2610,6 +2717,7 @@ void MainWindow::showMapPicker()
             if (auto *bridge = qobject_cast<net::BridgeClient *>(robot_)) {
                 clearDraftGoal();
                 requestedMapId_ = id;
+                ++operationContextGeneration_;
                 refreshMissionAvailability();
                 map_->setMapListEnabled(false);
                 status_->goalButton()->setChecked(false);
@@ -2629,16 +2737,21 @@ void MainWindow::showMapPicker()
             }
         });
         connect(rename, &QPushButton::clicked, this, [this, menu, id, label] {
+            const QString targetId = id;
+            const QString targetLabel = label;
+            const QPointer<MainWindow> window(this);
             menu->close();
+            const quint64 generation = operationContextGeneration_;
             bool accepted = false;
             const QString name = QInputDialog::getText(this, QStringLiteral("지도 이름 변경"),
                                                        QStringLiteral("새 지도 폴더 이름"),
-                                                       QLineEdit::Normal, label,
+                                                       QLineEdit::Normal, targetLabel,
                                                        &accepted).trimmed();
-            if (!accepted || name.isEmpty() || name == label)
+            if (!window || !accepted || name.isEmpty() || name == targetLabel ||
+                generation != operationContextGeneration_ || !robot_->isConnected())
                 return;
             if (auto *bridge = qobject_cast<net::BridgeClient *>(robot_))
-                bridge->renameMap(id, name);
+                bridge->renameMap(targetId, name);
         });
         connect(setDefault, &QPushButton::clicked, this, [this, menu, id, isDefault] {
             menu->close();
@@ -2646,15 +2759,20 @@ void MainWindow::showMapPicker()
                 bridge->setDefaultMap(isDefault ? QString() : id);
         });
         connect(remove, &QPushButton::clicked, this, [this, menu, id, label] {
+            const QString targetId = id;
+            const QPointer<MainWindow> window(this);
             menu->close();
+            const quint64 generation = operationContextGeneration_;
             if (QMessageBox::question(this, QStringLiteral("지도 삭제"),
                     QStringLiteral("‘%1’ 지도와 안의 웨이포인트·미션을 로봇의 보관 폴더로 옮길까요?\n"
                                    "현재 사용하는 지도와 시작 지도는 삭제할 수 없습니다.")
                         .arg(label), QMessageBox::Yes | QMessageBox::No,
                     QMessageBox::No) != QMessageBox::Yes)
                 return;
+            if (!window || generation != operationContextGeneration_ || !robot_->isConnected())
+                return;
             if (auto *bridge = qobject_cast<net::BridgeClient *>(robot_))
-                bridge->deleteMap(id);
+                bridge->deleteMap(targetId);
         });
     }
     menu->popup(map_->mapButton()->mapToGlobal(QPoint(0, map_->mapButton()->height() + 4)));
@@ -2923,6 +3041,7 @@ void MainWindow::startSession()
 void MainWindow::onTelemetry(const Telemetry &tm)
 {
     navigationTelemetry_ = tm;
+    lastSoc_ = tm.soc;
     navigationStatus_ = tm.navStatus;
     if (!navigationControlPending_.isEmpty() && tm.navFresh && tm.navRevision > navigationControlRevision_) {
         const bool pausing = navigationControlPending_ == QLatin1String(ch::kCmdNavPause);
@@ -2970,6 +3089,11 @@ void MainWindow::onTelemetry(const Telemetry &tm)
     }
     if (!draftGoal_.isEmpty()) map_->view()->setDraftGoal(draftGoal_);
     const bool safetyKnown = !qobject_cast<net::BridgeClient *>(robot_) || tm.safetyFresh;
+    if (estopMotionHold_ && safetyKnown && tm.estop) {
+        estopMotionHold_ = false;
+        estopRequestError_.clear();
+        ++estopRequestGeneration_;
+    }
     const bool estopChanged = safetyKnown && estop_->isEngaged() != tm.estop;
     if (estopChanged) {
         estop_->setEngaged(tm.estop);
@@ -3041,14 +3165,10 @@ void MainWindow::onTelemetry(const Telemetry &tm)
         arm_->setArmState(tm.joints, tm.manipulability, tm.sigmaMin, tm.armState);
     arm_->setExecutionAvailable(tm.armExecutionEnabled);
 
-    lastSoc_ = tm.soc;
-    // BridgeClient 는 연결이 없을 때도 화면의 신선도·타임아웃을 갱신하려고
-    // 기본 Telemetry(초깃값 soc=0)를 내보낸다. 그것은 배터리 측정이 아니므로
-    // 상단에 방전으로 그리면 안 된다.
-    if (robot_->isConnected())
+    if (robot_->isConnected() && std::isfinite(tm.soc))
         headerBattery_->setState(tm.soc);
     else
-        headerBattery_->setUnavailable();
+        headerBattery_->setUnavailable(robot_->isConnected() ? QStringLiteral("배터리 상태 수신 대기") : QString{});
     // 진단 배지는 과거 이벤트 수가 아니라 현재 고장 난 장치 수다. 누적
     // 로그를 넣으면 고친 뒤에도 "2" 같은 숫자가 영구히 남는다.
     int diagnosticAlerts = 0;
@@ -3073,16 +3193,21 @@ void MainWindow::onTelemetry(const Telemetry &tm)
     waypoints_->setRobotPoseAvailable(capture.allowed, capture.reason);
 
     // 촬영은 정지 상태에서만 허용한다 (지시서 2.2.4 동적 촬영 불가).
-    const bool stationary = tm.speed < 0.05;
+    const bool stationary = std::isfinite(tm.speed) && std::isfinite(tm.angularSpeed) &&
+        std::abs(tm.speed) <= tm.captureMaxLinearSpeed &&
+        std::abs(tm.angularSpeed) <= tm.captureMaxAngularSpeed;
+    const bool captureSafetyFresh = !qobject_cast<net::BridgeClient *>(robot_) || tm.safetyFresh;
     capture_->setContext(tm.x, tm.y, tm.theta,
                          tm.seenTags.isEmpty() ? -1 : *tm.seenTags.cbegin());
-    capture_->setCaptureAllowed(tm.captureEnabled && tm.nasOnline &&
-                                stationary && !tm.estop && tm.poseFresh,
-                                !tm.captureEnabled
+    capture_->setCaptureAllowed(!estopMotionHold_ && tm.captureEnabled && tm.nasOnline &&
+                                stationary && !tm.estop && tm.poseFresh && captureSafetyFresh,
+                                estopMotionHold_ ? safetyReadinessReason()
+                                : !tm.captureEnabled
                                     ? QStringLiteral("이 로봇은 촬영 기능이 비활성입니다.")
                                 : !tm.nasOnline
                                     ? QStringLiteral("촬영 저장소가 연결되지 않았습니다.")
                                 : tm.estop ? QStringLiteral("비상정지가 걸려 있습니다.")
+                                : !captureSafetyFresh ? QStringLiteral("안전 상태 수신 대기")
                                 : !tm.poseFresh
                                     ? QStringLiteral("위치 정보가 오래되었습니다.")
                                     : QStringLiteral("주행 중 · 정지 후 촬영 가능"));

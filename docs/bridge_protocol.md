@@ -62,7 +62,7 @@
 |---|---|
 | `state/pose` | 위치·방향 |
 | `state/battery` | 배터리 |
-| `state/system` | CPU·GPU·네트워크 및 촬영·팔 실행기 활성 여부 |
+| `state/system` | CPU·GPU·네트워크, 촬영·팔 실행기 활성 여부, 촬영 허용 속도 (`capture_max_linear_speed`: m/s, `capture_max_angular_speed`: rad/s) |
 | `state/safety` | E-Stop·운용 모드 |
 | `state/nav` | 주행 상태·목표 |
 | `state/navigation_speed` | 선속도·각속도 설정, 허용 범위, Nav2 적용 상태 |
@@ -215,9 +215,9 @@ executor가 연결되어 있지 않으면 미션 전체를 시작 전에 거절�
 | `cmd/waypoints/set` | 점검 지점 전체 설정 (`points`, `expected_points`, `map_id`). 기존 목록이 달라지면 거절하고 최신 목록을 발행한다. 미션에서 참조하는 지점 삭제는 거절한다. |
 | `cmd/missions/list` | 선택된 지도의 미션 목록 요청 |
 | `cmd/missions/save` | 미션 생성/수정 (`mission`, `expected_revision`) |
-| `cmd/missions/archive` | 미션 보관 (`id`, `expected_revision`) |
-| `cmd/locations/set` | home·dock 전체 설정 |
-| `cmd/markers/set` | 마커 전체 설정 |
+| `cmd/missions/archive` | 미션 보관 (`id`, `expected_revision`, `map_id`) |
+| `cmd/locations/set` | home·dock 전체 설정 (`locations`, `expected_locations`, `map_id`) |
+| `cmd/markers/set` | 마커 전체 설정 (`markers`, `expected_markers`, `map_id`) |
 | `cmd/maps/list` | 로봇 지도 목록 요청 |
 | `cmd/maps/select` | `id`로 로봇의 활성 지도 전환 |
 | `cmd/maps/rename` | `id`의 지도 폴더 이름 변경 (`name`: 새 폴더 이름) |
@@ -240,6 +240,13 @@ executor가 연결되어 있지 않으면 미션 전체를 시작 전에 거절�
 | `cmd/arm/pose_presets/archive` | 미션 참조 확인 후 팔 자세를 목록에서 삭제 (`id`, `expected_revision` 필요) |
 | `cmd/base/posture` | 본체 자세 전환 (앉기·일어서기) |
 | `cmd/capture/trigger` | 촬영 |
+
+HMI의 위치·마커 저장은 현재 지도 ID와 수정 전 목록을 함께 보낸다.
+로봇의 최신 목록과 다르면 `E_BUSY`로 거절하고 최신 목록을 다시 발행한다.
+`expected_locations`는 `kind`별로 비교하며, `expected_markers`는 목록 전체를 비교한다.
+`cmd/waypoints/set`의 `points`는 배열로 보낸다. 빈 배열은 전체 삭제 요청이며, 누락되면 거절한다.
+미션 보관도 `map_id`가 현재 지도와 일치하는지 검사한다.
+기존 SDK의 `expected_*`·`map_id` 없는 위치·마커 요청과 `map_id` 없는 미션 보관 요청은 유지한다.
 
 ### `cmd/navigation/speed_limit` — 주행 속도
 

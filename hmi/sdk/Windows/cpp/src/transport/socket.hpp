@@ -14,6 +14,7 @@
 // Header-only and dependency-free, like the framing layer it sits under.
 
 #include <cstddef>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -33,6 +34,8 @@
 #  include <netinet/in.h>
 #  include <netinet/tcp.h>
 #  include <poll.h>
+#  include <fcntl.h>
+#  include <sys/time.h>
 #  include <sys/socket.h>
 #  include <unistd.h>
 #  include <cerrno>
@@ -49,7 +52,7 @@ using NativeSocket = int;
 inline constexpr NativeSocket kInvalidSocket = -1;
 #endif
 
-/// Starts Winsock once per process and shuts it down at exit.
+/// Initializes Winsock once per process.
 ///
 /// A no-op elsewhere. Constructing a TcpClient does this for you, so callers
 /// only need it directly when they open sockets by some other route.
@@ -99,7 +102,8 @@ public:
     ///
     /// Every resolved address is tried in turn: a machine that answers on IPv6
     /// but listens on IPv4 would otherwise fail with a misleading error.
-    bool connect(const std::string &host, std::uint16_t port, std::string *err = nullptr)
+    bool connect(const std::string &host, std::uint16_t port, std::string *err = nullptr,
+                 int timeoutMs = 5000)
     {
         if (!SocketLibrary::ensureStarted(err))
             return false;
@@ -119,11 +123,36 @@ public:
             return false;
         }
 
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
         for (const addrinfo *it = resolved; it != nullptr; it = it->ai_next) {
+            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                deadline - std::chrono::steady_clock::now()).count();
+            if (remaining <= 0) break;
             const NativeSocket fd = ::socket(it->ai_family, it->ai_socktype, it->ai_protocol);
             if (fd == kInvalidSocket)
                 continue;
-            if (::connect(fd, it->ai_addr, static_cast<int>(it->ai_addrlen)) == 0) {
+            if (!setBlocking(fd, false)) { closeHandle(fd); continue; }
+            bool connected = ::connect(fd, it->ai_addr, static_cast<int>(it->ai_addrlen)) == 0;
+            if (!connected) {
+#if defined(_WIN32)
+                const auto error = ::WSAGetLastError();
+                const bool inProgress = error == WSAEWOULDBLOCK || error == WSAEINPROGRESS;
+                WSAPOLLFD pfd{fd, POLLWRNORM, 0};
+                const auto ready = inProgress ? ::WSAPoll(&pfd, 1, static_cast<int>(remaining)) : -1;
+                int pendingError = 0, length = sizeof pendingError;
+                connected = ready > 0 && ::getsockopt(fd, SOL_SOCKET, SO_ERROR,
+                    reinterpret_cast<char *>(&pendingError), &length) == 0 && pendingError == 0;
+#else
+                const bool inProgress = errno == EINPROGRESS || errno == EINTR;
+                pollfd pfd{fd, POLLOUT, 0};
+                const auto ready = inProgress ? ::poll(&pfd, 1, static_cast<int>(remaining)) : -1;
+                int pendingError = 0;
+                socklen_t length = sizeof pendingError;
+                connected = ready > 0 && ::getsockopt(fd, SOL_SOCKET, SO_ERROR,
+                    &pendingError, &length) == 0 && pendingError == 0;
+#endif
+            }
+            if (connected && setBlocking(fd, true)) {
                 fd_ = fd;
                 break;
             }
@@ -142,6 +171,7 @@ public:
         // manual driving.
         setNoDelay();
         setNoSigPipe();
+        setIoTimeout();
         return true;
     }
 
@@ -150,8 +180,14 @@ public:
     /// Sends the whole buffer, looping over partial writes.
     bool sendAll(const std::string &bytes, std::string *err = nullptr)
     {
+        if (!isConnected()) { if (err) *err = "client is not connected"; return false; }
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1000);
         std::size_t sent = 0;
         while (sent < bytes.size()) {
+            if (std::chrono::steady_clock::now() >= deadline) {
+                if (err) *err = "socket send timed out";
+                return false;
+            }
 #if defined(_WIN32)
             const int n = ::send(fd_, bytes.data() + sent,
                                  static_cast<int>(bytes.size() - sent), 0);
@@ -233,6 +269,30 @@ public:
     }
 
 private:
+    static bool setBlocking(NativeSocket fd, bool blocking)
+    {
+#if defined(_WIN32)
+        u_long mode = blocking ? 0 : 1;
+        return ::ioctlsocket(fd, FIONBIO, &mode) == 0;
+#else
+        const auto flags = ::fcntl(fd, F_GETFL, 0);
+        return flags >= 0 && ::fcntl(fd, F_SETFL, blocking ? flags & ~O_NONBLOCK : flags | O_NONBLOCK) == 0;
+#endif
+    }
+
+    void setIoTimeout()
+    {
+#if defined(_WIN32)
+        const DWORD timeout = 500;
+        ::setsockopt(fd_, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char *>(&timeout), sizeof timeout);
+        ::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char *>(&timeout), sizeof timeout);
+#else
+        const timeval timeout{0, 500000};
+        ::setsockopt(fd_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout);
+        ::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout);
+#endif
+    }
+
     static void closeHandle(NativeSocket fd)
     {
 #if defined(_WIN32)

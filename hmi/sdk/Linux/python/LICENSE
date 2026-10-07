@@ -1,0 +1,17 @@
+Wego Proprietary SDK License
+
+Copyright (c) 2026 WeGo Robotics. All rights reserved.
+
+This SDK, including its documentation, headers, samples and build files, is
+provided only to a customer authorised by WeGo Robotics to integrate with a
+Shalom robot system. The customer may copy and modify the supplied sample code
+and headers solely to build an application that communicates with that system.
+
+No right is granted to redistribute this SDK, publish it, sublicense it, or use
+it with another robot system without prior written permission from WeGo
+Robotics. The Shalom robot runtime, bridge implementation and safety logic are
+not part of this SDK and remain proprietary.
+
+THE SDK IS PROVIDED "AS IS". TO THE MAXIMUM EXTENT PERMITTED BY LAW, WEGO
+ROBOTICS DISCLAIMS ALL WARRANTIES, INCLUDING MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NON-INFRINGEMENT.

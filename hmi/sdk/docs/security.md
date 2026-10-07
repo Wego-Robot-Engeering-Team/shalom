@@ -1,30 +1,18 @@
-# SDK 보안 경계
+# SDK 보안·운용 경계
 
-이 SDK는 HMI와 동일한 로봇 브릿지 API를 사용한다. 즉, SDK는 새로운 권한이나
-우회 경로를 만들지 않으며 로봇의 safety/motion authority 판단을 대체하지 않는다.
+- TCP `9090`은 TLS·사용자 인증을 제공하지 않는다.
+- 로봇은 HMI 또는 SDK 한 클라이언트만 연결한다.
+- robot ID가 같은 연결에서 바뀌면 SDK가 연결을 종료한다.
+- 명령 권한·안전·장치 준비 조건은 로봇에서 판정한다.
+- 수동 속도 제어는 HMI의 UDP teleop 경로다. TCP SDK는 이를 사용하지 않는다.
+- 연결 종료·heartbeat 중단의 실제 정지는 로봇 safety 계층이 처리한다.
+- 팔 실행은 보고된 기능 활성 여부와 안전·권한·피드백 조건을 확인한다.
 
-## v1의 전제
+## 배포
 
-- TCP `9090`은 TLS·사용자 인증을 제공하지 않는다. E-Stop과 미션 제어는 이
-  신뢰성 있는 TCP 경로만 사용한다.
-- UDP `9090`은 HMI의 deadman 수동 주행 전용이다. 현장 설정의 `allowed_peer`와
-  전용 제어망으로 제한하며, SDK API나 E-Stop에 사용하지 않는다.
-- 따라서 로봇 제어망은 외부 인터넷이나 사무망에 직접 노출하면 안 된다.
-- 고객 application과 HMI는 현재 동시에 연결할 수 없다. 브릿지는 연결 하나만
-  허용한다.
-- robot id가 바뀐 프레임은 SDK가 protocol error로 처리하고 연결을 닫는다.
-
-## 고객 설치 기준
-
-1. 로봇과 SDK application을 전용 VLAN 또는 물리적으로 분리된 제어망에 둔다.
-2. `9090/tcp`, `9090/udp`은 승인된 관제 PC에서만 로봇으로 나가도록 방화벽에서 제한한다.
-3. 원격 접속이 필요하면 로봇 포트를 인터넷에 공개하지 말고, 고객사의 인증된
-   VPN 또는 bastion을 사용한다.
-4. API를 호출하는 사용자 권한과 조작 이력은 고객 application에서 관리한다.
-   SDK는 로그인·권한 DB를 갖지 않는다.
-5. E-Stop, manual velocity, arm commissioning API는 별도 운영 승인 화면과 감사
-   로그 없이는 노출하지 않는다.
-
-향후 다중 client, TLS, application authentication을 추가하더라도 protocol version과
-SDK compatibility matrix를 함께 갱신한다. 기존 v1 연결에 보안을 조용히 덧붙여
-동작 의미를 바꾸지 않는다.
+1. 로봇과 application을 전용 제어망에 배치한다.
+2. 방화벽에서 승인된 PC의 제어 포트 접근만 허용한다.
+3. 원격 접속은 인증된 VPN 등 보호된 경로를 사용한다.
+4. application에서 사용자 권한·실행 확인·조작 이력을 관리한다.
+5. 재연결 후 최신 상태를 확인하고 명시적으로 실행·재개한다.
+6. SDK 헤더·라이브러리·문서의 버전을 일치시킨다.

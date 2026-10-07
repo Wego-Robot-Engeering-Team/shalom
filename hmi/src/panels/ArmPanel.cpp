@@ -3,7 +3,9 @@
 
 #include "panels/ArmPanel.h"
 
+#include <QApplication>
 #include <QDoubleSpinBox>
+#include <QEvent>
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -16,6 +18,7 @@
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QTabWidget>
 #include <QUuid>
 #include <QVBoxLayout>
@@ -42,6 +45,9 @@ using namespace hmi::theme;
 using namespace hmi::robot;
 
 namespace {
+// UI 목표를 실제값에 넘기는 기준이다. 로봇의 실행 성공 판정과는 별개다.
+constexpr double kSubmittedGoalToleranceRad = 0.001;
+
 /// 각도를 기준값과 같은 바퀴로 옮긴다.
 ///
 /// -π 과 π 은 같은 자세다. 정기구학은 그 경계에서 관절이 눈금 하나만
@@ -72,6 +78,53 @@ QVariantList editedJointPositions(const QVariantList &original,
                                 kFr3Joints.at(i).hi);
     }
     return positions;
+}
+
+QVariantMap editorFocus(QWidget *row)
+{
+    auto *focused = QApplication::focusWidget();
+    if (!focused || !row->isAncestorOf(focused))
+        return {};
+    for (auto *field = focused; field && field != row; field = field->parentWidget()) {
+        if (!qobject_cast<QDoubleSpinBox *>(field) &&
+            (!qobject_cast<QLineEdit *>(field) || field->objectName().startsWith("qt_")))
+            continue;
+        auto *line = qobject_cast<QLineEdit *>(field);
+        if (!line)
+            line = field->findChild<QLineEdit *>();
+        if (!line)
+            return {};
+        return {{"field", field->objectName()}, {"text", line->text()},
+                {"cursor", line->cursorPosition()}, {"selection", line->selectionStart()},
+                {"selectionLength", line->selectedText().size()}};
+    }
+    return {};
+}
+
+void restoreEditorFocus(QWidget *row, const QVariantMap &focus)
+{
+    if (focus.isEmpty())
+        return;
+    auto *field = row->findChild<QWidget *>(focus.value("field").toString());
+    if (!field || !field->isEnabled())
+        return;
+    auto *line = qobject_cast<QLineEdit *>(field);
+    if (!line)
+        line = field->findChild<QLineEdit *>();
+    if (!line)
+        return;
+    field->setFocus(Qt::OtherFocusReason);
+    const QSignalBlocker blocker(field);
+    line->setText(focus.value("text").toString());
+    line->setCursorPosition(focus.value("cursor").toInt());
+    const int start = focus.value("selection").toInt();
+    const int length = focus.value("selectionLength").toInt();
+    if (start >= 0) {
+        if (focus.value("cursor").toInt() == start)
+            line->setSelection(start + length, -length);
+        else
+            line->setSelection(start, length);
+    }
 }
 
 }  // namespace
@@ -136,25 +189,26 @@ ArmPanel::ArmPanel(QWidget *parent) : QWidget(parent)
 
     // 미리보기 저장과 실측 자세 저장은 별개다. 시뮬레이터에는 팔 실측값이
     // 없어도 관절을 화면에서 구성해 저장할 수 있어야 한다.
-    auto *bottom = new QHBoxLayout;
-    bottom->setSpacing(metrics::s2);
     savePreviewPose_ = new QPushButton(QStringLiteral("미리보기 저장"));
     savePreviewPose_->setObjectName(QStringLiteral("ArmSavePreviewPose"));
     savePreviewPose_->setProperty("size", "sm");
     savePreviewPose_->setProperty("variant", "primary");
     savePreviewPose_->setToolTip(QStringLiteral("3D 화면에 표시한 관절 자세를 저장합니다"));
-    bottom->addWidget(savePreviewPose_, 1);
+    card_->body()->addWidget(savePreviewPose_);
+    auto *bottom = new QHBoxLayout;
+    bottom->setSpacing(metrics::s2);
     savePose_ = new QPushButton(QStringLiteral("현재 자세 저장"));
     savePose_->setObjectName(QStringLiteral("ArmSaveCurrentPose"));
     savePose_->setProperty("size", "sm");
     savePose_->setToolTip(QStringLiteral("로봇이 보고한 실제 관절값을 저장합니다"));
     bottom->addWidget(savePose_, 1);
     auto *stop = new QPushButton(QStringLiteral("로봇팔 정지"));
+    stop->setObjectName(QStringLiteral("ArmStopButton"));
     stop->setProperty("variant", "danger");
     stop->setProperty("size", "sm");
     bottom->addWidget(stop, 1);
-    connect(stop, &QPushButton::clicked, this, &ArmPanel::stopRequested);
     card_->body()->addLayout(bottom);
+    connect(stop, &QPushButton::clicked, this, &ArmPanel::stopRequested);
     connect(savePreviewPose_, &QPushButton::clicked, this,
             [this] { savePose(false); });
     connect(savePose_, &QPushButton::clicked, this,
@@ -261,7 +315,7 @@ QWidget *ArmPanel::buildJointTab()
         QList<double> q;
         for (auto *s : std::as_const(sliders_))
             q << s->command();
-        emit jointGoal(q);
+        submitJointGoal(q);
     });
     connect(sync, &QPushButton::clicked, this, &ArmPanel::syncSlidersToActual);
     return page;
@@ -332,7 +386,7 @@ QWidget *ArmPanel::buildEeTab()
         QList<double> joints;
         for (auto *slider : std::as_const(sliders_))
             joints << slider->command();
-        emit jointGoal(joints);
+        submitJointGoal(joints);
         // 기준값은 건드리지 않는다. 팔이 실제로 그 자세에 닿을 때까지
         // 편집 표시가 남아 있는 것이 맞다 — 관절 입력도 그렇게 동작한다.
     });
@@ -351,6 +405,8 @@ QWidget *ArmPanel::buildPoseManagementTab()
     savedPresets_->setMinimumHeight(100);
     savedPresets_->setSpacing(0);
     savedPresets_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    savedPresets_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    savedPresets_->viewport()->installEventFilter(this);
     layout->addWidget(savedPresets_, 1);
     return page;
 }
@@ -402,6 +458,7 @@ void ArmPanel::rebuildPoseList()
 {
     if (!savedPresets_)
         return;
+    const int scrollPosition = savedPresets_->verticalScrollBar()->value();
     for (auto it = poseRows_.cbegin(); it != poseRows_.cend(); ++it) {
         auto *row = it.value();
         if (!row->property("draftActive").toBool())
@@ -412,7 +469,8 @@ void ArmPanel::rebuildPoseList()
         poseDrafts_[it.key()] = {{"name", row->findChild<QLineEdit *>(QStringLiteral("PoseRowName"))->text()},
             {"description", row->findChild<QLineEdit *>(QStringLiteral("PoseRowDescription"))->text()},
             {"joints", joints}, {"base", row->property("editBase")},
-            {"initialJoints", row->property("editJointValues")}, {"editing", row->isEditing()}};
+            {"initialJoints", row->property("editJointValues")}, {"editing", row->isEditing()},
+            {"focus", editorFocus(row)}};
     }
     const QString selectedId = savedPresets_->currentItem()
         ? savedPresets_->currentItem()->data(Qt::UserRole).toString() : QString{};
@@ -451,6 +509,8 @@ void ArmPanel::rebuildPoseList()
         savedPresets_->setItemWidget(item, row);
 
         auto *form = new QFormLayout;
+        form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+        form->setRowWrapPolicy(QFormLayout::WrapLongRows);
         auto *name = new QLineEdit(pose.value(QStringLiteral("name")).toString());
         name->setObjectName(QStringLiteral("PoseRowName"));
         name->setMaxLength(80);
@@ -493,12 +553,8 @@ void ArmPanel::rebuildPoseList()
         actions->addWidget(remove);
         actions->addWidget(cancel);
         row->editorLayout()->addLayout(actions);
-        const auto resizeItem = [this, item, row] {
-            row->layout()->activate();
-            item->setSizeHint(QSize(0, row->sizeHint().height()));
-            savedPresets_->doItemsLayout();
-        };
-        connect(row->editButton(), &QPushButton::clicked, this, [this, item, row, pose, jointsEditor, resizeItem] {
+        const auto resizeItem = [this] { updatePoseListItemSizes(); };
+        connect(row->editButton(), &QPushButton::clicked, this, [this, item, row, pose, name, jointsEditor, resizeItem] {
             if (!row->property("draftActive").toBool()) {
                 row->setProperty("editBase", pose);
                 QVariantList initialValues;
@@ -519,6 +575,10 @@ void ArmPanel::rebuildPoseList()
             savedPresets_->setCurrentItem(item);
             previewPoseEditor(row);
             resizeItem();
+            updatePoseRows();
+            savedPresets_->scrollToItem(item, QAbstractItemView::EnsureVisible);
+            name->setFocus(Qt::OtherFocusReason);
+            name->selectAll();
         });
         connect(cancel, &QPushButton::clicked, this, [this, id, row] {
             row->setProperty("draftActive", false);
@@ -623,6 +683,8 @@ void ArmPanel::rebuildPoseList()
                 jointsEditor.at(i)->setValue(values.value(i).toDouble());
             row->setEditing(draft.value("editing").toBool());
             item->setSizeHint(QSize(0, row->sizeHint().height()));
+            if (row->isEditing())
+                restoreEditorFocus(row, draft.value("focus").toMap());
         }
         for (auto *spin : jointsEditor)
             connect(spin, &QDoubleSpinBox::valueChanged, this, [this, row](double) {
@@ -634,13 +696,49 @@ void ArmPanel::rebuildPoseList()
             savedPresets_->setCurrentItem(item);
     }
     updatePoseRows();
+    updatePoseListItemSizes();
+    savedPresets_->verticalScrollBar()->setValue(scrollPosition);
+}
+
+bool ArmPanel::eventFilter(QObject *object, QEvent *event)
+{
+    if (savedPresets_ && object == savedPresets_->viewport() && event->type() == QEvent::Resize)
+        updatePoseListItemSizes();
+    return QWidget::eventFilter(object, event);
+}
+
+void ArmPanel::updatePoseListItemSizes()
+{
+    const int width = savedPresets_->viewport()->width();
+    bool changed = false;
+    for (int i = 0; i < savedPresets_->count(); ++i) {
+        auto *item = savedPresets_->item(i);
+        auto *row = static_cast<CatalogRow *>(savedPresets_->itemWidget(item));
+        if (!row)
+            continue;
+        row->layout()->activate();
+        const int height = row->heightForWidth(width);
+        const QSize hint(0, height >= 0 ? height : row->sizeHint().height());
+        if (item->sizeHint() != hint) {
+            item->setSizeHint(hint);
+            changed = true;
+        }
+    }
+    if (changed)
+        savedPresets_->doItemsLayout();
 }
 
 void ArmPanel::updatePoseRows()
 {
     for (auto *row : std::as_const(poseRows_)) {
+        const bool draft = row->property("draftActive").toBool();
+        row->setStatus(draft ? QStringLiteral("초안") : QString());
         row->setEditEnabled(controlsEnabled_);
-        row->setApplyEnabled(controlsEnabled_ && executionAvailable_ && feedbackFresh_);
+        row->setApplyEnabled(controlsEnabled_ && executionAvailable_ && feedbackFresh_ &&
+                             !goalResponsePending_ && !draft);
+        row->applyButton()->setToolTip(draft
+            ? QStringLiteral("편집한 자세를 저장하거나 취소한 뒤 실행합니다")
+            : QStringLiteral("로봇팔을 이 자세로 이동합니다"));
         for (const auto *name : {"PoseRowSave", "PoseRowDelete"})
             row->findChild<QPushButton *>(QLatin1String(name))->setEnabled(
                 controlsEnabled_ && pendingPoseChannel_.isEmpty());
@@ -687,7 +785,9 @@ void ArmPanel::previewSavedPose(const QString &id)
 
 void ArmPanel::applySavedPose(const QString &id)
 {
-    if (!controlsEnabled_ || !executionAvailable_ || !feedbackFresh_)
+    if (!controlsEnabled_ || !executionAvailable_ || !feedbackFresh_ || goalResponsePending_)
+        return;
+    if (auto *row = poseRows_.value(id, nullptr); row && row->property("draftActive").toBool())
         return;
     const auto it = std::find_if(posePresets_.cbegin(), posePresets_.cend(),
         [&id](const QVariantMap &entry) {
@@ -707,7 +807,45 @@ void ArmPanel::applySavedPose(const QString &id)
     }
     syncing_ = false;
     onSliderMoved();
-    emit jointGoal(goal);
+    submitJointGoal(goal);
+}
+
+void ArmPanel::submitJointGoal(const QList<double> &positions)
+{
+    if (!controlsEnabled_ || !executionAvailable_ || !feedbackFresh_ ||
+        goalResponsePending_ || positions.size() != robot::kArmJointCount ||
+        !std::all_of(positions.cbegin(), positions.cend(),
+                     [](double value) { return std::isfinite(value); }))
+        return;
+
+    // ACK가 채널 단위로 전달되므로 동시에 하나의 팔 전송만 기다린다.
+    // 조작기는 계속 편집할 수 있고, 전송 당시의 목표와 세대는 고정한다.
+    submittedGoal_ = positions;
+    submittedEditGeneration_ = commandEditGeneration_;
+    submittedGoalAccepted_ = false;
+    submittedGoalFeedbackSeen_ = false;
+    goalResponsePending_ = true;
+    refreshCommandControls();
+    emit jointGoal(positions);
+}
+
+void ArmPanel::finishSubmittedGoalIfReached()
+{
+    if (!submittedGoalAccepted_ || !submittedGoalFeedbackSeen_ || !feedbackFresh_ ||
+        actual_.size() != submittedGoal_.size())
+        return;
+    for (int i = 0; i < actual_.size(); ++i)
+        if (std::abs(actual_.at(i) - submittedGoal_.at(i)) > kSubmittedGoalToleranceRad)
+            return;
+
+    const bool sameDraft = commandEditGeneration_ == submittedEditGeneration_;
+    submittedGoal_.clear();
+    submittedGoalAccepted_ = false;
+    submittedGoalFeedbackSeen_ = false;
+    if (sameDraft)
+        syncSlidersToActual();
+    else
+        refreshPreview();
 }
 
 void ArmPanel::setArmState(const QList<double> &positions, double manipulability,
@@ -719,16 +857,20 @@ void ArmPanel::setArmState(const QList<double> &positions, double manipulability
     // FR3 는 6축이므로 전체 관절값이 도착한 경우에만 기준 자세를 갱신한다.
     if (positions.size() == kArmJointCount &&
         std::all_of(positions.cbegin(), positions.cend(), [](double value) { return std::isfinite(value); })) {
-        const bool first = !hadArmState_;
         hadArmState_ = true;
         feedbackFresh_ = true;
         actual_ = positions;
         for (int i = 0; i < sliders_.size() && i < positions.size(); ++i)
             sliders_[i]->setActual(positions.at(i));
 
-        // 첫 보고 전에 목표를 편집했을 수도 있다. 그 경우 실제값만 갱신하고
-        // 초안을 보존한다. 이전에는 첫 상태 패킷이 입력값을 조용히 지웠다.
-        if (first && !commandEdited_)
+        if (!submittedGoal_.isEmpty()) {
+            submittedGoalFeedbackSeen_ = true;
+            finishSubmittedGoalIfReached();
+        }
+
+        // 편집 전에는 외부 명령으로 움직인 자세도 조작의 기준으로 삼는다.
+        // 편집을 시작한 뒤에는 실제값만 갱신하고 목표 초안을 보존한다.
+        if (!commandEdited_)
             syncSlidersToActual();
 
         syncEeActualFromJoints(positions);
@@ -818,6 +960,11 @@ void ArmPanel::clearReportedState()
     rebuildPoseList();
     hadArmState_ = false;
     commandEdited_ = false;
+    ++commandEditGeneration_;
+    submittedGoal_.clear();
+    goalResponsePending_ = false;
+    submittedGoalAccepted_ = false;
+    submittedGoalFeedbackSeen_ = false;
     hasPendingGoal_ = false;
     eeReachable_ = true;
     actual_ = QList<double>(robot::kArmHome.begin(), robot::kArmHome.end());
@@ -873,6 +1020,19 @@ void ArmPanel::setCommandResult(const QString &channel, bool ok, const QString &
     if (channel != QLatin1String("cmd/arm/joint_goal") &&
         channel != QLatin1String("cmd/arm/ee_goal"))
         return;
+    // 이 패널의 관절/끝단 편집기는 모두 joint_goal을 보낸다.
+    // 다른 요청의 응답으로 아직 보내지 않은 초안을 확정하지 않는다.
+    if (channel == QLatin1String("cmd/arm/joint_goal") && goalResponsePending_) {
+        goalResponsePending_ = false;
+        submittedGoalAccepted_ = ok;
+        if (ok) {
+            finishSubmittedGoalIfReached();
+        } else {
+            submittedGoal_.clear();
+            submittedGoalFeedbackSeen_ = false;
+        }
+        refreshPreview();
+    }
     commandStatus_->setText(ok ? QStringLiteral("목표 요청 접수")
                                : QStringLiteral("전송 실패 · %1 %2").arg(code, message));
     commandStatus_->setProperty("tone", ok ? "info" : "danger");
@@ -891,10 +1051,11 @@ void ArmPanel::refreshCommandControls()
         b->setEnabled(controlsEnabled_ && feedbackFresh_);
     if (jointSend_)
         jointSend_->setEnabled(controlsEnabled_ && executionAvailable_ &&
-                               feedbackFresh_ && hasPendingGoal_);
+                               feedbackFresh_ && hasPendingGoal_ && !goalResponsePending_);
     if (eeSend_)
         eeSend_->setEnabled(controlsEnabled_ && executionAvailable_ &&
-                            feedbackFresh_ && hasPendingGoal_ && eeReachable_);
+                            feedbackFresh_ && hasPendingGoal_ && eeReachable_ &&
+                            !goalResponsePending_);
     for (auto *send : {jointSend_, eeSend_})
         if (send)
             send->setToolTip(executionAvailable_ ? QString()
@@ -907,6 +1068,7 @@ void ArmPanel::onSliderMoved()
     if (syncing_)
         return;
     commandEdited_ = true;
+    ++commandEditGeneration_;
     commandStatus_->hide();
     for (auto *s : std::as_const(sliders_))
         s->update();
@@ -965,6 +1127,7 @@ void ArmPanel::syncJointsFromEe()
     if (syncing_ || sliders_.isEmpty())
         return;
     commandEdited_ = true;
+    ++commandEditGeneration_;
     commandStatus_->hide();
 
     robot::EePose target;

@@ -41,8 +41,12 @@ signals:
     /// summaries elsewhere cannot drift out of step with this list.
     void waypointsChanged(const QList<QVariantMap> &points);
 
+protected:
+    bool eventFilter(QObject *object, QEvent *event) override;
+
 private:
     void updateActionButtons();
+    void updateListItemSizes();
 
     Card *card_ = nullptr;
     Badge *count_ = nullptr;
@@ -52,6 +56,7 @@ private:
     QLabel *saveStatus_ = nullptr;
     bool editingEnabled_ = false;
     bool robotPoseAvailable_ = false;
+    quint64 catalogGeneration_ = 0;
 };
 
 }  // namespace hmi::ui

@@ -23,6 +23,7 @@
 #include <string>
 #include <stdexcept>
 #include <unordered_set>
+#include <unordered_map>
 
 // 점유격자를 PNG 로 눌러 관제에 보낸다 (encodeGridPng).
 #include <zlib.h>
@@ -105,8 +106,27 @@ constexpr auto kCmdArmStop = "cmd/arm/stop";
 constexpr auto kCmdBasePosture = "cmd/base/posture";
 constexpr auto kChBase = "state/base";
 
+// A missing catalog is optional; an existing but unreadable one must be
+// preserved. In particular, opening a FIFO would block the ROS executor.
+std::optional<bool> optionalRegularFile(const std::filesystem::path &path,
+                                       std::string *error)
+{
+    std::error_code ec;
+    const auto status = std::filesystem::symlink_status(path, ec);
+    if (status.type() == std::filesystem::file_type::not_found)
+        return false;
+    if (ec || !std::filesystem::is_regular_file(path, ec) || ec) {
+        if (error) *error = path.filename().string() + " 파일을 읽을 수 없습니다";
+        return std::nullopt;
+    }
+    return true;
+}
+
 std::string readDefaultMapId(const std::filesystem::path &root)
 {
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(root / "default_map.json", ec) || ec)
+        return {};
     std::ifstream in(root / "default_map.json");
     if (!in)
         return {};
@@ -212,6 +232,117 @@ bool validArmPresetText(const std::string &name, const std::string &description)
         description.find_first_of("\r\n") == std::string::npos;
 }
 
+// Use the same field checks for saved catalogs and replacement requests so a
+// successfully written catalog can always be loaded again.
+bool finiteField(const json &item, const char *key, bool required = true)
+{
+    const auto value = item.find(key);
+    return value == item.end() ? !required
+        : value->is_number() && std::isfinite(value->get<double>());
+}
+
+bool textField(const json &item, const char *key, bool required = false)
+{
+    const auto value = item.find(key);
+    return value == item.end() ? !required : value->is_string();
+}
+
+bool validCatalogName(const json &item, bool required)
+{
+    if (!textField(item, "name", required))
+        return false;
+    const auto found = item.find("name");
+    if (found == item.end())
+        return true;
+    const auto &name = found->get_ref<const std::string &>();
+    return !name.empty() && name.size() <= 120 &&
+        name.find_first_of("\r\n") == std::string::npos;
+}
+
+bool validSavedWaypoints(const json &points)
+{
+    std::unordered_set<std::string> ids;
+    for (const auto &point : points) {
+        if (!point.is_object() || !textField(point, "id", true) ||
+            !validCatalogName(point, false) || !textField(point, "description") ||
+            !finiteField(point, "x") || !finiteField(point, "y") ||
+            !finiteField(point, "theta", false))
+            return false;
+        const auto id = point["id"].get<std::string>();
+        if (id.empty() || !ids.insert(id).second)
+            return false;
+    }
+    return true;
+}
+
+bool validSavedLocations(const json &locations)
+{
+    std::unordered_set<std::string> kinds;
+    for (const auto &location : locations) {
+        if (!location.is_object() || !textField(location, "kind", true) ||
+            !textField(location, "id") || !textField(location, "description") ||
+            !validCatalogName(location, false) || !finiteField(location, "x") ||
+            !finiteField(location, "y") || !finiteField(location, "theta", false))
+            return false;
+        const auto kind = location["kind"].get<std::string>();
+        if ((kind != "home" && kind != "dock") || !kinds.insert(kind).second)
+            return false;
+    }
+    return true;
+}
+
+bool validSavedMarkers(const json &markers)
+{
+    std::unordered_set<int> ids;
+    for (const auto &marker : markers) {
+        if (!marker.is_object() || !marker.contains("id") ||
+            !marker["id"].is_number_integer() || marker["id"] < 0 ||
+            marker["id"] > 100000 || !finiteField(marker, "x") ||
+            !finiteField(marker, "y") || !textField(marker, "description"))
+            return false;
+        const auto id = marker["id"].get<int>();
+        if (!ids.insert(id).second || marker.contains("z") != marker.contains("yaw") ||
+            !finiteField(marker, "z", false) || !finiteField(marker, "yaw", false) ||
+            (marker.contains("yaw") && std::abs(marker["yaw"].get<double>()) > M_PI + 1e-6))
+            return false;
+    }
+    return true;
+}
+
+bool validSavedMissions(const json &missions)
+{
+    std::unordered_set<std::string> ids;
+    for (const auto &mission : missions) {
+        if (!mission.is_object() || !textField(mission, "id", true) ||
+            !validCatalogName(mission, true) || !textField(mission, "description") ||
+            (mission.contains("archived") && !mission["archived"].is_boolean()) ||
+            (mission.contains("revision") &&
+                (!mission["revision"].is_number_integer() || mission["revision"] < 1)) ||
+            !mission.contains("steps") || !mission["steps"].is_array())
+            return false;
+        const auto id = mission["id"].get<std::string>();
+        if (!validArmPresetId(id) || !ids.insert(id).second)
+            return false;
+        std::unordered_set<std::string> stepIds;
+        for (const auto &step : mission["steps"]) {
+            if (!step.is_object() || !textField(step, "id", true) ||
+                !textField(step, "type", true) || !textField(step, "description"))
+                return false;
+            const auto stepId = step["id"].get<std::string>();
+            const auto type = step["type"].get<std::string>();
+            if (!validArmPresetId(stepId) || !stepIds.insert(stepId).second ||
+                (type != "navigate" && type != "capture" && type != "arm_move" && type != "dock"))
+                return false;
+            const char *reference = type == "navigate" ? "location_id"
+                : type == "capture" ? "preset" : type == "arm_move" ? "pose" : "location_id";
+            if (!textField(step, reference, type != "dock") ||
+                (step.contains(reference) && !validArmPresetId(step[reference].get<std::string>())))
+                return false;
+        }
+    }
+    return true;
+}
+
 // 자세는 지도와 독립적이지만 미션은 지도별로 저장된다. 삭제 전에 모든 지도에서
 // 살아 있는 미션의 참조를 확인해야 다른 지도에 끊어진 단계가 남지 않는다.
 std::optional<std::string> mapUsingArmPose(const std::filesystem::path &root,
@@ -227,13 +358,17 @@ std::optional<std::string> mapUsingArmPose(const std::filesystem::path &root,
         if (!entry.is_directory())
             continue;
         const std::string mapId = entry.path().filename().string();
-        if (mapId.empty() || mapId.front() == '.')
+        // Dot-prefixed map names are allowed; only deleted maps are excluded.
+        if (mapId.empty() || mapId == ".trash")
             continue;
         const auto missionsPath = entry.path() / "missions.json";
-        if (!std::filesystem::exists(missionsPath, ec)) {
-            if (ec) break;
-            continue;
+        const auto haveMissions = optionalRegularFile(missionsPath, error);
+        if (!haveMissions) {
+            if (error) *error += ": " + mapId;
+            return std::nullopt;
         }
+        if (!*haveMissions)
+            continue;
         std::ifstream in(missionsPath);
         if (!in) {
             if (error) *error = "미션 파일을 읽지 못했습니다: " + mapId;
@@ -242,7 +377,8 @@ std::optional<std::string> mapUsingArmPose(const std::filesystem::path &root,
         try {
             json document;
             in >> document;
-            if (!document.is_object() || !document.value("missions", json::array()).is_array())
+            if (!document.is_object() || !document.contains("missions") ||
+                !document["missions"].is_array() || !validSavedMissions(document["missions"]))
                 throw std::runtime_error("invalid missions");
             for (const auto &mission : document["missions"]) {
                 if (!mission.is_object())
@@ -344,8 +480,13 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
         navigationAngularSpeed_ > navigationMaxAngularSpeed_)
         throw std::invalid_argument("angular speeds must satisfy 0.05 <= min <= default <= max <= 0.80");
     {
-        std::ifstream in(std::filesystem::path(robotDataDir_) / "navigation_settings.json");
-        if (in) {
+        const auto source = std::filesystem::path(robotDataDir_) / "navigation_settings.json";
+        std::string sourceError;
+        const auto haveSource = optionalRegularFile(source, &sourceError);
+        std::ifstream in;
+        if (haveSource && *haveSource)
+            in.open(source);
+        if (in.is_open() && in) {
             try {
                 json document;
                 in >> document;
@@ -362,6 +503,9 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
             } catch (const std::exception &e) {
                 RCLCPP_WARN(get_logger(), "주행 속도 설정을 읽지 못했습니다: %s", e.what());
             }
+        } else if (!haveSource || *haveSource) {
+            RCLCPP_WARN(get_logger(), "주행 속도 설정을 읽지 못했습니다: %s",
+                        sourceError.empty() ? source.c_str() : sourceError.c_str());
         }
     }
     speedLimitPub_ = create_publisher<nav2_msgs::msg::SpeedLimit>(
@@ -392,12 +536,15 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
     {
         const auto current = std::filesystem::path(robotDataDir_) / "arm_pose_presets.json";
         const auto legacy = std::filesystem::path(mapsDir_) / "arm_pose_presets.json";
-        std::error_code ec;
-        const bool useLegacy = !std::filesystem::is_regular_file(current, ec) &&
-                               std::filesystem::is_regular_file(legacy, ec);
+        std::string sourceError;
+        const auto haveCurrent = optionalRegularFile(current, &sourceError);
+        const bool useLegacy = haveCurrent && !*haveCurrent;
         const auto source = useLegacy ? legacy : current;
-        std::ifstream in(source);
-        if (in) {
+        const auto haveSource = useLegacy ? optionalRegularFile(legacy, &sourceError) : haveCurrent;
+        std::ifstream in;
+        if (haveSource && *haveSource)
+            in.open(source);
+        if (in.is_open() && in) {
             try {
                 json document;
                 in >> document;
@@ -443,7 +590,7 @@ BridgeNode::BridgeNode() : rclcpp::Node("hmi_bridge")
                 armPosePresetsLoadInvalid_ = true;
                 RCLCPP_WARN(get_logger(), "팔 자세 프리셋을 읽지 못했습니다: %s", e.what());
             }
-        } else if (std::filesystem::exists(source, ec) || ec) {
+        } else if (!haveSource || *haveSource) {
             armPosePresetsLoadInvalid_ = true;
             RCLCPP_WARN(get_logger(), "팔 자세 파일을 열지 못했습니다: %s", source.c_str());
         }
@@ -882,6 +1029,13 @@ void BridgeNode::handleFrame(const inspection::Frame &frame)
 
 void BridgeNode::handleHeartbeat(const Envelope &heartbeat)
 {
+    if (!heartbeat.p.is_object() || (heartbeat.p.contains("seq") &&
+        (!heartbeat.p["seq"].is_number_integer() ||
+         heartbeat.p["seq"] < std::numeric_limits<std::int64_t>::min() ||
+         heartbeat.p["seq"] > std::numeric_limits<std::int64_t>::max()))) {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "잘못된 heartbeat seq를 무시했습니다");
+        return;
+    }
     // 같은 seq 를 돌려보내 관제가 왕복 지연을 잴 수 있게 한다.
     sendEnvelope(makeHeartbeat(heartbeat.p.value("seq", std::int64_t{0})));
 }
@@ -1104,8 +1258,8 @@ void BridgeNode::handleRequest(const Envelope &request)
             publishWaypoints();
             return;
         }
-        json points = request.p.value("points", json::array());
-        if (!points.is_array()) {
+        json points = request.p.value("points", json{});
+        if (!points.is_array() || !validSavedWaypoints(points)) {
             respond(request, false, err::kBadPayload, "웨이포인트 목록이 올바르지 않습니다");
             return;
         }
@@ -1331,6 +1485,10 @@ void BridgeNode::handleRequest(const Envelope &request)
             return;
         }
         const json mission = request.p.value("mission", json::object());
+        if (!validSavedMissions(json::array({mission}))) {
+            respond(request, false, err::kBadPayload, "미션 필드의 타입 또는 단계 구성이 올바르지 않습니다");
+            return;
+        }
         const std::string id = mission.value("id", std::string{});
         const std::string name = mission.value("name", std::string{});
         const uint64_t expected = request.p.value("expected_revision", uint64_t{0});
@@ -1433,6 +1591,11 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdMissionsArchive) {
+        if (request.p.contains("map_id") && (!request.p["map_id"].is_string() ||
+            request.p["map_id"].get<std::string>() != mapId_)) {
+            respond(request, false, err::kBusy, "미션의 지도가 변경되었습니다");
+            return;
+        }
         if (mapId_ == "live" || !pendingMapId_.empty() || navigationBusy() || (haveMissionState_ &&
             missionState_.state != interfaces::msg::MissionState::IDLE &&
             missionState_.state != interfaces::msg::MissionState::COMPLETED &&
@@ -1464,6 +1627,29 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdLocationsSet) {
+        // Legacy SDK requests remain supported; HMI supplies an explicit snapshot.
+        if (request.p.contains("expected_locations") || request.p.contains("map_id")) {
+            const auto byKind = [](const json &entries) {
+                json result = json::object();
+                if (!entries.is_array()) return json{};
+                for (const auto &entry : entries) {
+                    if (!entry.is_object() || !entry.contains("kind") || !entry["kind"].is_string())
+                        return json{};
+                    const auto key = entry["kind"].get<std::string>();
+                    if (result.contains(key)) return json{};
+                    result[key] = entry;
+                }
+                return result;
+            };
+            if (!request.p.contains("map_id") || !request.p["map_id"].is_string() ||
+                request.p["map_id"].get<std::string>() != mapId_ ||
+                !request.p.contains("expected_locations") || !request.p["expected_locations"].is_array() ||
+                byKind(request.p["expected_locations"]) != byKind(locations_)) {
+                respond(request, false, err::kBusy, "지도 또는 시작·충전 위치가 변경되었습니다. 최신 위치에서 다시 편집하십시오");
+                publishLocations();
+                return;
+            }
+        }
         if (haveMissionState_ && missionState_.state != interfaces::msg::MissionState::IDLE &&
             missionState_.state != interfaces::msg::MissionState::COMPLETED &&
             missionState_.state != interfaces::msg::MissionState::FAILED) {
@@ -1471,7 +1657,7 @@ void BridgeNode::handleRequest(const Envelope &request)
             return;
         }
         auto locations = request.p.value("locations", json{});
-        if (!locations.is_array()) {
+        if (!locations.is_array() || !validSavedLocations(locations)) {
             respond(request, false, err::kBadPayload, "위치 목록이 올바르지 않습니다");
             return;
         }
@@ -1509,6 +1695,16 @@ void BridgeNode::handleRequest(const Envelope &request)
     }
 
     if (request.ch == kCmdMarkersSet) {
+        if (request.p.contains("expected_markers") || request.p.contains("map_id")) {
+            if (!request.p.contains("map_id") || !request.p["map_id"].is_string() ||
+                request.p["map_id"].get<std::string>() != mapId_ ||
+                !request.p.contains("expected_markers") || !request.p["expected_markers"].is_array() ||
+                request.p["expected_markers"] != markers_) {
+                respond(request, false, err::kBusy, "지도 또는 마커 목록이 변경되었습니다. 최신 목록에서 다시 편집하십시오");
+                publishMarkers();
+                return;
+            }
+        }
         // 측량해 넣은 마커 자리다. 관제에서 통째로 갈아 끼우고, 로봇은 그것을
         // 그대로 들고 있다가 되돌려 준다 — 어느 태그가 어디 붙어 있는지는
         // 사람이 재어 오는 값이라 로봇이 스스로 정할 수 있는 것이 아니다.
@@ -1517,7 +1713,7 @@ void BridgeNode::handleRequest(const Envelope &request)
             return;
         }
         const json markers = request.p.value("markers", json{});
-        if (!markers.is_array()) {
+        if (!markers.is_array() || !validSavedMarkers(markers)) {
             respond(request, false, err::kBadPayload, "마커 목록이 올바르지 않습니다");
             return;
         }
@@ -1682,11 +1878,14 @@ void BridgeNode::handleRequest(const Envelope &request)
         try {
             for (const char *filename : files) {
                 const auto source = dir / filename;
-                if (std::string(filename) != "metadata.json" &&
-                    !std::filesystem::exists(source))
+                std::string sourceError;
+                const auto haveSource = optionalRegularFile(source, &sourceError);
+                if (!haveSource)
+                    throw std::runtime_error(sourceError);
+                if (std::string(filename) != "metadata.json" && !*haveSource)
                     continue;
                 json document = json::object();
-                if (std::filesystem::exists(source)) {
+                if (*haveSource) {
                     std::ifstream in(source);
                     if (!in || !(in >> document) || !document.is_object())
                         throw std::runtime_error(std::string(filename) + " 읽기 실패");
@@ -1718,7 +1917,11 @@ void BridgeNode::handleRequest(const Envelope &request)
                 if (!out)
                     throw std::runtime_error(std::string(filename) + " 저장 실패");
             }
-            if (std::filesystem::is_regular_file(defaultMap)) {
+            std::string defaultMapError;
+            const auto haveDefaultMap = optionalRegularFile(defaultMap, &defaultMapError);
+            if (!haveDefaultMap)
+                throw std::runtime_error(defaultMapError);
+            if (*haveDefaultMap) {
                 std::ifstream in(defaultMap);
                 json selected;
                 if (!in || !(in >> selected) || !selected.is_object())
@@ -2097,6 +2300,8 @@ void BridgeNode::publishSystem()
                                   {"net_rtt_ms", nullptr},
                                   {"net_rssi", nullptr},
                                   {"capture_enabled", captureEnabled_},
+                                  {"capture_max_linear_speed", maxCaptureLinear_},
+                                  {"capture_max_angular_speed", maxCaptureAngular_},
                                   {"arm_execution_enabled", armExecutionEnabled_ &&
                                     authorityRequestClient_->service_is_ready() && safetyCommandClient_->service_is_ready() &&
                                     armCmdPub_->get_subscription_count() > 0 && count_subscribers("/motion/safe/arm/joint_command") > 0},
@@ -2234,7 +2439,12 @@ void BridgeNode::publishWaypoints()
         });
         if (mission != missions_.end() && mission->contains("steps") &&
             (*mission)["steps"].is_array()) {
-            // 미션 단계 순서가 위치 목록의 순서와 다를 수 있다.
+            // 같은 위치를 여러 번 방문할 수 있다. 현재 단계가 최우선이며,
+            // 현재 방문이 없으면 남은 방문(todo), 모든 방문 완료(done) 순이다.
+            const auto priority = [](const std::string &status) {
+                return status == "error" ? 4 : status == "current" ? 3 : status == "todo" ? 2 : 1;
+            };
+            std::unordered_map<std::string, std::string> statuses;
             std::size_t stepIndex = 0;
             for (const auto &step : mission->value("steps", json::array())) {
                 if (!step.is_object() || step.value("type", std::string{}) != "navigate") {
@@ -2246,12 +2456,18 @@ void BridgeNode::publishWaypoints()
                     stepIndex < std::size_t(missionState_.current_step);
                 const bool current = missionState_.current_step >= 0 &&
                     stepIndex == std::size_t(missionState_.current_step);
-                for (auto &point : points)
-                    if (point.value("id", std::string{}) == locationId)
-                        point["status"] = completed || beforeCurrent ? "done"
-                            : current && missionState_.state == interfaces::msg::MissionState::FAILED
-                                ? "error" : current ? "current" : "todo";
+                const std::string status = completed || beforeCurrent ? "done"
+                    : current && missionState_.state == interfaces::msg::MissionState::FAILED
+                        ? "error" : current ? "current" : "todo";
+                const auto existing = statuses.find(locationId);
+                if (existing == statuses.end() || priority(status) > priority(existing->second))
+                    statuses[locationId] = status;
                 ++stepIndex;
+            }
+            for (auto &point : points) {
+                const auto found = statuses.find(point.value("id", std::string{}));
+                if (found != statuses.end())
+                    point["status"] = found->second;
             }
         } else {
             // 이전 전체 목록 기반 주행 계획을 위한 호환 경로.
@@ -2448,11 +2664,15 @@ void BridgeNode::publishMapCatalog()
     std::error_code ec;
     const std::filesystem::path root(mapsDir_);
     const std::string defaultId = readDefaultMapId(root);
-    for (const auto &entry : std::filesystem::directory_iterator(root, ec)) {
-        if (ec || !entry.is_directory())
+    std::filesystem::directory_iterator entries(root, ec);
+    const std::filesystem::directory_iterator end;
+    for (; !ec && entries != end; entries.increment(ec)) {
+        const auto &entry = *entries;
+        std::error_code itemError;
+        if (!entry.is_directory(itemError) || itemError)
             continue;
         const auto dir = entry.path();
-        if (!std::filesystem::is_regular_file(dir / "map.yaml"))
+        if (!std::filesystem::is_regular_file(dir / "map.yaml", itemError) || itemError)
             continue;
 
         const std::string id = dir.filename().string();
@@ -2460,23 +2680,27 @@ void BridgeNode::publishMapCatalog()
                   {"default", id == defaultId},
                   {"waypoint_count", 0}};
         try {
-            std::ifstream meta_in(dir / "metadata.json");
-            json meta;
-            if (meta_in >> meta) {
-                if (meta.is_object() && meta.contains("created_at") &&
+            if (std::filesystem::is_regular_file(dir / "metadata.json", itemError)) {
+                std::ifstream meta_in(dir / "metadata.json");
+                json meta;
+                if (meta_in >> meta && meta.is_object() && meta.contains("created_at") &&
                     meta["created_at"].is_string())
                     item["created_at"] = meta["created_at"];
             }
-            std::ifstream wp_in(dir / "waypoints.json");
-            json waypoints;
-            if (wp_in >> waypoints && waypoints["points"].is_array())
-                item["waypoint_count"] = waypoints["points"].size();
+            if (std::filesystem::is_regular_file(dir / "waypoints.json", itemError)) {
+                std::ifstream wp_in(dir / "waypoints.json");
+                json waypoints;
+                if (wp_in >> waypoints && waypoints["points"].is_array())
+                    item["waypoint_count"] = waypoints["points"].size();
+            }
         } catch (const json::exception &e) {
             RCLCPP_WARN(get_logger(), "지도 카탈로그 항목을 읽지 못했습니다 (%s): %s",
                         dir.c_str(), e.what());
         }
         maps.push_back(std::move(item));
     }
+    if (ec)
+        RCLCPP_WARN(get_logger(), "지도 목록을 읽지 못했습니다: %s", ec.message().c_str());
     // directory_iterator의 순서는 파일 시스템마다 달라 HMI 목록까지
     // 흔들리므로 폴더 이름으로 정렬한다.
     std::sort(maps.begin(), maps.end(), [](const json &left, const json &right) {
@@ -2493,13 +2717,24 @@ bool BridgeNode::loadMapBundle(const std::string &map_id, std::string *error,
         return false;
     }
     const std::filesystem::path dir = std::filesystem::path(mapsDir_) / map_id;
-    if (!std::filesystem::is_regular_file(dir / "map.yaml")) {
+    std::error_code mapFileError;
+    if (!std::filesystem::is_regular_file(dir / "map.yaml", mapFileError)) {
         if (error) *error = "지도 파일이 없습니다";
         return false;
     }
 
-    std::ifstream metadata(dir / "metadata.json");
-    if (metadata) {
+    const auto optionalFile = [&dir, error](const char *name) -> std::optional<bool> {
+        return optionalRegularFile(dir / name, error);
+    };
+    const auto haveMetadata = optionalFile("metadata.json");
+    if (!haveMetadata)
+        return false;
+    if (*haveMetadata) {
+        std::ifstream metadata(dir / "metadata.json");
+        if (!metadata) {
+            if (error) *error = "metadata.json 파일을 열지 못했습니다";
+            return false;
+        }
         try {
             json document;
             metadata >> document;
@@ -2513,10 +2748,17 @@ bool BridgeNode::loadMapBundle(const std::string &map_id, std::string *error,
         }
     }
 
-    const auto read = [&dir, error](const char *name, const char *key) -> std::optional<json> {
-        std::ifstream in(dir / name);
-        if (!in)
+    const auto read = [&dir, &optionalFile, error](const char *name, const char *key) -> std::optional<json> {
+        const auto exists = optionalFile(name);
+        if (!exists)
+            return std::nullopt;
+        if (!*exists)
             return json::array();
+        std::ifstream in(dir / name);
+        if (!in) {
+            if (error) *error = std::string(name) + " 파일을 열지 못했습니다";
+            return std::nullopt;
+        }
         json doc;
         try {
             in >> doc;
@@ -2536,11 +2778,15 @@ bool BridgeNode::loadMapBundle(const std::string &map_id, std::string *error,
     const auto missions = read("missions.json", "missions");
     if (!points || !locations || !markers || !missions)
         return false;
-    if (std::any_of(points->begin(), points->end(), [](const json &point) {
-            return !point.is_object();
-        })) {
-        if (error) *error = "waypoints.json에 올바르지 않은 지점이 있습니다";
-        return false;
+    for (const auto &[valid, filename] : std::array<std::pair<bool, const char *>, 4>{{
+            {validSavedWaypoints(*points), "waypoints.json"},
+            {validSavedLocations(*locations), "locations.json"},
+            {validSavedMarkers(*markers), "markers.json"},
+            {validSavedMissions(*missions), "missions.json"}}}) {
+        if (!valid) {
+            if (error) *error = std::string(filename) + " 항목의 타입·좌표·식별자를 확인하십시오";
+            return false;
+        }
     }
     if (validate_only)
         return true;
@@ -2624,6 +2870,7 @@ bool BridgeNode::saveMissions(std::string *error)
             return false;
         }
         out << document.dump(2) << '\n';
+        out.close();
         if (!out) {
             std::error_code ec;
             std::filesystem::remove(temporary, ec);

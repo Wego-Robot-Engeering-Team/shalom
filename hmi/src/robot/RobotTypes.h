@@ -62,7 +62,7 @@ struct Telemetry {
     double angularSpeed = std::numeric_limits<double>::quiet_NaN();
     QList<QPointF> trail;
     QList<QPointF> plan;
-    double soc = 0;
+    double soc = std::numeric_limits<double>::quiet_NaN();
     QList<double> joints;
     // Missing metrics are distinct from a measured zero (singularity).
     double manipulability = std::numeric_limits<double>::quiet_NaN();
@@ -79,6 +79,8 @@ struct Telemetry {
     /// slow capture in a way a busy CPU does not.
     double cpu = 0, gpu = 0, mem = 0, cpuTemp = 0, gpuTemp = 0, rtt = 0;
     bool captureEnabled = false;
+    double captureMaxLinearSpeed = 0.03;
+    double captureMaxAngularSpeed = 0.05;
     bool armExecutionEnabled = false;
     bool armFresh = false;
     bool estop = false;

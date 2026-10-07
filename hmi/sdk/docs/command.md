@@ -1,299 +1,207 @@
-# 명령 채널
+# 명령 데이터
 
-모든 고객 SDK 명령은 `req` / `res` 쌍이다.
-
-```json
-→ {"v":1,"t":"req","ch":"cmd/goto","id":"c17","ts":...,"p":{"x":3.0,"y":1.5}}
-← {"v":1,"t":"res","ch":"cmd/goto","id":"c17","ts":...,"robot":"R1",
-   "p":{"ok":true}}
-```
-
-실패하면:
+모든 명령은 `req`·`res`를 사용한다. 성공 응답의 `p.ok`는 bool이다.
+오류는 `p.err.code`·`p.err.msg`로 확인한다.
 
 ```json
-← {"p":{"ok":false,"err":{"code":"E_MODE","msg":"수동 모드에서는 ..."}}}
+{"v":1,"t":"res","ch":"cmd/goto","id":"c1","ts":1791302400.0,"robot":"SE-0001","p":{"ok":true}}
 ```
 
-`id` 는 클라이언트가 만들고 로봇이 그대로 되돌린다. 응답을 기다리지 않고 다음
-명령을 보내도 되지만, 같은 대상에 대한 중복 요청은 `E_BUSY` 로 거절될 수 있다.
-
-**모든 제한은 로봇이 건다.** 클라이언트가 버튼을 잠그는 것과 별개로 규칙 자체는
-로봇이 지킨다. UI 결함이나 손으로 짠 클라이언트는 화면의 제한을 그냥 통과한다.
+`cmd/goto`의 성공은 목표 수락, `cmd/nav_pause`·`cmd/nav_cancel`의 성공은 정지 요청 접수다.
+도착·정지 완료는 `state/nav`로 확인한다.
+목록 조회 응답에는 목록이 포함되지 않으며 해당 `state/*`에서 수신한다.
 
 ---
 
-## 안전
+## 안전·본체
 
-### `cmd/estop` — 비상정지 발동
+| 채널 | p |
+| --- | --- |
+| `cmd/estop` | `{}` |
+| `cmd/estop_release` | `{}` |
+| `cmd/mode` | `{"mode":"auto"}` 또는 `{"mode":"manual"}` |
+| `cmd/base/posture` | `{"posture":"balance_stand","confirm":false}` |
 
-페이로드 없음. 언제나 받아들여진다.
+`posture`: `stand_up`, `stand_down`, `balance_stand`, `recovery_stand`, `damp`.
+`damp`는 `confirm:true`로 요청한다. 실제 자세는 `state/base`로 확인한다.
 
-### `cmd/estop_release` — 수동 해제
-
-페이로드 없음. 해제하면 미션은 `emergency_stopped` 에서 `paused` 로 내려온다.
-자율주행이 자동으로 재개되지는 않는다.
-
-### `cmd/mode` — 운용 모드
-
-```json
-{"mode": "manual"}
-```
-
-`"auto"` 또는 `"manual"`. 수동 모드에서는 `cmd/goto` 가 `E_MODE` 로 거절된다.
-
-**수동으로 바꿔도 진행 중인 자율주행이 취소되지는 않는다.** 대신 로봇이 수동
-쪽에 우선권을 주어 자율 출력이 바퀴까지 가지 못하게 잡아 둔다. 다시 `auto` 로
-바꾸면 하던 주행이 이어진다 — 잠깐 비켜 세우려는 조작과 점검을 접는 조작을
-같은 버튼에 묶지 않기 위해서다. 정말로 취소하려면 `cmd/nav_cancel` 을 쓴다.
-
----
+수동 전환 시 로봇의 주행 출력을 정지시키고 기존 목표를 유지한다.
+자율 전환·미션 재개는 로봇의 안전 상태와 실행 정책을 따른다.
 
 ## 주행
 
-### `cmd/goto` — 목표 자세
+| 채널 | p |
+| --- | --- |
+| `cmd/goto` | `{"x":4.2,"y":1.8,"theta":1.57}` |
+| `cmd/nav_pause` | `{}` |
+| `cmd/nav_resume` | `{}` |
+| `cmd/nav_cancel` | `{}` |
+| `cmd/localization/initial_pose` | `{"x":1.0,"y":2.0,"theta":0.5}` |
+| `cmd/trail/snapshot` | `{}` |
+
+`x/y`는 map 좌표(m), `theta`는 도착 방향(rad)이다.
+`navigate_to`·`navigateTo`를 호출하면 목표 실행 요청을 즉시 전송한다.
+출발 확인 UI를 구현할 때는 후보 목표를 application에 보관하고 시작 버튼에서 호출한다.
+
+일시정지는 목표를 유지하고 재개는 그 목표를 다시 실행한다. 취소는 목표를 제거한다.
+미션 수행 중 이동은 미션 제어 API를 사용한다.
+초기 위치 명령 성공 후 위치 갱신은 `state/pose`에서 확인한다.
+
+### 속도
 
 ```json
-{"x": 3.0, "y": 1.5, "theta": 0.0}
+{"speed_limit_mps":0.30,"angular_speed_limit_rps":0.50}
 ```
 
-| 필드 | 필수 | 설명 |
-|---|---|---|
-| `x`, `y` | **예** | map 좌표, 미터. 없거나 숫자가 아니면 `E_BAD_PAYLOAD` |
-| `theta` | 아니오 | 목표 방향, 라디안. 기본 `0.0` |
-
-거절 사유:
-
-| 코드 | 상황 |
-|---|---|
-| `E_MODE` | 수동 모드 |
-| `E_BUSY` | 직전 목표를 아직 처리 중 |
-| `E_UNREACHABLE` | Nav2 미준비, 목표 거부, 또는 응답 없음 |
-
-응답은 Nav2 가 목표를 **수락한 시점**에 온다. 도착 여부가 아니다. 진행은
-`state/nav` 로 관측한다.
-
-### `cmd/nav_cancel` — 주행 취소
-
-페이로드 없음.
-
-- 상한을 넘는 값은 조용히 **잘린다**. 거절되지 않으므로 클라이언트도 같은
-  한계를 걸어 두는 편이 좋다 — 다만 그것은 편의이고, 판정은 로봇이 한다.
-- E-Stop 중이면 무시된다.
-- **`auto` 모드에서도 받는다.** 보내는 동안에는 수동이 자율보다 앞서고, 멈추면
-  300 ms 뒤 로봇이 하던 자율주행으로 돌아간다. 자율 중에 사람이 잠깐 비켜
-  세우는 조작이 모드 전환 없이 되도록 한 것이다.
-- `manual` 모드에서는 보내지 않는 동안 로봇이 스스로 제자리 명령을 유지한다.
-  클라이언트가 0 을 계속 보낼 필요는 없다 — 링크가 끊겨도 로봇이 자율로
-  돌아가지 않도록 그 판단을 로봇에 두었다.
-
----
-
-## 미션
-
-전부 페이로드가 없다.
-
-| 채널 | 동작 |
-|---|---|
-| `cmd/mission/start` | 점검 시작 |
-| `cmd/mission/pause` | 일시정지 |
-| `cmd/mission/resume` | 재개 — 명시적으로만 |
-| `cmd/mission/stop` | 종료. `fault` 에서 빠져나올 때도 쓴다 |
-
-상태 전이는 로봇의 FSM 이 판단한다. 현재 상태에서 불가능한 전이는 `E_MODE` 로
-거절된다. 결과는 `state/mission` 으로 확인한다.
-
-### `cmd/power/policy` — 배터리 기준
+`cmd/navigation/speed_limit`의 선속도·각속도 제한이다.
 
 ```json
-{"return_at": 25, "depart_at": 80}
+{"min_speed_mps":0.10,"max_speed_mps":0.60,
+ "min_angular_speed_rps":0.05,"max_angular_speed_rps":0.80}
 ```
 
-퍼센트. 설정이 바뀔 때와 연결 직후에 보낸다. 로봇은 마지막으로 받은 값을
-보관하며 내장 기본값으로 조용히 되돌아가지 않는다 — 그러면 조작자가 로봇이
-쓰지 않는 숫자를 보게 된다.
+`cmd/navigation/speed_settings`의 범위 설정이다.
+현재 설정값은 새 범위 안으로 조정된다.
 
----
+| 구분 | 허용 범위 |
+| --- | --- |
+| 선속도 | `0.10 ≤ min ≤ limit ≤ max ≤ 0.60` m/s |
+| 각속도 | `0.05 ≤ min ≤ limit ≤ max ≤ 0.80` rad/s |
 
-## 본체 자세
-
-### `cmd/base/posture`
-
-```json
-{"posture": "stand_down"}
-```
-
-| 값 | 동작 |
-|---|---|
-| `stand_up` | 일어서기 |
-| `stand_down` | 앉기 |
-| `balance_stand` | 균형 서기 — 주행 준비 자세 |
-| `recovery_stand` | 넘어졌을 때 복구 |
-| `damp` | 관절 힘 빼기. **로봇이 주저앉는다** |
-
-거절 사유:
-
-| 코드 | 상황 |
-|---|---|
-| `E_BAD_PAYLOAD` | 지원하지 않는 자세 이름 |
-| `E_ESTOP_ENGAGED` | 비상정지 중 |
-| `E_BUSY` | 로봇팔이 동작 중 |
-| `E_MODE` | 이동 중 `stand_down`·`damp`, 또는 `damp` 에 확인 누락 |
-| `E_HARDWARE` | 본체 드라이버 무응답, 또는 본체가 전환을 거부 |
-
-**로봇팔이 움직이는 동안에는 거절된다.** 팔이 펴진 채 앉으면 차체나 바닥에
-부딪힌다. 클라이언트가 버튼을 잠그는 것과 별개로 판정은 로봇이 한다.
-
-**`damp` 은 확인이 필요하다.**
-
-```json
-{"posture": "damp", "confirm": true}
-```
-
-관절 힘을 빼는 명령이라 서 있는 상태에서 실행하면 로봇이 주저앉는다. 실수로
-누르는 것을 막기 위해 `confirm` 없이는 거절한다.
-
-응답은 본체가 전환을 **마친 뒤**에 온다. 성공 응답에는 `{"ok": true}` 만 실리므로
-바뀐 자세는 뒤이어 오는 `state/base` 에서 읽는다.
-
----
-
-## 팔
-
-### `cmd/arm/preset`
-
-> **커미셔닝 전용.** 이 명령과 아래 `joint_goal`은 브릿지에서 관절 명령을
-> 발행하지만, 납품 구성의 실제 팔 제어 권한은 별도 승인 전까지 활성화하지 않는다.
-> 고객 운영 프로그램에서 사용하면 안 된다.
-
-```json
-{"name": "stow"}
-```
-
-### `cmd/arm/joint_goal`
-
-```json
-{"positions": [0.0, -0.3, 1.2, 0.0, 0.9, 0.0]}
-```
-
-관절각, 라디안. 길이는 `state/arm` 의 `names` 와 같아야 한다.
-
-### `cmd/arm/ee_goal` — 끝단 목표
-
-**현재 구현되지 않았다.** `E_UNREACHABLE` 로 거절된다. 역기구학 판단이
-MoveIt2 의 몫인데 아직 연동되지 않았다.
-
-### `cmd/arm/stop`
-
-페이로드 없음. 현재 자세를 유지한다.
-
----
-
-## 촬영
-
-### `cmd/capture/trigger`
-
-```json
-{"vehicle_number": "GTXA-042", "train_number": "1234", "car_number": "05",
- "point_id": "C01-P03", "tag_id": 7}
-```
-
-| 필드 | 필수 | 기본값 |
-|---|---|---|
-| `vehicle_number` | 예 | 없음 |
-| `train_number` | 예 | 없음 |
-| `car_number` | 예 | 없음 |
-| `point_id` | 예 | 없음 |
-| `tag_id` | 아니오 | `null` |
-
-저장 파일명은 `차량번호_량번호_포인트ID,YYYYMMDDHHMMSS.png` 이고, 같은 이름의
-`.json` 에 메타데이터가 함께 저장된다. 성공 응답의 `res.p.ok: true`와
-`res.p.file`이 실제 저장 파일명을 알려준다. `capture/preview`에는 저장된
-PNG 바이트와 메타데이터가 온다.
-
-**이동 중에는 `E_MODE` 로 거절된다.** 과업지시서 2.2.4 가 정지 상태 촬영을
-요구하므로, 클라이언트가 버튼을 잠그는 것과 별개로 규칙 자체는 로봇이 지킨다.
-오도메트리가 끊겨 속도를 모르면 움직이는 것으로 본다.
-
-카메라 프레임이 없으면 `E_UNREACHABLE`, NAS 마운트가 없으면 `E_HARDWARE`다.
-
-촬영 직후 `capture/preview` 와 `state/capture_spool` 이 발행된다.
+로봇에 저장된 값은 `state/navigation_speed`로 확인한다.
+`autonomous_applied:true`는 Nav2에 해당 제한이 적용된 상태다.
 
 ---
 
 ## 지도
 
-### `cmd/maps/list` — 목록 요청
+| 채널 | p | 확인 채널 |
+| --- | --- | --- |
+| `cmd/maps/list` | `{}` | `state/maps` |
+| `cmd/maps/select` | `{"id":"inspection_map"}` | `state/active_map`·`map/occupancy` |
+| `cmd/maps/rename` | `{"id":"old_map","name":"new_map"}` | `state/maps`·`state/active_map` |
+| `cmd/maps/delete` | `{"id":"old_map"}` | `state/maps` |
+| `cmd/maps/set_default` | `{"id":"inspection_map"}` | `state/maps` |
 
-페이로드 없음. 응답 뒤 `state/maps` 가 발행된다.
+지도 ID는 로봇의 지도 폴더명이다. 이름 변경은 폴더와 관련 참조를 갱신한다.
+기본 지도 해제는 `{"id":""}`로 요청한다.
+실행 중인 주행·미션과 현재·기본·기동 지도 조건에 따라 변경·삭제가 제한된다.
 
-### `cmd/maps/select` — 지도 전환
+지도 전환 시 활성 지도와 새 목록·이미지를 함께 확인한다.
+지도 선택 응답만으로 이전 지도 목록을 새 지도에 저장하지 않는다.
 
-```json
-{"id": "2026-09-07"}
-```
+## 웨이포인트·고정 위치·마커
 
-`state/maps` 의 `id` 를 그대로 쓴다.
-
-거절 사유:
-
-| 코드 | 상황 |
-|---|---|
-| `E_BUSY` | 주행 중이거나 점검이 진행 중 |
-| `E_BAD_PAYLOAD` | 없는 지도이거나 `id` 가 유효하지 않음 |
-
-**주행·점검 중에는 바꿀 수 없다.** 지도를 바꾸면 좌표계가 통째로 달라져
-진행 중인 목표와 점검포인트가 의미를 잃는다.
-
-전환이 끝나면 `state/active_map`, `map/occupancy`, `state/waypoints`,
-`state/locations`, `state/markers` 가 새 지도 기준으로 다시 발행된다.
-
-### `cmd/maps/rename` — 지도 폴더 이름 변경
+목록 교체는 편집 시작 시 지도 ID와 원본 목록을 함께 보낸다.
+빈 배열은 해당 목록 전체 삭제 요청이다.
 
 ```json
-{"id": "inspection_a", "name": "inspection_b"}
+{
+  "map_id":"inspection_map",
+  "expected_points":[{"id":"wp-a","name":"A","x":1.0,"y":2.0,"theta":0.0}],
+  "points":[{"id":"wp-a","name":"점검 A","x":1.0,"y":2.0,"theta":1.57,"description":"차량 왼쪽"}]
+}
 ```
 
-`id`는 현재 폴더 이름이고 `name`은 새 폴더 이름이다. 로봇은 폴더와 지도별
-웨이포인트·미션의 지도 참조를 함께 변경한다. 이후 `state/maps`와
-`state/active_map`은 새 폴더명을 `id`와 `name`으로 보낸다.
+| 채널 | 변경 목록 | 원본 목록 |
+| --- | --- | --- |
+| `cmd/waypoints/set` | `points`: object[] | `expected_points`: object[] |
+| `cmd/locations/set` | `locations`: object[] | `expected_locations`: object[] |
+| `cmd/markers/set` | `markers`: object[] | `expected_markers`: object[] |
 
-주행·점검 중에는 바꿀 수 없다. `name`은 UTF-8 1~120바이트이며 경로 구분자,
-제어 문자, `..`를 포함할 수 없다. 이미 존재하는 폴더 이름도 사용할 수 없다.
+SDK 편의 함수는 세 API 모두 `map_id`와 원본 목록을 요구한다.
+웨이포인트 상태의 `status`는 전송용 진행 표시다. SDK는 저장 목록과 원본 비교에서 이 필드를 제거한다.
+다른 필드·설명은 원본에 포함한 채 비교한다.
 
-### `cmd/maps/set_default` — 다음 기동의 기본 지도
+| 항목 | 필드 |
+| --- | --- |
+| Waypoint | `id:string`, `name:string`, `x/y/theta:float64`, `description:string` |
+| Location | `kind:string` (`home`·`dock`), `x/y/theta:float64` |
+| Marker | `id:int` (0–100000), `x/y/z/yaw:float64`, `description:string` |
 
-```json
-{"id": "inspection_a"}
-```
-
-로봇의 `maps_dir/default_map.json`을 갱신한다. `id`를 빈 문자열로 보내면 기본
-지도를 해제해 다음 기동에 SLAM으로 시작한다. 현재 실행 중인 지도는 바꾸지 않는다.
+Waypoint ID와 Marker ID는 목록 안에서 고유하다. Location kind도 고유하다.
+Marker의 `z`는 태그 중심 높이(m), `yaw`는 지도 +X에서 앞면 바깥쪽 법선까지의 각도(rad, −π…π)다.
+구형 X/Y 마커도 읽으며, 3D 마커는 z와 yaw를 함께 등록한다.
+미션이 참조하는 웨이포인트·팔 자세의 삭제는 로봇에서 검사한다.
 
 ---
 
-## 설정 — 전체 교체
+## 미션 정의·실행
 
-세 채널 모두 **목록 전체를 대체한다.** 부분 갱신이 아니다.
+| 채널 | p |
+| --- | --- |
+| `cmd/missions/list` | `{}` |
+| `cmd/missions/save` | `{"mission":{...},"expected_revision":0}` |
+| `cmd/missions/archive` | `{"id":"inspection-001","map_id":"inspection_map","expected_revision":1}` |
+| `cmd/mission/start` | `{"mission_id":"inspection-001"}` |
+| `cmd/mission/pause`·`resume`·`stop`·`return_dock` | `{}` |
 
-### `cmd/waypoints/set`
-
-```json
-{"points": [{"id": "P03", "x": 2.1, "y": 0.4, "theta": 1.57}]}
-```
-
-### `cmd/locations/set`
-
-```json
-{"locations": [{"kind": "dock", "x": 0.0, "y": 0.0, "theta": 0.0}]}
-```
-
-`kind` 는 `"dock"` 또는 `"home"`.
-
-### `cmd/markers/set`
+새 미션은 expected_revision 0, 수정은 편집 시작 시 받은 revision을 사용한다.
+저장 정의는 아래 형식이며, map_id는 전송 대상 지도를 명시한다.
 
 ```json
-{"markers": [{"id": 7, "x": 3.2, "y": 1.1, "theta": 0.0}]}
+{
+  "id":"inspection-001","name":"차량 점검","map_id":"inspection_map","description":"왼쪽 하부",
+  "steps":[
+    {"id":"move","type":"navigate","location_id":"wp-a"},
+    {"id":"photo","type":"capture","preset":"underbody_left"},
+    {"id":"arm","type":"arm_move","pose":"inspection_a"},
+    {"id":"return","type":"dock"}
+  ]
+}
 ```
 
-성공하면 로봇이 해당 `state/*` 채널을 즉시 재발행한다. 클라이언트는 그것을
-받아 화면을 맞춘다.
+| Step type | 참조 |
+| --- | --- |
+| `navigate` | `location_id:string` — 현재 지도 웨이포인트 ID |
+| `capture` | `preset:string` — 촬영 프리셋 ID |
+| `arm_move` | `pose:string` — 로봇팔 자세 ID |
+| `dock` | 등록된 충전 위치 |
+
+미션과 단계 ID는 ASCII 영문·숫자·`-`·`_`, 1–96자다.
+단계 ID는 미션 안에서 고유하며 배열 순서대로 실행한다.
+정의 저장·조회와 단계 실행 지원은 구분한다. capture·arm_move 실행 가능 여부는
+로봇의 mission_manager와 장치 구성에 따른다.
+
+보관은 `archived:true`로 변경한다. 조회 목록은 `state/missions`,
+실행 현황은 `state/mission`이다. `return_dock`는 미션 진행을 보존하며 충전소 복귀를 요청한다.
+
+## 로봇팔
+
+| 채널 | p |
+| --- | --- |
+| `cmd/arm/pose_presets/list` | `{}` |
+| `cmd/arm/pose_presets/save` | `{"preset":{...}}` |
+| `cmd/arm/pose_presets/update` | `{"preset":{...},"expected_revision":1}` |
+| `cmd/arm/pose_presets/archive` | `{"id":"inspection_a","expected_revision":2}` |
+| `cmd/arm/preset` | `{"name":"inspection_a"}` |
+| `cmd/arm/joint_goal` | `{"positions":[0.0,-0.4,0.5,-1.2,0.0,0.4]}` |
+| `cmd/arm/stop` | `{}` |
+
+```json
+{"id":"inspection_a","name":"점검 A","description":"왼쪽 촬영",
+ "positions":[0.0,-0.4,0.5,-1.2,0.0,0.4]}
+```
+
+관절값은 j1–j6 순서의 rad 6개다. 자세는 지도와 독립적으로 로봇에 저장된다.
+저장·수정 결과는 `state/arm_pose_presets`로 확인한다.
+실제 실행은 기능 활성 여부·유효한 피드백·정지·권한·안전 조건을 로봇에서 검사한다.
+끝단 목표 `cmd/arm/ee_goal`는 MoveIt2 미연동으로 `E_UNREACHABLE`을 반환한다.
+
+## 촬영·배터리
+
+```json
+{"vehicle_number":"GTXA-042","train_number":"1234","car_number":"05","point_id":"P1","tag_id":7}
+```
+
+`cmd/capture/trigger`는 차량·편성·량·포인트 식별자를 사용한다.
+tag_id는 필요할 때 추가한다. 성공 응답의 `p.file`은 저장 파일명이다.
+미리보기는 `capture/preview`의 PNG payload, 저장소 상태는 `state/capture_spool`로 확인한다.
+촬영은 활성 기능·정지·유효한 영상·저장소 조건을 검사한다.
+
+```json
+{"return_at":25,"depart_at":80}
+```
+
+`cmd/power/policy`의 배터리 기준(%)이다. SDK는 `0 ≤ return_at < depart_at ≤ 100`을 검사한다.
+현재 브리지에서는 실행 중 메모리에 적용하며 재기동 후 다시 설정한다.

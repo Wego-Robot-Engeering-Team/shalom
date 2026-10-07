@@ -11,6 +11,7 @@
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QStringList>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <cmath>
@@ -88,6 +89,10 @@ NavigationSpeedPanel::NavigationSpeedPanel(QWidget *parent, bool editRanges)
             value->setDecimals(2);
             value->setSingleStep(0.05);
             value->setKeyboardTracking(false);
+            value->setAccessibleName(label + QStringLiteral(" 제한"));
+            slider->setAccessibleName(label + QStringLiteral(" 제한"));
+            value->setMinimumWidth(106);
+            value->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
             row->addWidget(new QLabel(label));
             row->addWidget(slider, 1);
             value->setSuffix(unit);
@@ -110,8 +115,16 @@ NavigationSpeedPanel::NavigationSpeedPanel(QWidget *parent, bool editRanges)
     auto *footer = new QHBoxLayout;
     reported_ = new QLabel;
     reported_->setObjectName(prefix + QStringLiteral("Reported"));
+    reported_->setTextFormat(Qt::PlainText);
     reported_->setWordWrap(true);
     footer->addWidget(reported_, 1);
+    revert_ = new QPushButton(QStringLiteral("되돌리기"));
+    revert_->setObjectName(prefix + QStringLiteral("Revert"));
+    revert_->setProperty("variant", "ghost");
+    revert_->setProperty("size", "sm");
+    revert_->setToolTip(QStringLiteral("로봇에서 받은 값으로 복원"));
+    footer->addWidget(revert_);
+    connect(revert_, &QPushButton::clicked, this, &NavigationSpeedPanel::discardDraft);
     apply_ = new QPushButton(QStringLiteral("적용"));
     apply_->setObjectName(prefix + QStringLiteral("Apply"));
     apply_->setProperty("variant", "primary");
@@ -123,12 +136,30 @@ NavigationSpeedPanel::NavigationSpeedPanel(QWidget *parent, bool editRanges)
     card->body()->addLayout(footer);
     error_ = new QLabel;
     error_->setObjectName(prefix + QStringLiteral("Error"));
+    error_->setTextFormat(Qt::PlainText);
     error_->setWordWrap(true);
     error_->setProperty("tone", "danger");
     card->body()->addWidget(error_);
 
+    confirmationTimeout_ = new QTimer(this);
+    confirmationTimeout_->setObjectName(prefix + QStringLiteral("ConfirmationTimeout"));
+    confirmationTimeout_->setSingleShot(true);
+    confirmationTimeout_->setInterval(7000);
+    connect(confirmationTimeout_, &QTimer::timeout, this, [this] {
+        pending_ = pendingAccepted_ = pendingReported_ = false;
+        error_->setText(QStringLiteral("적용 결과 수신 시간 초과"));
+        error_->show();
+        refresh();
+    });
     connect(apply_, &QPushButton::clicked, this, [this] {
+        if (!apply_->isEnabled()) return;
         pending_ = true;
+        pendingAccepted_ = pendingReported_ = false;
+        submitted_ = editRanges_
+            ? std::array<double, 4>{minimum_->value(), maximum_->value(),
+                                    angularMinimum_->value(), angularMaximum_->value()}
+            : std::array<double, 4>{value_->value(), angularValue_->value(), 0.0, 0.0};
+        confirmationTimeout_->start();
         error_->hide();
         refresh();
         if (editRanges_)
@@ -143,6 +174,8 @@ NavigationSpeedPanel::NavigationSpeedPanel(QWidget *parent, bool editRanges)
 void NavigationSpeedPanel::reset()
 {
     known_ = dirty_ = pending_ = false;
+    pendingAccepted_ = pendingReported_ = autonomousApplied_ = false;
+    confirmationTimeout_->stop();
     limit_ = 0.0;
     angularLimit_ = 0.0;
     reportedMinimum_ = 0.10;
@@ -188,6 +221,7 @@ void NavigationSpeedPanel::setReportedLimits(double limit, double minimum, doubl
     const bool replaceDraft = !known_ || (!dirty_ && !pending_);
     limit_ = limit;
     angularLimit_ = angular;
+    autonomousApplied_ = autonomousApplied;
     reportedMinimum_ = minimum;
     reportedMaximum_ = maximum;
     reportedAngularMinimum_ = angularMinimum;
@@ -218,10 +252,14 @@ void NavigationSpeedPanel::setReportedLimits(double limit, double minimum, doubl
         angularMaximum_->setValue(angularMaximum);
     }
     updateDirty();
-    if (!editRanges_)
-        reported_->setText(QStringLiteral("설정값 %1 m/s · %2 rad/s%3")
-            .arg(limit, 0, 'f', 2).arg(angular, 0, 'f', 2)
-            .arg(autonomousApplied ? QString{} : QStringLiteral(" · 자율주행 적용 대기")));
+    if (pending_) {
+        const auto matches = [](double a, double b) { return std::abs(a - b) <= 0.0001; };
+        pendingReported_ = editRanges_
+            ? matches(minimum, submitted_[0]) && matches(maximum, submitted_[1]) &&
+              matches(angularMinimum, submitted_[2]) && matches(angularMaximum, submitted_[3])
+            : matches(limit, submitted_[0]) && matches(angular, submitted_[1]);
+        settlePending();
+    }
     refresh();
 }
 
@@ -232,12 +270,24 @@ void NavigationSpeedPanel::handleCommandResult(const QString &channel, bool ok,
                                       : hmi::ch::kCmdNavigationSpeedLimit;
     if (channel != QLatin1String(expected) || !pending_)
         return;
-    pending_ = false;
     if (!ok) {
+        pending_ = pendingAccepted_ = pendingReported_ = false;
+        confirmationTimeout_->stop();
         error_->setText(message.isEmpty() ? QStringLiteral("속도 설정 실패") : message);
         error_->show();
+    } else {
+        pendingAccepted_ = true;
+        settlePending();
     }
     refresh();
+}
+
+void NavigationSpeedPanel::settlePending()
+{
+    if (pending_ && pendingAccepted_ && pendingReported_) {
+        pending_ = pendingAccepted_ = pendingReported_ = false;
+        confirmationTimeout_->stop();
+    }
 }
 
 void NavigationSpeedPanel::refresh()
@@ -264,13 +314,23 @@ void NavigationSpeedPanel::refresh()
         adjustment_->setText(QStringLiteral("적용 시 %1로 조정됩니다.").arg(changes.join(QStringLiteral(" · "))));
         adjustment_->setVisible(!changes.isEmpty());
         reported_->setText(!known_ ? QStringLiteral("로봇 연결 대기") :
-            pending_ ? QStringLiteral("저장 중…") : dirty_ ? QStringLiteral("수정 중") : QStringLiteral("저장됨"));
+            pending_ ? pendingAccepted_ ? QStringLiteral("적용 확인 중…") : QStringLiteral("저장 중…")
+                     : dirty_ ? QStringLiteral("수정 중") : QStringLiteral("저장됨"));
     } else {
         slider_->setEnabled(known_ && !pending_);
         value_->setEnabled(known_ && !pending_);
         angularSlider_->setEnabled(known_ && !pending_);
         angularValue_->setEnabled(known_ && !pending_);
+        reported_->setText(!known_ ? QStringLiteral("로봇 연결 대기") :
+            pending_ ? pendingAccepted_ ? QStringLiteral("적용 확인 중…") : QStringLiteral("적용 중…")
+                     : dirty_ ? QStringLiteral("수정 중 · 적용 전")
+                     : autonomousApplied_ ? QStringLiteral("적용됨") : QStringLiteral("자율주행 적용 대기"));
+        reported_->setToolTip(known_ ? QStringLiteral("현재 %1 m/s · %2 rad/s")
+            .arg(limit_, 0, 'f', 2).arg(angularLimit_, 0, 'f', 2) : QString{});
     }
+    apply_->setText(pending_ ? QStringLiteral("적용 중…") : QStringLiteral("적용"));
+    revert_->setVisible(dirty_);
+    revert_->setEnabled(known_ && dirty_ && !pending_);
     apply_->setEnabled(known_ && dirty_ && valid && !pending_);
 }
 

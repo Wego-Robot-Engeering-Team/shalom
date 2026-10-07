@@ -1,37 +1,49 @@
 # Copyright (c) 2026 WeGo Robotics. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
-"""Synchronous customer API for the robot TCP bridge."""
+"""Single-threaded TCP client with bounded requests and explicit polling."""
 
 from __future__ import annotations
 
+import copy
 import json
+import math
 import select
 import socket
 import time
 from typing import Any, Callable, Mapping, Optional
 
-from .errors import (ClientError, ConnectionClosed, ProtocolError, RequestTimeout,
-                     RobotMismatchError)
+from .errors import ClientError, ConnectionClosed, ProtocolError, RequestTimeout, RobotMismatchError
 from .framing import FrameDecoder, FramingError, encode_frame
 from .types import Message, Response
 
 PROTOCOL_VERSION = 1
 HEARTBEAT_PERIOD_S = 0.2
-
-
+MAX_PENDING_REQUESTS = 128
 MessageHandler = Callable[[Message], None]
 
 
-class Client:
-    """Single-threaded Robot protocol client.
+def _duration(value: float, name: str, allow_zero: bool = False) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError(f"{name} must be finite")
+    if value < 0 or (not allow_zero and value == 0):
+        raise ValueError(f"{name} must be {'non-negative' if allow_zero else 'positive'}")
+    return float(value)
 
-    Call :meth:`poll` regularly or use :meth:`run`; either keeps the mandatory
-    5 Hz heartbeat alive. The class does not start a hidden thread, so socket
-    lifetime and callbacks stay in the application's own event thread.
+
+def _channel(value: str) -> None:
+    if not isinstance(value, str) or not value or len(value) > 256 or any(ord(c) < 32 for c in value):
+        raise ValueError("channel must be a non-empty string without control characters")
+
+
+class Client:
+    """Call poll/run every 200 ms. Use this client from one thread.
+
+    request() maintains heartbeats while waiting. Timed-out commands are never
+    retried: they may already have been executed by the robot.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, on_message: Optional[MessageHandler] = None) -> None:
         self._socket: Optional[socket.socket] = None
         self._decoder = FrameDecoder()
         self._next_heartbeat = 0.0
@@ -39,6 +51,16 @@ class Client:
         self._request_sequence = 0
         self._robot_id: Optional[str] = None
         self._responses: dict[str, Message] = {}
+        self._pending: dict[str, tuple[str, float]] = {}
+        self._latest: dict[str, Message] = {}
+        self._on_message = on_message
+        self._request_active = False
+
+    def __enter__(self) -> Client:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
 
     @property
     def connected(self) -> bool:
@@ -46,99 +68,152 @@ class Client:
 
     @property
     def robot_id(self) -> Optional[str]:
-        """Robot identifier pinned from the first received frame."""
         return self._robot_id
 
+    def latest(self, channel: str) -> Optional[Message]:
+        """Copy of the last received state publication for this connection."""
+        return copy.deepcopy(self._latest.get(channel))
+
     def connect(self, host: str, port: int = 9090, timeout_s: float = 5.0) -> None:
+        timeout_s = _duration(timeout_s, "timeout_s")
+        if not isinstance(host, str) or not host.strip():
+            raise ValueError("host must not be empty")
+        if type(port) is not int or not 1 <= port <= 65535:
+            raise ValueError("port must be an integer from 1 to 65535")
         self.close()
+        sock = None
         try:
             sock = socket.create_connection((host, port), timeout=timeout_s)
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            sock.settimeout(min(0.5, timeout_s))
         except OSError as exc:
+            if sock is not None:
+                sock.close()
             raise ClientError(f"cannot connect to {host}:{port}: {exc}") from exc
         self._socket = sock
-        self._decoder.reset()
-        self._responses.clear()
-        self._robot_id = None
-        self._heartbeat_sequence = 0
-        self._request_sequence = 0
         self._next_heartbeat = time.monotonic()
+        self._send_heartbeat_if_due()
 
     def close(self) -> None:
-        if self._socket is not None:
+        sock, self._socket = self._socket, None
+        if sock is not None:
             try:
-                self._socket.shutdown(socket.SHUT_RDWR)
+                sock.shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass
-            self._socket.close()
-        self._socket = None
+            sock.close()
         self._decoder.reset()
+        self._responses.clear()
+        self._pending.clear()
+        self._latest.clear()
+        self._robot_id = None
+        self._heartbeat_sequence = 0
+        # Request IDs are not reused across reconnects.
 
     def poll(self, timeout_s: float = HEARTBEAT_PERIOD_S) -> list[Message]:
-        """Receive available messages while maintaining heartbeats.
-
-        ``timeout_s`` is a maximum wait. It may return earlier after a heartbeat
-        deadline so callers can safely use a much larger UI/event-loop timeout.
-        """
+        """Read a batch; poll(0) performs a non-blocking receive attempt."""
+        timeout_s = _duration(timeout_s, "timeout_s", allow_zero=True)
         sock = self._require_socket()
-        deadline = time.monotonic() + max(0.0, timeout_s)
-        while True:
-            self._send_heartbeat_if_due()
-            now = time.monotonic()
-            if now >= deadline:
-                return []
-            wait_s = min(deadline - now, max(0.0, self._next_heartbeat - now))
-            try:
-                readable, _, _ = select.select([sock], [], [], wait_s)
-            except OSError as exc:
-                raise ClientError(f"socket wait failed: {exc}") from exc
+        self._expire_requests()
+        self._send_heartbeat_if_due()
+        wait_s = min(timeout_s, max(0.0, self._next_heartbeat - time.monotonic()))
+        try:
+            readable, _, _ = select.select([sock], [], [], wait_s)
             if not readable:
-                continue
-            try:
-                chunk = sock.recv(16 * 1024)
-            except OSError as exc:
-                raise ClientError(f"socket receive failed: {exc}") from exc
-            if not chunk:
-                self.close()
-                raise ConnectionClosed("robot closed the TCP connection")
-            return self._decode(chunk)
+                self._send_heartbeat_if_due()
+                return []
+            chunk = sock.recv(16 * 1024)
+        except (OSError, ValueError) as exc:
+            self.close()
+            raise ClientError(f"socket receive failed: {exc}") from exc
+        if not chunk:
+            self.close()
+            raise ConnectionClosed("robot closed the TCP connection")
+        return self._decode(chunk)
 
-    def run(self, on_message: MessageHandler) -> None:
-        """Run until the peer closes, forwarding every decoded message."""
-        while True:
+    def run(self, on_message: Optional[MessageHandler] = None) -> None:
+        handler = on_message or self._on_message
+        if handler is None:
+            raise ValueError("run requires a message handler")
+        while self.connected:
             for message in self.poll():
-                on_message(message)
+                handler(message)
+                if not self.connected:
+                    return
 
-    def send_request(self, channel: str, payload: Optional[Mapping[str, Any]] = None) -> str:
-        """Send a ``req`` and return its correlation id without waiting."""
-        if not channel:
-            raise ValueError("channel must not be empty")
+    def send_request(self, channel: str, payload: Optional[Mapping[str, Any]] = None,
+                     timeout_s: float = 3.0) -> str:
+        """Return a send ID. Consume the reply with take_response() after poll()."""
+        _channel(channel)
+        timeout_s = _duration(timeout_s, "timeout_s")
+        self._require_socket()
+        self._expire_requests()
+        if len(self._pending) >= MAX_PENDING_REQUESTS:
+            raise ClientError("too many pending requests; consume or forget pending replies")
+        if payload is not None and not isinstance(payload, Mapping):
+            raise ValueError("request payload must be an object")
         self._request_sequence += 1
         request_id = f"c{self._request_sequence}"
+        self._send_heartbeat_if_due()
         self._send_envelope({"v": PROTOCOL_VERSION, "t": "req", "ch": channel,
-                             "id": request_id, "ts": time.time(), "p": payload or {}})
+                             "id": request_id, "ts": time.time(), "p": dict(payload or {})})
+        self._pending[request_id] = (channel, time.monotonic() + timeout_s)
         return request_id
+
+    def take_response(self, request_id: str) -> Optional[Response]:
+        message = self._responses.pop(request_id, None)
+        if message is None:
+            return None
+        self._pending.pop(request_id, None)
+        return self._as_response(request_id, message)
+
+    def forget_request(self, request_id: str) -> None:
+        """Drop local bookkeeping; this does not cancel robot execution."""
+        self._pending.pop(request_id, None)
+        self._responses.pop(request_id, None)
 
     def request(self, channel: str, payload: Optional[Mapping[str, Any]] = None,
                 timeout_s: float = 3.0, on_message: Optional[MessageHandler] = None) -> Response:
-        """Send a request and wait for its matching ``res`` frame."""
-        request_id = self.send_request(channel, payload)
-        deadline = time.monotonic() + timeout_s
-        while time.monotonic() < deadline:
-            response = self._responses.pop(request_id, None)
-            if response is not None:
-                return self._as_response(request_id, response)
-            for message in self.poll(min(HEARTBEAT_PERIOD_S, deadline - time.monotonic())):
-                if message.envelope.get("id") != request_id and on_message is not None:
-                    on_message(message)
-        raise RequestTimeout(f"no response for {channel} ({request_id})")
+        if self._request_active:
+            raise ClientError("nested request() is unsupported; use send_request() in callbacks")
+        timeout_s = _duration(timeout_s, "timeout_s")
+        self._request_active = True
+        request_id = None
+        try:
+            request_id = self.send_request(channel, payload, timeout_s)
+            deadline = time.monotonic() + timeout_s
+            handler = on_message or self._on_message
+            while True:
+                reply = self.take_response(request_id)
+                if reply is not None:
+                    return reply
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RequestTimeout(f"no response for {channel} ({request_id}); execution is unknown")
+                for message in self.poll(min(HEARTBEAT_PERIOD_S, remaining)):
+                    if not (message.type == "res" and message.envelope.get("id") == request_id):
+                        if handler is not None:
+                            handler(message)
+        finally:
+            if request_id is not None:
+                self.forget_request(request_id)
+            self._request_active = False
 
     def publish(self, channel: str, payload: Mapping[str, Any]) -> None:
-        """Publish one protocol sample; `cmd/cmd_vel` is the only public command use."""
-        if not channel:
-            raise ValueError("channel must not be empty")
+        _channel(channel)
+        if channel == "cmd/cmd_vel":
+            raise ValueError("TCP cmd/cmd_vel is disabled; manual control uses UDP teleop")
+        if not isinstance(payload, Mapping):
+            raise ValueError("publish payload must be an object")
+        self._send_heartbeat_if_due()
         self._send_envelope({"v": PROTOCOL_VERSION, "t": "pub", "ch": channel,
                              "ts": time.time(), "p": dict(payload)})
+
+    def _expire_requests(self) -> None:
+        now = time.monotonic()
+        for request_id, (_, deadline) in list(self._pending.items()):
+            if deadline < now:
+                self.forget_request(request_id)
 
     def _send_heartbeat_if_due(self) -> None:
         if time.monotonic() < self._next_heartbeat:
@@ -152,8 +227,9 @@ class Client:
         outgoing = dict(envelope)
         if self._robot_id:
             outgoing["robot"] = self._robot_id
+        frame = encode_frame(outgoing)
         try:
-            self._require_socket().sendall(encode_frame(outgoing))
+            self._require_socket().sendall(frame)
         except OSError as exc:
             self.close()
             raise ClientError(f"socket send failed: {exc}") from exc
@@ -161,50 +237,64 @@ class Client:
     def _decode(self, chunk: bytes) -> list[Message]:
         try:
             frames = self._decoder.feed(chunk)
-        except FramingError as exc:
-            self.close()
-            raise ProtocolError(str(exc)) from exc
-        messages: list[Message] = []
-        for frame in frames:
-            try:
-                envelope = json.loads(frame.header.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                self.close()
-                raise ProtocolError("invalid JSON envelope") from exc
-            if not isinstance(envelope, dict) or envelope.get("v") != PROTOCOL_VERSION:
-                self.close()
-                raise ProtocolError("unsupported or malformed protocol envelope")
-            if not isinstance(envelope.get("t"), str):
-                self.close()
-                raise ProtocolError("envelope is missing message type")
-            robot = envelope.get("robot")
-            if robot is not None and not isinstance(robot, str):
-                self.close()
-                raise ProtocolError("robot identifier must be a string")
-            if robot:
-                if self._robot_id is None:
+            messages = []
+            for frame in frames:
+                def invalid_constant(value: str) -> None:
+                    raise ValueError(f"non-finite JSON constant: {value}")
+                envelope = json.loads(frame.header.decode("utf-8"), parse_constant=invalid_constant)
+                if not isinstance(envelope, dict) or type(envelope.get("v")) is not int or envelope["v"] != 1:
+                    raise ProtocolError("unsupported or malformed protocol version")
+                kind = envelope.get("t")
+                if kind not in ("hb", "pub", "evt", "res"):
+                    raise ProtocolError("unsupported server message type")
+                if not isinstance(envelope.get("p"), dict):
+                    raise ProtocolError("payload must be an object")
+                timestamp = envelope.get("ts")
+                if isinstance(timestamp, bool) or not isinstance(timestamp, (int, float)) or not math.isfinite(timestamp):
+                    raise ProtocolError("timestamp must be finite")
+                if kind != "hb":
+                    _channel(envelope.get("ch"))
+                robot = envelope.get("robot")
+                if robot is not None and (not isinstance(robot, str) or not robot):
+                    raise ProtocolError("robot identifier must be a non-empty string")
+                if robot:
+                    if self._robot_id is not None and self._robot_id != robot:
+                        raise RobotMismatchError(f"robot changed from {self._robot_id} to {robot}")
                     self._robot_id = robot
-                elif self._robot_id != robot:
-                    self.close()
-                    raise RobotMismatchError(f"robot changed from {self._robot_id} to {robot}")
-            message = Message(envelope, frame.payload)
-            if message.type == "res" and isinstance(envelope.get("id"), str):
-                self._responses[envelope["id"]] = message
-            messages.append(message)
-        return messages
+                message = Message(envelope, frame.payload)
+                if kind == "res":
+                    request_id = envelope.get("id")
+                    if not isinstance(request_id, str) or not request_id:
+                        raise ProtocolError("response requires a request id")
+                    self._as_response(request_id, message)
+                    pending = self._pending.get(request_id)
+                    if pending is not None:
+                        if pending[0] != message.channel:
+                            raise ProtocolError("response channel does not match request")
+                        if pending[1] >= time.monotonic() and request_id not in self._responses:
+                            self._responses[request_id] = copy.deepcopy(message)
+                elif kind == "pub":
+                    if message.channel.startswith("state/") and (message.channel in self._latest or len(self._latest) < 128):
+                        self._latest[message.channel] = copy.deepcopy(message)
+                messages.append(message)
+            return messages
+        except (FramingError, ValueError, UnicodeDecodeError, ProtocolError, RecursionError) as exc:
+            self.close()
+            if isinstance(exc, ProtocolError):
+                raise
+            raise ProtocolError(str(exc)) from exc
 
     @staticmethod
     def _as_response(request_id: str, message: Message) -> Response:
-        payload = message.envelope.get("p", {})
-        if not isinstance(payload, Mapping):
-            raise ProtocolError("response payload must be an object")
+        payload = message.envelope["p"]
+        if type(payload.get("ok")) is not bool:
+            raise ProtocolError("response ok must be bool")
         error = payload.get("err")
-        if error is not None and not isinstance(error, Mapping):
-            raise ProtocolError("response error must be an object")
-        return Response(request_id=request_id, ok=payload.get("ok") is True,
-                        error_code=str(error.get("code")) if error and error.get("code") else None,
-                        error_message=str(error.get("msg")) if error and error.get("msg") else None,
-                        message=message)
+        if error is not None and (not isinstance(error, dict) or not isinstance(error.get("code"), str)
+                                  or not isinstance(error.get("msg"), str)):
+            raise ProtocolError("response error requires string code and msg")
+        return Response(request_id, payload["ok"], error.get("code") if error else None,
+                        error.get("msg") if error else None, message)
 
     def _require_socket(self) -> socket.socket:
         if self._socket is None:

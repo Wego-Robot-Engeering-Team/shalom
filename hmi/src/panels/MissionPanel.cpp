@@ -5,6 +5,7 @@
 
 #include <QLabel>
 #include <QMessageBox>
+#include <QPointer>
 #include <QProgressBar>
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -30,12 +31,16 @@ MissionPanel::MissionPanel(QWidget *parent) : QWidget(parent)
     outer->addWidget(card_);
     reason_ = new QLabel;
     reason_->setObjectName(QStringLiteral("MissionReason"));
+    reason_->setTextFormat(Qt::PlainText);
+    reason_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     reason_->setWordWrap(true);
     card_->body()->addWidget(reason_);
 
     card_->body()->addWidget(sectionLabel(QStringLiteral("현재 미션")));
     missionNameLabel_ = new QLabel(QStringLiteral("실행 중인 미션 없음"));
     missionNameLabel_->setObjectName(QStringLiteral("CurrentMissionName"));
+    missionNameLabel_->setTextFormat(Qt::PlainText);
+    missionNameLabel_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     missionNameLabel_->setWordWrap(true);
     card_->body()->addWidget(missionNameLabel_);
 
@@ -54,6 +59,9 @@ MissionPanel::MissionPanel(QWidget *parent) : QWidget(parent)
     // 전체 단계 목록은 아래 미션 편집기에 있다. 여기서는 지금과 다음만 말한다.
     card_->body()->addWidget(sectionLabel(QStringLiteral("현재 작업")));
     current_ = new QLabel(QStringLiteral("—"));
+    current_->setObjectName(QStringLiteral("MissionCurrentStep"));
+    current_->setTextFormat(Qt::PlainText);
+    current_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     current_->setWordWrap(true);
     card_->body()->addWidget(current_);
 
@@ -61,6 +69,8 @@ MissionPanel::MissionPanel(QWidget *parent) : QWidget(parent)
     card_->body()->addWidget(sectionLabel(QStringLiteral("다음 작업")));
     next_ = new QLabel(QStringLiteral("—"));
     next_->setObjectName(QStringLiteral("Hint"));
+    next_->setTextFormat(Qt::PlainText);
+    next_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     next_->setWordWrap(true);
     card_->body()->addWidget(next_);
 
@@ -68,6 +78,8 @@ MissionPanel::MissionPanel(QWidget *parent) : QWidget(parent)
     card_->body()->addWidget(sectionLabel(QStringLiteral("다음 미션")));
     nextMission_ = new QLabel(QStringLiteral("예약된 미션 없음"));
     nextMission_->setObjectName(QStringLiteral("NextMissionName"));
+    nextMission_->setTextFormat(Qt::PlainText);
+    nextMission_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     nextMission_->setWordWrap(true);
     card_->body()->addWidget(nextMission_);
 
@@ -100,6 +112,7 @@ MissionPanel::MissionPanel(QWidget *parent) : QWidget(parent)
     stop_ = new QPushButton(QStringLiteral("미션 취소"));
     stop_->setObjectName(QStringLiteral("MissionCancelButton"));
     dock_ = new QPushButton(QStringLiteral("충전소 복귀"));
+    dock_->setObjectName(QStringLiteral("MissionDockButton"));
     for (auto *b : {stop_, dock_}) {
         b->setProperty("size", "sm");
         aux->addWidget(b);
@@ -115,8 +128,12 @@ MissionPanel::MissionPanel(QWidget *parent) : QWidget(parent)
 }
 
 void MissionPanel::setProgress(const QString &missionName, int index, int total,
-                               const QStringList &stepLabels)
+                               const QStringList &stepLabels, const QString &missionId)
 {
+    if (missionId_ != missionId || missionName_ != missionName || total_ != total ||
+        stepLabels_ != stepLabels || index < index_)
+        ++missionGeneration_;
+    missionId_ = missionId;
     missionName_ = missionName;
     index_ = index;
     total_ = total;
@@ -126,8 +143,10 @@ void MissionPanel::setProgress(const QString &missionName, int index, int total,
 
 void MissionPanel::setMissionState(const QString &state)
 {
-    if (missionState_ != state)
+    if (missionState_ != state) {
+        ++missionGeneration_;
         commandPending_ = false;
+    }
     missionState_ = state;
     refresh();
 }
@@ -209,7 +228,8 @@ void MissionPanel::refresh()
     const QString detail = retry
         ? QStringLiteral("시작 요청 취소 · %1").arg(detail_.isEmpty()
             ? QStringLiteral("안전 상태를 확인한 뒤 다시 시작하십시오.") : detail_)
-        : failed || reasonCode_.startsWith(QLatin1String("E_")) ? detail_ : QString();
+        : blocked || failed || reasonCode_.startsWith(QLatin1String("E_"))
+            ? (detail_.isEmpty() ? reasonCode_ : detail_) : QString();
     reason_->setText(!controlReason_.isEmpty() && active ? controlReason_ : detail);
     reason_->setToolTip(detail_);
     reason_->setVisible(!reason_->text().isEmpty());
@@ -303,6 +323,10 @@ void MissionPanel::onRunClicked()
 
 void MissionPanel::confirmStop()
 {
+    if (!stop_->isEnabled())
+        return;
+    const QPointer<MissionPanel> panel(this);
+    const quint64 generation = missionGeneration_;
     const int done = std::clamp(index_, 0, std::max(0, total_));
 
     // 버릴 것이 없으면 묻지 않는다. 확인 창이 늘 뜨면 읽지 않고 누르게 된다.
@@ -319,6 +343,8 @@ void MissionPanel::confirmStop()
         if (answer != QMessageBox::Yes)
             return;
     }
+    if (!panel || generation != missionGeneration_ || !stop_->isEnabled())
+        return;
     emit missionStop();
 }
 

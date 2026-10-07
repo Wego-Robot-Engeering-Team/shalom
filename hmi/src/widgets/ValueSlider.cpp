@@ -4,10 +4,13 @@
 #include "widgets/ValueSlider.h"
 
 #include <QLineEdit>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QStringList>
 #include <QWheelEvent>
 #include <QtMath>
+#include <cmath>
 
 #include "theme/Tokens.h"
 
@@ -41,19 +44,22 @@ ValueSlider::ValueSlider(const QString &name, double lo, double hi, const QStrin
     setCommand(lo < 0 && hi > 0 ? 0.0 : (lo + hi) / 2.0);
     setFixedHeight(kRowH);
     setFocusPolicy(Qt::StrongFocus);   // 키보드로는 조작할 수 있게 둔다
+    setAccessibleName(name_);
+    connect(this, &QSlider::valueChanged, this, [this] { updateValueTooltip(); });
+    updateValueTooltip();
 }
 
 void ValueSlider::setActual(double v)
 {
+    if (!std::isfinite(v)) {
+        clearActual();
+        return;
+    }
     if (hasActual_ && qFuzzyCompare(actual_ + 1.0, v + 1.0))
         return;
     actual_ = v;
     hasActual_ = true;
-    setToolTip(QStringLiteral("%1\n지금 %2%4\n보낼 값 %3%4")
-                   .arg(name_)
-                   .arg(actual_ * scale_, 0, 'f', decimals_)
-                   .arg(command() * scale_, 0, 'f', decimals_)
-                   .arg(unit_));
+    updateValueTooltip();
     update();
 }
 
@@ -62,6 +68,7 @@ void ValueSlider::clearActual()
     if (!hasActual_)
         return;
     hasActual_ = false;
+    updateValueTooltip();
     update();
 }
 
@@ -72,8 +79,19 @@ double ValueSlider::command() const
 
 void ValueSlider::setCommand(double v)
 {
+    if (!std::isfinite(v))
+        return;
     const double t = (qBound(lo_, v, hi_) - lo_) / (hi_ - lo_);
     setValue(int(qRound(t * kSteps)));
+}
+
+void ValueSlider::updateValueTooltip()
+{
+    QStringList lines{name_};
+    if (hasActual_)
+        lines << QStringLiteral("현재 %1%2").arg(actual_ * scale_, 0, 'f', decimals_).arg(unit_);
+    lines << QStringLiteral("목표 %1%2").arg(command() * scale_, 0, 'f', decimals_).arg(unit_);
+    setToolTip(lines.join(QLatin1Char('\n')));
 }
 
 bool ValueSlider::diverged() const
@@ -119,6 +137,7 @@ void ValueSlider::beginEdit()
         editor_ = new QLineEdit(this);
         editor_->setAlignment(Qt::AlignRight);
         editor_->setFrame(false);
+        editor_->installEventFilter(this);
         connect(editor_, &QLineEdit::editingFinished, this, &ValueSlider::commitEdit);
     }
     editor_->setGeometry(valueRect());
@@ -136,12 +155,23 @@ void ValueSlider::commitEdit()
     bool ok = false;
     const double typed = editor_->text().trimmed().toDouble(&ok);
     editor_->hide();
-    if (!ok)
+    if (!ok || !std::isfinite(typed))
         return;
 
     // 범위를 벗어난 값은 자른다. 가동 한계를 넘겨 보내면 로봇이 거부하고,
     // 조작자는 왜 안 갔는지 모른다.
     setCommand(typed / scale_);
+}
+
+bool ValueSlider::eventFilter(QObject *object, QEvent *event)
+{
+    if (object == editor_ && event->type() == QEvent::KeyPress &&
+        static_cast<QKeyEvent *>(event)->key() == Qt::Key_Escape) {
+        editor_->hide();
+        setFocus(Qt::OtherFocusReason);
+        return true;
+    }
+    return QSlider::eventFilter(object, event);
 }
 
 void ValueSlider::wheelEvent(QWheelEvent *ev)

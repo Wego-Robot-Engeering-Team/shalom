@@ -231,6 +231,7 @@ QPushButton[variant="ghost"] {
 QPushButton[variant="ghost"]:hover { background: @surfaceHi; color: @text; }
 QPushButton[variant="ghost"]:disabled { color: @textMute; }
 QPushButton[size="sm"] { min-height: @ctlHSm; padding: 0 8px; font-size: @fsSm; }
+QPushButton[compact="true"] { padding: 0; min-height: 0; min-width: 0; }
 
 /* ===================== 입력 ===================== */
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit {

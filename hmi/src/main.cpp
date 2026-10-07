@@ -12,6 +12,7 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QStyleFactory>
+#include <cstring>
 
 #include "Config.h"
 #include "MainWindow.h"
@@ -19,6 +20,7 @@
 #include "theme/Style.h"
 #include "theme/Tokens.h"
 #include "auth/Session.h"
+#include "data/RecordScanWorker.h"
 #include "views/WelcomeDialog.h"
 
 namespace {
@@ -71,6 +73,10 @@ void applyUiFont(QApplication &app)
 
 int main(int argc, char *argv[])
 {
+    if (argc == 3 && std::strcmp(argv[1], "--scan-inspection-records") == 0) {
+        QCoreApplication worker(argc, argv);
+        return hmi::data::runRecordScanWorker(worker.arguments().at(2));
+    }
     QApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("Inspection HMI"));
     app.setOrganizationName(QStringLiteral("WEGO Robotics"));

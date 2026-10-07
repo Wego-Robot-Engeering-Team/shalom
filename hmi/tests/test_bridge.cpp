@@ -159,6 +159,30 @@ private:
 
 private slots:
 
+    void unavailableBatteryDoesNotBecomeMeasuredZero()
+    {
+        connectPair();
+        Telemetry latest;
+        connect(client_, &BridgeClient::telemetry, this, [&](const Telemetry &tm) { latest = tm; });
+        server_->send(pub(hmi::ch::kPose, {{"x", 1.0}, {"y", 2.0}, {"theta", 0.0}}));
+        QVERIFY(waitFor([&] { return latest.poseFresh; }));
+        QVERIFY(std::isnan(latest.soc));
+        server_->send(pub(hmi::ch::kBattery, {{"soc", 63.0}}));
+        QVERIFY(waitFor([&] { return latest.soc == 63.0; }));
+        for (const auto &invalid : {QJsonValue(), QJsonValue(QStringLiteral("0")),
+                                  QJsonValue(-1.0), QJsonValue(101.0), QJsonValue(true)}) {
+            server_->send(pub(hmi::ch::kBattery, {{"soc", invalid}}));
+            QVERIFY(waitFor([&] { return std::isnan(latest.soc); }));
+            server_->send(pub(hmi::ch::kBattery, {{"soc", 63.0}}));
+            QVERIFY(waitFor([&] { return latest.soc == 63.0; }));
+        }
+        QVERIFY(waitFor([&] { return std::isnan(latest.soc); }, 6500));
+        QVERIFY(client_->isConnected());
+        // A reported zero is still a real empty battery.
+        server_->send(pub(hmi::ch::kBattery, {{"soc", 0.0}}));
+        QVERIFY(waitFor([&] { return latest.soc == 0.0; }));
+    }
+
     void generalLinkLossStopsSafetyHeartbeatButKeepsEstopCommands()
     {
         QTcpServer safetyServer;
@@ -320,7 +344,8 @@ private slots:
     void dockReturnWaitsForAutoConfirmationAndManualCancelsDeferredMotion()
     {
         connectPair();
-        server_->send(pub(hmi::ch::kSafety, {{"mode", "manual"}}));
+        server_->send(pub(hmi::ch::kSafety, {{"mode", "manual"}, {"estop", false},
+            {"state", "normal"}, {"state_fresh", true}}));
         QVERIFY(waitFor([&] { return client_->mode() == hmi::robot::DriveMode::Manual; }));
         client_->returnToDock();
         QVERIFY(waitFor([&] { return client_->modeChangePending() && std::any_of(
@@ -332,7 +357,8 @@ private slots:
             QVERIFY(e.ch != QLatin1String(hmi::ch::kCmdMissionReturnDock));
             if (e.ch == QLatin1String(hmi::ch::kCmdMode)) mode = e;
         }
-        server_->send(pub(hmi::ch::kSafety, {{"mode", "auto"}}));
+        server_->send(pub(hmi::ch::kSafety, {{"mode", "auto"}, {"estop", false},
+            {"state", "normal"}, {"state_fresh", true}}));
         server_->send(makeResponse(mode, true));
         QVERIFY(waitFor([&] { return std::any_of(server_->received.cbegin(), server_->received.cend(),
             [](const Envelope &e) { return e.ch == QLatin1String(hmi::ch::kCmdMissionReturnDock); }); }));
@@ -729,14 +755,16 @@ private slots:
         QCOMPARE(client_->mode(), hmi::robot::DriveMode::Auto);
         QVERIFY(reports.isEmpty());
 
-        server_->send(pub(hmi::ch::kSafety, {{"mode", "manual"}}));
+        server_->send(pub(hmi::ch::kSafety, {{"mode", "manual"}, {"estop", false},
+            {"state", "normal"}, {"state_fresh", true}}));
         QVERIFY(waitFor([&] { return reports.size() == 1; }));
         QCOMPARE(reports.last(), hmi::robot::DriveMode::Manual);
         QCOMPARE(client_->mode(), hmi::robot::DriveMode::Manual);
 
         client_->setMode(hmi::robot::DriveMode::Auto);
         QCOMPARE(client_->mode(), hmi::robot::DriveMode::Manual);
-        server_->send(pub(hmi::ch::kSafety, {{"mode", "auto"}}));
+        server_->send(pub(hmi::ch::kSafety, {{"mode", "auto"}, {"estop", false},
+            {"state", "normal"}, {"state_fresh", true}}));
         QVERIFY(waitFor([&] { return reports.size() == 2; }));
         QCOMPARE(client_->mode(), hmi::robot::DriveMode::Auto);
     }

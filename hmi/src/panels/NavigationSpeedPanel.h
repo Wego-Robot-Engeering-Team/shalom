@@ -4,11 +4,13 @@
 #pragma once
 
 #include <QWidget>
+#include <array>
 
 class QDoubleSpinBox;
 class QLabel;
 class QPushButton;
 class QSlider;
+class QTimer;
 
 namespace hmi::ui {
 
@@ -34,6 +36,7 @@ private:
     void refresh();
     void updateDirty();
     void restoreReported();
+    void settlePending();
     QSlider *slider_ = nullptr;
     QDoubleSpinBox *value_ = nullptr;
     QSlider *angularSlider_ = nullptr;
@@ -43,6 +46,8 @@ private:
     QDoubleSpinBox *angularMinimum_ = nullptr;
     QDoubleSpinBox *angularMaximum_ = nullptr;
     QPushButton *apply_ = nullptr;
+    QPushButton *revert_ = nullptr;
+    QTimer *confirmationTimeout_ = nullptr;
     QLabel *reported_ = nullptr;
     QLabel *error_ = nullptr;
     QLabel *adjustment_ = nullptr;
@@ -56,6 +61,10 @@ private:
     bool known_ = false;
     bool dirty_ = false;
     bool pending_ = false;
+    bool pendingAccepted_ = false;
+    bool pendingReported_ = false;
+    bool autonomousApplied_ = false;
+    std::array<double, 4> submitted_{};
 };
 
 }  // namespace hmi::ui

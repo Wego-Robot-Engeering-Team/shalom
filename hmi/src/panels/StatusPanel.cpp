@@ -101,6 +101,7 @@ StatusPanel::StatusPanel(QWidget *parent) : QWidget(parent)
     mission_->hide();
     reason_ = new QLabel;
     reason_->setObjectName(QStringLiteral("NavigationUnavailableReason"));
+    reason_->setTextFormat(Qt::PlainText);
     reason_->setWordWrap(true);
     goals->addWidget(reason_);
     error_ = new QLabel;

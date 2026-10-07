@@ -9,5 +9,7 @@ from .errors import (ClientError, ConnectionClosed, ProtocolError, RequestTimeou
                      RobotMismatchError)
 from .types import Message, Response
 
+__version__ = "0.4.0"
+
 __all__ = ["Client", "RobotApi", "ClientError", "ConnectionClosed", "Message",
            "ProtocolError", "RequestTimeout", "Response", "RobotMismatchError"]

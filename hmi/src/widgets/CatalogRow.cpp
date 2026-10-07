@@ -6,6 +6,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QPainter>
 #include <QPushButton>
 #include <QVBoxLayout>
 
@@ -15,6 +16,22 @@
 namespace hmi::ui {
 
 using namespace hmi::theme;
+
+namespace {
+class CatalogNameLabel : public QLabel {
+public:
+    using QLabel::QLabel;
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter painter(this);
+        painter.setFont(font());
+        painter.setPen(palette().color(foregroundRole()));
+        painter.drawText(contentsRect(), Qt::AlignLeft | Qt::AlignVCenter,
+            fontMetrics().elidedText(text(), Qt::ElideRight, contentsRect().width()));
+    }
+};
+}
 
 CatalogRow::CatalogRow(QWidget *parent) : QWidget(parent)
 {
@@ -26,12 +43,14 @@ CatalogRow::CatalogRow(QWidget *parent) : QWidget(parent)
 
     auto *top = new QHBoxLayout;
     top->setSpacing(metrics::s1);
-    name_ = new QLabel;
+    name_ = new CatalogNameLabel;
     name_->setObjectName(QStringLiteral("CatalogRowName"));
+    name_->setTextFormat(Qt::PlainText);
     name_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     top->addWidget(name_, 1);
     status_ = new QLabel;
     status_->setObjectName(QStringLiteral("CatalogRowStatus"));
+    status_->setTextFormat(Qt::PlainText);
     status_->hide();
     top->addWidget(status_);
     edit_ = new IconButton(IconButton::Glyph::Edit);
@@ -47,6 +66,7 @@ CatalogRow::CatalogRow(QWidget *parent) : QWidget(parent)
 
     details_ = new QLabel;
     details_->setObjectName(QStringLiteral("CatalogRowDetails"));
+    details_->setTextFormat(Qt::PlainText);
     details_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     details_->setWordWrap(true);
     outer->addWidget(details_);
@@ -70,6 +90,7 @@ void CatalogRow::setDetails(const QString &details)
 {
     details_->setText(details);
     details_->setToolTip(details);
+    details_->setVisible(!details.isEmpty());
 }
 
 void CatalogRow::setEditing(bool editing)

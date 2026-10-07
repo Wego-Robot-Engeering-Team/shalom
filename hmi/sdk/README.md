@@ -1,77 +1,90 @@
 # Robot SDK
 
-로봇 브릿지(protocol `v:1`)를 외부 application에서 연동하는 고객 SDK다.
-HMI와 같은 TCP `9090` API를 사용하며, 별도의 숨은 제어 경로는 없다.
+Python 3.9+와 C++17에서 로봇의 TCP 브리지에 연결한다. SDK `0.4.0`, protocol `v:1`.
 
-현재 SDK 버전은 [`VERSION`](VERSION)의 `0.3.0`이다.
+## 구성
 
-C++는 `RobotSdk`·`robot_sdk::sdk`·`robot_sdk` namespace를 사용하고,
-Python은 `robot_sdk`를 import한다. 기존 SDK 연동 코드는 새 이름으로 갱신한다.
+```text
+sdk/
+├── Linux/
+│   ├── cpp/
+│   └── python/
+├── MacOS/
+│   ├── cpp/
+│   └── python/
+├── Windows/
+│   ├── cpp/
+│   └── python/
+└── docs/
+```
 
-## 시작
+각 OS 폴더에 C++·Python 소스, 예제, 테스트를 둔다.
+Linux·MacOS에는 `build.sh`, Windows에는 `build.bat`이 있다.
 
-사용 OS의 `cpp/` 또는 `python/`만 선택한다.
+## 실행
+
+아래 명령은 SDK 루트 기준 Linux 예시다. macOS는 `Linux`를 `MacOS`로 바꾼다.
 
 ```bash
-# Linux C++
-cd <SDK_ROOT>/Linux
-cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-./build/robot_monitor <robot-host>
+python3 -m pip install ./Linux/python
+python3 Linux/python/examples/monitor.py <robot-ip> --channel state/pose
+python3 Linux/python/examples/catalogs.py <robot-ip>
 
-# Linux Python
-cd <SDK_ROOT>/Linux/python
-python3 -m pip install .
-python3 examples/monitor.py <robot-host>
+cmake -S Linux/cpp -B Linux/build -DCMAKE_BUILD_TYPE=Release
+cmake --build Linux/build --parallel 4
+./Linux/build/robot_monitor <robot-ip>
+./Linux/build/robot_api_example <robot-ip>
 ```
 
-- C++: 각 OS의 [`cpp/BUILD.md`](Linux/cpp/BUILD.md)
-- Python: 각 OS의 [`python/README.md`](Linux/python/README.md)
-- Windows: Developer Command Prompt에서 `Windows\build.bat`
+Windows에서는 SDK 루트에서 실행한다.
 
-## 고객에게 전달하는 공개 경계
-
-```text
-<OS>/cpp/include/       C++17 public headers (declarations only)
-<OS>/cpp/lib/           delivered shared library (.so/.dylib/.dll + import library)
-<OS>/cpp/examples/      shared-library link example
-<OS>/python/            Python 3.9+ package와 예제
-docs/                   protocol 계약·보안·오류 기준
-LICENSE, NOTICE         사용권과 고지
+```bat
+python -m pip install .\Windows\python
+python Windows\python\examples\monitor.py <robot-ip>
+Windows\build.bat
+Windows\build\Release\robot_monitor.exe <robot-ip>
 ```
 
-```text
-framing                 프레임 byte layout
-socket / Client          TCP, heartbeat, raw request/response
-types / errors           공개 값과 오류
-RobotApi                 명령별 facade (safety/navigation/mission/configuration/inspection)
-```
+C++ 빌드에는 CMake 3.16+, C++17 컴파일러, `nlohmann_json` 3.9+가 필요하다.
+Python 런타임은 표준 라이브러리만 사용한다.
 
-일반 C++ 연동은 `<robot_sdk/api.hpp>`를 포함한다. Python은 `Client`를 만들고
-`RobotApi(client)`로 명령을 보낸다. 두 언어 모두 facade 내부를 safety,
-navigation, mission, configuration, inspection 도메인으로 나눈다. TCP, framing,
-heartbeat와 명령 구현은 C++ shared library 안에 있으며 공개 헤더에는 포함되지
-않는다. 모든 sample은 read-only 또는 조회 명령만 사용한다.
+## 연동 기준
 
-## 지원 범위와 제약
-
-- C++/Python은 같은 protocol channel과 명령 의미를 제공한다.
-- 상태·이벤트의 소유자와 모든 안전 판단은 로봇이다.
-- `cmd/arm/ee_goal`은 아직 구현되지 않았다. 나머지 arm API는 커미셔닝 전용이다.
-- 현재 브릿지는 client 한 대만 허용한다. HMI와 고객 application을 동시에 연결할 수 없다.
-- TCP `9090`은 TLS·사용자 인증이 없는 전용 제어망 API다. 공개망에 노출하면 안 된다.
+- 기본 포트: `9090/tcp`. HMI와 SDK 중 한 클라이언트만 연결한다.
+- `poll()`·`run()`을 200 ms 간격으로 호출한다. 동기 `request()`도 하트비트를 유지한다.
+- 요청 전송 → `res` 결과 확인 → `state/*`에서 실제 동작 상태 확인 순서로 처리한다.
+- 저장 데이터의 원본은 로봇이다. 목록 교체에는 편집 전 스냅샷, 미션·팔 자세 수정에는 `expected_revision`을 보낸다.
+- 요청 타임아웃은 실행 여부가 불확실한 상태다. 상태를 확인하고 후속 명령을 결정한다.
+- 팔 실행은 `state/system.arm_execution_enabled`와 로봇의 안전·권한 조건을 따른다.
+- TCP는 TLS·사용자 인증을 제공하지 않는다. 전용 제어망에서 사용한다.
 
 ## 문서
 
-| 문서 | 필요한 때 |
-| --- | --- |
-| [API](docs/API.md) | C++/Python API와 command parity 확인 |
-| [Transport](docs/transport.md) | 연결, heartbeat, framing 구현 |
-| [State](docs/state.md) | 상태·이벤트 payload 표시 |
-| [Command](docs/command.md) | 승인된 명령 payload와 결과 처리 |
-| [Errors](docs/errors.md) · [catalog](docs/error_codes.json) | 오류 코드와 운용 조치 표시 |
-| [Security](docs/security.md) | 네트워크·권한·배포 기준 |
-| [Changelog](docs/CHANGELOG.md) | SDK/protocol 호환성 확인 |
+[API](docs/API.md) · [명령](docs/command.md) · [상태](docs/state.md) ·
+[통신](docs/transport.md) · [오류](docs/errors.md) · [보안](docs/security.md) ·
+[변경 이력](docs/CHANGELOG.md)
 
-릴리스 파일을 수정하거나 임의로 섞지 말고, `VERSION`과 robot runtime의 protocol
-version을 함께 확인한다.
+| OS | C++ | Python |
+| --- | --- | --- |
+| Linux | [빌드·설치](Linux/cpp/BUILD.md) | [실행](Linux/python/README.md) |
+| macOS | [빌드·설치](MacOS/cpp/BUILD.md) | [실행](MacOS/python/README.md) |
+| Windows | [빌드·설치](Windows/cpp/BUILD.md) | [실행](Windows/python/README.md) |
+
+## 테스트
+
+SDK 루트에서 해당 OS 경로를 사용한다.
+
+```bash
+PYTHONPATH=Linux/python python3 -m unittest discover -s Linux/python/tests -v
+cmake -S Linux/cpp -B Linux/build -DBUILD_TESTING=ON
+cmake --build Linux/build --parallel 4
+ctest --test-dir Linux/build --output-on-failure
+```
+
+ROS 브리지 연동 테스트는 임시 데이터와 격리된 ROS domain을 사용한다.
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source <workspace>/install/setup.bash
+python3 Linux/python/tests/integration_bridge.py <workspace>/build/hmi_bridge/hmi_bridge_node
+```

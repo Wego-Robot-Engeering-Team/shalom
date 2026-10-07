@@ -3,15 +3,7 @@
 
 #pragma once
 
-// Wire framing for the undercarriage inspection control protocol.
-//
-// Header-only and dependency-free on purpose: this is compiled into both the
-// control station (Qt) and the robot-side bridge node (ROS 2), and those two
-// must never disagree about the byte layout. Two implementations of the same
-// format is a bug waiting for the worst possible moment, so there is one.
-//
-// See docs/bridge_protocol.md sections 1.1 and 1.3 for the specification and
-// for the rationale behind each of the checks below.
+// SDK wire framing for the robot TCP protocol v1. See docs/transport.md.
 //
 //  0        4                 8                    12
 //  +--------+-----------------+--------------------+---------------+---------+
@@ -26,6 +18,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <stdexcept>
 #include <vector>
 
 namespace inspection {
@@ -83,6 +76,9 @@ inline std::uint32_t readU32(const char *p)
 /// Serialises one frame.
 inline std::string encodeFrame(const std::string &header, const std::string &payload = {})
 {
+    if (header.size() > kMaxBodyLen - kBodyMinLen ||
+        payload.size() > kMaxBodyLen - kBodyMinLen - header.size())
+        throw std::length_error("frame body exceeds 32 MiB");
     const auto bodyLen =
         static_cast<std::uint32_t>(kBodyMinLen + header.size() + payload.size());
 

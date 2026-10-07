@@ -35,6 +35,7 @@ constexpr qint64 kLinkSilentMs = 1500;
 /// 위치가 이보다 오래되면 신선하지 않은 것으로 본다. 위치 등록과 지도
 /// 표시가 이 값을 본다 — 끊긴 동안의 마지막 좌표를 사실처럼 쓰면 안 된다.
 constexpr qint64 kPoseStaleMs = 1000;
+constexpr qint64 kBatteryStaleMs = 5000;
 
 /// 명령 응답을 기다리는 시간. 넘으면 사유를 로그에 남긴다.
 constexpr qint64 kRequestTimeoutMs = 3000;
@@ -344,6 +345,7 @@ void BridgeClient::resetLinkState()
     telemetry_.link = link;
     telemetry_.estop = estop_;
     lastPoseMs_ = 0;
+    lastBatteryMs_ = 0;
     lastNavMs_ = 0;
     lastSafetyMs_ = 0;
     lastArmMs_ = 0;
@@ -628,19 +630,31 @@ void BridgeClient::handlePublish(const Envelope &env)
     const QString &ch = env.ch;
 
     if (ch == QLatin1String(hmi::ch::kPose)) {
-        telemetry_.x = p.value(QStringLiteral("x")).toDouble();
-        telemetry_.y = p.value(QStringLiteral("y")).toDouble();
-        telemetry_.theta = p.value(QStringLiteral("theta")).toDouble();
+        const auto x = p.value(QStringLiteral("x"));
+        const auto y = p.value(QStringLiteral("y"));
+        const auto theta = p.value(QStringLiteral("theta"));
+        const bool validPose = x.isDouble() && y.isDouble() && theta.isDouble() &&
+            std::isfinite(x.toDouble()) && std::isfinite(y.toDouble()) && std::isfinite(theta.toDouble());
+        if (validPose) {
+            telemetry_.x = x.toDouble();
+            telemetry_.y = y.toDouble();
+            telemetry_.theta = theta.toDouble();
+            lastPoseMs_ = clock_.elapsed();
+        }
         const auto speed = p.value(QStringLiteral("speed"));
         telemetry_.speed = speed.isDouble() ? speed.toDouble()
             : std::numeric_limits<double>::quiet_NaN();
         const auto angular = p.value(QStringLiteral("yaw_rate"));
         telemetry_.angularSpeed = angular.isDouble() ? angular.toDouble()
             : std::numeric_limits<double>::quiet_NaN();
-        lastPoseMs_ = clock_.elapsed();
-        telemetry_.poseFresh = true;
+        telemetry_.poseFresh = validPose;
     } else if (ch == QLatin1String(hmi::ch::kBattery)) {
-        telemetry_.soc = p.value(QStringLiteral("soc")).toDouble();
+        const auto soc = p.value(QStringLiteral("soc"));
+        telemetry_.soc = soc.isDouble() && std::isfinite(soc.toDouble()) &&
+            soc.toDouble() >= 0.0 && soc.toDouble() <= 100.0
+            ? soc.toDouble() : std::numeric_limits<double>::quiet_NaN();
+        if (std::isfinite(telemetry_.soc))
+            lastBatteryMs_ = clock_.elapsed();
     } else if (ch == QLatin1String(hmi::ch::kSystem)) {
         telemetry_.cpu = p.value(QStringLiteral("cpu_pct")).toDouble();
         telemetry_.gpu = p.value(QStringLiteral("gpu_pct")).toDouble();
@@ -648,6 +662,13 @@ void BridgeClient::handlePublish(const Envelope &env)
         telemetry_.cpuTemp = p.value(QStringLiteral("cpu_temp_c")).toDouble();
         telemetry_.gpuTemp = p.value(QStringLiteral("gpu_temp_c")).toDouble();
         telemetry_.captureEnabled = p.value(QStringLiteral("capture_enabled")).toBool();
+        const auto captureLimit = [&p](const char *field, double fallback) {
+            const auto value = p.value(QLatin1String(field));
+            const double limit = value.toDouble(fallback);
+            return value.isDouble() && std::isfinite(limit) && limit >= 0.0 ? limit : fallback;
+        };
+        telemetry_.captureMaxLinearSpeed = captureLimit("capture_max_linear_speed", 0.03);
+        telemetry_.captureMaxAngularSpeed = captureLimit("capture_max_angular_speed", 0.05);
         telemetry_.armExecutionEnabled = p.value(QStringLiteral("arm_execution_enabled")).toBool();
         // 사람이 읽을 이름은 여기로만 온다. 봉투에는 식별자만 실린다 — 모든
         // 프레임에 이름을 얹으면 초당 수십 번 같은 문자열을 나르게 된다.
@@ -658,7 +679,15 @@ void BridgeClient::handlePublish(const Envelope &env)
             emit robotIdentity(robotId_.isEmpty() ? id : robotId_, robotName_);
         }
     } else if (ch == QLatin1String(hmi::ch::kSafety)) {
-        const bool estop = p.value(QStringLiteral("estop")).toBool();
+        const auto reportedEstop = p.value(QStringLiteral("estop"));
+        const auto reportedFresh = p.value(QStringLiteral("state_fresh"));
+        if (!reportedEstop.isBool() ||
+            (!reportedFresh.isUndefined() && !reportedFresh.isBool())) {
+            // An incomplete report must not release a previously confirmed latch.
+            telemetry_.safetyFresh = false;
+            return;
+        }
+        const bool estop = reportedEstop.toBool();
         lastSafetyMs_ = clock_.elapsed();
         telemetry_.safetyFresh = p.value(QStringLiteral("state_fresh")).toBool(true);
         telemetry_.estop = estop;
@@ -885,6 +914,9 @@ void BridgeClient::checkTimeouts()
 {
     const qint64 now = clock_.elapsed();
 
+    if (std::isfinite(telemetry_.soc) && now - lastBatteryMs_ > kBatteryStaleMs)
+        telemetry_.soc = std::numeric_limits<double>::quiet_NaN();
+
     // 위치 신선도. 링크가 살아 있어도 pose 만 끊길 수 있다.
     if (telemetry_.poseFresh && now - lastPoseMs_ > kPoseStaleMs)
         telemetry_.poseFresh = false;
@@ -1081,16 +1113,30 @@ void BridgeClient::setLocations(const QList<QVariantMap> &locations)
     for (const auto &loc : locations) {
         arr.append(QJsonObject::fromVariantMap(loc));
     }
-    sendRequest(QLatin1String(hmi::ch::kCmdLocationsSet), {{"locations", arr}});
+    QJsonArray expected;
+    if (!dock_.isEmpty()) expected.append(QJsonObject::fromVariantMap(dock_));
+    if (!home_.isEmpty()) expected.append(QJsonObject::fromVariantMap(home_));
+    sendRequest(QLatin1String(hmi::ch::kCmdLocationsSet),
+                {{"locations", arr}, {"expected_locations", expected}, {"map_id", activeMapId_}});
 }
 
 void BridgeClient::setMarkers(const QList<QVariantMap> &markers)
+{
+    setMarkers(markers, markers_, activeMapId_);
+}
+
+void BridgeClient::setMarkers(const QList<QVariantMap> &markers,
+                              const QList<QVariantMap> &expectedMarkers, const QString &mapId)
 {
     // 로봇이 저장한 뒤 state/markers로 되돌려 준 목록만 확정값으로 둔다.
     QJsonArray arr;
     for (const auto &m : markers)
         arr.append(QJsonObject::fromVariantMap(m));
-    sendRequest(QLatin1String(hmi::ch::kCmdMarkersSet), {{"markers", arr}});
+    QJsonArray expected;
+    for (const auto &marker : expectedMarkers)
+        expected.append(QJsonObject::fromVariantMap(marker));
+    sendRequest(QLatin1String(hmi::ch::kCmdMarkersSet),
+                {{"markers", arr}, {"expected_markers", expected}, {"map_id", mapId}});
 }
 
 void BridgeClient::triggerCapture(const QVariantMap &metadata)
@@ -1134,7 +1180,7 @@ void BridgeClient::saveMission(const QVariantMap &mission, quint64 expectedRevis
 void BridgeClient::archiveMission(const QString &id, quint64 expectedRevision)
 {
     sendRequest(QLatin1String(hmi::ch::kCmdMissionsArchive),
-                {{"id", id}, {"expected_revision", double(expectedRevision)}});
+                {{"id", id}, {"expected_revision", double(expectedRevision)}, {"map_id", activeMapId_}});
 }
 
 void BridgeClient::startMission(const QString &id)
@@ -1159,6 +1205,7 @@ void BridgeClient::missionStop()
 
 void BridgeClient::engageEstop()
 {
+    queuedMode_.reset();
     deferredNavigationChannel_.clear();
     deferredNavigationPayload_ = {};
     // 화면 상태는 로봇이 state/safety로 확인한 값만 쓴다. 여기서 estop_를

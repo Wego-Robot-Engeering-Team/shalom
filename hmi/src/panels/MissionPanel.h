@@ -26,7 +26,7 @@ public:
     explicit MissionPanel(QWidget *parent = nullptr);
 
     void setProgress(const QString &missionName, int index, int total,
-                     const QStringList &stepLabels);
+                     const QStringList &stepLabels, const QString &missionId = {});
 
     /// Robot-owned lifecycle, with distinct failure and safety-stop states.
     void setMissionState(const QString &state);
@@ -86,6 +86,7 @@ private:
     QPushButton *dock_ = nullptr;
 
     QString missionName_;
+    QString missionId_;
     QStringList stepLabels_;
     int index_ = -1;
     int total_ = 0;
@@ -94,6 +95,7 @@ private:
     bool dockKnown_ = false;
     bool controlsReady_ = true;
     bool commandPending_ = false;
+    quint64 missionGeneration_ = 0;
 };
 
 }  // namespace hmi::ui

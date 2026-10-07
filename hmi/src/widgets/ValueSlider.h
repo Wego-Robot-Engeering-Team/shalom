@@ -71,6 +71,7 @@ protected:
     void mouseMoveEvent(QMouseEvent *) override;
     void mouseReleaseEvent(QMouseEvent *) override;
     void resizeEvent(QResizeEvent *) override;
+    bool eventFilter(QObject *, QEvent *) override;
 
 private:
     double trackLeft() const;
@@ -82,6 +83,7 @@ private:
     /// number is guesswork; teaching a point wants the number itself.
     void beginEdit();
     void commitEdit();
+    void updateValueTooltip();
 
     QString name_;
     double lo_;

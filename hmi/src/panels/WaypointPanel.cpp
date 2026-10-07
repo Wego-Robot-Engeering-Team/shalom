@@ -3,15 +3,19 @@
 
 #include "panels/WaypointPanel.h"
 
+#include <QApplication>
 #include <QHBoxLayout>
 #include <QDoubleSpinBox>
+#include <QEvent>
 #include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QPointer>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QScrollBar>
 #include <QVBoxLayout>
 #include <QtMath>
 
@@ -38,6 +42,53 @@ QPushButton *makeButton(const QString &text, int width = 0)
     return b;
 }
 
+QVariantMap editorFocus(QWidget *row)
+{
+    auto *focused = QApplication::focusWidget();
+    if (!focused || !row->isAncestorOf(focused))
+        return {};
+    for (auto *field = focused; field && field != row; field = field->parentWidget()) {
+        if (!qobject_cast<QDoubleSpinBox *>(field) &&
+            (!qobject_cast<QLineEdit *>(field) || field->objectName().startsWith("qt_")))
+            continue;
+        auto *line = qobject_cast<QLineEdit *>(field);
+        if (!line)
+            line = field->findChild<QLineEdit *>();
+        if (!line)
+            return {};
+        return {{"field", field->objectName()}, {"text", line->text()},
+                {"cursor", line->cursorPosition()}, {"selection", line->selectionStart()},
+                {"selectionLength", line->selectedText().size()}};
+    }
+    return {};
+}
+
+void restoreEditorFocus(QWidget *row, const QVariantMap &focus)
+{
+    if (focus.isEmpty())
+        return;
+    auto *field = row->findChild<QWidget *>(focus.value("field").toString());
+    if (!field || !field->isEnabled())
+        return;
+    auto *line = qobject_cast<QLineEdit *>(field);
+    if (!line)
+        line = field->findChild<QLineEdit *>();
+    if (!line)
+        return;
+    field->setFocus(Qt::OtherFocusReason);
+    const QSignalBlocker blocker(field);
+    line->setText(focus.value("text").toString());
+    line->setCursorPosition(focus.value("cursor").toInt());
+    const int start = focus.value("selection").toInt();
+    const int length = focus.value("selectionLength").toInt();
+    if (start >= 0) {
+        if (focus.value("cursor").toInt() == start)
+            line->setSelection(start + length, -length);
+        else
+            line->setSelection(start, length);
+    }
+}
+
 }  // namespace
 
 WaypointPanel::WaypointPanel(QWidget *parent) : QWidget(parent)
@@ -55,6 +106,8 @@ WaypointPanel::WaypointPanel(QWidget *parent) : QWidget(parent)
     list_->setSelectionMode(QAbstractItemView::SingleSelection);
     list_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     list_->setMouseTracking(true);
+    list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    list_->viewport()->installEventFilter(this);
     card_->body()->addWidget(list_, 1);
 
     connect(list_, &QListWidget::currentItemChanged, this,
@@ -95,6 +148,8 @@ WaypointPanel::WaypointPanel(QWidget *parent) : QWidget(parent)
 
 void WaypointPanel::setEditingEnabled(bool enabled)
 {
+    if (editingEnabled_ && !enabled)
+        ++catalogGeneration_;
     editingEnabled_ = enabled;
     updateActionButtons();
 }
@@ -131,6 +186,8 @@ void WaypointPanel::setSaveStatus(const QString &message, bool error)
 
 void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
 {
+    ++catalogGeneration_;
+    const int scrollPosition = list_->verticalScrollBar()->value();
     QHash<QString, QVariantMap> drafts;
     for (int i = 0; i < list_->count(); ++i) {
         auto *item = list_->item(i);
@@ -150,7 +207,8 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
                  {"base", row->property("editBase")}, {"editing", row->isEditing()},
                  {"initialValues", row->property("editValues")},
                  {"submittedPoint", row->property("submittedPoint")},
-                 {"submitted", row->property("submitted")}};
+                 {"submitted", row->property("submitted")},
+                 {"focus", editorFocus(row)}};
     }
     const QString selectedId = list_->currentItem()
         ? list_->currentItem()->data(kWaypointRole).toMap()
@@ -174,6 +232,8 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
         list_->setItemWidget(it, row);
 
         auto *form = new QFormLayout;
+        form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+        form->setRowWrapPolicy(QFormLayout::WrapLongRows);
         auto *name = new QLineEdit(wp.value(QStringLiteral("name"), id).toString());
         name->setObjectName(QStringLiteral("WaypointRowName"));
         name->setMaxLength(120);
@@ -202,7 +262,8 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
         yaw->setSuffix(QStringLiteral("°"));
         yaw->setValue(std::remainder(qRadiansToDegrees(
             wp.value(QStringLiteral("theta")).toDouble()), 360.0));
-        form->addRow(QStringLiteral("도착 방향 (yaw)"), yaw);
+        form->addRow(QStringLiteral("방향 (yaw)"), yaw);
+        yaw->setToolTip(QStringLiteral("도착 시 로봇이 바라볼 방향"));
         row->editorLayout()->addLayout(form);
 
         auto *actions = new QHBoxLayout;
@@ -219,12 +280,8 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
         actions->addWidget(remove);
         actions->addWidget(cancel);
         row->editorLayout()->addLayout(actions);
-        const auto resizeItem = [this, it, row] {
-            row->layout()->activate();
-            it->setSizeHint(QSize(0, row->sizeHint().height()));
-            list_->doItemsLayout();
-        };
-        connect(row->editButton(), &QPushButton::clicked, this, [this, row, wp, x, y, yaw, resizeItem] {
+        const auto resizeItem = [this] { updateListItemSizes(); };
+        connect(row->editButton(), &QPushButton::clicked, this, [this, it, row, wp, name, x, y, yaw, resizeItem] {
             if (!row->property("draftActive").toBool()) {
                 row->setProperty("editBase", wp);
                 row->setProperty("editValues", QVariantMap{{"x", x->value()}, {"y", y->value()},
@@ -240,7 +297,11 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
                 }
             }
             row->setEditing(true);
+            list_->setCurrentItem(it);
             resizeItem();
+            list_->scrollToItem(it, QAbstractItemView::EnsureVisible);
+            name->setFocus(Qt::OtherFocusReason);
+            name->selectAll();
         });
         connect(cancel, &QPushButton::clicked, this, [row, wp, name, x, y, yaw, resizeItem] {
             name->setText(wp.value("name", wp.value("id")).toString());
@@ -276,13 +337,18 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
             emit updateRequested(id, updated);
         });
         connect(remove, &QPushButton::clicked, this, [this, id, wp] {
+            const QPointer<WaypointPanel> panel(this);
+            const quint64 generation = catalogGeneration_;
+            const QString targetId = id;
             if (!editingEnabled_ || QMessageBox::question(
                 this, QStringLiteral("웨이포인트 삭제"),
                 QStringLiteral("'%1' 웨이포인트를 삭제하시겠습니까?")
                     .arg(wp.value(QStringLiteral("name"), id).toString()),
                 QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
                 return;
-            emit deleteRequested(id);
+            if (!panel || generation != catalogGeneration_ || !editingEnabled_)
+                return;
+            emit deleteRequested(targetId);
         });
         connect(row->applyButton(), &QPushButton::clicked, this, [this, id] {
             if (editingEnabled_)
@@ -310,6 +376,8 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
                 row->setProperty("submittedPoint", draft.value("submittedPoint"));
                 row->setEditing(draft.value("editing").toBool());
                 it->setSizeHint(QSize(0, row->sizeHint().height()));
+                if (row->isEditing())
+                    restoreEditorFocus(row, draft.value("focus").toMap());
             }
         }
         if (id == selectedId)
@@ -317,7 +385,37 @@ void WaypointPanel::setWaypoints(const QList<QVariantMap> &waypoints)
     }
     count_->setText(QString::number(waypoints.size()));
     updateActionButtons();
+    updateListItemSizes();
+    list_->verticalScrollBar()->setValue(scrollPosition);
     emit waypointsChanged(waypoints);
+}
+
+bool WaypointPanel::eventFilter(QObject *object, QEvent *event)
+{
+    if (object == list_->viewport() && event->type() == QEvent::Resize)
+        updateListItemSizes();
+    return QWidget::eventFilter(object, event);
+}
+
+void WaypointPanel::updateListItemSizes()
+{
+    const int width = list_->viewport()->width();
+    bool changed = false;
+    for (int i = 0; i < list_->count(); ++i) {
+        auto *item = list_->item(i);
+        auto *row = static_cast<CatalogRow *>(list_->itemWidget(item));
+        if (!row)
+            continue;
+        row->layout()->activate();
+        const int height = row->heightForWidth(width);
+        const QSize hint(0, height >= 0 ? height : row->sizeHint().height());
+        if (item->sizeHint() != hint) {
+            item->setSizeHint(hint);
+            changed = true;
+        }
+    }
+    if (changed)
+        list_->doItemsLayout();
 }
 
 QList<QVariantMap> WaypointPanel::waypoints() const

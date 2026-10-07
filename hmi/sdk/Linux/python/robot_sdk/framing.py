@@ -31,7 +31,8 @@ def encode_frame(header: Union[str, Mapping[str, Any]], payload: bytes = b"") ->
     if isinstance(header, str):
         encoded_header = header.encode("utf-8")
     else:
-        encoded_header = json.dumps(header, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        encoded_header = json.dumps(header, separators=(",", ":"), ensure_ascii=False,
+                                    allow_nan=False).encode("utf-8")
     body_length = _MIN_BODY_LENGTH + len(encoded_header) + len(payload)
     if body_length > MAX_BODY_LENGTH:
         raise FramingError("frame body exceeds 32 MiB limit")

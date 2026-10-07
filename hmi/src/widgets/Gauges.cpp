@@ -165,8 +165,7 @@ void BatteryPill::paintEvent(QPaintEvent *)
 
     const double soc = value();
     if (!available_) {
-        // 0 % 는 방전이라는 측정값이다. 연결 전에는 값이 없다는 사실을
-        // 보여야 하므로 빈 셀과 "미연결"을 따로 그린다.
+        // An unavailable reading is separate from a measured empty battery.
         const QRectF cell(0.75, 5.5, 34.0, 15.0);
         p.setPen(QPen(QColor(C.borderHi), 1.2));
         p.setBrush(Qt::NoBrush);
@@ -180,7 +179,7 @@ void BatteryPill::paintEvent(QPaintEvent *)
         p.setFont(f);
         p.setPen(QColor(C.textDim));
         p.drawText(QRectF(47, 0, width() - 47, height()), Qt::AlignLeft | Qt::AlignVCenter,
-                   QStringLiteral("미연결"));
+                   QStringLiteral("—"));
         return;
     }
     const QColor tone = charging_       ? QColor(C.success)

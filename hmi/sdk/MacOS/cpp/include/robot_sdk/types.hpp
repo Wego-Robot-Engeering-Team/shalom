@@ -15,15 +15,11 @@ struct Pose2D {
     double theta = 0.0;
 };
 
-struct Twist2D {
-    double vx = 0.0;
-    double vy = 0.0;
-    double wz = 0.0;
-};
-
 struct Waypoint {
     std::string id;
     Pose2D pose;
+    std::string name;
+    std::string description;
 };
 
 struct Location {
@@ -33,7 +29,9 @@ struct Location {
 
 struct Marker {
     int id = 0;
-    Pose2D pose;
+    Pose2D pose; // x/y in map; theta is the tag front-face normal yaw (rad).
+    double z = 0.0;
+    std::string description;
 };
 
 }  // namespace robot_sdk

@@ -12,7 +12,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network Svg)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network Svg Concurrent)
 
 # 통신 규약 버전을 헤더에서 읽어 온다. CMake 에 따로 적어 두면 언젠가 어긋난다.
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/net/Envelope.h" _envelope_header)
@@ -53,6 +53,7 @@ add_library(hmi_core STATIC
     src/net/BridgeClient.cpp
     src/capture/CaptureMetadata.cpp
     src/data/InspectionRecord.cpp
+    src/data/RecordScanWorker.cpp
     src/widgets/PreviewView.cpp
     src/widgets/Toast.cpp
     src/panels/CapturePanel.cpp
@@ -97,7 +98,7 @@ add_library(hmi_core STATIC
 )
 target_include_directories(hmi_core PUBLIC src ${CMAKE_CURRENT_SOURCE_DIR}/../common/protocol/include
     ${CMAKE_CURRENT_BINARY_DIR}/generated)
-target_link_libraries(hmi_core PUBLIC Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Svg)
+target_link_libraries(hmi_core PUBLIC Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Svg Qt6::Concurrent)
 
 # 코드 카탈로그를 바이너리에 내장한다.
 #
@@ -179,6 +180,9 @@ if(HMI_BUILD_TESTS)
     # tests/의 최소 RobotLink mock을 쓰므로 HMI 실행 파일과 같은 경로를
     # 검증하면서도 시뮬레이션 자산을 HMI에 들이지 않는다.
     hmi_add_test(test_render)
+    hmi_add_test(test_hmi_regressions)
+    set_tests_properties(test_hmi_regressions PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     set_tests_properties(test_render PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
@@ -196,8 +200,16 @@ if(HMI_BUILD_TESTS)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     hmi_add_test(test_arm)
+    hmi_add_test(test_arm_goal_lifecycle)
     hmi_add_test(test_waypoint)
-    set_tests_properties(test_arm test_waypoint PROPERTIES
+    hmi_add_test(test_data_refresh)
+    hmi_add_test(test_safety_pending)
+    hmi_add_test(test_ui_ux)
+    hmi_add_test(test_saved_lists_ux)
+    hmi_add_test(test_mission_ux)
+    add_dependencies(test_data_refresh inspection_hmi)
+    add_dependencies(test_hmi_regressions inspection_hmi)
+    set_tests_properties(test_arm test_arm_goal_lifecycle test_waypoint test_data_refresh test_safety_pending test_ui_ux test_saved_lists_ux test_mission_ux PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     hmi_add_test(test_robotview)

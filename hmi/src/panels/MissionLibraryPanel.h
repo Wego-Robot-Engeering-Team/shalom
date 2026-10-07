@@ -52,11 +52,13 @@ private:
     void closeEditor();
     void refreshList();
     void rebuildSteps();
+    void resizeStepList();
     void moveStep(int index, int delta);
     void updateStepTarget(int index, const QString &type);
     void updateControls();
     void setStatus(const QString &message);
     bool confirmPendingSave();
+    bool confirmPendingArchive();
     QVariantMap currentMission() const;
     QString runBlockReason(const QVariantMap &mission) const;
     bool canEdit() const;
@@ -66,6 +68,7 @@ private:
     QLineEdit *name_ = nullptr;
     QLabel *editorTitle_ = nullptr;
     QLabel *empty_ = nullptr;
+    QLabel *stepsEmpty_ = nullptr;
     QLabel *status_ = nullptr;
     QListWidget *steps_ = nullptr;
     QPushButton *addStep_ = nullptr;
@@ -83,7 +86,13 @@ private:
     QVariantMap pendingMission_;
     quint64 pendingSaveGeneration_ = 0;
     bool pendingSaveAccepted_ = false;
+    bool saveResultOutstanding_ = false;
+    QString pendingArchiveId_;
+    quint64 pendingArchiveGeneration_ = 0;
+    bool pendingArchiveAccepted_ = false;
+    bool archiveResultOutstanding_ = false;
     quint64 revisionValue_ = 0;
+    quint64 contextGeneration_ = 0;
     bool editing_ = false;
     bool missionBusy_ = false;
     bool editingEnabled_ = true;

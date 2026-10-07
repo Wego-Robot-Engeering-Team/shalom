@@ -576,7 +576,7 @@ private slots:
             emit link->mapReceived(png, {{"width", 100}, {"height", 100}, {"resolution", 0.1}, {"map_id", id}});
         };
         setMap(QStringLiteral("map-1"));
-        bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}}));
+        bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}, {"estop", false}}));
         bridge.send(net::makePublish(QLatin1String(ch::kNav), {{"status", "idle"}}));
         QTRY_VERIFY(panel->goalButton()->isEnabled());
         QVERIFY(!panel->startButton()->isEnabled());
@@ -596,7 +596,7 @@ private slots:
         QTRY_VERIFY(panel->startButton()->isEnabled());
         QTRY_VERIFY_WITH_TIMEOUT(!panel->startButton()->isEnabled(), 2000);
         QVERIFY(!map->view()->draftGoal().isEmpty());
-        bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}}));
+        bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}, {"estop", false}}));
         bridge.send(net::makePublish(QLatin1String(ch::kNav), {{"status", "idle"}, {"navigation_state", "active"}}));
         QTRY_VERIFY(panel->startButton()->isEnabled());
 
@@ -665,7 +665,7 @@ private slots:
         QVERIFY(image.save(&buffer, "PNG"));
         emit link->activeMapReceived({{"id", "map-1"}, {"name", "map-1"}});
         emit link->mapReceived(png, {{"width", 100}, {"height", 100}, {"resolution", 0.1}, {"map_id", "map-1"}});
-        bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "manual"}}));
+        bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "manual"}, {"estop", false}}));
         bridge.send(net::makePublish(QLatin1String(ch::kNav), {{"status", "idle"}, {"navigation_state", "active"}, {"localization_state", "active"}}));
         QTRY_COMPARE(link->mode(), robot::DriveMode::Manual);
         auto *waypoints = window.findChild<ui::WaypointPanel *>();
@@ -677,7 +677,7 @@ private slots:
         QCOMPARE(map->view()->draftGoal().value("theta").toDouble(), 0.9);
         QVERIFY(panel->findChild<QLabel *>(QStringLiteral("NavigationTarget"))->isVisible());
         QVERIFY(!panel->startButton()->isEnabled());
-        bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}}));
+        bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}, {"estop", false}}));
         QTRY_VERIFY(panel->startButton()->isEnabled());
         QVERIFY(bridge.lastRequest(ch::kCmdGoto).id.isEmpty());
         const auto snapshot = qEnvironmentVariable("HMI_NAV_SCREENSHOT");
@@ -789,10 +789,10 @@ private slots:
         auto *cancel = card->navCancelButton();
         QVERIFY(!pause->isEnabled());
         QVERIFY(!cancel->isEnabled());
-        bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}}));
+        bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}, {"estop", false}}));
         const QJsonObject goal{{"x", 1.0}, {"y", 2.0}, {"theta", 0.5}};
         auto report = [&](const char *status) {
-            bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}}));
+            bridge.send(net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}, {"estop", false}}));
             bridge.send(net::makePublish(QLatin1String(ch::kNav), {{"status", status}, {"goal", goal}}));
         };
         report("navigating");
@@ -841,7 +841,7 @@ private slots:
         QVERIFY(image.save(&buffer, "PNG"));
         emit link->activeMapReceived({{"id", "map-1"}, {"name", "map-1"}});
         emit link->mapReceived(png, {{"width", 8}, {"height", 8}, {"resolution", 0.1}, {"map_id", "map-1"}});
-        const auto automatic = net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}});
+        const auto automatic = net::makePublish(QLatin1String(ch::kSafety), {{"mode", "auto"}, {"estop", false}});
         bridge.send(automatic);
         auto *goal = window.findChild<ui::StatusPanel *>()->goalButton();
         QTRY_VERIFY(goal->isEnabled());
@@ -1799,7 +1799,8 @@ private slots:
 
         const auto reportMode = [&bridge, link](const char *mode) {
             const auto state = net::makePublish(QLatin1String(hmi::ch::kSafety),
-                                                {{QStringLiteral("mode"), QLatin1String(mode)}});
+                                                {{QStringLiteral("mode"), QLatin1String(mode)},
+                                                 {QStringLiteral("estop"), false}});
             bridge.send(state);
             if (link->modeChangePending())
                 bridge.send(net::makeResponse(bridge.lastRequest(ch::kCmdMode), true));
@@ -1857,6 +1858,7 @@ private slots:
         QVERIFY(!window.findChild<ui::StatusPanel *>()->goalButton()->isEnabled());
         const auto state = net::makePublish(QLatin1String(hmi::ch::kSafety),
                                             {{QStringLiteral("mode"), QStringLiteral("auto")},
+                                             {QStringLiteral("estop"), false},
                                              {QStringLiteral("state"), QStringLiteral("normal")},
                                              {QStringLiteral("motion_permitted"), true}});
         peer->write(net::encodeFrame(state.toHeader(), state.payload));

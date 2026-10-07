@@ -20,12 +20,29 @@ std::string RobotApi::cancelNavigation(std::string *err)
     return client_.sendRequest("cmd/nav_cancel", "{}", err);
 }
 
-bool RobotApi::publishVelocity(const Twist2D &velocity, std::string *err)
+std::string RobotApi::pauseNavigation(std::string *err)
 {
-    (void)velocity;
-    if (err)
-        *err = "manual velocity is available only through the commissioned HMI UDP teleop path";
-    return false;
+    return client_.sendRequest("cmd/nav_pause", "{}", err);
+}
+
+std::string RobotApi::resumeNavigation(std::string *err) { return client_.sendRequest("cmd/nav_resume", "{}", err, 5000); }
+std::string RobotApi::trailSnapshot(std::string *err) { return client_.sendRequest("cmd/trail/snapshot", "{}", err); }
+std::string RobotApi::setInitialPose(const Pose2D &pose, std::string *err) {
+    if (!api::detail::finite(pose)) return api::detail::invalid(err, "initial pose must be finite");
+    return client_.sendRequest("cmd/localization/initial_pose", "{" + api::detail::poseJson(pose) + "}", err);
+}
+std::string RobotApi::setSpeedLimits(double linear, double angular, std::string *err) {
+    if (!api::detail::finite(linear) || !api::detail::finite(angular) || linear < 0.10 || linear > 0.60 || angular < 0.05 || angular > 0.80)
+        return api::detail::invalid(err, "invalid speed limits");
+    return client_.sendRequest("cmd/navigation/speed_limit", nlohmann::json{{"speed_limit_mps", linear},
+        {"angular_speed_limit_rps", angular}}.dump(), err);
+}
+std::string RobotApi::setSpeedRanges(double minLinear, double maxLinear, double minAngular, double maxAngular, std::string *err) {
+    if (!api::detail::finite(minLinear) || !api::detail::finite(maxLinear) || !api::detail::finite(minAngular) || !api::detail::finite(maxAngular) ||
+        minLinear < 0.10 || minLinear > maxLinear || maxLinear > 0.60 || minAngular < 0.05 || minAngular > maxAngular || maxAngular > 0.80)
+        return api::detail::invalid(err, "invalid speed ranges");
+    return client_.sendRequest("cmd/navigation/speed_settings", nlohmann::json{{"min_speed_mps", minLinear},
+        {"max_speed_mps", maxLinear}, {"min_angular_speed_rps", minAngular}, {"max_angular_speed_rps", maxAngular}}.dump(), err);
 }
 
 }  // namespace robot_sdk

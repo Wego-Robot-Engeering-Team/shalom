@@ -74,11 +74,15 @@ signals:
     void updatePosePresetRequested(const QVariantMap &preset, quint64 expectedRevision);
     void archivePosePresetRequested(const QString &id, quint64 expectedRevision);
 
+protected:
+    bool eventFilter(QObject *object, QEvent *event) override;
+
 private:
     void build3DSection();
     QWidget *buildPoseManagementTab();
     void rebuildPoseList();
     void updatePoseRows();
+    void updatePoseListItemSizes();
     void previewPoseEditor(CatalogRow *row);
     void previewSavedPose(const QString &id);
     void applySavedPose(const QString &id);
@@ -108,6 +112,8 @@ private:
     /// Updates the warning badge, but only when what it says has changed.
     void showPoseWarning(const robot::PoseWarning &warning);
     void syncSlidersToActual();
+    void submitJointGoal(const QList<double> &positions);
+    void finishSubmittedGoalIfReached();
 
     Card *card_ = nullptr;
     Badge *state_ = nullptr;
@@ -148,6 +154,12 @@ private:
     /// is no measured value to diverge from, but the 3D preview must still
     /// show an operator's edit.
     bool commandEdited_ = false;
+    quint64 commandEditGeneration_ = 0;
+    quint64 submittedEditGeneration_ = 0;
+    QList<double> submittedGoal_;
+    bool goalResponsePending_ = false;
+    bool submittedGoalAccepted_ = false;
+    bool submittedGoalFeedbackSeen_ = false;
     bool syncing_ = false;
     /// False while the pose fields name a place the arm cannot reach.
     bool eeReachable_ = true;
