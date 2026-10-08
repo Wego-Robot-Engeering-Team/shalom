@@ -25,25 +25,27 @@ ROOT = Path(__file__).resolve().parents[4]
 INSTALL_ROOT = None
 PACKAGES = {
     "interfaces": "robot/common/interfaces",
-    "pandar_xt32": "robot/l1_drivers/sensors/pandar_xt32",
-    "slamtec_aurora": "robot/l1_drivers/sensors/slamtec_aurora",
-    "vectornav_vn100": "robot/l1_drivers/sensors/vectornav_vn100",
-    "velodyne_vlp16": "robot/l1_drivers/sensors/velodyne_vlp16",
-    "joint_mux": "robot/l2_control/joint_mux",
-    "docking": "robot/l2_control/docking",
-    "safety_gate": "robot/l2_control/safety_gate",
-    "lidar_slam": "robot/l2_control/lidar_slam",
-    "navigation": "robot/l2_control/navigation",
-    "mission_manager": "robot/l3_system/mission_manager",
-    "motion_interlock_manager": "robot/l3_system/motion_interlock_manager",
-    "safety_manager": "robot/l3_system/safety_manager",
-    "estop_bridge": "robot/l4_communication/estop_bridge",
-    "gateway_transport": "robot/l4_communication/gateway_transport",
-    "hmi_bridge": "robot/l4_communication/hmi_bridge",
-    "teleop_bridge": "robot/l4_communication/teleop_bridge",
+    "pandar_xt32": "robot/l1_drivers/pandar_xt32",
+    "slamtec_aurora": "robot/l1_drivers/slamtec_aurora",
+    "vectornav_vn100": "robot/l1_drivers/vectornav_vn100",
+    "velodyne_vlp16": "robot/l1_drivers/velodyne_vlp16",
+    "joint_mux": "robot/l3_control/joint_mux",
+    "docking": "robot/l3_control/docking",
+    "safety_gate": "robot/l3_control/safety_gate",
+    "lidar_slam": "robot/l2_perception/lidar_slam",
+    "person_perception": "robot/l2_perception/person_perception",
+    "navigation": "robot/l3_control/navigation",
+    "mission_manager": "robot/l4_system/mission_manager",
+    "motion_interlock_manager": "robot/l4_system/motion_interlock_manager",
+    "safety_manager": "robot/l4_system/safety_manager",
+    "estop_bridge": "robot/l5_gateway/estop_bridge",
+    "gateway_transport": "robot/l5_gateway/gateway_transport",
+    "hmi_bridge": "robot/l5_gateway/hmi_bridge",
+    "teleop_bridge": "robot/l5_gateway/teleop_bridge",
     "robot_bringup": "robot/bringup/robot_bringup",
 }
-LAYERS = ("common", "l1_drivers", "l2_control", "l3_system", "l4_communication", "bringup")
+RUNTIME_LAYERS = ("l1_drivers", "l2_perception", "l3_control", "l4_system", "l5_gateway")
+LAYERS = ("common", *RUNTIME_LAYERS, "bringup", "utils")
 
 
 def helper(path, name, package_shares):
@@ -83,9 +85,32 @@ class LayoutTest(unittest.TestCase):
                 self.assertNotIn(name, discovered, f"duplicate package: {manifest}")
                 discovered[name] = manifest.parent.relative_to(ROOT).as_posix()
         self.assertEqual(discovered, PACKAGES)
-        for legacy in ("interfaces", "gateway", "control", "sensors", "robot_bringup", "navigation"):
-            self.assertEqual(list((ROOT / "robot" / legacy).rglob("package.xml")), [])
+        for legacy in ("interfaces", "gateway", "control", "sensors", "robot_bringup", "navigation",
+                       "l2_control", "l3_system", "l4_communication", "l1_drivers/sensors", "tools"):
+            self.assertFalse((ROOT / "robot" / legacy).exists(), legacy)
         self.assertFalse((ROOT / "robot/config/robot_metadata.yaml").exists())
+
+    def test_robot_top_level_is_five_layers_and_shared_resources(self):
+        actual = {path.name for path in (ROOT / "robot").iterdir()
+                  if path.is_dir() and not path.name.startswith(".")}
+        self.assertEqual(actual, {"common", "third_party", "bringup", "utils", *RUNTIME_LAYERS})
+        for layer in RUNTIME_LAYERS:
+            self.assertTrue(any((ROOT / "robot" / layer).rglob("package.xml")), layer)
+
+    def test_stop_script_is_owned_and_installed_by_bringup(self):
+        bringup = self.source_share("robot_bringup")
+        script = ROOT / "robot/utils/stop_stack.sh"
+        self.assertTrue(script.is_file())
+        self.assertTrue(script.stat().st_mode & 0o111, str(script))
+        subprocess.run(["bash", "-n", str(script)], check=True, timeout=5)
+        cmake = (bringup / "CMakeLists.txt").read_text()
+        self.assertIn("install(PROGRAMS ../../utils/stop_stack.sh DESTINATION lib/${PROJECT_NAME})", cmake)
+        if INSTALL_ROOT is not None:
+            prefix = self.installed_share("robot_bringup").parent.parent
+            installed = prefix / "lib/robot_bringup/stop_stack.sh"
+            self.assertTrue(installed.is_file(), str(installed))
+            self.assertTrue(installed.stat().st_mode & 0o111, str(installed))
+            self.assertEqual(installed.read_bytes(), script.read_bytes())
 
     def test_colcon_discovers_all_owned_packages(self):
         colcon = shutil.which("colcon")
@@ -115,6 +140,20 @@ class LayoutTest(unittest.TestCase):
             for match in pattern.finditer(cmake.read_text(encoding="utf-8")):
                 target = (directory / match.group(1)).resolve()
                 self.assertTrue(target.exists(), f"{cmake}: missing {target}")
+
+    def test_owned_readme_relative_links_exist(self):
+        documents = [ROOT / "README.md", ROOT / "robot/README.md", ROOT / "docs/setup.md"]
+        documents += [ROOT / relative / "README.md" for relative in PACKAGES.values()]
+        documents += [ROOT / "robot" / layer / "README.md" for layer in RUNTIME_LAYERS]
+        documents += [ROOT / "robot/utils/README.md"]
+        for document in documents:
+            if not document.is_file():
+                continue
+            for link in re.findall(r"\]\(([^)]+)\)", document.read_text(encoding="utf-8")):
+                if link.startswith(("https:", "http:", "#", "/")):
+                    continue
+                target = (document.parent / link.split("#", 1)[0]).resolve()
+                self.assertTrue(target.exists(), f"{document}: missing {link}")
 
     def test_metadata_helpers_use_package_config(self):
         share = self.source_share("robot_bringup")
@@ -215,7 +254,9 @@ class LayoutTest(unittest.TestCase):
         self.assertFalse((bringup / "robot_bringup/map_selection.py").exists())
         self.assertTrue((navigation / "launch/navigation.launch.py").is_file())
         self.assertTrue((navigation / "behavior_trees/navigate_to_pose_w_replanning_and_recovery.xml").is_file())
-        for obsolete in ("platform.launch.py", "slam.launch.py", "navigation.launch.py", "runtime.launch.py"):
+        self.assertTrue((bringup / "launch/gateway.launch.py").is_file())
+        for obsolete in ("platform.launch.py", "slam.launch.py", "navigation.launch.py",
+                         "runtime.launch.py", "communication.launch.py"):
             self.assertFalse((bringup / "launch" / obsolete).exists())
             if INSTALL_ROOT is not None:
                 installed = self.installed_share("robot_bringup") / "launch" / obsolete
@@ -226,11 +267,32 @@ class LayoutTest(unittest.TestCase):
             self.assertIn("generate_launch_description", functions, str(path))
         for package in ("robot_bringup", "hmi_bridge"):
             cmake = (self.source_share(package) / "CMakeLists.txt").read_text()
-            self.assertNotIn("/../../l2_control/navigation", cmake)
+            self.assertNotIn("/../../l3_control/navigation", cmake)
             self.assertNotIn("/../../bringup/robot_bringup", cmake)
+        sensor_launches = {
+            "pandar_xt32": ("xt32.launch.py", "xt32_rviz.launch.py"),
+            "vectornav_vn100": ("vn100.launch.py", "vn100_rviz.launch.py"),
+            "velodyne_vlp16": ("vlp16.launch.py", "vlp16_rviz.launch.py"),
+            "slamtec_aurora": ("aurora_s.launch.py", "enhanced_imaging.launch.py"),
+        }
+        for package, (current, deleted) in sensor_launches.items():
+            directory = self.source_share(package) / "launch"
+            self.assertEqual({path.name for path in directory.glob("*.launch.py")}, {current})
+            obsolete = directory / deleted
+            self.assertFalse(obsolete.exists() or obsolete.is_symlink(), str(obsolete))
+            if INSTALL_ROOT is not None:
+                obsolete = self.installed_share(package) / "launch" / deleted
+                self.assertFalse(obsolete.exists() or obsolete.is_symlink(), str(obsolete))
+        for share in (self.source_share("slamtec_aurora"),) + (
+            (self.installed_share("slamtec_aurora"),) if INSTALL_ROOT is not None else ()
+        ):
+            obsolete = share / "config/enhanced_imaging.yaml"
+            self.assertFalse(obsolete.exists() or obsolete.is_symlink(), str(obsolete))
 
     def test_launch_node_dependencies_are_declared(self):
-        for package in ("robot_bringup", "hmi_bridge", "navigation", "lidar_slam"):
+        for package in ("robot_bringup", "hmi_bridge", "navigation", "lidar_slam",
+                        "slamtec_aurora", "person_perception", "pandar_xt32",
+                        "vectornav_vn100", "velodyne_vlp16"):
             share = self.source_share(package)
             dependencies = {element.text for element in ET.parse(share / "package.xml").getroot()
                             if element.tag in ("depend", "exec_depend")}

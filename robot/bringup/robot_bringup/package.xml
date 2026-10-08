@@ -29,6 +29,8 @@
   <exec_depend>pandar_xt32</exec_depend>
   <exec_depend>vectornav_vn100</exec_depend>
   <exec_depend>slamtec_aurora</exec_depend>
+  <!-- Standalone person-cloud diagnostics; not automatically started. -->
+  <exec_depend>person_perception</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>ament_index_python</exec_depend>

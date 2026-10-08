@@ -6,18 +6,20 @@
 ~/shalom_ws/src/
 └── shalom/
     ├── robot/
-    │   ├── common/interfaces/          공통 ROS 2 인터페이스
-    │   ├── l4_communication/                  HMI·SDK 통신 어댑터
-    │   ├── l3_system/                         Mission·Safety·Motion Authority FSM
-    │   ├── l2_control/
-    │   │   ├── navigation/                   주행 launch·설정·Nav2 BT·RViz
+    │   ├── common/interfaces/                공통 ROS 2 인터페이스
+    │   ├── l1_drivers/                       XT32·VLP-16·VN-100·Aurora 연동
+    │   ├── l2_perception/
     │   │   ├── lidar_slam/                   점군 지면분리·2D SLAM
+    │   │   └── person_perception/            Aurora 사람 분류·3D/2D 점군
+    │   ├── l3_control/
+    │   │   ├── navigation/                   주행 launch·설정·Nav2 BT·RViz
     │   │   ├── docking/                      지도 충전 위치 → Nav2 Dock DB
     │   │   ├── joint_mux/                    관절 명령 source 선택
     │   │   └── safety_gate/                  최종 명령 통과·차단
-    │   ├── l1_drivers/sensors/                XT32·VLP-16·VN-100·Aurora 연동
-    │   ├── bringup/robot_bringup/             실행 조립·DDS·로봇 메타데이터
-    │   ├── tools/                            운영·개발 보조 스크립트
+    │   ├── l4_system/                        Mission·Safety·Motion Authority FSM
+    │   ├── l5_gateway/                       HMI·SDK 통신 어댑터
+    │   ├── bringup/robot_bringup/             실행 조립·DDS·메타데이터
+    │   ├── utils/                            운용 보조 기능·개발·점검 도구
     │   └── third_party/                      고정된 Git submodule
     │       ├── b2_driver/
     │       ├── b2_simulation/

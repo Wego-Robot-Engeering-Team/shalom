@@ -166,7 +166,7 @@ ping -c 2 192.168.11.1
 cd ~/shalom_ws && source install/setup.bash
 
 # 실기
-ros2 launch robot_bringup inspection.launch.py robot:=real use_sim_time:=false \
+ros2 launch robot_bringup bringup.launch.py network_interface:=<B2-NIC> \
   robot_id:=R1 robot_name:=1호기 lidar:=xt32 \
   xt32_config_file:=/etc/shalom/pandar_xt32.yaml
 
@@ -178,7 +178,7 @@ ros2 launch robot_bringup inspection.launch.py robot:=real use_sim_time:=false \
 종료:
 
 ```bash
-~/shalom_ws/src/shalom/robot/tools/stop_stack.sh
+~/shalom_ws/src/shalom/robot/utils/stop_stack.sh
 ```
 
 ## 7. 확인

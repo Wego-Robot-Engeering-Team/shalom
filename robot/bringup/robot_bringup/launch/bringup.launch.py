@@ -73,8 +73,8 @@ def generate_launch_description():
             "twist_mux_config": LaunchConfiguration("twist_mux_config"),
         }.items(),
     )], scoped=True)
-    communication = GroupAction(actions=[IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(PathJoinSubstitution([pkg, "launch", "communication.launch.py"])),
+    gateway = GroupAction(actions=[IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([pkg, "launch", "gateway.launch.py"])),
         launch_arguments={
             "use_sim_time": "false",
             **{name: LaunchConfiguration(name) for name in (
@@ -145,5 +145,5 @@ def generate_launch_description():
         DeclareLaunchArgument("rviz_profile", default_value="slam_nav2",
                               choices=["slam", "nav2", "slam_nav2"]),
         # Validate the selected map in navigation before starting hardware.
-        navigation, system, control, communication, rviz, drivers,
+        navigation, system, control, gateway, rviz, drivers,
     ])

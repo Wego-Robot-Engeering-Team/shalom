@@ -7,13 +7,14 @@ TCP 브릿지가 있는 로봇의 IP와 포트에만 연결한다.
 shalom/
 ├── robot/
 │   ├── common/                         # 공통 ROS 2 인터페이스
-│   ├── l4_communication/               # HMI·SDK 통신과 명령 변환
-│   ├── l3_system/                      # Mission·Safety·Motion Authority FSM
-│   ├── l2_control/                     # navigation·joint mux·safety gate
-│   ├── l1_drivers/sensors/             # 센서 어댑터·설정·시험 RViz
+│   ├── l1_drivers/                     # 센서·장치 연결과 데이터 변환
+│   ├── l2_perception/                  # 지면분리·점군 처리·SLAM
+│   ├── l3_control/                     # Nav2·명령 mux·safety gate
+│   ├── l4_system/                      # Mission·Safety·Motion Authority FSM
+│   ├── l5_gateway/                     # HMI·SDK 통신과 명령 변환
 │   ├── third_party/                    # 드라이버·알고리즘·MuJoCo 독립 저장소
-│   ├── bringup/robot_bringup/          # 실기 실행 조립과 로봇 메타데이터
-│   └── tools/                          # 운영·개발 도구
+│   ├── bringup/robot_bringup/           # 실행 조립·메타데이터
+│   └── utils/                          # 운용 보조 기능·개발·점검 도구
 ├── simulation/simulation_bringup/      # 시뮬레이션 실행·시나리오·예시 지도
 ├── hmi/                                # Qt 관제 프로그램과 고객 SDK
 ├── common/protocol/                    # HMI·SDK·bridge 공통 TCP framing

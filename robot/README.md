@@ -1,6 +1,6 @@
 # Robot
 
-`robot/`은 통신·시스템 운용·제어 기능·장치 어댑터를 계층별로 관리한다.
+`robot/`은 장치 연결·인지·제어·시스템 운용·외부 연동을 계층별로 관리한다.
 FSM·BT·미션·안전·HMI 브릿지·navigation은 실기와 시뮬레이터가 공유한다.
 VLP-16 시험 자산은 어느 기본 bringup에도 포함하지 않는다.
 
@@ -8,31 +8,38 @@ VLP-16 시험 자산은 어느 기본 bringup에도 포함하지 않는다.
 robot/
 ├── common/
 │   └── interfaces/                    # Mission·Safety·Motion Authority 계약
-├── l4_communication/
+├── l1_drivers/
+│   ├── pandar_xt32/                   # Hesai 드라이버 실행·설정·RViz
+│   ├── velodyne_vlp16/                # VLP-16 드라이버 실행·시험 RViz
+│   ├── vectornav_vn100/               # VN-100 IMU 어댑터·자세 RViz
+│   └── slamtec_aurora/                # Aurora 실행·센서 데이터 수신
+├── l2_perception/
+│   ├── lidar_slam/                    # 점군 지면분리·필터·2D SLAM
+│   └── person_perception/             # Aurora 사람 분류·필터·3D/2D 점군
+├── l3_control/
+│   ├── docking/                       # 지도 충전 위치 → Nav2 Dock DB
+│   ├── navigation/                    # 주행 실행·설정·Nav2 BT·RViz
+│   ├── joint_mux/                     # 관절 명령 source 선택
+│   └── safety_gate/                   # 최종 명령 통과·차단
+├── l4_system/
+│   ├── mission_manager/               # Mission FSM·BT
+│   ├── safety_manager/                # Safety FSM·동작 허가
+│   └── motion_interlock_manager/      # base/arm 운용 권한
+├── l5_gateway/
 │   ├── gateway_transport/             # TCP framing·전송
 │   ├── hmi_bridge/                    # 지도·미션·상태 API
 │   ├── teleop_bridge/                 # UDP 수동 조작
 │   └── estop_bridge/                  # E-Stop·heartbeat 전용 TCP
-├── l3_system/
-│   ├── mission_manager/               # Mission FSM·BT
-│   ├── safety_manager/                # Safety FSM·동작 허가
-│   └── motion_interlock_manager/      # base/arm 운용 권한
-├── l2_control/
-│   ├── docking/                       # 지도 충전 위치 → Nav2 Dock DB
-│   ├── navigation/                    # 주행 실행·설정·Nav2 BT·RViz
-│   ├── lidar_slam/                    # 점군 지면분리·필터·2D SLAM
-│   ├── joint_mux/                     # 관절 명령 source 선택
-│   └── safety_gate/                   # 최종 명령 통과·차단
-├── l1_drivers/
-│   └── sensors/                       # XT32·VLP-16·VN-100·Aurora 어댑터
 ├── third_party/                       # 별도 Git 이력을 가진 의존 저장소
 ├── bringup/
-│   └── robot_bringup/                 # 실행 조립·DDS 설정·robot_metadata.yaml
-└── tools/                             # 운영·개발 보조 스크립트
+│   └── robot_bringup/                 # 실행 조립·DDS 설정·메타데이터
+└── utils/                            # 운용 보조 기능·개발·점검 도구
 ```
 
-L3는 미션·안전·운용 권한을 판단하고, L2의 mux와 gate는 실제 명령을 선택·차단한다.
-L1은 센서·장치 연결을 담당한다. `common` 인터페이스와 bringup은 계층 간 공유 영역이다.
+L1은 장치 연결, L2는 센서 데이터 해석과 지도 생성, L3는 기능 실행을 담당한다.
+L4는 미션·안전·운용 권한을 판단하고, L5는 외부 요청을 내부 인터페이스로 변환한다.
+`common` 인터페이스와 bringup은 계층 간 공유 영역이다.
+`utils`에는 운용 보조 기능을 패키지 단위로, 점검·유지보수 도구를 독립 스크립트로 둔다.
 공통 ROS 패키지는 `interfaces`, 도킹 DB 패키지는 `docking`이다.
 토픽·서비스 이름은 유지한다.
 로봇 ID 설정은 `bringup/robot_bringup/config/robot_metadata.yaml`에 있다.
@@ -50,15 +57,25 @@ L1은 센서·장치 연결을 담당한다. `common` 인터페이스와 bringup
 |---|---|
 | `robot_bringup/bringup.launch.py` | 실기 전체 실행, 로봇 ID 설정 |
 | `robot_bringup/drivers.launch.py` | L1: B2·XT32·선택 센서 |
-| `robot_bringup/control.launch.py` | L2: twist_mux·joint_mux·safety_gate |
-| `robot_bringup/system.launch.py` | L3: Mission·Safety·Motion Authority·정지 상태 감시 |
-| `robot_bringup/communication.launch.py` | L4: HMI·E-Stop TCP·수동 조작 UDP |
+| `lidar_slam/ground_slam.launch.py` | L2: 지면분리·필터·2D scan·SLAM |
+| `slamtec_aurora/aurora_s.launch.py` | L1: `odom`·`imaging` 옵션으로 Aurora 위치·영상 수신 선택 |
+| `person_perception/person_cloud_test.launch.py` | L2: 사람 점군 처리·전용 RViz, 선택적으로 L1 수신 실행 |
+| `robot_bringup/control.launch.py` | L3: twist_mux·joint_mux·safety_gate |
+| `robot_bringup/system.launch.py` | L4: Mission·Safety·Motion Authority·정지 상태 감시 |
+| `robot_bringup/gateway.launch.py` | L5: HMI·E-Stop TCP·수동 조작 UDP |
 | `navigation/navigation.launch.py` | 기본 지도 선택·검증, 점군 처리·KISS-ICP·SLAM·AMCL·Nav2 |
 | `robot_bringup/rviz.launch.py` | 내비게이션 RViz 화면 |
 
-내비게이션 launch·설정·BT·RViz 파일은 `l2_control/navigation` 패키지가 설치한다.
+내비게이션 launch·설정·BT·RViz 파일은 `l3_control/navigation` 패키지가 설치한다.
 로봇 ID는 실기 bringup에서 읽어 통신 노드에 전달한다.
-`control.launch.py`만 실행하면 L3 관리자와 외부 통신은 실행되지 않는다.
+`control.launch.py`만 실행하면 L4 관리자와 외부 통신은 실행되지 않는다.
+
+Aurora는 L1의 `slamtec_aurora`가 영상 묶음을 발행하고 L2의 `person_perception`이
+사람 점군을 생성한다. [사람 점군 테스트](l2_perception/person_perception/README.md)는
+별도로 실행하며 기존 `/aurora/person/*` 출력 토픽을 유지한다.
+
+L1 센서마다 런치 하나를 둔다. XT32·VLP-16·VN-100은 `rviz:=true`로 점검 화면을
+함께 실행하고, `start_sensor:=false`로 이미 실행 중인 센서에 연결한다.
 
 ## 실기 실행
 
@@ -83,12 +100,12 @@ VN-100은 기본적으로 실행하지 않는다. 센서를 연결한 뒤 `vn100
 `vn100_port:=<시리얼 장치>`를 지정하면 raw 가속도·각속도가
 `/vn100/imu/data_ned`로 발행된다. 기존 B2 IMU와 내비게이션 입력은 변경하지
 않는다. 장치 설정과 좌표계 주의사항은
-[VN-100 래퍼](l1_drivers/sensors/vectornav_vn100/README.md)를 참고한다.
+[VN-100 래퍼](l1_drivers/vectornav_vn100/README.md)를 참고한다.
 
 촬영 기능을 사용할 때는 로봇과 HMI에 동일한 NAS 공유 폴더를 `/mnt/nas`로
 마운트한다. 브리지는 `/mnt/nas/inspection`에 PNG와 JSON을 직접 저장하며,
 NAS 마운트가 없으면 촬영 요청을 거절한다. 경로를 바꾼다면
-`l4_communication/hmi_bridge/config/bridge.yaml`의 `capture.spool_dir`·`capture.mount_point`와
+`l5_gateway/hmi_bridge/config/bridge.yaml`의 `capture.spool_dir`·`capture.mount_point`와
 HMI 설정의 촬영 데이터 경로를 함께 바꾼다. 오프라인 업로드 대기열은 없다.
 
 ```text

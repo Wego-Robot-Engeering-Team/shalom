@@ -53,7 +53,7 @@ def generate_launch_description():
         scoped=True,
         condition=IfCondition(LaunchConfiguration("apriltag")),
     )
-    # Navigation chooses the startup map before communication is configured.
+    # Navigation chooses the startup map before gateway is configured.
     navigation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare("navigation"), "launch", "navigation.launch.py",
@@ -84,8 +84,8 @@ def generate_launch_description():
             "twist_mux_config": LaunchConfiguration("twist_mux_config"),
         }.items(),
     )], scoped=True)
-    communication = GroupAction(actions=[IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(PathJoinSubstitution([robot, "launch", "communication.launch.py"])),
+    gateway = GroupAction(actions=[IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([robot, "launch", "gateway.launch.py"])),
         launch_arguments={
             "use_sim_time": "true",
             "teleop_allowed_peer": "127.0.0.1",
@@ -166,5 +166,5 @@ def generate_launch_description():
             "bridge_config",
             default_value=PathJoinSubstitution([sim, "config", "bridge_sim.yaml"])),
         # Navigation validates the map before MuJoCo or its adapters start.
-        navigation, system, control, communication, rviz, platform, apriltag, posture_adapter,
+        navigation, system, control, gateway, rviz, platform, apriltag, posture_adapter,
     ])

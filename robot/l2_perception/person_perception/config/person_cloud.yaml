@@ -1,0 +1,19 @@
+# Aurora 사람 점군 처리. 센서 연결 설정은 L1 aurora_s.yaml에서 관리한다.
+/aurora_person_cloud:
+  ros__parameters:
+    input_topic: "/aurora/imaging/frame"
+    input_timeout_ms: 1000
+    person_label_id: 1
+    min_depth_m: 0.2
+    max_depth_m: 10.0
+    max_planar_range_m: 3.0       # 전방·좌우 평면 거리(m)
+    mask_erosion_pixels: 2       # 경계 안쪽으로 제외할 픽셀 수, 0이면 해제
+    max_local_depth_jump_m: 0.25 # 5x5 주변보다 뒤로 튀는 깊이 허용치(m)
+    pixel_stride: 1
+    min_person_points: 1
+    sync_tolerance_ms: 100
+    frame_id: "aurora_depth_local"
+    points3d_topic: "/aurora/person/points3d"
+    points2d_topic: "/aurora/person/points2d"
+    camera_image_topic: "/aurora/person/camera_image"
+    overlay_image_topic: "/aurora/person/overlay_image"

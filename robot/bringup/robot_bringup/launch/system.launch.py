@@ -1,7 +1,7 @@
 # Copyright (c) 2026 WeGo Robotics. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
-"""L3: mission, safety and motion-authority supervision."""
+"""L4: mission, safety and motion-authority supervision."""
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument

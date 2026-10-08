@@ -18,6 +18,7 @@ state or operation is a breaking change.
 | `/motion/authority/request` | `AuthorityRequest` service | request ID based idempotency |
 | `/motion/authority` | `MotionAuthority` topic | reliable, transient local, depth 1 |
 | `/motion/stopped` | `MotionStopped` topic | reliable; stale feedback is rejected |
+| `/aurora/imaging/frame` | `SemanticDepthFrame` topic | best effort, depth 1; one synchronized image bundle |
 
 `reason_code` is a stable identifier from
 [`diagnostic_code_reference.md`](../../../docs/diagnostic_code_reference.md).
@@ -27,6 +28,12 @@ logic.
 The timestamps aid correlation.  Watchdog, command lease, permit lease, and stop
 feedback freshness are always measured from local arrival time with a steady
 clock.
+
+`SemanticDepthFrame` carries the camera, semantic labels, optical XYZ (`32FC3`),
+depth-registered labels and texture. Optical axes are right/down/forward in metres.
+Its header is the ROS receipt time; `semantic_timestamp_ns` and `depth_timestamp_ns`
+retain device timestamps for synchronization checks. Unavailable images have zero
+width/height and empty data. Person classification and filtering belong to L2.
 
 Services require a non-empty `request_id`. A server caches a bounded set of
 recent request IDs and returns the original result for a retry; it must not run

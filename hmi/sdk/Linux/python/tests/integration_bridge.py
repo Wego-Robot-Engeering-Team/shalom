@@ -12,7 +12,7 @@ PLATFORM_ROOT = Path(__file__).resolve().parents[2]
 SDK_ROOT = PLATFORM_ROOT.parent
 PROJECT = SDK_ROOT.parents[1]
 sys.path.insert(0, str(PLATFORM_ROOT / "python"))
-sys.path.insert(0, str(PROJECT / "robot/l4_communication/hmi_bridge/test"))
+sys.path.insert(0, str(PROJECT / "robot/l5_gateway/hmi_bridge/test"))
 # The existing fixture consumes argv[1] (bridge executable) and selects an isolated domain.
 import test_operation_storage as fixture
 from robot_sdk import Client, ClientError, RobotApi

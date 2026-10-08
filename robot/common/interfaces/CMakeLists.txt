@@ -4,6 +4,8 @@ project(interfaces)
 find_package(ament_cmake REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -15,11 +17,12 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/SafetyHeartbeat.msg"
   "msg/SafetyEvent.msg"
   "msg/SafetyState.msg"
+  "msg/SemanticDepthFrame.msg"
   "srv/AuthorityRequest.srv"
   "srv/ConfigureMission.srv"
   "srv/MissionControl.srv"
   "srv/SafetyCommand.srv"
-  DEPENDENCIES builtin_interfaces geometry_msgs
+  DEPENDENCIES builtin_interfaces geometry_msgs sensor_msgs std_msgs
 )
 
 ament_export_dependencies(rosidl_default_runtime)

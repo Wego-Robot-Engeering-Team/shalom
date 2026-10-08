@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>person_perception</name>
+  <version>0.1.0</version>
+  <description>Person clouds and camera overlays from semantic labels and registered depth.</description>
+  <maintainer email="junoyoo@wego-robotics.com">juno</maintainer>
+  <license>Proprietary</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>interfaces</depend>
+  <build_depend>libopencv-dev</build_depend>
+  <exec_depend>slamtec_aurora</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>rclpy</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

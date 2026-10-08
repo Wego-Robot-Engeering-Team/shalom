@@ -4,7 +4,8 @@
 """L1: start the physical B2 and commissioned production sensors."""
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable
+from launch.actions import (DeclareLaunchArgument, GroupAction, IncludeLaunchDescription,
+                            SetEnvironmentVariable)
 from launch.conditions import LaunchConfigurationEquals
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -27,17 +28,21 @@ def generate_launch_description():
         launch_arguments={"network_interface": LaunchConfiguration("network_interface")}.items(),
     )
 
-    aurora_driver = IncludeLaunchDescription(
+    aurora_driver = GroupAction(actions=[IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([slamtec_aurora, "launch", "aurora_s.launch.py"])),
-        launch_arguments={"ip_address": LaunchConfiguration("aurora_ip")}.items(),
+        launch_arguments={"ip_address": LaunchConfiguration("aurora_ip"),
+                          "odom": "true", "imaging": "false"}.items(),
         condition=LaunchConfigurationEquals("aurora", "true"),
-    )
+    )], scoped=True)
 
-    xt32 = IncludeLaunchDescription(
+    xt32 = GroupAction(actions=[IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([pandar_xt32, "launch", "xt32.launch.py"])),
         launch_arguments={
+            # The whole-stack RViz option owns the navigation viewer only.
+            "rviz": "false",
+            "start_sensor": "true",
             "points_topic": LaunchConfiguration("pointcloud_topic"),
             "config_file": LaunchConfiguration("xt32_config_file"),
             "x": LaunchConfiguration("xt32_x"),
@@ -48,17 +53,19 @@ def generate_launch_description():
             "yaw": LaunchConfiguration("xt32_yaw"),
         }.items(),
         condition=LaunchConfigurationEquals("lidar", "xt32"),
-    )
+    )], scoped=True)
 
-    vn100_driver = IncludeLaunchDescription(
+    vn100_driver = GroupAction(actions=[IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([vectornav_vn100, "launch", "vn100.launch.py"])),
         launch_arguments={
+            "rviz": "false",
+            "start_sensor": "true",
             "config_file": LaunchConfiguration("vn100_config_file"),
             "port": LaunchConfiguration("vn100_port"),
         }.items(),
         condition=LaunchConfigurationEquals("vn100", "true"),
-    )
+    )], scoped=True)
 
     return LaunchDescription([
         DeclareLaunchArgument("domain_id", default_value="0"),

@@ -56,6 +56,6 @@ SLAM을 비활성화하고 map_server·AMCL을 활성화해 해당 지도를 불
 
 ## 구성
 
-플래너는 `robot/l2_control/navigation/config/nav2.yaml`의 NavFn이고, 컨트롤러는 MPPI다.
+플래너는 `robot/l3_control/navigation/config/nav2.yaml`의 NavFn이고, 컨트롤러는 MPPI다.
 local costmap은 GroundConsistencyLayer가 지면·장애물 점군을 받아 구성하며,
 global costmap은 저장 지도 또는 SLAM의 `/map`을 사용한다.

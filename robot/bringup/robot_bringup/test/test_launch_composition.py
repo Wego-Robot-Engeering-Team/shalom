@@ -24,8 +24,8 @@ from launch_ros.utilities import evaluate_parameters
 ROOT = Path(__file__).resolve().parents[4]
 SHARES = {
     "robot_bringup": ROOT / "robot/bringup/robot_bringup",
-    "navigation": ROOT / "robot/l2_control/navigation",
-    "hmi_bridge": ROOT / "robot/l4_communication/hmi_bridge",
+    "navigation": ROOT / "robot/l3_control/navigation",
+    "hmi_bridge": ROOT / "robot/l5_gateway/hmi_bridge",
     "simulation_bringup": ROOT / "simulation/simulation_bringup",
 }
 
@@ -139,7 +139,7 @@ def source_lookup(monkeypatch):
 @pytest.mark.parametrize("filename,expected", [
     ("control.launch.py", {"twist_mux", "joint_mux", "safety_gate"}),
     ("system.launch.py", {"mission_manager", "safety_manager", "motion_interlock_manager"}),
-    ("communication.launch.py", {"teleop_bridge"}),
+    ("gateway.launch.py", {"teleop_bridge"}),
 ])
 def test_launch_roles_are_separate(monkeypatch, filename, expected):
     description = load("robot_bringup", filename, monkeypatch).generate_launch_description()
@@ -158,27 +158,27 @@ def test_entrypoints_include_subsystems_directly_and_preserve_defaults(
     children = includes(description.entities, context)
     assert "runtime.launch.py" not in children
     assert {"navigation.launch.py", "system.launch.py", "control.launch.py",
-            "communication.launch.py"} <= children.keys()
+            "gateway.launch.py"} <= children.keys()
     assert context.launch_configurations["rviz"] == rviz
     navigation = forwarded(children["navigation.launch.py"], context)
     system = forwarded(children["system.launch.py"], context)
     control = forwarded(children["control.launch.py"], context)
-    communication = forwarded(children["communication.launch.py"], context)
-    for arguments in (navigation, system, control, communication):
+    gateway = forwarded(children["gateway.launch.py"], context)
+    for arguments in (navigation, system, control, gateway):
         assert arguments["use_sim_time"] == time
     assert system["base_odometry_topic"] == odometry
     assert system["base_output_topic"] == control["base_output_topic"] == "/cmd_vel"
-    assert communication["teleop_allowed_peer"] == peer
-    assert navigation["map"] == communication["map"] == "auto"
-    assert navigation["maps_dir"] == communication["maps_dir"]
+    assert gateway["teleop_allowed_peer"] == peer
+    assert navigation["map"] == gateway["map"] == "auto"
+    assert navigation["maps_dir"] == gateway["maps_dir"]
     if package == "robot_bringup":
         assert "drivers.launch.py" in children
         metadata = yaml.safe_load((SHARES[package] / "config/robot_metadata.yaml").read_text())
-        assert communication["robot_id"] == metadata["robot"]["id"]
+        assert gateway["robot_id"] == metadata["robot"]["id"]
     else:
         assert "b2_sim.launch.py" in children
-        assert communication["robot_id"] == "SIM-B2-1"
-        assert communication["bridge_config"].endswith("config/bridge_sim.yaml")
+        assert gateway["robot_id"] == "SIM-B2-1"
+        assert gateway["bridge_config"].endswith("config/bridge_sim.yaml")
 
 
 @pytest.mark.parametrize("package", ["robot_bringup", "simulation_bringup"])
@@ -205,11 +205,11 @@ def test_bringup_has_each_endpoint_once_and_preserves_parameters(monkeypatch, pa
     resolve_navigation(context, monkeypatch)
     children = includes(description.entities, context)
     assert {"navigation.launch.py", "system.launch.py", "control.launch.py",
-            "communication.launch.py", "rviz.launch.py"} <= children.keys()
+            "gateway.launch.py", "rviz.launch.py"} <= children.keys()
     collected = []
     for filename, child in children.items():
         if filename not in {"navigation.launch.py", "system.launch.py", "control.launch.py",
-                            "communication.launch.py", "rviz.launch.py"}:
+                            "gateway.launch.py", "rviz.launch.py"}:
             continue
         package = "navigation" if filename == "navigation.launch.py" else "robot_bringup"
         leaf = load(package, filename, monkeypatch).generate_launch_description()
@@ -229,7 +229,7 @@ def test_bringup_has_each_endpoint_once_and_preserves_parameters(monkeypatch, pa
                 assert params[-1]["robot_id"] == "TEST-42"
                 assert params[-1]["allowed_peer"] == peer
                 assert params[-1]["output_topic"] == "/motion/teleop/cmd_vel"
-        if filename == "communication.launch.py":
+        if filename == "gateway.launch.py":
             tcp = includes(leaf.entities, leaf_context)["bridge.launch.py"]
             bridge_description = load("hmi_bridge", "bridge.launch.py", monkeypatch).generate_launch_description()
             tcp_context = configure(bridge_description, **forwarded(tcp, leaf_context))
@@ -253,7 +253,7 @@ def test_bringup_has_each_endpoint_once_and_preserves_parameters(monkeypatch, pa
 
 
 def test_bridge_disabled_preserves_udp_and_system_safety(monkeypatch):
-    description = load("robot_bringup", "communication.launch.py", monkeypatch).generate_launch_description()
+    description = load("robot_bringup", "gateway.launch.py", monkeypatch).generate_launch_description()
     context = configure(description, robot_id="TEST", bridge="false")
     assert includes(description.entities, context) == {}
     assert [entity.node_package for entity in description.entities if isinstance(entity, Node)] == ["teleop_bridge"]

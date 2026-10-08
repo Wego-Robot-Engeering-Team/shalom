@@ -5,6 +5,7 @@ find_package(ament_cmake REQUIRED)
 # 시스템 전체 실행에 필요한 DDS 설정과 launch는 robot_bringup이 소유한다.
 install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME}
   PATTERN "__pycache__" EXCLUDE)
+install(PROGRAMS ../../utils/stop_stack.sh DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -12,7 +13,8 @@ if(BUILD_TESTING)
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_layout.py)
   set_tests_properties(robot_layout PROPERTIES TIMEOUT 60)
   add_test(NAME launch_composition COMMAND ${Python3_EXECUTABLE} -B -m pytest
-    -q -p no:cacheprovider ${CMAKE_CURRENT_SOURCE_DIR}/test/test_launch_composition.py)
+    -q -p no:cacheprovider ${CMAKE_CURRENT_SOURCE_DIR}/test/test_launch_composition.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_sensor_launches.py)
   set_tests_properties(launch_composition PROPERTIES TIMEOUT 60)
 endif()
 

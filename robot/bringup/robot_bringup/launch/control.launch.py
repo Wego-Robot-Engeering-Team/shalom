@@ -1,7 +1,7 @@
 # Copyright (c) 2026 WeGo Robotics. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-Wego-Proprietary
 
-"""L2: command arbitration and the final actuator safety gate.
+"""L3: command arbitration and the final actuator safety gate.
 
 Every command source enters twist_mux, then safety_gate is the only publisher
 to the B2 driver's `/cmd_vel`. E-Stop therefore blocks teleop and Nav2 alike.

@@ -72,7 +72,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(json.loads(source.read_text()), json.loads((ROOT / "docs/error_codes.json").read_text()))
 
     def test_channels_exist_in_bridge_source(self):
-        source = ROOT.parents[1] / "robot/l4_communication/hmi_bridge/src/bridge_node.cpp"
+        source = ROOT.parents[1] / "robot/l5_gateway/hmi_bridge/src/bridge_node.cpp"
         if not source.exists():
             self.skipTest("standalone SDK distribution")
         sdk = set()
